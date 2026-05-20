@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "propaq"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest~=8.0.2",
+    "ruff~=0.9.4",
+    "mypy~=1.13.0",
+]
+
+
+[tool.maturin]
+# tells maturin where the python source lives
+python-source = "python"
+# the compiled rust module will be importable as propaq._rust_core
+module-name = "propaq._rust_core"
+features = ["pyo3/extension-module"]

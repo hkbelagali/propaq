@@ -1,0 +1,8 @@
+# Virtual enrivonment 
+venv/
+
+# Build files 
+target/ 
+.mypy_cache/
+Cargo.lock 
+
