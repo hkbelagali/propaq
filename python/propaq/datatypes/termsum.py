@@ -57,6 +57,10 @@ class TermSum(Generic[T]):
         """Return the number of terms in the sum."""
         return len(self._terms)
     
+    def __setitem__(self, term: T, coeff: complex) -> None: 
+        """Set the coefficient of a term directly."""
+        self._terms[term] = coeff
+    
     def copy(self) -> "TermSum": 
         """Create a copy of this TermSum."""
         new_sum: TermSum = TermSum()
