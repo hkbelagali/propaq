@@ -21,8 +21,9 @@ dev = [
 
 
 [tool.maturin]
-# tells maturin where the python source lives
-python-source = "python"
-# the compiled rust module will be importable as propaq._rust_core
+python-source = "."
 module-name = "propaq._rust_core"
 features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

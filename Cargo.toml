@@ -6,7 +6,7 @@ edition = "2021"
 [lib]
 name = "_rust_core"
 crate-type = ["cdylib"]
-path = "rust/src/lib.rs"
+path = "crates/src/lib.rs"
 
 [dependencies]
 pyo3 = { version = "0.23", features = ["extension-module"] }
