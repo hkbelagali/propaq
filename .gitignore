@@ -5,4 +5,4 @@ venv/
 target/ 
 .mypy_cache/
 Cargo.lock 
-
+_rust_core*
