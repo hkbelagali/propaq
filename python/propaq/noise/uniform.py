@@ -11,7 +11,10 @@ class UniformNoiseModel(NoiseModel):
 
     def apply_noise(self, term_sum):
         """Apply uniform noise to the term sum by scaling all coefficients by the damping factor."""
-        term_sum.scale(self.damping)
+        for term, coeff in term_sum.items(): 
+            weight = term.weight
+            damping_factor = self.damping_factor(weight, active_modes=0)
+            term_sum[term] = coeff * damping_factor
 
     def damping_factor(self, term_weight: float, active_modes: int) -> float:
         """Return the constant damping factor for any number of active modes."""
