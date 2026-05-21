@@ -9,7 +9,7 @@ class NoiseModel(ABC):
         pass
 
     @abstractmethod
-    def damping_factor(self, active_modes: int) -> float:
+    def damping_factor(self, term_weight: float, active_modes: int) -> float:
         """Calculate the damping factor based on the number of active modes."""
         pass
 
