@@ -42,6 +42,12 @@ class MajoranaMonomial(AbstractTerm):
         phase_exp = (r_a + r_b - r_c + 2 * total_parity) % 4
         return _PHASE_TO_COMPLEX[phase_exp], result
     
+    def trace_with_fock_state(self, fock_state: BitMask) -> complex: 
+        """Claculate <n|self|n> where |n> is the Fock state represented by fock_state."""
+        if (self.modes & fock_state).bit_count() % 2 == 0 and self.modes & fock_state == self.modes: 
+            return 1.0
+        return 0.0 
+    
     def to_bytes(self) -> bytes: 
         byte_length = (self.n_modes + 7) // 8
         return self.modes.to_bytes(byte_length, byteorder='little')
