@@ -1,7 +1,12 @@
 from dataclasses import dataclass 
 from abc import ABC, abstractmethod
 from numbers import Number
-from typing import Tuple
+from typing import NewType, Tuple
+
+# define a new type for bitmasks, which are used
+# to represent the X and Z components of a PauliTerm
+BitMask = NewType("BitMask", int) 
+
 
 """
 Abstract term datatype for propaq. 
