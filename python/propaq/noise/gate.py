@@ -12,6 +12,6 @@ class GateNoiseModel(NoiseModel):
         """Apply gate noise to the term sum by invoking the noise model's apply_noise method."""
         self.gate_noise.apply_noise(term_sum)
 
-    def damping_factor(self, active_modes: int) -> float:
+    def damping_factor(self, term_weight: float, active_modes: int) -> float:
         """Calculate the damping factor based on the gate noise model."""
-        return self.gate_noise.damping_factor(active_modes)
+        return self.gate_noise.damping_factor(term_weight, active_modes)
