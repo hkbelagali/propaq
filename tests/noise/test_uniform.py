@@ -33,4 +33,4 @@ def test_apply_noise_scales_term_sum():
     ts.add(t, 2.0)
     model.apply_noise(ts)
     _, coeff = list(ts.items())[0]
-    assert coeff == 2.0 * 0.5
+    assert coeff == np.exp(-0.5) * 2.0

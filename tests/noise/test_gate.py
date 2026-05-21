@@ -9,7 +9,7 @@ class MockNoise:
     def apply_noise(self, term_sum):
         self.applied = True
 
-    def damping_factor(self, active_modes):
+    def damping_factor(self, term_weight, active_modes):
         self.last_active = active_modes
         return 0.123
 
@@ -25,6 +25,6 @@ def test_apply_noise_delegates():
 def test_damping_factor_delegates():
     inner = MockNoise()
     model = GateNoiseModel(inner)
-    val = model.damping_factor(5)
+    val = model.damping_factor(5, active_modes=5)
     assert val == 0.123
     assert inner.last_active == 5
