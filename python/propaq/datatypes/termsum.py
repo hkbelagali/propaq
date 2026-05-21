@@ -2,14 +2,18 @@
 
 from typing import Generic, Dict, Iterator, Optional, Tuple, TypeVar
 
+from ._abstract import AbstractTerm
 from ..noise.base import NoiseModel 
 from ..noise.truncation import TruncationPolicy
 
-T = TypeVar("T")
+T = TypeVar("T", bound=AbstractTerm)
 
 class TermSum(Generic[T]):
     _terms: Dict[T, complex] 
 
+    def __init__(self):
+        self._terms = {}
+        
     def add(self, term: T, coeff: complex) -> None:
         """Add a term to the sum with the given coefficient"""
         if term in self._terms:
@@ -29,11 +33,17 @@ class TermSum(Generic[T]):
         
     def truncate(self, policy: TruncationPolicy) -> None: 
         """Truncate the terms according to the given policy."""
-        pass
+        for term, coeff in list(self._terms.items()): 
+            weight = term.weight
+            if policy.should_truncate(weight, abs(coeff)):
+                del self._terms[term]
     
-    def apply_damping(self, noise: NoiseModel, active_modes: Optional[int]) -> None: 
+    def apply_damping(self, noise: NoiseModel, active_modes: int = 0) -> None: 
         """Apply damping to the coefficients based on the noise model and active modes."""
-        pass
+        for term, coeff in self._terms.items(): 
+            weight = term.weight
+            damping = noise.damping_factor(weight, active_modes) 
+            self._terms[term] *= damping
 
     def norm_squared(self) -> float: 
         """Calculate the squared norm of the term sum."""
