@@ -1,13 +1,8 @@
 """Pauli term datatype for Pauli Propagation."""
-from abc import abstractmethod
-from typing import NewType, Tuple
+from typing import Tuple
 from dataclasses import dataclass
 
-from ._abstract import AbstractTerm
-
-# define a new type for bitmasks, which are used
-# to represent the X and Z components of a PauliTerm
-BitMask = NewType("BitMask", int) 
+from ._abstract import AbstractTerm, BitMask
 
 _PHASE_TO_COMPLEX: Tuple[complex, ...] = (1, 1j, -1, -1j) # map phase bits to complex numbers for easier multiplication
 
