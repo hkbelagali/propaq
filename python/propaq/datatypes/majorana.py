@@ -42,11 +42,30 @@ class MajoranaMonomial(AbstractTerm):
         phase_exp = (r_a + r_b - r_c + 2 * total_parity) % 4
         return _PHASE_TO_COMPLEX[phase_exp], result
     
-    def trace_with_fock_state(self, fock_state: BitMask) -> complex: 
-        """Claculate <n|self|n> where |n> is the Fock state represented by fock_state."""
-        if (self.modes & fock_state).bit_count() % 2 == 0 and self.modes & fock_state == self.modes: 
-            return 1.0
-        return 0.0 
+    def trace_with_fock_state(self, fock_state: BitMask) -> float:
+        """Calculate <n|self|n> where |n> is the Fock state represented by fock_state.
+
+        fock_state: bitmask over N fermionic modes — bit k set means mode k occupied.
+        Returns 0.0 if any Majorana mode is unpaired (monomial changes particle number).
+        Otherwise returns ±1.0 via Wick's theorem: (-1)^(p//2) * prod(2*n_k - 1).
+        """
+        n_fermionic = self.n_modes // 2
+        p = 0
+        product = 1
+
+        for k in range(n_fermionic):
+            low  = (self.modes >> (2 * k))     & 1
+            high = (self.modes >> (2 * k + 1)) & 1
+            if low != high:
+                return 0.0
+            if low == 1:
+                n_k = (fock_state >> k) & 1
+                product *= 2 * n_k - 1
+                p += 1
+
+        phase = 1 if (p // 2) % 2 == 0 else -1
+        return float(phase * product)
+
     
     def to_bytes(self) -> bytes: 
         byte_length = (self.n_modes + 7) // 8
