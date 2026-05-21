@@ -1,8 +1,10 @@
-# Virtual enrivonment 
+# Virtual environment 
 venv/
 
 # Build files 
 target/ 
-.mypy_cache/
+/**/.mypy_cache/
 Cargo.lock 
 _rust_core*
+/**/__pycache__/
+/**/.pytest_cache/
