@@ -1,8 +1,11 @@
 """Datatype representing a sum of terms"""
 
-from typing import Generic, Dict, Iterator, Optional, Tuple, TypeVar
+from typing import Generic, Dict, Iterator, List, Tuple, TypeVar
 
-from ._abstract import AbstractTerm
+from qiskit.circuit import Instruction, Qubit
+
+from .majorana import MajoranaMonomial
+from ._abstract import AbstractTerm, BitMask
 from ..noise.base import NoiseModel 
 from ..noise.truncation import TruncationPolicy
 
@@ -66,3 +69,62 @@ class TermSum(Generic[T]):
         new_sum: TermSum = TermSum()
         new_sum._terms = self._terms.copy()
         return new_sum
+    
+    @classmethod
+    def from_xx_plus_yy(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "TermSum[MajoranaMonomial]":
+        """Construct a TermSum of MajoranaMonomials corresponding to an xx+yy gate between qubits q1 and q2."""
+        i, j = q_indices
+        theta = float(instr.params[0])
+        factor = theta / 2.0
+
+        term_sum = cls()
+
+        modes1 = BitMask((1 << (2 * i)) | (1 << (2 * j + 1)))
+        m1 = MajoranaMonomial(modes1, n_modes, is_number_preserving=False)
+        term_sum.add(m1, factor)
+
+        modes2 = BitMask((1 << (2 * i + 1)) | (1 << (2 * j)))
+        m2 = MajoranaMonomial(modes2, n_modes, is_number_preserving=False)
+        term_sum.add(m2, -factor)
+
+        return term_sum
+
+    @classmethod
+    def from_phase(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "TermSum[MajoranaMonomial]":
+        """Construct a TermSum of MajoranaMonomials corresponding to a phase gate on qubit q."""
+        q = q_indices[0]
+        angle = -float(instr.params[0])
+
+        term_sum = cls()
+
+        modes_n = BitMask((1 << (2 * q)) | (1 << (2 * q + 1)))
+        m_q = MajoranaMonomial(modes_n, n_modes, is_number_preserving=True)
+        term_sum.add(m_q, angle)
+
+        return term_sum
+
+    @classmethod
+    def from_rz(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "TermSum[MajoranaMonomial]":
+        """Construct a TermSum of MajoranaMonomials corresponding to an rz gate on qubit q."""
+        return cls.from_phase(instr, q_indices, n_modes)
+
+    @classmethod
+    def from_cp(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "TermSum[MajoranaMonomial]":
+        """
+        Construct a TermSum of MajoranaMonomials corresponding to a controlled-phase gate.
+        """
+        i, j = q_indices
+        phi = float(instr.params[0])
+
+        term_sum = cls()
+
+        modes_i = BitMask((1 << (2 * i)) | (1 << (2 * i + 1)))
+        term_sum.add(MajoranaMonomial(modes_i, n_modes), -phi / 2)
+
+        modes_j = BitMask((1 << (2 * j)) | (1 << (2 * j + 1)))
+        term_sum.add(MajoranaMonomial(modes_j, n_modes), -phi / 2)
+
+        modes_4 = BitMask(modes_i | modes_j)
+        term_sum.add(MajoranaMonomial(modes_4, n_modes), phi / 2)
+
+        return term_sum
