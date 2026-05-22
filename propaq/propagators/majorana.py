@@ -44,7 +44,7 @@ class MajoranaPropagator:
         self,
         observable: TermSum,
         circuit: MajoranaCircuit,
-        fock_state: int,
+        fock_state: int = 0,
     ) -> float:
         """Compute <fock_state| U† O U |fock_state>.
 
