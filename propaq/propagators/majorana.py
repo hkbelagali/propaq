@@ -34,6 +34,10 @@ class MajoranaPropagator:
         evolved = observable.copy()
         for gate in reversed(circuit.rotations):
             evolved = self._apply_gate(evolved, gate)
+        
+        if self._truncation is not None:
+            evolved.truncate(self._truncation)
+
         return evolved
 
     def expectation_value(
@@ -75,7 +79,8 @@ class MajoranaPropagator:
 
         if self._noise is not None:
             result.apply_damping(self._noise, gate.generator.weight)
-        if self._truncation is not None:
+        
+        if self._truncation is not None and getattr(gate.generator, "is_number_preserving", True):
             result.truncate(self._truncation)
 
         return result
