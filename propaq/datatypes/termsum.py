@@ -1,5 +1,6 @@
 """Datatype representing a sum of terms"""
 
+import math
 from typing import Generic, Dict, Iterator, List, Tuple, TypeVar
 
 from qiskit.circuit import Instruction, Qubit
@@ -148,5 +149,20 @@ class TermSum(Generic[T]):
 
         modes3 = BitMask((1 << (2 * i)) | (1 << (2 * i + 1)) | (1 << (2 * j)) | (1 << (2 * j + 1)))
         term_sum.add(MajoranaMonomial(modes3, n_modes), -angle)
+
+        return term_sum
+    
+    @classmethod
+    def from_x(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "TermSum[MajoranaMonomial]":
+        """
+        Construct a TermSum of MajoranaMonomials corresponding to an X gate on qubit i
+        """
+        i = q_indices[0]
+        angle = math.pi
+
+        term_sum = cls()
+
+        modes = BitMask((1 << (2 * i + 1)) - 1)
+        term_sum.add(MajoranaMonomial(modes, n_modes, is_number_preserving=False), angle)
 
         return term_sum
