@@ -22,12 +22,45 @@ class MajoranaCircuit:
     
     @classmethod
     def from_qiskit(cls, qc: QuantumCircuit, n_modes: int):
-        """Construct a MajoranaCircuit from a Qiskit QuantumCircuit."""
-        # TODO: Implementation for converting Qiskit circuit to Majorana representation
-        pass
+        """
+        Construct a MajoranaCircuit from a Qiskit QuantumCircuit.
+        
+        For our purposes, we only need xx_plus_yy, p, cp, x, and swap gates.
+        We will raise a ValueError for anything else, since those will require 
+        JW transformations carrying high Pauli weight.
+
+        Circuit should NOT contain the inverse of the state preparation circuit. 
+        Since we will be applying the circuit in the Heisenberg picture, the state 
+        should be prepared separately and the circuit should only contain the 
+        forward evolution. 
+        """
+
+        generators: List[MajoranaMonomial] = [] 
+        angles: List[float] = [] 
+
+        for instr, qargs, _ in qc.data: 
+            if instr.name not in ["xx_plus_yy", "p", "cp", "swap", "measure", "barrier"]:
+                raise ValueError(f"Unsupported gate {instr.name} in Qiskit circuit. Only xx_plus_yy, p, cp, x, and swap are supported.")
+
+            if instr.name == "xx_plus_yy":
+                if len(qargs) != 2:
+                    raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
+                pass
+
+            elif instr.name == "p": 
+                pass 
+
+            elif instr.name == "cp": 
+                pass
+                
+            elif instr.name == "swap": 
+                pass 
+        
+        return cls.from_generators_and_angles(generators, angles, n_modes) 
+
 
     @classmethod 
-    def lucj_from_ffsim(cls, lucj: UCJOpSpinBalancedJW, hf: PrepareHartreeFockJW):
+    def lucj_from_ffsim(cls, lucj: UCJOpSpinBalancedJW):
         """Construct a MajoranaCircuit from an ffsim UCJOpSpinBalancedJW and PrepareHartreeFockJW."""
         # TODO: Implementation for converting ffsim circuit to Majorana representation
         pass    
