@@ -33,11 +33,6 @@ class MajoranaCircuit:
         We will raise a ValueError for anything else, since those will require 
         JW transformations carrying high Pauli weight.
 
-        Circuit should NOT contain the inverse of the state preparation circuit. 
-        Since we will be applying the circuit in the Heisenberg picture, the state 
-        should be prepared separately and the circuit should only contain the 
-        forward evolution. 
-
         Here, each of the supported gates will be translated into a TermSum of 
         MajoranaMonomials, which will then be converted into MajoranaRotations.
         """
@@ -48,11 +43,11 @@ class MajoranaCircuit:
         for op in qc.data: 
             instr = op.operation 
             qargs = op.qubits
-            
+
             if instr.name in ["measure", "barrier"]:
                 continue
-            if instr.name not in ["xx_plus_yy", "p", "rz", "cp", "swap"]:
-                raise ValueError(f"Unsupported gate {instr.name} in Qiskit circuit. Supported gates: xx_plus_yy, p, rz, cp, swap.")
+            if instr.name not in ["xx_plus_yy", "p", "rz", "cp", "x", "swap"]:
+                raise ValueError(f"Unsupported gate {instr.name} in Qiskit circuit. Supported gates: xx_plus_yy, p, rz, cp, x, swap.")
 
             q_indices = [qc.find_bit(q).index for q in qargs]
             
@@ -76,6 +71,11 @@ class MajoranaCircuit:
                 if len(qargs) != 2: 
                     raise ValueError("swap gate must have exactly 2 qubits.")
                 majoranasum = TermSum[MajoranaMonomial].from_swap(instr, q_indices, n_modes)
+
+            elif instr.name == "x": 
+                if len(qargs) != 1:
+                    raise ValueError("x gate must have exactly 1 qubit.")
+                majoranasum = TermSum[MajoranaMonomial].from_x(instr, q_indices, n_modes) 
 
             for gen, ang in majoranasum.items():
                 generators.append(gen)
