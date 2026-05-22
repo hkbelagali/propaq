@@ -45,7 +45,10 @@ class MajoranaCircuit:
         generators: List[MajoranaMonomial] = [] 
         angles: List[float] = [] 
 
-        for instr, qargs, _ in qc.data: 
+        for op in qc.data: 
+            instr = op.operation 
+            qargs = op.qubits
+            
             if instr.name in ["measure", "barrier"]:
                 continue
             if instr.name not in ["xx_plus_yy", "p", "rz", "cp", "swap"]:
