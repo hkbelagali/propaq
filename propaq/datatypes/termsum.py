@@ -14,8 +14,8 @@ T = TypeVar("T", bound=AbstractTerm)
 class TermSum(Generic[T]):
     _terms: Dict[T, complex] 
 
-    def __init__(self):
-        self._terms = {}
+    def __init__(self, terms: Dict[T, complex] = None):
+        self._terms = terms if terms is not None else {}
         
     def add(self, term: T, coeff: complex) -> None:
         """Add a term to the sum with the given coefficient"""
