@@ -10,6 +10,7 @@ _PHASE_TO_COMPLEX:  Tuple[complex, ...] = (1, 1j, -1, -1j) # map phase bits to c
 class MajoranaMonomial(AbstractTerm): 
     modes: BitMask
     n_modes: int
+    is_number_preserving: bool = True
 
     @property
     def weight(self) -> int: 
