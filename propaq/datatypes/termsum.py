@@ -128,3 +128,25 @@ class TermSum(Generic[T]):
         term_sum.add(MajoranaMonomial(modes_4, n_modes), phi / 2)
 
         return term_sum
+    
+    @classmethod
+    def from_swap(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "TermSum[MajoranaMonomial]":
+        """
+        Construct a TermSum of MajoranaMonomials corresponding to a SWAP gate between qubits i and j
+        """
+        import math
+        i, j = q_indices
+        angle = math.pi / 2
+
+        term_sum = cls()
+
+        modes1 = BitMask((1 << (2 * i)) | (1 << (2 * j + 1)))
+        term_sum.add(MajoranaMonomial(modes1, n_modes, is_number_preserving=False), angle)
+
+        modes2 = BitMask((1 << (2 * i + 1)) | (1 << (2 * j)))
+        term_sum.add(MajoranaMonomial(modes2, n_modes, is_number_preserving=False), -angle)
+
+        modes3 = BitMask((1 << (2 * i)) | (1 << (2 * i + 1)) | (1 << (2 * j)) | (1 << (2 * j + 1)))
+        term_sum.add(MajoranaMonomial(modes3, n_modes), -angle)
+
+        return term_sum

@@ -70,8 +70,9 @@ class MajoranaCircuit:
                 majoranasum = TermSum[MajoranaMonomial].from_cp(instr, q_indices, n_modes)
 
             elif instr.name == "swap":
-                # TODO: Implement swap gate translation to Majorana representation. 
-                raise NotImplementedError("swap gate lacks a TermSum constructor.")
+                if len(qargs) != 2: 
+                    raise ValueError("swap gate must have exactly 2 qubits.")
+                majoranasum = TermSum[MajoranaMonomial].from_swap(instr, q_indices, n_modes)
 
             for gen, ang in majoranasum.items():
                 generators.append(gen)
