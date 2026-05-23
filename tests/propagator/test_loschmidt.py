@@ -4,7 +4,7 @@ Use a Loschmidt echo to test that the Majorana propagator is correctly implement
 import numpy as np 
 
 from propaq.circuits.majorana.rotation import MajoranaRotation
-from propaq.datatypes import MajoranaMonomial, TermSum
+from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
 from propaq.circuits import MajoranaCircuit 
 from propaq.noise import NoiselessModel
 from propaq.noise import TruncationPolicy
@@ -14,7 +14,7 @@ def test_loschmidt_echo():
     """Test that applying a circuit and then its inverse returns the original observable."""
 
     # Construct a random observable.
-    obs = TermSum() 
+    obs = MajoranaTermSum() 
     for i in range(10):
         gen = MajoranaMonomial(np.random.randint(0, 8), 8)
         coeff = np.random.rand() + 1j * np.random.rand()

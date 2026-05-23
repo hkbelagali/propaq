@@ -8,7 +8,7 @@ import math
 from typing import Optional
 
 from ..circuits.majorana import MajoranaCircuit, MajoranaRotation
-from ..datatypes.termsum import TermSum
+from ..datatypes import MajoranaTermSum
 from ..noise.base import NoiseModel
 from ..noise.truncation import TruncationPolicy
 
@@ -27,9 +27,9 @@ class MajoranaPropagator:
 
     def propagate(
         self,
-        observable: TermSum,
+        observable: MajoranaTermSum,
         circuit: MajoranaCircuit,
-    ) -> TermSum:
+    ) -> MajoranaTermSum:
         """Heisenberg-evolve observable through circuit, returning U† O U."""
         evolved = observable.copy()
         for gate in reversed(circuit.rotations):
@@ -42,7 +42,7 @@ class MajoranaPropagator:
 
     def expectation_value(
         self,
-        observable: TermSum,
+        observable: MajoranaTermSum,
         circuit: MajoranaCircuit,
         fock_state: int = 0,
     ) -> float:
@@ -57,7 +57,7 @@ class MajoranaPropagator:
         )
         return float(total.real)
 
-    def _apply_gate(self, terms: TermSum, gate: MajoranaRotation) -> TermSum:
+    def _apply_gate(self, terms: MajoranaTermSum, gate: MajoranaRotation) -> MajoranaTermSum:
         """Apply one Majorana rotation to all terms in the Heisenberg picture.
 
         For U = exp(-i theta M_gate / 2) and each term M_b with coefficient c:
@@ -65,7 +65,7 @@ class MajoranaPropagator:
           - {M_b, M_gate} = 0  ->  branches into
                 cos(theta) M_b  +  i sin(theta) (M_gate M_b)
         """
-        result = TermSum()
+        result = MajoranaTermSum()
         cos_t = math.cos(gate.angle)
         sin_t = math.sin(gate.angle)
 
