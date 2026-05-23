@@ -10,6 +10,7 @@ from qiskit.circuit.library import (
     RZGate,
     CPhaseGate,
     SwapGate,
+    XGate
 ) 
 from qiskit.quantum_info import Statevector, SparsePauliOp
 
@@ -26,6 +27,7 @@ GATES = [
     (lambda: RZGate(np.random.uniform(0, 2 * np.pi)), 1),
     (lambda: CPhaseGate(np.random.uniform(0, 2 * np.pi)), 2),
     (lambda: SwapGate(), 2),
+    (lambda: XGate(), 1)
 ]
 def test_random_circuit_propagation(): 
     qc = QuantumCircuit(4)
@@ -38,7 +40,7 @@ def test_random_circuit_propagation():
     
     sv = Statevector(qc) 
 
-    observable = SparsePauliOp("ZYZX") 
+    observable = SparsePauliOp("ZZZZ") 
 
     sv_expectation_value = sv.expectation_value(observable).real 
 
@@ -53,7 +55,7 @@ def test_random_circuit_propagation():
     noise_model = UniformNoiseModel(damping=0.0)
     truncator = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0)
     prop = MajoranaPropagator(noise_model, truncator)
-    monomial = MajoranaMonomial(BitMask(0b11100100), n_modes=8, is_number_preserving=True)
+    monomial = MajoranaMonomial(BitMask(0b11111111), n_modes=8, is_number_preserving=False)
     observable = TermSum({monomial: 1.0})
     
     mp_expectation_value = prop.expectation_value(observable, mc, fock_state=0)
