@@ -1,10 +1,11 @@
 use pyo3::prelude::*;
-use pyo3::types::PyBytes; 
+use pyo3::types::PyBytes;
 use num_complex::Complex64;
+use std::hash::{Hash, Hasher};
 
 #[pyclass]
-#[derive(Clone, Hash, PartialEq, Eq)]
-pub struct MajoranaMonomial { 
+#[derive(Clone)]
+pub struct MajoranaMonomial {
     #[pyo3(get)]
     pub modes: u64,
     #[pyo3(get)]
@@ -26,11 +27,10 @@ impl MajoranaMonomial {
         self.modes.count_ones() as usize
     }
 
+    // Function for the weight attribute
     #[getter]
-    fn weight(&self) -> u32 { 
-        let paired = self.modes | (self.modes >> 1);
-        let even_mask: u64 = (0..self.n_modes).step_by(2).fold(0, |acc, i| acc | (1 <<i ));
-        (paired & even_mask).count_ones()
+    fn weight(&self) -> u32 {
+        self.compute_weight()
     }
 
     fn overlap(&self, other: &MajoranaMonomial) -> u32 { 
@@ -103,6 +103,7 @@ impl MajoranaMonomial {
         PyBytes::new(py, &bytes[..byte_length])
     }
 
+    // Python facing hash and equality functions
     fn __hash__(&self) -> u64 { 
         let mut h = std::collections::hash_map::DefaultHasher::new();
         use std::hash::{Hash, Hasher};
@@ -112,6 +113,30 @@ impl MajoranaMonomial {
 
     fn __eq__(&self, other: &MajoranaMonomial) -> bool { 
         self.modes == other.modes
+    }
+}
+
+// Public version of weight computation for use elsewhere
+impl MajoranaMonomial {
+    pub fn compute_weight(&self) -> u32 {
+        let paired = self.modes | (self.modes >> 1);
+        let even_mask: u64 = (0..self.n_modes).step_by(2).fold(0, |acc, i| acc | (1 << i));
+        (paired & even_mask).count_ones()
+    }
+}
+
+impl PartialEq for MajoranaMonomial {
+    fn eq(&self, other: &Self) -> bool {
+        self.modes == other.modes
+    }
+}
+
+// Rust facing hash and equality stuff
+impl Eq for MajoranaMonomial {}
+
+impl Hash for MajoranaMonomial {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.modes.hash(state);
     }
 }
 

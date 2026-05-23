@@ -8,8 +8,8 @@ import qiskit
 from qiskit import QuantumCircuit 
 from ffsim.qiskit import PrepareHartreeFockJW, UCJOpSpinBalancedJW
     
-from ...datatypes.majorana import MajoranaMonomial
-from ...datatypes.termsum import TermSum
+from ...datatypes import MajoranaMonomial
+from ...datatypes import MajoranaTermSum
 from .rotation import MajoranaRotation
 
 class MajoranaCircuit: 
@@ -33,7 +33,7 @@ class MajoranaCircuit:
         We will raise a ValueError for anything else, since those will require 
         JW transformations carrying high Pauli weight.
 
-        Here, each of the supported gates will be translated into a TermSum of 
+        Here, each of the supported gates will be translated into a MajoranaTermSum of 
         MajoranaMonomials, which will then be converted into MajoranaRotations.
         """
 
@@ -54,28 +54,28 @@ class MajoranaCircuit:
             if instr.name == "xx_plus_yy":
                 if len(qargs) != 2:
                     raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
-                majoranasum: TermSum[MajoranaMonomial] = TermSum[MajoranaMonomial].from_xx_plus_yy(instr, q_indices, n_modes) 
+                majoranasum: MajoranaTermSum[MajoranaMonomial] = MajoranaTermSum[MajoranaMonomial].from_xx_plus_yy(instr, q_indices, n_modes) 
                 
             elif instr.name == "p": 
-                majoranasum = TermSum[MajoranaMonomial].from_phase(instr, q_indices, n_modes) 
+                majoranasum = MajoranaTermSum[MajoranaMonomial].from_phase(instr, q_indices, n_modes) 
                 
             elif instr.name == "rz": 
-                majoranasum = TermSum[MajoranaMonomial].from_rz(instr, q_indices, n_modes) 
+                majoranasum = MajoranaTermSum[MajoranaMonomial].from_rz(instr, q_indices, n_modes) 
 
             elif instr.name == "cp":
                 if len(qargs) != 2:
                     raise ValueError("cp gate must have exactly 2 qubits.")
-                majoranasum = TermSum[MajoranaMonomial].from_cp(instr, q_indices, n_modes)
+                majoranasum = MajoranaTermSum[MajoranaMonomial].from_cp(instr, q_indices, n_modes)
 
             elif instr.name == "swap":
                 if len(qargs) != 2: 
                     raise ValueError("swap gate must have exactly 2 qubits.")
-                majoranasum = TermSum[MajoranaMonomial].from_swap(instr, q_indices, n_modes)
+                majoranasum = MajoranaTermSum[MajoranaMonomial].from_swap(instr, q_indices, n_modes)
 
             elif instr.name == "x": 
                 if len(qargs) != 1:
                     raise ValueError("x gate must have exactly 1 qubit.")
-                majoranasum = TermSum[MajoranaMonomial].from_x(instr, q_indices, n_modes) 
+                majoranasum = MajoranaTermSum[MajoranaMonomial].from_x(instr, q_indices, n_modes) 
 
             for gen, ang in majoranasum.items():
                 generators.append(gen)

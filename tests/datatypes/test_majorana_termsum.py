@@ -1,6 +1,6 @@
 import pytest
 
-from propaq.datatypes.termsum import TermSum
+from propaq.datatypes import MajoranaTermSum
 from propaq.noise.truncation import TruncationPolicy
 
 
@@ -25,7 +25,7 @@ class MockNoise:
 
 
 def test_add_and_len_items():
-    ts = TermSum()
+    ts = MajoranaTermSum()
     t = MockTerm("a", 1)
     ts.add(t, 1+0j)
     ts.add(t, 2+0j)
@@ -35,7 +35,7 @@ def test_add_and_len_items():
 
 
 def test_scale_and_norm_squared():
-    ts = TermSum()
+    ts = MajoranaTermSum()
     a = MockTerm("a", 1)
     b = MockTerm("b", 2)
     ts.add(a, 1+1j)
@@ -49,8 +49,8 @@ def test_scale_and_norm_squared():
 def test_merge_and_copy_independence():
     a = MockTerm("a", 1)
     b = MockTerm("b", 2)
-    ts1 = TermSum()
-    ts2 = TermSum()
+    ts1 = MajoranaTermSum()
+    ts2 = MajoranaTermSum()
     ts1.add(a, 1)
     ts2.add(b, 2)
     ts1.merge(ts2)
@@ -61,7 +61,7 @@ def test_merge_and_copy_independence():
 
 
 def test_truncate_removes_terms_safely():
-    ts = TermSum()
+    ts = MajoranaTermSum()
     heavy = MockTerm("heavy", 5)
     light = MockTerm("light", 1)
     ts.add(heavy, 0.01)
@@ -75,7 +75,7 @@ def test_truncate_removes_terms_safely():
 
 
 def test_apply_damping_uses_noise_model():
-    ts = TermSum()
+    ts = MajoranaTermSum()
     t = MockTerm("x", 2)
     ts.add(t, 2+0j)
     noise = MockNoise(0.5)
