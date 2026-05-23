@@ -9,6 +9,6 @@ crate-type = ["cdylib"]
 path = "crates/src/lib.rs"
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module"] }
+pyo3 = { version = "0.23", features = ["extension-module", "num-complex"] }
 num-complex = "0.4"
 rayon = "1.10"
