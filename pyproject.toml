@@ -21,7 +21,6 @@ dev = [
     "coverage~=7.14.0"
 ]
 
-
 [tool.maturin]
 python-source = "."
 module-name = "propaq._rust_core"
