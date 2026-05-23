@@ -1,88 +1,26 @@
-"""Datatype representing a sum of terms"""
+"""Datatype representing a sum of Majorana terms."""
 
 import math
-from typing import Generic, Dict, Iterator, List, Tuple, TypeVar
+from typing import Generic, List, TypeVar
 
-from qiskit.circuit import Instruction, Qubit
+from qiskit.circuit import Instruction
 
 from .majorana import MajoranaMonomial
-from ._abstract import AbstractTerm, BitMask
-from ..noise.base import NoiseModel
-from ..noise.truncation import TruncationPolicy
+from ._abstract import BitMask
 
-try:
-    from propaq._rust_core import MajoranaTermSum
-except ImportError:
-    MajoranaTermSum = None
+from propaq._rust_core import MajoranaTermSum as _RustMajoranaTermSum
 
-T = TypeVar("T", bound=AbstractTerm)
+T = TypeVar("T")
 
-class MajoranaTermSum(Generic[T]):
-    _terms: Dict[T, complex] 
 
-    def __init__(self, terms: Dict[T, complex] = None):
-        self._terms = terms if terms is not None else {}
-        
-    def add(self, term: T, coeff: complex) -> None:
-        """Add a term to the sum with the given coefficient"""
-        if term in self._terms:
-            self._terms[term] += coeff
-        else:
-            self._terms[term] = coeff
-    
-    def scale(self, factor: complex) -> None: 
-        """Scale all coefficients by a given factor"""
-        for term in self._terms: 
-            self._terms[term] *= factor 
+class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
+    """Rust-backed term sum with Qiskit factory class methods."""
 
-    def merge(self, other: "MajoranaTermSum") -> None: 
-        """Merge another MajoranaTermSum into this one, adding coefficients of the common terms"""
-        for term, coeff in other._terms.items(): 
-            self.add(term, coeff) 
-        
-    def truncate(self, policy: TruncationPolicy) -> None: 
-        """Truncate the terms according to the given policy."""
-        for term, coeff in list(self._terms.items()): 
-            weight = term.weight
-            if policy.should_truncate(weight, abs(coeff)):
-                del self._terms[term]
-    
-    def apply_damping(self, noise: NoiseModel, active_modes: int = 0) -> None: 
-        """Apply damping to the coefficients based on the noise model and active modes."""
-        for term, coeff in self._terms.items(): 
-            weight = term.weight
-            damping = noise.damping_factor(weight, active_modes) 
-            self._terms[term] *= damping
-
-    def norm_squared(self) -> float: 
-        """Calculate the squared norm of the term sum."""
-        return sum(abs(coeff)**2 for coeff in self._terms.values())
-    
-    def items(self) -> Iterator[Tuple[T, complex]]: 
-        """Return an iterator over the terms and their coefficients."""
-        return self._terms.items() 
-
-    def __len__(self) -> int: 
-        """Return the number of terms in the sum."""
-        return len(self._terms)
-    
-    def __setitem__(self, term: T, coeff: complex) -> None: 
-        """Set the coefficient of a term directly."""
-        self._terms[term] = coeff
-
-    def __getitem__(self, term: T) -> complex: 
-        """Get the coefficient of a term, returning 0 if the term is not present."""
-        return self._terms.get(term, 0.0)
-    
-    def copy(self) -> "MajoranaTermSum": 
-        """Create a copy of this MajoranaTermSum."""
-        new_sum: MajoranaTermSum = MajoranaTermSum()
-        new_sum._terms = self._terms.copy()
-        return new_sum
-    
     @classmethod
-    def from_xx_plus_yy(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct a MajoranaTermSum of MajoranaMonomials corresponding to an xx+yy gate between qubits q1 and q2."""
+    def from_xx_plus_yy(
+        cls, instr: Instruction, q_indices: List[int], n_modes: int
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """Construct from an XX+YY gate between qubits q_indices[0] and q_indices[1]."""
         i, j = q_indices
         theta = float(instr.params[0])
         factor = theta / 2.0
@@ -100,8 +38,10 @@ class MajoranaTermSum(Generic[T]):
         return term_sum
 
     @classmethod
-    def from_phase(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct a MajoranaTermSum of MajoranaMonomials corresponding to a phase gate on qubit q."""
+    def from_phase(
+        cls, instr: Instruction, q_indices: List[int], n_modes: int
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """Construct from a phase gate on qubit q_indices[0]."""
         q = q_indices[0]
         angle = -float(instr.params[0])
 
@@ -114,15 +54,17 @@ class MajoranaTermSum(Generic[T]):
         return term_sum
 
     @classmethod
-    def from_rz(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct a MajoranaTermSum of MajoranaMonomials corresponding to an rz gate on qubit q."""
+    def from_rz(
+        cls, instr: Instruction, q_indices: List[int], n_modes: int
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """Construct from an RZ gate (delegates to from_phase)."""
         return cls.from_phase(instr, q_indices, n_modes)
 
     @classmethod
-    def from_cp(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
-        """
-        Construct a MajoranaTermSum of MajoranaMonomials corresponding to a controlled-phase gate.
-        """
+    def from_cp(
+        cls, instr: Instruction, q_indices: List[int], n_modes: int
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """Construct from a controlled-phase gate between q_indices[0] and q_indices[1]."""
         i, j = q_indices
         phi = float(instr.params[0])
 
@@ -138,13 +80,12 @@ class MajoranaTermSum(Generic[T]):
         term_sum.add(MajoranaMonomial(modes_4, n_modes), phi / 2)
 
         return term_sum
-    
+
     @classmethod
-    def from_swap(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
-        """
-        Construct a MajoranaTermSum of MajoranaMonomials corresponding to a SWAP gate between qubits i and j
-        """
-        import math
+    def from_swap(
+        cls, instr: Instruction, q_indices: List[int], n_modes: int
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """Construct from a SWAP gate between q_indices[0] and q_indices[1]."""
         i, j = q_indices
         angle = math.pi / 2
 
@@ -156,16 +97,18 @@ class MajoranaTermSum(Generic[T]):
         modes2 = BitMask((1 << (2 * i + 1)) | (1 << (2 * j)))
         term_sum.add(MajoranaMonomial(modes2, n_modes, is_number_preserving=False), -angle)
 
-        modes3 = BitMask((1 << (2 * i)) | (1 << (2 * i + 1)) | (1 << (2 * j)) | (1 << (2 * j + 1)))
+        modes3 = BitMask(
+            (1 << (2 * i)) | (1 << (2 * i + 1)) | (1 << (2 * j)) | (1 << (2 * j + 1))
+        )
         term_sum.add(MajoranaMonomial(modes3, n_modes), -angle)
 
         return term_sum
-    
+
     @classmethod
-    def from_x(cls, instr: Instruction, q_indices: List[int], n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
-        """
-        Construct a MajoranaTermSum of MajoranaMonomials corresponding to an X gate on qubit i
-        """
+    def from_x(
+        cls, instr: Instruction, q_indices: List[int], n_modes: int
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """Construct from an X gate on qubit q_indices[0]."""
         i = q_indices[0]
         angle = math.pi
 
@@ -175,7 +118,3 @@ class MajoranaTermSum(Generic[T]):
         term_sum.add(MajoranaMonomial(modes, n_modes, is_number_preserving=False), angle)
 
         return term_sum
-
-
-if MajoranaTermSum is None:
-    MajoranaTermSum = MajoranaTermSum
