@@ -31,6 +31,8 @@ jobs:
       - name: Set up environment
         run: >-
           pip install .[dev]
+      - name: Build in-place with maturin
+        run: >-
           maturin develop --release
       - name: Run tests with pytest
         run: >-
