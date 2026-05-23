@@ -12,3 +12,4 @@ path = "crates/src/lib.rs"
 pyo3 = { version = "0.23", features = ["extension-module", "num-complex"] }
 num-complex = "0.4"
 rayon = "1.10"
+indexmap = "2"

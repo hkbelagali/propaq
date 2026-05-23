@@ -3,7 +3,7 @@ import numpy as np
 import pytest 
 
 from propaq.noise.uniform import UniformNoiseModel
-from propaq.datatypes.termsum import TermSum
+from propaq.datatypes.majorana_termsum import MajoranaTermSum
 
 
 class DummyTerm:
@@ -28,7 +28,7 @@ def test_damping_factor_matches_formula():
 
 def test_apply_noise_scales_term_sum():
     model = UniformNoiseModel(0.5)
-    ts = TermSum()
+    ts = MajoranaTermSum()
     t = DummyTerm("t", 1)
     ts.add(t, 2.0)
     model.apply_noise(ts)
