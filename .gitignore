@@ -8,3 +8,6 @@ Cargo.lock
 _rust_core*
 /**/__pycache__/
 /**/.pytest_cache/
+
+# Playground files 
+scratch.py
