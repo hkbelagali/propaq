@@ -6,7 +6,6 @@ import numpy as np
 from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
 from propaq.circuits import MajoranaCircuit 
-from propaq.noise import NoiselessModel
 from propaq.noise import TruncationPolicy
 from propaq.propagators.majorana import MajoranaPropagator 
 
@@ -29,9 +28,8 @@ def test_loschmidt_echo():
     circuit = MajoranaCircuit(rotations, n_modes=8)
     backward_circuit = circuit.inverse() 
 
-    noise = NoiselessModel() 
     truncator = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0.0)
-    prop = MajoranaPropagator(noise, truncator)
+    prop = MajoranaPropagator(None, truncator)
 
     # Apply the circuit and then its inverse to the observable.
     obs_evolved = prop.propagate(obs, circuit)
