@@ -13,30 +13,38 @@ class MajoranaMonomial(AbstractTerm):
     is_number_preserving: bool = True
 
     @property
+    def length(self) -> int: 
+        """Return the number of Majorana modes in the monomial."""
+        return self.modes.bit_count()
+    
+    @property
     def weight(self) -> int: 
-        return self.modes.bit_count() 
+        paired = self.modes | (self.modes >> 1) 
+        even_mask = ((1 << self.n_modes) - 1) // 3
+        return (paired & even_mask).bit_count()
     
     def overlap(self, other: "MajoranaMonomial") -> int: 
         """Return the number of modes in the overlap of self and other."""
         return (self.modes & other.modes).bit_count() 
     
     def commutes_with(self, other: "MajoranaMonomial") -> bool:
-        """Two Majorana monomials commute iff (weight_a * weight_b + overlap) is even."""
+        """Two Majorana monomials commute iff (length_a * length_b + overlap) is even."""
         if self.modes == other.modes:
             return True
-        return (self.weight * other.weight + self.overlap(other)) % 2 == 0
+        return (self.length * other.length + self.overlap(other)) % 2 == 0
     
-    def resulting_weight(self, other: "MajoranaMonomial") -> int: 
-        """Return the number of modes in the resulting monomial when multiplying self and other."""
-        return self.weight + other.weight - 2 * self.overlap(other)
+    def resulting_weight(self, other: "MajoranaMonomial") -> int:
+        """Return the Pauli weight of the monomial produced by multiplying self and other."""
+        result_modes = BitMask(self.modes ^ other.modes)
+        return MajoranaMonomial(result_modes, self.n_modes).weight
     
     def __matmul__(self, other: "MajoranaMonomial") -> Tuple[complex, "MajoranaMonomial"]: # type: ignore 
         result_modes = self.modes ^ other.modes 
         result = MajoranaMonomial(BitMask(result_modes), n_modes=self.n_modes)
 
-        r_a = _hermiticity_exp(self.weight)
-        r_b = _hermiticity_exp(other.weight)
-        r_c = _hermiticity_exp(result.weight)
+        r_a = _hermiticity_exp(self.length)
+        r_b = _hermiticity_exp(other.length)
+        r_c = _hermiticity_exp(result.length)
 
         total_parity = _resorting_parity(self.modes, other.modes)
 
