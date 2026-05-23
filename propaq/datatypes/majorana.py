@@ -20,11 +20,11 @@ class MajoranaMonomial(AbstractTerm):
         """Return the number of modes in the overlap of self and other."""
         return (self.modes & other.modes).bit_count() 
     
-    def commutes_with(self, other: "MajoranaMonomial") -> bool: 
-        """Two Majorana monnomials commute iff the number of modes in their overlap is even."""
+    def commutes_with(self, other: "MajoranaMonomial") -> bool:
+        """Two Majorana monomials commute iff (weight_a * weight_b + overlap) is even."""
         if self.modes == other.modes:
             return True
-        return (self.overlap(other) % 2) == 0
+        return (self.weight * other.weight + self.overlap(other)) % 2 == 0
     
     def resulting_weight(self, other: "MajoranaMonomial") -> int: 
         """Return the number of modes in the resulting monomial when multiplying self and other."""
