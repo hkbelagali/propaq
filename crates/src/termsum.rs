@@ -4,8 +4,10 @@ use num_complex::Complex64;
 use indexmap::IndexMap;
 
 use crate::monomial::MajoranaMonomial;
+use crate::truncation::TruncationPolicy;
+use crate::noise::UniformNoiseModel;
 
-#[pyclass]
+#[pyclass(subclass)]
 pub struct MajoranaTermSum {
     pub terms: IndexMap<MajoranaMonomial, Complex64>,
 }
@@ -42,7 +44,15 @@ impl MajoranaTermSum {
         }
     }
 
-    fn truncate(&mut self, policy: &Bound<'_, PyAny>) -> PyResult<()> {
+    pub fn truncate(&mut self, policy: &Bound<'_, PyAny>) -> PyResult<()> {
+        if let Ok(tp) = policy.extract::<PyRef<TruncationPolicy>>() {
+            let wc = tp.weight_cutoff;
+            let cc = tp.coeff_cutoff;
+            self.terms.retain(|term, coeff| {
+                !(term.compute_weight() > wc || coeff.norm() < cc)
+            });
+            return Ok(());
+        }
         let mut to_remove = Vec::new();
         for (term, coeff) in self.terms.iter() {
             let weight = term.compute_weight();
@@ -60,7 +70,14 @@ impl MajoranaTermSum {
         Ok(())
     }
 
-    fn apply_damping(&mut self, noise: &Bound<'_, PyAny>, active_modes: u32) -> PyResult<()> {
+    pub fn apply_damping(&mut self, noise: &Bound<'_, PyAny>, active_modes: u32) -> PyResult<()> {
+        if let Ok(unm) = noise.extract::<PyRef<UniformNoiseModel>>() {
+            let d = unm.damping;
+            for (term, coeff) in self.terms.iter_mut() {
+                *coeff *= (-d * term.compute_weight() as f64).exp();
+            }
+            return Ok(());
+        }
         for (term, coeff) in self.terms.iter_mut() {
             let weight = term.compute_weight();
             let damping: f64 = noise
@@ -91,7 +108,7 @@ impl MajoranaTermSum {
         self.terms.get(term).copied().unwrap_or(Complex64::new(0.0, 0.0))
     }
 
-    fn copy(&self) -> MajoranaTermSum {
+    pub fn copy(&self) -> MajoranaTermSum {
         MajoranaTermSum { terms: self.terms.clone() }
     }
 }
