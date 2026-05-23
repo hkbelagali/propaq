@@ -46,13 +46,13 @@ def test_random_circuit_propagation():
 
     from propaq.propagators import MajoranaPropagator
     from propaq.circuits import MajoranaCircuit 
-    from propaq.noise import UniformNoiseModel, truncation 
+    from propaq.noise import NoiselessModel, truncation 
     from propaq.noise import TruncationPolicy 
 
     from propaq.datatypes import TermSum
 
     mc = MajoranaCircuit.from_qiskit(qc, n_modes = 8)
-    noise_model = UniformNoiseModel(damping=0.0)
+    noise_model = NoiselessModel()
     truncator = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0)
     prop = MajoranaPropagator(noise_model, truncator)
     monomial = MajoranaMonomial(BitMask(0b11111111), n_modes=8, is_number_preserving=False)

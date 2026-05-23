@@ -6,8 +6,8 @@ import numpy as np
 from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.datatypes import MajoranaMonomial, TermSum
 from propaq.circuits import MajoranaCircuit 
-from propaq.noise.uniform import UniformNoiseModel
-from propaq.noise.truncation import TruncationPolicy
+from propaq.noise import NoiselessModel
+from propaq.noise import TruncationPolicy
 from propaq.propagators.majorana import MajoranaPropagator 
 
 def test_loschmidt_echo(): 
@@ -29,7 +29,7 @@ def test_loschmidt_echo():
     circuit = MajoranaCircuit(rotations, n_modes=8)
     backward_circuit = circuit.inverse() 
 
-    noise = UniformNoiseModel(damping=0.0) 
+    noise = NoiselessModel() 
     truncator = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0.0)
     prop = MajoranaPropagator(noise, truncator)
 
