@@ -24,9 +24,25 @@ if MajoranaMonomial is None:
 
         @property
         def weight(self) -> int:
-            paired = self.modes | (self.modes >> 1)
-            even_mask = ((1 << self.n_modes) - 1) // 3
-            return (paired & even_mask).bit_count()
+            n_qubits = self.n_modes // 2
+            even_mask = BitMask((1 << self.n_modes) - 1) // 3
+            even_bits = self.modes & even_mask # occupancy of gamma_{2j} 
+            odd_bits = (self.modes >> 1) & even_mask # occupancy of gamma_{2j+1}
+
+            occupied_modes = even_bits | odd_bits # whether or not this mode is touched
+            single = even_bits ^ odd_bits # modes that appear once 
+
+            qubit_mask = (1 << n_qubits) - 1
+            p = single
+            shift = 1 
+            while shift < n_qubits: 
+                p ^= (p << shift) & qubit_mask 
+                shift <<= 1
+
+            total_parity = single.bit_count() & 1
+            string = p ^ (qubit_mask * total_parity)
+
+            return (occupied_modes | string).bit_count()
 
         def overlap(self, other: "MajoranaMonomial") -> int:
             return (self.modes & other.modes).bit_count()

@@ -1,36 +1,29 @@
-import numpy as np
+import math
 
-import pytest 
+import pytest
 
 from propaq.noise.uniform import UniformNoiseModel
-from propaq.datatypes.majorana_termsum import MajoranaTermSum
+from propaq.datatypes import MajoranaTermSum, MajoranaMonomial
 
 
-class DummyTerm:
-    def __init__(self, name, weight):
-        self.name = name
-        self.weight = weight
-
-    def __hash__(self):
-        return hash(self.name)
-
-    def __eq__(self, other):
-        return isinstance(other, DummyTerm) and self.name == other.name
+def mon(modes_int: int, n_modes: int = 8) -> MajoranaMonomial:
+    return MajoranaMonomial(modes_int, n_modes)
 
 
 def test_damping_factor_matches_formula():
     damping = 0.2
     model = UniformNoiseModel(damping)
     for w in (0, 1, 2, 5):
-        expected = np.exp(-damping * w)
+        expected = math.exp(-damping * w)
         assert model.damping_factor(w, active_modes=0) == pytest.approx(expected)
 
 
 def test_apply_noise_scales_term_sum():
     model = UniformNoiseModel(0.5)
     ts = MajoranaTermSum()
-    t = DummyTerm("t", 1)
+    t = mon(0b00000011)  # one fermionic site → weight 1
     ts.add(t, 2.0)
     model.apply_noise(ts)
     _, coeff = list(ts.items())[0]
-    assert coeff == np.exp(-0.5) * 2.0
+    w = t.weight
+    assert coeff == pytest.approx(math.exp(-0.5 * w) * 2.0)
