@@ -20,7 +20,14 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     def from_xx_plus_yy(
         cls, instr: Instruction, q_indices: List[int], n_modes: int
     ) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct from an XX+YY gate between qubits q_indices[0] and q_indices[1]."""
+        """
+        Construct from an XX+YY gate between qubits q_indices[0] and q_indices[1].
+        
+        Arguments: 
+            instr: The instruction representing the gate.
+            q_indices: The indices of the qubits the gate acts on.
+            n_modes: The total number of Majorana modes in the system.
+        """
         i, j = q_indices
         theta = float(instr.params[0])
         factor = theta / 2.0
@@ -41,7 +48,14 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     def from_phase(
         cls, instr: Instruction, q_indices: List[int], n_modes: int
     ) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct from a phase gate on qubit q_indices[0]."""
+        """
+        Construct from a phase gate on qubit q_indices[0].
+        
+        Arguments:
+            instr: The instruction representing the gate.
+            q_indices: The indices of the qubits the gate acts on.
+            n_modes: The total number of Majorana modes in the system.
+        """
         q = q_indices[0]
         angle = -float(instr.params[0])
 
@@ -57,14 +71,28 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     def from_rz(
         cls, instr: Instruction, q_indices: List[int], n_modes: int
     ) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct from an RZ gate (delegates to from_phase)."""
+        """
+        Construct from an RZ gate (delegates to from_phase).
+
+        Arguments:
+            instr: The instruction representing the gate.
+            q_indices: The indices of the qubits the gate acts on.
+            n_modes: The total number of Majorana modes in the system.
+        """
         return cls.from_phase(instr, q_indices, n_modes)
 
     @classmethod
     def from_cp(
         cls, instr: Instruction, q_indices: List[int], n_modes: int
     ) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct from a controlled-phase gate between q_indices[0] and q_indices[1]."""
+        """
+        Construct from a controlled-phase gate between q_indices[0] and q_indices[1].
+
+        Arguments:
+            instr: The instruction representing the gate.
+            q_indices: The indices of the qubits the gate acts on.
+            n_modes: The total number of Majorana modes in the system.
+        """
         i, j = q_indices
         phi = float(instr.params[0])
 
@@ -85,7 +113,14 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     def from_swap(
         cls, instr: Instruction, q_indices: List[int], n_modes: int
     ) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct from a SWAP gate between q_indices[0] and q_indices[1]."""
+        """
+        Construct from a SWAP gate between q_indices[0] and q_indices[1].
+        
+        Arguments:
+            instr: The instruction representing the gate.
+            q_indices: The indices of the qubits the gate acts on.
+            n_modes: The total number of Majorana modes in the system.
+        """
         i, j = q_indices
         angle = math.pi / 2
 
@@ -108,7 +143,14 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     def from_x(
         cls, instr: Instruction, q_indices: List[int], n_modes: int
     ) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct from an X gate on qubit q_indices[0]."""
+        """
+        Construct from an X gate on qubit q_indices[0].
+
+        Arguments:
+            instr: The instruction representing the gate.
+            q_indices: The indices of the qubits the gate acts on.
+            n_modes: The total number of Majorana modes in the system.
+        """
         i = q_indices[0]
         angle = math.pi
 

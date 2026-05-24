@@ -5,7 +5,7 @@ venv/
 target/ 
 /**/.mypy_cache/
 Cargo.lock 
-_rust_core*
+*.so
 /**/__pycache__/
 /**/.pytest_cache/
 .coverage
