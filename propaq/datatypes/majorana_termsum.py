@@ -168,6 +168,27 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a SparsePauliOp via the Jordan-Wigner inverse transform.
+
+        Each qubit either contriutes no Majoranas, one Majorana, or two Majorana modes depending 
+        on its structure. 
+
+        We need to keep track of the Z parity as we iterate through the qubits to ensure 
+        we map Z-strings to the correct Majorana modes and apply the correct phase factors.
+
+        If we are inside a Z-string, then:
+         
+        I maps to Majorana modes 2q and 2q+1.
+        X maps to an unpaired Majorana, whose index depends on the Z parity. (2q if even, 2q+1 if odd)
+        Y maps to an unpaired Majorana, whose index depends on the Z parity, (2q+1 if even, 2q if odd) 
+          and contributes an additional -i phase.
+        Z maps to Majorana modes 2q and 2q+1 and contributes an additional i phase when the Z parity is even.
+        The odd case is handled by string.
+
+        Arguments:
+            op: The SparsePauliOp to convert.
+
+        Returns:
+            The corresponding MajoranaTermSum.
         """
         term_sum = cls()
         n_qubits = op.num_qubits
