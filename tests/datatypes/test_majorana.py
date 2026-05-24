@@ -109,8 +109,107 @@ def test_hash_and_equality():
     assert m1 == m2
     assert hash(m1) == hash(m2)
 
-def test_different_monomials_not_equal(): 
-    m1 = monomial(1, 2) 
-    m2 = monomial(2, 3) 
+def test_different_monomials_not_equal():
+    m1 = monomial(1, 2)
+    m2 = monomial(2, 3)
     assert m1 != m2
+
+def test_modes_roundtrip_simple():
+    m = MajoranaMonomial(0b10110, n_modes=8)
+    assert isinstance(m.modes, int)
+    assert m.modes == 0b10110
+
+def test_modes_roundtrip_zero():
+    m = MajoranaMonomial(0, n_modes=8)
+    assert m.modes == 0
+
+def test_modes_roundtrip_large():
+    # bit 64 sits in the second 64-bit word of the Bitset
+    big = 1 << 64
+    m = MajoranaMonomial(big, n_modes=128)
+    assert m.modes == big
+
+def test_modes_roundtrip_multi_word():
+    big = (1 << 64) | (1 << 65)
+    m = MajoranaMonomial(big, n_modes=128)
+    assert m.modes == big
+
+def test_length_zero():
+    assert MajoranaMonomial(0, n_modes=8).length == 0
+
+def test_length_single_bit():
+    assert MajoranaMonomial(0b01, n_modes=8).length == 1
+
+def test_length_counts_set_bits():
+    m = MajoranaMonomial(0b10110110, n_modes=8)
+    assert m.length == bin(0b10110110).count('1')
+
+def test_overlap_disjoint():
+    m1 = MajoranaMonomial(0b0011, n_modes=8)
+    m2 = MajoranaMonomial(0b1100, n_modes=8)
+    assert m1.overlap(m2) == 0
+
+def test_overlap_full():
+    m = MajoranaMonomial(0b1111, n_modes=8)
+    assert m.overlap(m) == 4
+
+def test_overlap_partial():
+    m1 = MajoranaMonomial(0b1111, n_modes=8)
+    m2 = MajoranaMonomial(0b1100, n_modes=8)
+    assert m1.overlap(m2) == 2
+
+def test_identity_times_right():
+    m = monomial(1, 2)
+    phase, result = m @ I
+    assert abs(phase - 1) < 1e-6
+    assert result == m
+
+def test_trace_identity_any_fock():
+    assert I.trace_with_fock_state(0) == pytest.approx(1.0)
+    assert I.trace_with_fock_state(0b1111) == pytest.approx(1.0)
+
+def test_trace_unpaired_is_zero():
+    # only gamma_0 (bit 0), no gamma_1 → particle-number-changing → trace 0
+    m = MajoranaMonomial(0b01, n_modes=8)
+    assert m.trace_with_fock_state(0) == pytest.approx(0.0)
+    assert m.trace_with_fock_state(1) == pytest.approx(0.0)
+
+def test_trace_site0_empty_fock():
+    # modes=0b11 (site 0 paired): n_0=0 → 2*0-1=-1, p=1, phase=1 → -1.0
+    m = MajoranaMonomial(0b11, n_modes=8)
+    assert m.trace_with_fock_state(0) == pytest.approx(-1.0)
+
+def test_trace_site0_occupied_fock():
+    # modes=0b11, fock_state=1 (site 0 occupied): n_0=1 → 2*1-1=1 → 1.0
+    m = MajoranaMonomial(0b11, n_modes=8)
+    assert m.trace_with_fock_state(1) == pytest.approx(1.0)
+
+def test_trace_two_sites_all_fock_states():
+    # modes=0b1111 (sites 0 and 1 paired): p=2, phase = -1 (p//2=1, odd)
+    m = MajoranaMonomial(0b1111, n_modes=8)
+    # phase=-1, products:
+    # fock=0b00: (-1)*(-1)=1  → -1
+    assert m.trace_with_fock_state(0b00) == pytest.approx(-1.0)
+    # fock=0b01: (1)*(-1)=-1  → +1
+    assert m.trace_with_fock_state(0b01) == pytest.approx(1.0)
+    # fock=0b10: (-1)*(1)=-1  → +1
+    assert m.trace_with_fock_state(0b10) == pytest.approx(1.0)
+    # fock=0b11: (1)*(1)=1    → -1
+    assert m.trace_with_fock_state(0b11) == pytest.approx(-1.0)
+
+def test_large_n_modes_length():
+    m = MajoranaMonomial(1 << 64, n_modes=128)
+    assert m.length == 1
+
+def test_large_n_modes_commutation():
+    # single-mode monomials at different positions anticommute
+    m1 = MajoranaMonomial(1 << 63, n_modes=128)
+    m2 = MajoranaMonomial(1 << 64, n_modes=128)
+    # length 1 * length 1 + overlap 0 = 1, odd → anticommutes
+    assert not m1.commutes_with(m2)
+
+def test_large_n_modes_matmul():
+    m1 = MajoranaMonomial(1 << 64, n_modes=128)
+    _, result = m1 @ m1
+    assert result == MajoranaMonomial(0, n_modes=128)
 

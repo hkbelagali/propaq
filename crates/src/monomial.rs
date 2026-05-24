@@ -182,6 +182,210 @@ impl MajoranaMonomial {
 impl PartialEq for MajoranaMonomial {
     fn eq(&self, other: &Self) -> bool { self.modes == other.modes }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mon(bits: u64, n_modes: usize) -> MajoranaMonomial {
+        MajoranaMonomial {
+            modes: Bitset::from_le_bytes(&bits.to_le_bytes()),
+            n_modes,
+            is_number_preserving: true,
+        }
+    }
+
+    fn mon_bits(bits: Vec<u64>, n_modes: usize) -> MajoranaMonomial {
+        MajoranaMonomial {
+            modes: Bitset::from_words(bits),
+            n_modes,
+            is_number_preserving: true,
+        }
+    }
+
+    #[test]
+    fn hermiticity_exp_all_residues() {
+        for (len, expected) in [(0,0),(1,0),(2,1),(3,1),(4,0),(5,0),(6,1),(7,1),(8,0)] {
+            assert_eq!(hermiticity_exp(len), expected, "hermiticity_exp({len})");
+        }
+    }
+
+    #[test]
+    fn parity_disjoint_no_inversions() {
+        // a={0,1} b={2,3}: no b-bit has any a-bit above it
+        let a = Bitset::from_le_bytes(&[0b0011]);
+        let b = Bitset::from_le_bytes(&[0b1100]);
+        assert!(!resorting_parity(&a, &b));
+    }
+
+    #[test]
+    fn parity_single_inversion() {
+        // a={1} b={0}: a has one bit (1) above b's bit (0) → count=1, odd
+        let a = Bitset::from_le_bytes(&[0b0010]);
+        let b = Bitset::from_le_bytes(&[0b0001]);
+        assert!(resorting_parity(&a, &b));
+    }
+
+    #[test]
+    fn parity_two_inversions_even() {
+        // a={2,3} b={0,1}: each b-bit has two a-bits above it → count=4, even
+        let a = Bitset::from_le_bytes(&[0b1100]);
+        let b = Bitset::from_le_bytes(&[0b0011]);
+        assert!(!resorting_parity(&a, &b));
+    }
+
+    #[test]
+    fn parity_empty_b_is_false() {
+        let a = Bitset::from_le_bytes(&[0xFF]);
+        let b = Bitset::zero();
+        assert!(!resorting_parity(&a, &b));
+    }
+
+    #[test]
+    fn weight_identity() {
+        assert_eq!(mon(0, 8).compute_weight(), 0);
+    }
+
+    #[test]
+    fn weight_single_gamma() {
+        // bit 0 only (gamma_0): X on site 0 in JW → weight 1
+        assert_eq!(mon(0b01, 8).compute_weight(), 1);
+    }
+
+    #[test]
+    fn weight_number_operator() {
+        // bits 0,1 (gamma_0 gamma_1 = number operator on site 0) → weight 1
+        assert_eq!(mon(0b11, 8).compute_weight(), 1);
+    }
+
+    #[test]
+    fn weight_four_x_modes() {
+        // bits 0,2,4,6 (gamma_0 on each of 4 sites) → weight 4
+        assert_eq!(mon(0b0101_0101, 8).compute_weight(), 4);
+    }
+
+    #[test]
+    fn weight_large_n_modes() {
+        // n_modes=128, single mode bit 0 → weight 1
+        assert_eq!(mon(0b01, 128).compute_weight(), 1);
+    }
+
+    #[test]
+    fn weight_multi_word_mode() {
+        // bit 64 → gamma_0 on site 32 in a 64-qubit JW chain.
+        // The JW string spans qubits 0..=32 → weight 33.
+        let m = mon_bits(vec![0u64, 1u64], 128);
+        assert_eq!(m.compute_weight(), 33);
+    }
+
+    #[test]
+    fn trace_identity_any_fock() {
+        let m = mon(0, 8);
+        assert_eq!(m.trace_with_fock_state(0), 1.0);
+        assert_eq!(m.trace_with_fock_state(0b1111), 1.0);
+    }
+
+    #[test]
+    fn trace_unpaired_mode_is_zero() {
+        // only bit 0 (gamma_0, no matching gamma_1) → number-changing → trace 0
+        let m = mon(0b01, 8);
+        assert_eq!(m.trace_with_fock_state(0), 0.0);
+        assert_eq!(m.trace_with_fock_state(1), 0.0);
+    }
+
+    #[test]
+    fn trace_site0_empty_fock() {
+        // modes=0b11 (site 0), fock_state=0 (site 0 empty): 2*0-1 = -1, phase=1 → -1.0
+        assert_eq!(mon(0b11, 8).trace_with_fock_state(0), -1.0);
+    }
+
+    #[test]
+    fn trace_site0_occupied_fock() {
+        // modes=0b11, fock_state=1 (site 0 occupied): 2*1-1 = 1, phase=1 → 1.0
+        assert_eq!(mon(0b11, 8).trace_with_fock_state(1), 1.0);
+    }
+
+    #[test]
+    fn trace_two_sites_all_combinations() {
+        // modes=0b1111 (sites 0 and 1): p=2, phase = if (2/2)%2==0 → 1%2=1 → -1
+        let m = mon(0b1111, 8);
+        // fock=0b00: product=(-1)(-1)=1  → -1 * 1 = -1
+        assert_eq!(m.trace_with_fock_state(0b00), -1.0);
+        // fock=0b01: product=(1)(-1)=-1  → -1 * (-1) = 1... wait
+        // phase=-1, product=-1 → -1 * -1 = 1? No: returns (phase*product) as f64
+        // phase=-1, product=(2*1-1)*(2*0-1)=1*(-1)=-1 → (-1)*(-1) = 1
+        assert_eq!(m.trace_with_fock_state(0b01), 1.0);
+        // fock=0b10: product=(-1)*(1)=-1 → (-1)*(-1)=1
+        assert_eq!(m.trace_with_fock_state(0b10), 1.0);
+        // fock=0b11: product=(1)*(1)=1 → (-1)*(1)=-1
+        assert_eq!(m.trace_with_fock_state(0b11), -1.0);
+    }
+
+    #[test]
+    fn matmul_identity_on_left() {
+        let identity = mon(0, 8);
+        let m = mon(0b0011, 8);
+        let (phase, result) = identity.matmul_internal(&m);
+        assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
+        assert_eq!(result.modes, m.modes);
+    }
+
+    #[test]
+    fn matmul_identity_on_right() {
+        let m = mon(0b0011, 8);
+        let identity = mon(0, 8);
+        let (phase, result) = m.matmul_internal(&identity);
+        assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
+        assert_eq!(result.modes, m.modes);
+    }
+
+    #[test]
+    fn matmul_self_is_identity() {
+        let m = mon(0b0111, 8);
+        let (phase, result) = m.matmul_internal(&m);
+        assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
+        assert!(result.modes.is_zero());
+    }
+
+    #[test]
+    fn matmul_disjoint_phase_is_minus_one() {
+        let a = mon(0b0011, 8);
+        let b = mon(0b1100, 8);
+        let (phase, result) = a.matmul_internal(&b);
+        assert!((phase - Complex64::new(-1.0, 0.0)).norm() < 1e-10);
+        assert_eq!(result.modes.count_ones(), 4);
+    }
+
+    #[test]
+    fn commutes_with_itself() {
+        let m = mon(0b0011, 8);
+        assert!(m.commutes_with(&m));
+    }
+
+    #[test]
+    fn commutes_disjoint_even_lengths() {
+        let a = mon(0b0011, 8);
+        let b = mon(0b1100, 8);
+        // length 2 * length 2 + overlap 0 = 4, even → commutes
+        assert!(a.commutes_with(&b));
+    }
+
+    #[test]
+    fn anticommutes_single_overlap_even_lengths() {
+        let a = mon(0b0011, 8); // bits 0,1
+        let b = mon(0b0110, 8); // bits 1,2
+        // length 2 * length 2 + overlap 1 = 5, odd → anticommutes
+        assert!(!a.commutes_with(&b));
+    }
+
+    #[test]
+    fn commutes_single_modes_disjoint() {
+        let a = mon(0b0001, 8);
+        let b = mon(0b0010, 8);
+        // length 1 * length 1 + overlap 0 = 1, odd → anticommutes
+        assert!(!a.commutes_with(&b));
+    }
+}
 impl Eq for MajoranaMonomial {}
 
 impl Hash for MajoranaMonomial {
@@ -203,7 +407,7 @@ fn hermiticity_exp(length: usize) -> i32 {
     if matches!(length % 4, 0 | 1) { 0 } else { 1 }
 }
 
-fn resorting_parity(a: &Bitset, b: &Bitset) -> bool {
+pub(crate) fn resorting_parity(a: &Bitset, b: &Bitset) -> bool {
     let mut count = 0u64;
     let mut remaining = b.clone();
     loop {
