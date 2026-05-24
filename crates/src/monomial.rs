@@ -307,17 +307,10 @@ mod tests {
 
     #[test]
     fn trace_two_sites_all_combinations() {
-        // modes=0b1111 (sites 0 and 1): p=2, phase = if (2/2)%2==0 → 1%2=1 → -1
         let m = mon(0b1111, 8);
-        // fock=0b00: product=(-1)(-1)=1  → -1 * 1 = -1
         assert_eq!(m.trace_with_fock_state(0b00), -1.0);
-        // fock=0b01: product=(1)(-1)=-1  → -1 * (-1) = 1... wait
-        // phase=-1, product=-1 → -1 * -1 = 1? No: returns (phase*product) as f64
-        // phase=-1, product=(2*1-1)*(2*0-1)=1*(-1)=-1 → (-1)*(-1) = 1
         assert_eq!(m.trace_with_fock_state(0b01), 1.0);
-        // fock=0b10: product=(-1)*(1)=-1 → (-1)*(-1)=1
         assert_eq!(m.trace_with_fock_state(0b10), 1.0);
-        // fock=0b11: product=(1)*(1)=1 → (-1)*(1)=-1
         assert_eq!(m.trace_with_fock_state(0b11), -1.0);
     }
 
