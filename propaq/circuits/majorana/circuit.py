@@ -38,7 +38,7 @@ class MajoranaCircuit:
 
         Arguments:
             qc: A Qiskit QuantumCircuit to convert.
-            n_modes: The number of fermionic modes (Majorana modes) in the system. This is needed to correctly map qubits to Majorana operators.
+            n_modes: The number of Majorana modes in the system. This is needed to correctly map qubits to Majorana operators.
         """
 
         generators: List[MajoranaMonomial] = [] 
