@@ -35,6 +35,10 @@ class MajoranaCircuit:
 
         Here, each of the supported gates will be translated into a MajoranaTermSum of 
         MajoranaMonomials, which will then be converted into MajoranaRotations.
+
+        Arguments:
+            qc: A Qiskit QuantumCircuit to convert.
+            n_modes: The number of fermionic modes (Majorana modes) in the system. This is needed to correctly map qubits to Majorana operators.
         """
 
         generators: List[MajoranaMonomial] = [] 

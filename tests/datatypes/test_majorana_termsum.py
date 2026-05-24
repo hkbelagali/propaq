@@ -1,5 +1,7 @@
 import pytest
 
+from qiskit.quantum_info import SparsePauliOp
+
 from propaq.datatypes import MajoranaTermSum, MajoranaMonomial
 from propaq.noise.truncation import TruncationPolicy
 from propaq.noise.uniform import UniformNoiseModel
@@ -163,3 +165,92 @@ def test_apply_damping_custom_python_noise():
     ts = MajoranaTermSum({t: 4.0 + 0j})
     ts.apply_damping(ConstantDampingNoise(0.25), active_modes=0)
     assert ts[t] == pytest.approx(1.0 + 0j)  # 4.0 * 0.25
+
+def _ref(modes_int: int, n_modes: int) -> MajoranaMonomial:
+    """Reference monomial for lookup; equality uses only mode bits."""
+    return MajoranaMonomial(modes_int, n_modes)
+
+
+# Single-qubit Jordan-Wigner images
+# X_0  →  γ_0          (mode 0b01,  coeff +1)
+# Y_0  →  γ_1          (mode 0b10,  coeff +1)
+# Z_0  →  γ_0 γ_1      (mode 0b11,  coeff -1)
+
+def test_from_sparse_pauli_op_x():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("X"))
+    assert len(ts) == 1
+    assert ts[_ref(0b01, 2)] == pytest.approx(1.0)
+
+
+def test_from_sparse_pauli_op_y():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("Y"))
+    assert len(ts) == 1
+    assert ts[_ref(0b10, 2)] == pytest.approx(1.0)
+
+
+def test_from_sparse_pauli_op_z():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("Z"))
+    assert len(ts) == 1
+    assert ts[_ref(0b11, 2)] == pytest.approx(-1.0)
+
+
+# Two-qubit cases (string ordering: leftmost char = highest qubit index)
+# "XZ"  →  X_1 Z_0  →  γ_2          (mode 0b0100, coeff +1)
+# "YZ"  →  Y_1 Z_0  →  γ_3          (mode 0b1000, coeff +1)
+# "ZX"  →  Z_1 X_0  →  γ_0 γ_2 γ_3  (mode 0b1101, coeff -1)
+# "XX"  →             γ_1 γ_2        (mode 0b0110, coeff -1)
+# "YY"  →             γ_0 γ_3        (mode 0b1001, coeff +1)
+# "ZZ"  →             γ_0 γ_1 γ_2 γ_3 (mode 0b1111, coeff +1)
+
+def test_from_sparse_pauli_op_xz():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp.from_list([("XZ", 1.0)]))
+    assert len(ts) == 1
+    assert ts[_ref(0b0100, 4)] == pytest.approx(1.0)
+
+
+def test_from_sparse_pauli_op_yz():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp.from_list([("YZ", 1.0)]))
+    assert len(ts) == 1
+    assert ts[_ref(0b1000, 4)] == pytest.approx(1.0)
+
+
+def test_from_sparse_pauli_op_zx():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp.from_list([("ZX", 1.0)]))
+    assert len(ts) == 1
+    assert ts[_ref(0b1101, 4)] == pytest.approx(-1.0)
+
+
+def test_from_sparse_pauli_op_xx():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp.from_list([("XX", 1.0)]))
+    assert len(ts) == 1
+    assert ts[_ref(0b0110, 4)] == pytest.approx(-1.0)
+
+
+def test_from_sparse_pauli_op_yy():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp.from_list([("YY", 1.0)]))
+    assert len(ts) == 1
+    assert ts[_ref(0b1001, 4)] == pytest.approx(1.0)
+
+
+def test_from_sparse_pauli_op_zz():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp.from_list([("ZZ", 1.0)]))
+    assert len(ts) == 1
+    assert ts[_ref(0b1111, 4)] == pytest.approx(-1.0)
+
+
+def test_from_sparse_pauli_op_coefficient_scaling():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("X", coeffs=[3.5]))
+    assert ts[_ref(0b01, 2)] == pytest.approx(3.5)
+
+
+def test_from_sparse_pauli_op_negative_coefficient():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("X", coeffs=[-2.0]))
+    assert ts[_ref(0b01, 2)] == pytest.approx(-2.0)
+
+
+def test_from_sparse_pauli_op_linear_combination():
+    op = SparsePauliOp.from_list([("X", 0.5), ("Y", 0.5)])
+    ts = MajoranaTermSum.from_sparse_pauli_op(op)
+    assert len(ts) == 2
+    assert ts[_ref(0b01, 2)] == pytest.approx(0.5)
+    assert ts[_ref(0b10, 2)] == pytest.approx(0.5)

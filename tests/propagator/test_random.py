@@ -54,7 +54,7 @@ def test_random_circuit_propagation():
     truncator = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0)
     prop = MajoranaPropagator(None, truncator)
     monomial = MajoranaMonomial(BitMask(0b11111111), n_modes=8, is_number_preserving=False)
-    observable = MajoranaTermSum({monomial: 1.0})
+    observable = MajoranaTermSum.from_sparse_pauli_op(observable)
     
     mp_expectation_value = prop.expectation_value(observable, mc, fock_state=0)
     assert np.isclose(sv_expectation_value, mp_expectation_value, atol=1e-6), f"Expectation values do not match: {sv_expectation_value} vs {mp_expectation_value}"
