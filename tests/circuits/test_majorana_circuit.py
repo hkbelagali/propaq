@@ -50,3 +50,43 @@ def test_from_qiskit_fails_fast_on_unsupported():
     qc.h(0)
     with pytest.raises(ValueError, match="Unsupported gate h"):
         MajoranaCircuit.from_qiskit(qc, n_modes=2)
+
+
+def test_from_qiskit_swap_gate():
+    from qiskit.circuit.library import SwapGate
+    qc = QuantumCircuit(2)
+    qc.append(SwapGate(), [0, 1])
+    mc = MajoranaCircuit.from_qiskit(qc, n_modes=4)
+    # SWAP → 3 rotations (two cross-site terms + one four-mode term)
+    assert len(mc.rotations) == 3
+    import math
+    expected_angles = sorted([-math.pi / 2, -math.pi / 2, math.pi / 2])
+    assert sorted(r.angle for r in mc.rotations) == pytest.approx(expected_angles)
+
+
+def test_from_qiskit_x_gate():
+    from qiskit.circuit.library import XGate
+    qc = QuantumCircuit(2)
+    qc.append(XGate(), [0])
+    mc = MajoranaCircuit.from_qiskit(qc, n_modes=4)
+    # X on qubit 0 → 1 rotation with angle π
+    assert len(mc.rotations) == 1
+    import math
+    assert mc.rotations[0].angle == pytest.approx(math.pi)
+
+
+def test_from_qiskit_cp_generator_modes():
+    from qiskit.circuit.library import CPhaseGate
+    qc = QuantumCircuit(2)
+    qc.append(CPhaseGate(0.8), [0, 1])
+    mc = MajoranaCircuit.from_qiskit(qc, n_modes=4)
+    assert len(mc.rotations) == 3
+    modes_set = {r.generator.modes for r in mc.rotations}
+    assert 0b0011 in modes_set   # site 0 number operator
+    assert 0b1100 in modes_set   # site 1 number operator
+    assert 0b1111 in modes_set   # cross-site four-mode term
+
+
+def test_lucj_from_ffsim_not_implemented():
+    with pytest.raises(NotImplementedError):
+        MajoranaCircuit.lucj_from_ffsim(None)
