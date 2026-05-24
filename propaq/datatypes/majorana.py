@@ -4,14 +4,11 @@ from dataclasses import dataclass
 
 from ._abstract import AbstractTerm, BitMask
 
+_PHASE_TO_COMPLEX: Tuple[complex, ...] = (1, 1j, -1, -1j)
+
 try:
     from propaq._rust_core import MajoranaMonomial
 except ImportError:
-    MajoranaMonomial = None
-
-_PHASE_TO_COMPLEX: Tuple[complex, ...] = (1, 1j, -1, -1j)
-
-if MajoranaMonomial is None:
     @dataclass(frozen=True, slots=True)
     class MajoranaMonomial(AbstractTerm):
         modes: BitMask
