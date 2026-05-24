@@ -32,8 +32,11 @@ class MajoranaPropagator:
     ) -> MajoranaTermSum:
         """Heisenberg-evolve observable through circuit, returning U† O U."""
         evolved = observable.copy()
-        for gate in reversed(circuit.rotations):
+        ngates = len(circuit.rotations)
+        for i, gate in enumerate(reversed(circuit.rotations)):
+            print(f"Applying gate {i + 1} / {ngates}")
             evolved = self._apply_gate(evolved, gate)
+            print(f"Obs has {len(evolved)} terms")
         
         if self._truncation is not None:
             evolved.truncate(self._truncation)

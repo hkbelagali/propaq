@@ -13,7 +13,7 @@ Concrete term datatype for Pauli terms.
 class PauliTerm(AbstractTerm):
     x: BitMask
     z: BitMask
-    n_qubits: int 
+    n_qubits: int
 
     @property 
     def weight(self) -> int: 
