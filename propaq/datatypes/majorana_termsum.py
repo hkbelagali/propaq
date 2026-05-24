@@ -4,6 +4,7 @@ import math
 from typing import Generic, List, TypeVar
 
 from qiskit.circuit import Instruction
+from qiskit.quantum_info import SparsePauliOp
 
 from .majorana import MajoranaMonomial
 from ._abstract import BitMask
@@ -158,5 +159,59 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
 
         modes = BitMask((1 << (2 * i + 1)) - 1)
         term_sum.add(MajoranaMonomial(modes, n_modes, is_number_preserving=False), angle)
+
+        return term_sum
+
+    @classmethod
+    def from_sparse_pauli_op(
+        cls, op: SparsePauliOp
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """
+        Construct from a SparsePauliOp via the Jordan-Wigner inverse transform.
+        """
+        term_sum = cls()
+        n_qubits = op.num_qubits
+        n_modes = 2 * n_qubits
+
+        for pauli_str, coeff in op.to_list():
+            modes = 0
+            z_parity = 0 
+            fwd_phase = 1 + 0j 
+
+            for q in range(n_qubits - 1, -1, -1):
+                p = pauli_str[n_qubits - 1 - q]
+
+                if p == 'I':
+                    if z_parity:
+                        modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
+                        fwd_phase *= 1j
+                elif p == 'X':
+                    if z_parity == 0:
+                        modes |= (1 << (2 * q))
+                    else:
+                        modes |= (1 << (2 * q + 1))
+                        fwd_phase *= 1j
+                    z_parity ^= 1
+                elif p == 'Y':
+                    if z_parity == 0:
+                        modes |= (1 << (2 * q + 1))
+                    else:
+                        modes |= (1 << (2 * q))
+                        fwd_phase *= -1j
+                    z_parity ^= 1
+                elif p == 'Z':
+                    if z_parity == 0:
+                        modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
+                        fwd_phase *= 1j
+
+            k = bin(modes).count('1')
+            e = (k // 2) % 2
+            hermiticity_factor = 1j ** e
+
+            effective_coeff = coeff / (hermiticity_factor * fwd_phase)
+
+            is_np = all(((modes >> (2 * q)) & 3) in (0, 3) for q in range(n_qubits))
+            m = MajoranaMonomial(BitMask(modes), n_modes, is_number_preserving=is_np)
+            term_sum.add(m, float(effective_coeff.real))
 
         return term_sum
