@@ -30,10 +30,12 @@ jobs:
       - name: Set up environment
         run: >-
           pip install .[dev]
-      - name: Run tests with pytest
+      - name: Run Python tests with pytest
         run: >-
           pytest
-
+      - name: Run Rust tests with cargo
+        run: >-
+          cargo test
   build:
     if: github.event_name == 'release'
     needs:
