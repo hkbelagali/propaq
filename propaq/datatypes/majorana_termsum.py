@@ -4,6 +4,7 @@ import math
 from typing import Generic, List, TypeVar
 
 from qiskit.circuit import Instruction
+from qiskit.quantum_info import SparsePauliOp
 
 from .majorana import MajoranaMonomial
 from ._abstract import BitMask
@@ -158,5 +159,80 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
 
         modes = BitMask((1 << (2 * i + 1)) - 1)
         term_sum.add(MajoranaMonomial(modes, n_modes, is_number_preserving=False), angle)
+
+        return term_sum
+
+    @classmethod
+    def from_sparse_pauli_op(
+        cls, op: SparsePauliOp
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """
+        Construct from a SparsePauliOp via the Jordan-Wigner inverse transform.
+
+        Each qubit either contriutes no Majoranas, one Majorana, or two Majorana modes depending 
+        on its structure. 
+
+        We need to keep track of the Z parity as we iterate through the qubits to ensure 
+        we map Z-strings to the correct Majorana modes and apply the correct phase factors.
+
+        If we are inside a Z-string, then:
+         
+        I maps to Majorana modes 2q and 2q+1.
+        X maps to an unpaired Majorana, whose index depends on the Z parity. (2q if even, 2q+1 if odd)
+        Y maps to an unpaired Majorana, whose index depends on the Z parity, (2q+1 if even, 2q if odd) 
+          and contributes an additional -i phase.
+        Z maps to Majorana modes 2q and 2q+1 and contributes an additional i phase when the Z parity is even.
+        The odd case is handled by string.
+
+        Arguments:
+            op: The SparsePauliOp to convert.
+
+        Returns:
+            The corresponding MajoranaTermSum.
+        """
+        term_sum = cls()
+        n_qubits = op.num_qubits
+        n_modes = 2 * n_qubits
+
+        for pauli_str, coeff in op.to_list():
+            modes = 0
+            z_parity = 0 
+            fwd_phase = 1 + 0j 
+
+            for q in range(n_qubits - 1, -1, -1):
+                p = pauli_str[n_qubits - 1 - q]
+
+                if p == 'I':
+                    if z_parity:
+                        modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
+                        fwd_phase *= 1j
+                elif p == 'X':
+                    if z_parity == 0:
+                        modes |= (1 << (2 * q))
+                    else:
+                        modes |= (1 << (2 * q + 1))
+                        fwd_phase *= 1j
+                    z_parity ^= 1
+                elif p == 'Y':
+                    if z_parity == 0:
+                        modes |= (1 << (2 * q + 1))
+                    else:
+                        modes |= (1 << (2 * q))
+                        fwd_phase *= -1j
+                    z_parity ^= 1
+                elif p == 'Z':
+                    if z_parity == 0:
+                        modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
+                        fwd_phase *= 1j
+
+            k = bin(modes).count('1')
+            e = (k // 2) % 2
+            hermiticity_factor = 1j ** e
+
+            effective_coeff = coeff / (hermiticity_factor * fwd_phase)
+
+            is_np = all(((modes >> (2 * q)) & 3) in (0, 3) for q in range(n_qubits))
+            m = MajoranaMonomial(BitMask(modes), n_modes, is_number_preserving=is_np)
+            term_sum.add(m, float(effective_coeff.real))
 
         return term_sum
