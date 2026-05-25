@@ -23,26 +23,44 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from an XX+YY gate between qubits q_indices[0] and q_indices[1].
-        
-        Arguments: 
+
+        For non-adjacent qubits (|j-i| > 1) the Jordan-Wigner transformation produces
+        a Z-string between the two sites.  The full Majorana generator therefore
+        includes the intermediate mode pairs {2k, 2k+1} for k between lo and hi.
+
+        When the gate qubit order is reversed (i > j) or the gap is even, the
+        rotation angle sign flips because X_lo X_hi + Y_lo Y_hi = i^{2d-1} * G_string
+        where d = hi - lo.
+
+        Arguments:
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
         """
         i, j = q_indices
+        lo, hi = min(i, j), max(i, j)
+        d = hi - lo
         theta = float(instr.params[0])
         factor = theta / 2.0
 
+        jw_string = 0
+        for k in range(lo + 1, hi):
+            jw_string |= (1 << (2 * k)) | (1 << (2 * k + 1))
+
+        sign = 1 if d % 2 == 1 else -1
+
+        if i > j:
+            m1_bits = BitMask((1 << (2 * hi)) | jw_string | (1 << (2 * lo + 1)))
+            m2_bits = BitMask((1 << (2 * hi + 1)) | jw_string | (1 << (2 * lo)))
+            sign1, sign2 = -sign * factor, sign * factor
+        else:
+            m1_bits = BitMask((1 << (2 * lo)) | jw_string | (1 << (2 * hi + 1)))
+            m2_bits = BitMask((1 << (2 * lo + 1)) | jw_string | (1 << (2 * hi)))
+            sign1, sign2 = sign * factor, -sign * factor
+
         term_sum = cls()
-
-        modes1 = BitMask((1 << (2 * i)) | (1 << (2 * j + 1)))
-        m1 = MajoranaMonomial(modes1, n_modes, is_number_preserving=False)
-        term_sum.add(m1, factor)
-
-        modes2 = BitMask((1 << (2 * i + 1)) | (1 << (2 * j)))
-        m2 = MajoranaMonomial(modes2, n_modes, is_number_preserving=False)
-        term_sum.add(m2, -factor)
-
+        term_sum.add(MajoranaMonomial(m1_bits, n_modes, is_number_preserving=False), sign1)
+        term_sum.add(MajoranaMonomial(m2_bits, n_modes, is_number_preserving=False), sign2)
         return term_sum
 
     @classmethod
@@ -66,6 +84,18 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         m_q = MajoranaMonomial(modes_n, n_modes, is_number_preserving=True)
         term_sum.add(m_q, angle)
 
+        return term_sum
+
+    @classmethod
+    def from_rz_angle(cls, q: int, angle: float, n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
+        """Construct from a raw Rz rotation angle (not an Instruction object).
+
+        Equivalent to from_phase with params[0] = angle on qubit q.
+        """
+        term_sum = cls()
+        modes_n = BitMask((1 << (2 * q)) | (1 << (2 * q + 1)))
+        m_q = MajoranaMonomial(modes_n, n_modes, is_number_preserving=True)
+        term_sum.add(m_q, -angle)
         return term_sum
 
     @classmethod
@@ -116,27 +146,41 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a SWAP gate between q_indices[0] and q_indices[1].
-        
+
+        SWAP = exp(-i π/4 XX) · exp(-i π/4 YY) · exp(-i π/4 ZZ) (up to global phase).
+        For non-adjacent qubits the XX and YY generators carry a JW string over all
+        intermediate site pairs, just as in from_xx_plus_yy.  The ZZ generator is
+        purely local (no JW string).
+
+        When the gap d = hi - lo is even, i^{2d-1} = -i, so the rotation angles for
+        the hopping generators flip sign relative to the odd-gap case.
+
         Arguments:
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
         """
         i, j = q_indices
+        lo, hi = min(i, j), max(i, j)
+        d = hi - lo
         angle = math.pi / 2
 
-        term_sum = cls()
+        jw_string = 0
+        for k in range(lo + 1, hi):
+            jw_string |= (1 << (2 * k)) | (1 << (2 * k + 1))
 
-        modes1 = BitMask((1 << (2 * i)) | (1 << (2 * j + 1)))
-        term_sum.add(MajoranaMonomial(modes1, n_modes, is_number_preserving=False), angle)
+        sign = 1 if d % 2 == 1 else -1
 
-        modes2 = BitMask((1 << (2 * i + 1)) | (1 << (2 * j)))
-        term_sum.add(MajoranaMonomial(modes2, n_modes, is_number_preserving=False), -angle)
-
-        modes3 = BitMask(
-            (1 << (2 * i)) | (1 << (2 * i + 1)) | (1 << (2 * j)) | (1 << (2 * j + 1))
+        m1_bits = BitMask((1 << (2 * lo)) | jw_string | (1 << (2 * hi + 1)))
+        m2_bits = BitMask((1 << (2 * lo + 1)) | jw_string | (1 << (2 * hi)))
+        m3_bits = BitMask(
+            (1 << (2 * lo)) | (1 << (2 * lo + 1)) | (1 << (2 * hi)) | (1 << (2 * hi + 1))
         )
-        term_sum.add(MajoranaMonomial(modes3, n_modes), -angle)
+
+        term_sum = cls()
+        term_sum.add(MajoranaMonomial(m1_bits, n_modes, is_number_preserving=False), sign * angle)
+        term_sum.add(MajoranaMonomial(m2_bits, n_modes, is_number_preserving=False), -sign * angle)
+        term_sum.add(MajoranaMonomial(m3_bits, n_modes), -angle)
 
         return term_sum
 
