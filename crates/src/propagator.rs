@@ -45,12 +45,26 @@ impl MajoranaPropagator {
         let rotations: Vec<PyObject> = circuit.getattr("rotations")?.extract()?;
         let mut evolved = observable.copy();
 
+        let tqdm = py.import("tqdm.auto")?;
+        let n = rotations.len();
+        let kwargs = pyo3::types::PyDict::new(py);
+        kwargs.set_item("total", n)?;
+        kwargs.set_item("desc", "Gate")?;
+        let pbar = tqdm.call_method("tqdm", (), Some(&kwargs))?;
+        let postfix = pyo3::types::PyDict::new(py);
+
         for rotation_obj in rotations.iter().rev() {
             let rot = rotation_obj.bind(py);
             let generator: MajoranaMonomial = rot.getattr("generator")?.extract()?;
             let angle: f64 = rot.getattr("angle")?.extract()?;
             evolved = self.apply_gate(py, &evolved, &generator, angle)?;
+
+            postfix.set_item("terms", evolved.terms.len())?;
+            pbar.call_method("set_postfix", (), Some(&postfix))?;
+            pbar.call_method0("update")?;
         }
+
+        pbar.call_method0("close")?;
 
         if let Some(ref t) = self.truncation {
             evolved.truncate(t.bind(py))?;
