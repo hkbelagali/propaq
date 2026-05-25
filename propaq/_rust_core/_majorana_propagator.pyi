@@ -1,5 +1,11 @@
+from typing import List
+
 from ._majorana_monomial import MajoranaMonomial
 from ._majorana_term_sum import MajoranaTermSum
+
+class PropagationResult:
+    n_terms: List[int] 
+    expectation_value: float 
 
 class MajoranaPropagator:
     def __init__(
@@ -56,7 +62,7 @@ class MajoranaPropagator:
         observable: MajoranaTermSum,
         circuit: "MajoranaCircuit",
         fock_state: int = 0,
-    ) -> float: 
+    ) -> PropagationResult: 
         """
         Calculate the expectation value of an observable with respect to a Fock state.
 
@@ -66,6 +72,6 @@ class MajoranaPropagator:
             fock_state: The Fock state to calculate the expectation value with respect to.
 
         Returns:
-            The expectation value of the observable with respect to the Fock state.
+            PropagationResult containing the number of terms in the propagated observable at each step and the final expectation value.
         """
         ...

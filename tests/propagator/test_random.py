@@ -42,7 +42,7 @@ def test_random_circuit_propagation():
 
     observable = SparsePauliOp("ZZZZ") 
 
-    sv_expectation_value = sv.expectation_value(observable).real 
+    sv_expectation_value = sv.expectation_value(observable)
 
     from propaq.propagators import MajoranaPropagator
     from propaq.circuits import MajoranaCircuit 
@@ -56,5 +56,5 @@ def test_random_circuit_propagation():
     monomial = MajoranaMonomial(BitMask(0b11111111), n_modes=8, is_number_preserving=False)
     observable = MajoranaTermSum.from_sparse_pauli_op(observable)
     
-    mp_expectation_value = prop.expectation_value(observable, mc, fock_state=0)
+    mp_expectation_value = prop.expectation_value(observable, mc, fock_state=0).expectation_value
     assert np.isclose(sv_expectation_value, mp_expectation_value, atol=1e-6), f"Expectation values do not match: {sv_expectation_value} vs {mp_expectation_value}"
