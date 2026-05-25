@@ -147,7 +147,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         """
         Construct from a SWAP gate between q_indices[0] and q_indices[1].
 
-        SWAP = exp(-i π/4 XX) · exp(-i π/4 YY) · exp(-i π/4 ZZ) (up to global phase).
+        SWAP = exp(-i pi/4 XX) · exp(-i pi/4 YY) · exp(-i pi/4 ZZ) (up to global phase).
         For non-adjacent qubits the XX and YY generators carry a JW string over all
         intermediate site pairs, just as in from_xx_plus_yy.  The ZZ generator is
         purely local (no JW string).
