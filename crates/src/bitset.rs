@@ -1,22 +1,27 @@
-//! This module defines a flexible length bitset, represented as a vector of 64-bit words. It supports basic bitwise operations, counting set bits, and shifting. 
+//! This module defines a flexible length bitset, represented as a vector of 64-bit words. It supports basic bitwise operations, counting set bits, and shifting.
 //! This is needed to store an arbitrary number of Majorana modes
 use std::hash::{Hash, Hasher};
 use std::ops::{BitAnd, BitOr, BitXor};
+use smallvec::SmallVec;
+
+// 4 inline words = 256 Majorana modes (128 qubits) without heap allocation.
+// Larger systems spill to heap automatically.
+type Words = SmallVec<[u64; 4]>;
 
 #[derive(Clone, Debug, Default)]
 pub struct Bitset {
-    words: Vec<u64>,
+    words: Words,
 }
 
 impl Bitset {
     /// Generate an empty bitset
     pub fn zero() -> Self {
-        Self { words: vec![] }
+        Self { words: Words::new() }
     }
 
     /// Build the bitset from a vector of 64-bit words, removing any trailing zeros.
-    pub fn from_words(words: Vec<u64>) -> Self {
-        let mut b = Self { words };
+    pub fn from_words(words: impl Into<Words>) -> Self {
+        let mut b = Self { words: words.into() };
         b.normalize();
         b
     }
@@ -27,7 +32,7 @@ impl Bitset {
             return Self::zero();
         }
         let n_words = (bytes.len() + 7) / 8;
-        let mut words = Vec::with_capacity(n_words);
+        let mut words = Words::with_capacity(n_words);
         let mut i = 0;
         while i < bytes.len() {
             let end = (i + 8).min(bytes.len());
@@ -116,7 +121,7 @@ impl Bitset {
         if word_shift >= self.words.len() {
             return Self::zero();
         }
-        let mut words = Vec::with_capacity(self.words.len() - word_shift);
+        let mut words = Words::with_capacity(self.words.len() - word_shift);
         for i in word_shift..self.words.len() {
             let lo = if bit_shift > 0 { self.words[i] >> bit_shift } else { self.words[i] };
             let hi = if bit_shift > 0 && i + 1 < self.words.len() {
@@ -138,7 +143,7 @@ impl Bitset {
     pub fn even_mask_upto(n: usize) -> Self {
         if n == 0 { return Self::zero(); }
         let n_words = (n + 63) / 64;
-        let mut words = Vec::with_capacity(n_words);
+        let mut words = Words::with_capacity(n_words);
         for w in 0..n_words {
             let base = w * 64;
             let bits_in_word = n.saturating_sub(base).min(64);
@@ -157,7 +162,7 @@ impl Bitset {
     pub fn all_ones_upto(n: usize) -> Self {
         if n == 0 { return Self::zero(); }
         let n_words = (n + 63) / 64;
-        let mut words = vec![!0u64; n_words];
+        let mut words: Words = std::iter::repeat(!0u64).take(n_words).collect();
         let rem = n % 64;
         if rem != 0 { *words.last_mut().unwrap() = (1u64 << rem) - 1; }
         Self::from_words(words)
@@ -169,7 +174,7 @@ impl Bitset {
         let word_shift = shift / 64;
         let bit_shift  = shift % 64;
         let new_len = self.words.len() + word_shift + if bit_shift > 0 { 1 } else { 0 };
-        let mut words = vec![0u64; new_len];
+        let mut words: Words = std::iter::repeat(0u64).take(new_len).collect();
         for (i, &w) in self.words.iter().enumerate() {
             let lo = if bit_shift > 0 { w << bit_shift } else { w };
             let hi = if bit_shift > 0 { w >> (64 - bit_shift) } else { 0 };
@@ -193,7 +198,7 @@ impl BitAnd for &Bitset {
     type Output = Bitset;
     fn bitand(self, rhs: &Bitset) -> Bitset {
         let len = self.words.len().min(rhs.words.len());
-        let words: Vec<u64> = (0..len).map(|i| self.words[i] & rhs.words[i]).collect();
+        let words: Words = (0..len).map(|i| self.words[i] & rhs.words[i]).collect();
         Bitset::from_words(words)
     }
 }
@@ -202,7 +207,7 @@ impl BitXor for &Bitset {
     type Output = Bitset;
     fn bitxor(self, rhs: &Bitset) -> Bitset {
         let len = self.words.len().max(rhs.words.len());
-        let words: Vec<u64> = (0..len).map(|i| self.word(i) ^ rhs.word(i)).collect();
+        let words: Words = (0..len).map(|i| self.word(i) ^ rhs.word(i)).collect();
         Bitset::from_words(words)
     }
 }
@@ -211,7 +216,7 @@ impl BitOr for &Bitset {
     type Output = Bitset;
     fn bitor(self, rhs: &Bitset) -> Bitset {
         let len = self.words.len().max(rhs.words.len());
-        let words: Vec<u64> = (0..len).map(|i| self.word(i) | rhs.word(i)).collect();
+        let words: Words = (0..len).map(|i| self.word(i) | rhs.word(i)).collect();
         Bitset::from_words(words)
     }
 }

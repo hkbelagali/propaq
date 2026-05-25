@@ -11,7 +11,7 @@ pub use monomial::MajoranaMonomial;
 pub use termsum::MajoranaTermSum;
 pub use truncation::TruncationPolicy;
 pub use noise::{UniformNoiseModel, GateNoiseModel};
-pub use propagator::MajoranaPropagator;
+pub use propagator::{MajoranaPropagator, PropagationResult};
 
 #[pyfunction]
 fn rust_available() -> bool {
@@ -27,5 +27,6 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<UniformNoiseModel>()?;
     m.add_class::<GateNoiseModel>()?;
     m.add_class::<MajoranaPropagator>()?;
+    m.add_class::<PropagationResult>()?;
     Ok(())
 }
