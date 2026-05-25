@@ -13,16 +13,18 @@ pub struct MajoranaPropagator {
     noise: Option<PyObject>,
     truncation: Option<PyObject>,
     pool: Arc<rayon::ThreadPool>,
+    progress_bar: bool,
 }
 
 #[pymethods]
 impl MajoranaPropagator {
     #[new]
-    #[pyo3(signature = (noise=None, truncation=None, n_threads=None))]
+    #[pyo3(signature = (noise=None, truncation=None, n_threads=None, progress_bar=false))]
     fn new(
         noise: Option<PyObject>,
         truncation: Option<PyObject>,
         n_threads: Option<usize>,
+        progress_bar: bool,
     ) -> PyResult<Self> {
         let mut builder = rayon::ThreadPoolBuilder::new();
         if let Some(n) = n_threads {
@@ -33,7 +35,7 @@ impl MajoranaPropagator {
                 .build()
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
         );
-        Ok(MajoranaPropagator { noise, truncation, pool })
+        Ok(MajoranaPropagator { noise, truncation, pool, progress_bar })
     }
 
     fn propagate(
@@ -45,26 +47,63 @@ impl MajoranaPropagator {
         let rotations: Vec<PyObject> = circuit.getattr("rotations")?.extract()?;
         let mut evolved = observable.copy();
 
-        let tqdm = py.import("tqdm.auto")?;
-        let n = rotations.len();
-        let kwargs = pyo3::types::PyDict::new(py);
-        kwargs.set_item("total", n)?;
-        kwargs.set_item("desc", "Gate")?;
-        let pbar = tqdm.call_method("tqdm", (), Some(&kwargs))?;
-        let postfix = pyo3::types::PyDict::new(py);
+        let damping: Option<f64> = if let Some(ref noise_obj) = self.noise {
+            let noise = noise_obj.bind(py);
+            if let Ok(unm) = noise.extract::<PyRef<UniformNoiseModel>>() {
+                Some(unm.damping)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let (pbar, postfix) = if self.progress_bar {
+            let tqdm = py.import("tqdm.auto")?;
+            let postfix = pyo3::types::PyDict::new(py);
+            let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("total", rotations.len())?;
+            kwargs.set_item("desc", "Propagating through gates")?;
+            let pbar = tqdm.call_method("tqdm", (), Some(&kwargs))?;
+            (Some(pbar), Some(postfix))
+        } else {
+            (None, None)
+        };
+        
 
         for rotation_obj in rotations.iter().rev() {
             let rot = rotation_obj.bind(py);
             let generator: MajoranaMonomial = rot.getattr("generator")?.extract()?;
             let angle: f64 = rot.getattr("angle")?.extract()?;
-            evolved = self.apply_gate(py, &evolved, &generator, angle)?;
 
-            postfix.set_item("terms", evolved.terms.len())?;
-            pbar.call_method("set_postfix", (), Some(&postfix))?;
-            pbar.call_method0("update")?;
+            // Release GIL for the gate application
+            evolved = py.allow_threads(|| {
+                self.apply_gate(&evolved, &generator, angle, damping)
+            });
+
+            // Reacquire GIL for non-uniform noise, truncation, and progress bar
+            if self.noise.is_some() && damping.is_none() {
+                let noise = self.noise.as_ref().unwrap().bind(py);
+                evolved.apply_damping(noise, generator.compute_weight())?;
+            }
+
+            if generator.is_number_preserving {
+                if let Some(ref trunc_obj) = self.truncation {
+                    evolved.truncate(trunc_obj.bind(py))?;
+                }
+            }
+
+            if let (Some(pbar), Some(postfix)) = (&pbar, &postfix) {
+                postfix.set_item("terms", evolved.terms.len())?;
+                pbar.call_method("set_postfix", (), Some(postfix))?;
+                pbar.call_method0("update")?;
+            }
+            
         }
 
-        pbar.call_method0("close")?;
+        if let Some(pbar) = &pbar {
+            pbar.call_method0("close")?;
+        }
 
         if let Some(ref t) = self.truncation {
             evolved.truncate(t.bind(py))?;
@@ -94,11 +133,11 @@ impl MajoranaPropagator {
 impl MajoranaPropagator {
     fn apply_gate(
         &self,
-        py: Python<'_>,
         terms: &MajoranaTermSum,
         generator: &MajoranaMonomial,
         angle: f64,
-    ) -> PyResult<MajoranaTermSum> {
+        damping: Option<f64>,
+    ) -> MajoranaTermSum {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
 
@@ -126,24 +165,13 @@ impl MajoranaPropagator {
         }
         let mut result = MajoranaTermSum { terms: result_map };
 
-        if let Some(ref noise_obj) = self.noise {
-            let noise = noise_obj.bind(py);
-            if let Ok(unm) = noise.extract::<PyRef<UniformNoiseModel>>() {
-                let d = unm.damping;
-                for (term, coeff) in result.terms.iter_mut() {
-                    *coeff *= (-d * term.compute_weight() as f64).exp();
-                }
-            } else {
-                result.apply_damping(noise, generator.compute_weight())?;
+        // Apply uniform noise if damping was pre-extracted
+        if let Some(d) = damping {
+            for (term, coeff) in result.terms.iter_mut() {
+                *coeff *= (-d * term.compute_weight() as f64).exp();
             }
         }
 
-        if generator.is_number_preserving {
-            if let Some(ref trunc_obj) = self.truncation {
-                result.truncate(trunc_obj.bind(py))?;
-            }
-        }
-
-        Ok(result)
+        result
     }
 }

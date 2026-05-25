@@ -7,6 +7,7 @@ class MajoranaPropagator:
         noise: object | None = None,
         truncation: object | None = None,
         n_threads: int | None = None,
+        progress_bar: bool = False,
     ) -> None:  
         """
         Initialize the Majorana propagator.
@@ -14,7 +15,8 @@ class MajoranaPropagator:
         Arguments:
             noise: The noise model to use. This will trigger a callback to Python for custom noise models, which can hurt performance.
             truncation: The truncation policy to use. This will trigger a callback to Python for custom policies, which can hurt performance.
-            n_threads: The number of threads to use. 
+            n_threads: The number of threads to use.
+            progress_bar: If true, display a tqdm progress bar showing the progress through the circuit the total number of terms in the observable.
 
         NOTE: We use multithreading instead of multiprocessing to avoid the overhead of inter-process communication, which can be significant for large term sums 
         that consume a lot of memory. Multithreading allows us to share memory between threads, which can be more efficient for our use case.
