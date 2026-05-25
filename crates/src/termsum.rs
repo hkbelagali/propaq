@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use num_complex::Complex64;
-use indexmap::IndexMap;
+use rustc_hash::FxHashMap;
 
 use crate::monomial::MajoranaMonomial;
 use crate::truncation::TruncationPolicy;
@@ -9,7 +9,7 @@ use crate::noise::UniformNoiseModel;
 
 #[pyclass(subclass)]
 pub struct MajoranaTermSum {
-    pub terms: IndexMap<MajoranaMonomial, Complex64>,
+    pub terms: FxHashMap<MajoranaMonomial, Complex64>,
 }
 
 #[pymethods]
@@ -17,8 +17,9 @@ impl MajoranaTermSum {
     #[new]
     #[pyo3(signature = (terms=None))]
     fn new(terms: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
-        let mut map = IndexMap::new();
+        let mut map = FxHashMap::default();
         if let Some(dict) = terms {
+            map.reserve(dict.len());
             for (k, v) in dict.iter() {
                 let key: MajoranaMonomial = k.extract()?;
                 let val: Complex64 = v.extract()?;
@@ -65,7 +66,7 @@ impl MajoranaTermSum {
             }
         }
         for key in to_remove {
-            self.terms.swap_remove(&key);
+            self.terms.remove(&key);
         }
         Ok(())
     }
@@ -109,6 +110,8 @@ impl MajoranaTermSum {
     }
 
     pub fn copy(&self) -> MajoranaTermSum {
-        MajoranaTermSum { terms: self.terms.clone() }
+        let mut terms = FxHashMap::with_capacity_and_hasher(self.terms.len(), Default::default());
+        terms.extend(self.terms.iter().map(|(k, v)| (k.clone(), *v)));
+        MajoranaTermSum { terms }
     }
 }

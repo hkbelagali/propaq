@@ -1,12 +1,31 @@
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use num_complex::Complex64;
-use indexmap::IndexMap;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 use crate::monomial::MajoranaMonomial;
 use crate::termsum::MajoranaTermSum;
 use crate::noise::UniformNoiseModel;
+
+#[pyclass]
+pub struct PropagationResult {
+    #[pyo3(get)]
+    pub n_terms: Vec<usize>,
+    #[pyo3(get)]
+    pub expectation_value: f64,
+}
+
+#[pymethods]
+impl PropagationResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "PropagationResult(expectation_value={}, n_terms=[{} entries])",
+            self.expectation_value,
+            self.n_terms.len()
+        )
+    }
+}
 
 #[pyclass]
 pub struct MajoranaPropagator {
@@ -119,14 +138,78 @@ impl MajoranaPropagator {
         observable: &MajoranaTermSum,
         circuit: &Bound<'_, PyAny>,
         fock_state: u64,
-    ) -> PyResult<f64> {
-        let evolved = self.propagate(py, observable, circuit)?;
+    ) -> PyResult<PropagationResult> {
+        let rotations: Vec<PyObject> = circuit.getattr("rotations")?.extract()?;
+        let mut evolved = observable.copy();
+        let mut n_terms: Vec<usize> = Vec::with_capacity(rotations.len());
+
+        let damping: Option<f64> = if let Some(ref noise_obj) = self.noise {
+            let noise = noise_obj.bind(py);
+            if let Ok(unm) = noise.extract::<PyRef<UniformNoiseModel>>() {
+                Some(unm.damping)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let (pbar, postfix) = if self.progress_bar {
+            let tqdm = py.import("tqdm.auto")?;
+            let postfix = pyo3::types::PyDict::new(py);
+            let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("total", rotations.len())?;
+            kwargs.set_item("desc", "Propagating through gates")?;
+            let pbar = tqdm.call_method("tqdm", (), Some(&kwargs))?;
+            (Some(pbar), Some(postfix))
+        } else {
+            (None, None)
+        };
+
+        for rotation_obj in rotations.iter().rev() {
+            let rot = rotation_obj.bind(py);
+            let generator: MajoranaMonomial = rot.getattr("generator")?.extract()?;
+            let angle: f64 = rot.getattr("angle")?.extract()?;
+
+            evolved = py.allow_threads(|| {
+                self.apply_gate(&evolved, &generator, angle, damping)
+            });
+
+            if self.noise.is_some() && damping.is_none() {
+                let noise = self.noise.as_ref().unwrap().bind(py);
+                evolved.apply_damping(noise, generator.compute_weight())?;
+            }
+
+            if generator.is_number_preserving {
+                if let Some(ref trunc_obj) = self.truncation {
+                    evolved.truncate(trunc_obj.bind(py))?;
+                }
+            }
+
+            n_terms.push(evolved.terms.len());
+
+            if let (Some(pbar), Some(postfix)) = (&pbar, &postfix) {
+                postfix.set_item("terms", evolved.terms.len())?;
+                pbar.call_method("set_postfix", (), Some(postfix))?;
+                pbar.call_method0("update")?;
+            }
+        }
+
+        if let Some(pbar) = &pbar {
+            pbar.call_method0("close")?;
+        }
+
+        if let Some(ref t) = self.truncation {
+            evolved.truncate(t.bind(py))?;
+        }
+
         let total: Complex64 = evolved
             .terms
             .iter()
             .map(|(term, coeff)| coeff * term.trace_with_fock_state(fock_state))
             .sum();
-        Ok(total.re)
+
+        Ok(PropagationResult { n_terms, expectation_value: total.re })
     }
 }
 
@@ -141,12 +224,15 @@ impl MajoranaPropagator {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
 
-        let result_map: IndexMap<MajoranaMonomial, Complex64> = self.pool.install(|| {
+        let n_terms = terms.terms.len();
+        let result_map: FxHashMap<MajoranaMonomial, Complex64> = self.pool.install(|| {
             terms
                 .terms
                 .par_iter()
                 .fold(
-                    IndexMap::new,
+                    // Each chunk may produce up to 2× entries (commuting keeps 1, non-commuting adds 1 new term).
+                    // Rough per-chunk pre-allocation; rayon sizes chunks so dividing evenly is close enough.
+                    || FxHashMap::with_capacity_and_hasher(64, Default::default()),
                     |mut map, (term, coeff)| {
                         if term.commutes_with(generator) {
                             *map.entry(term.clone()).or_insert(Complex64::new(0.0, 0.0)) += coeff;
@@ -159,12 +245,15 @@ impl MajoranaPropagator {
                         map
                     },
                 )
-                .reduce(IndexMap::new, |mut a, b| {
-                    for (term, coeff) in b {
-                        *a.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
-                    }
-                    a
-                })
+                .reduce(
+                    || FxHashMap::with_capacity_and_hasher(n_terms * 2, Default::default()),
+                    |mut a, b| {
+                        for (term, coeff) in b {
+                            *a.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
+                        }
+                        a
+                    },
+                )
         });
 
         let mut result = MajoranaTermSum { terms: result_map };

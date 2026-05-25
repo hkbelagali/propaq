@@ -26,28 +26,28 @@ def test_expectation_value_vacuum_fock():
     # modes=0b11 (site 0 number operator): trace(vacuum) = -1.0
     obs = MajoranaTermSum({mon(0b11): 1.0})
     prop = MajoranaPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=0)
+    val = prop.expectation_value(obs, empty_circuit(), fock_state=0).expectation_value
     assert val == pytest.approx(-1.0)
 
 def test_expectation_value_occupied_fock():
     # modes=0b11 (site 0): trace(site-0-occupied) = 1.0
     obs = MajoranaTermSum({mon(0b11): 1.0})
     prop = MajoranaPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=1)
+    val = prop.expectation_value(obs, empty_circuit(), fock_state=1).expectation_value
     assert val == pytest.approx(1.0)
 
 def test_expectation_value_site1_fock():
     # modes=0b1100 (site 1): trace = -1 when site 1 empty, +1 when occupied
     obs = MajoranaTermSum({mon(0b1100): 1.0})
     prop = MajoranaPropagator()
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b00) == pytest.approx(-1.0)
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b10) == pytest.approx(1.0)
+    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b00).expectation_value == pytest.approx(-1.0)
+    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b10).expectation_value == pytest.approx(1.0)
 
 def test_expectation_value_linear_in_coefficient():
     # scaling the observable scales the expectation value
     obs = MajoranaTermSum({mon(0b11): 3.0})
     prop = MajoranaPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=0)
+    val = prop.expectation_value(obs, empty_circuit(), fock_state=0).expectation_value
     assert val == pytest.approx(-3.0)
 
 def test_expectation_value_superposition_of_terms():
@@ -55,9 +55,9 @@ def test_expectation_value_superposition_of_terms():
     obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 2.0})
     prop = MajoranaPropagator()
     # fock_state=0: site0=-1, site1=-1 → 1*(-1) + 2*(-1) = -3
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0) == pytest.approx(-3.0)
+    assert prop.expectation_value(obs, empty_circuit(), fock_state=0).expectation_value == pytest.approx(-3.0)
     # fock_state=0b11: both occupied → 1*(1) + 2*(1) = 3
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b11) == pytest.approx(3.0)
+    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b11).expectation_value == pytest.approx(3.0)
 
 def test_noise_damps_commuting_term():
     obs_term = mon(0b11)  # weight = 1
