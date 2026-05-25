@@ -141,28 +141,32 @@ impl MajoranaPropagator {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
 
-        let pairs: Vec<(MajoranaMonomial, Complex64)> = self.pool.install(|| {
+        let result_map: IndexMap<MajoranaMonomial, Complex64> = self.pool.install(|| {
             terms
                 .terms
                 .par_iter()
-                .flat_map(|(term, coeff)| {
-                    if term.commutes_with(generator) {
-                        vec![(term.clone(), *coeff)]
-                    } else {
-                        let (phase, new_term) = generator.matmul_internal(term);
-                        vec![
-                            (term.clone(), *coeff * cos_t),
-                            (new_term, *coeff * Complex64::new(0.0, sin_t) * phase),
-                        ]
+                .fold(
+                    IndexMap::new,
+                    |mut map, (term, coeff)| {
+                        if term.commutes_with(generator) {
+                            *map.entry(term.clone()).or_insert(Complex64::new(0.0, 0.0)) += coeff;
+                        } else {
+                            let (phase, new_term) = generator.matmul_internal(term);
+                            *map.entry(term.clone()).or_insert(Complex64::new(0.0, 0.0)) += coeff * cos_t;
+                            *map.entry(new_term).or_insert(Complex64::new(0.0, 0.0)) +=
+                                coeff * Complex64::new(0.0, sin_t) * phase;
+                        }
+                        map
+                    },
+                )
+                .reduce(IndexMap::new, |mut a, b| {
+                    for (term, coeff) in b {
+                        *a.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
                     }
+                    a
                 })
-                .collect()
         });
 
-        let mut result_map: IndexMap<MajoranaMonomial, Complex64> = IndexMap::new();
-        for (term, coeff) in pairs {
-            *result_map.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
-        }
         let mut result = MajoranaTermSum { terms: result_map };
 
         // Apply uniform noise if damping was pre-extracted
