@@ -58,9 +58,24 @@ class MajoranaCircuit:
             if instr.name == "xx_plus_yy":
                 if len(qargs) != 2:
                     raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
-                majoranasum: MajoranaTermSum[MajoranaMonomial] = MajoranaTermSum[MajoranaMonomial].from_xx_plus_yy(instr, q_indices, n_modes) 
-                
-            elif instr.name == "p": 
+                beta = float(instr.params[1]) if len(instr.params) > 1 else 0.0
+                if abs(beta) > 1e-14:
+                    rz_sum = MajoranaTermSum[MajoranaMonomial].from_rz_angle(q_indices[1], -beta, n_modes)
+                    for gen, ang in rz_sum.items():
+                        generators.append(gen)
+                        angles.append(float(ang.real))
+                majoranasum: MajoranaTermSum[MajoranaMonomial] = MajoranaTermSum[MajoranaMonomial].from_xx_plus_yy(instr, q_indices, n_modes)
+                for gen, ang in majoranasum.items():
+                    generators.append(gen)
+                    angles.append(float(ang.real))
+                if abs(beta) > 1e-14:
+                    rz_neg_sum = MajoranaTermSum[MajoranaMonomial].from_rz_angle(q_indices[1], beta, n_modes)
+                    for gen, ang in rz_neg_sum.items():
+                        generators.append(gen)
+                        angles.append(float(ang.real))
+                continue
+
+            elif instr.name == "p":
                 majoranasum = MajoranaTermSum[MajoranaMonomial].from_phase(instr, q_indices, n_modes) 
                 
             elif instr.name == "rz": 
