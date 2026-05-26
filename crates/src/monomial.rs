@@ -2,12 +2,10 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use num_complex::Complex64;
 use std::hash::{Hash, Hasher};
+use rustc_hash::FxHasher;
 
 use crate::bitset::Bitset;
 
-/// we can't use u64 directly because that would only allow us to represent up to 32 fermionic modes 
-/// we would likely need more than this, so we use a custom arbitrary-length bitset implementation, where we can control the boolean operations
-/// In order to do this, we define conversion functions between Python integers and our Bitset
 pub(crate) fn pyint_to_bitset(obj: &Bound<'_, PyAny>, _n_modes: usize) -> PyResult<Bitset> {
     let bit_length: usize = obj.call_method0("bit_length")?.extract()?;
     let byte_len = (bit_length + 7) / 8;
@@ -30,6 +28,8 @@ pub struct MajoranaMonomial {
     pub n_modes: usize,
     #[pyo3(get)]
     pub is_number_preserving: bool,
+    /// Cached Pauli weight after Jordan-Wigner transformation. Immutable after construction.
+    pub weight: u32,
 }
 
 #[pymethods]
@@ -38,7 +38,8 @@ impl MajoranaMonomial {
     #[pyo3(signature = (modes, n_modes, is_number_preserving = true))]
     fn new(modes: &Bound<'_, PyAny>, n_modes: usize, is_number_preserving: bool) -> PyResult<Self> {
         let bitset = pyint_to_bitset(modes, n_modes)?;
-        Ok(MajoranaMonomial { modes: bitset, n_modes, is_number_preserving })
+        let weight = Self::compute_weight_for(&bitset, n_modes);
+        Ok(MajoranaMonomial { modes: bitset, n_modes, is_number_preserving, weight })
     }
 
     #[getter]
@@ -53,7 +54,7 @@ impl MajoranaMonomial {
 
     #[getter]
     fn weight(&self) -> u32 {
-        self.compute_weight()
+        self.weight
     }
 
     fn overlap(&self, other: &MajoranaMonomial) -> u32 {
@@ -69,12 +70,7 @@ impl MajoranaMonomial {
 
     fn resulting_weight(&self, other: &MajoranaMonomial) -> u32 {
         let result_modes = &self.modes ^ &other.modes;
-        let temp = MajoranaMonomial {
-            modes: result_modes,
-            n_modes: self.n_modes,
-            is_number_preserving: true,
-        };
-        temp.compute_weight()
+        Self::compute_weight_for(&result_modes, self.n_modes)
     }
 
     fn __matmul__(&self, other: &MajoranaMonomial) -> PyResult<(Complex64, MajoranaMonomial)> {
@@ -112,7 +108,7 @@ impl MajoranaMonomial {
     }
 
     fn __hash__(&self) -> u64 {
-        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let mut h = FxHasher::default();
         self.modes.hash(&mut h);
         h.finish()
     }
@@ -122,17 +118,17 @@ impl MajoranaMonomial {
     }
 }
 
-/// We define stuff that we'll use in other parts of the Rust code here, so that we can keep the Python bindings clean and prevent duplicate stuff
 impl MajoranaMonomial {
-    /// Pauli weight of this monomial after Jordan-Wigner transformation.
-    pub fn compute_weight(&self) -> u32 {
-        let n_qubits = self.n_modes / 2;
+    /// Compute JW Pauli weight from modes and n_modes without a MajoranaMonomial instance.
+    /// Called once at construction and in matmul_internal to populate the cached field.
+    pub(crate) fn compute_weight_for(modes: &Bitset, n_modes: usize) -> u32 {
+        let n_qubits = n_modes / 2;
         if n_qubits == 0 { return 0; }
 
         let qubit_mask = Bitset::all_ones_upto(n_qubits);
 
-        let x_bits = compress_to_qubits(&self.modes, n_qubits, 0);
-        let y_bits = compress_to_qubits(&self.modes, n_qubits, 1);
+        let x_bits = compress_to_qubits(modes, n_qubits, 0);
+        let y_bits = compress_to_qubits(modes, n_qubits, 1);
 
         let occupied = &x_bits | &y_bits;
         let single   = &x_bits ^ &y_bits;
@@ -153,12 +149,19 @@ impl MajoranaMonomial {
         (&occupied | &string).count_ones()
     }
 
+    /// Returns the cached Pauli weight.
+    pub fn compute_weight(&self) -> u32 {
+        self.weight
+    }
+
     pub(crate) fn matmul_internal(&self, other: &MajoranaMonomial) -> (Complex64, MajoranaMonomial) {
         let result_modes = &self.modes ^ &other.modes;
+        let weight = Self::compute_weight_for(&result_modes, self.n_modes);
         let result = MajoranaMonomial {
             modes: result_modes,
             n_modes: self.n_modes,
             is_number_preserving: true,
+            weight,
         };
 
         let r_a = hermiticity_exp(self.length());
@@ -188,19 +191,15 @@ mod tests {
     use super::*;
 
     fn mon(bits: u64, n_modes: usize) -> MajoranaMonomial {
-        MajoranaMonomial {
-            modes: Bitset::from_le_bytes(&bits.to_le_bytes()),
-            n_modes,
-            is_number_preserving: true,
-        }
+        let modes = Bitset::from_le_bytes(&bits.to_le_bytes());
+        let weight = MajoranaMonomial::compute_weight_for(&modes, n_modes);
+        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight }
     }
 
     fn mon_bits(bits: Vec<u64>, n_modes: usize) -> MajoranaMonomial {
-        MajoranaMonomial {
-            modes: Bitset::from_words(bits),
-            n_modes,
-            is_number_preserving: true,
-        }
+        let modes = Bitset::from_words(bits);
+        let weight = MajoranaMonomial::compute_weight_for(&modes, n_modes);
+        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight }
     }
 
     #[test]
@@ -212,7 +211,6 @@ mod tests {
 
     #[test]
     fn parity_disjoint_no_inversions() {
-        // a={0,1} b={2,3}: no b-bit has any a-bit above it
         let a = Bitset::from_le_bytes(&[0b0011]);
         let b = Bitset::from_le_bytes(&[0b1100]);
         assert!(!resorting_parity(&a, &b));
@@ -220,7 +218,6 @@ mod tests {
 
     #[test]
     fn parity_single_inversion() {
-        // a={1} b={0}: a has one bit (1) above b's bit (0) → count=1, odd
         let a = Bitset::from_le_bytes(&[0b0010]);
         let b = Bitset::from_le_bytes(&[0b0001]);
         assert!(resorting_parity(&a, &b));
@@ -228,7 +225,6 @@ mod tests {
 
     #[test]
     fn parity_two_inversions_even() {
-        // a={2,3} b={0,1}: each b-bit has two a-bits above it → count=4, even
         let a = Bitset::from_le_bytes(&[0b1100]);
         let b = Bitset::from_le_bytes(&[0b0011]);
         assert!(!resorting_parity(&a, &b));
@@ -248,32 +244,26 @@ mod tests {
 
     #[test]
     fn weight_single_gamma() {
-        // bit 0 only (gamma_0): X on site 0 in JW → weight 1
         assert_eq!(mon(0b01, 8).compute_weight(), 1);
     }
 
     #[test]
     fn weight_number_operator() {
-        // bits 0,1 (gamma_0 gamma_1 = number operator on site 0) → weight 1
         assert_eq!(mon(0b11, 8).compute_weight(), 1);
     }
 
     #[test]
     fn weight_four_x_modes() {
-        // bits 0,2,4,6 (gamma_0 on each of 4 sites) → weight 4
         assert_eq!(mon(0b0101_0101, 8).compute_weight(), 4);
     }
 
     #[test]
     fn weight_large_n_modes() {
-        // n_modes=128, single mode bit 0 → weight 1
         assert_eq!(mon(0b01, 128).compute_weight(), 1);
     }
 
     #[test]
     fn weight_multi_word_mode() {
-        // bit 64 → gamma_0 on site 32 in a 64-qubit JW chain.
-        // The JW string spans qubits 0..=32 → weight 33.
         let m = mon_bits(vec![0u64, 1u64], 128);
         assert_eq!(m.compute_weight(), 33);
     }
@@ -287,7 +277,6 @@ mod tests {
 
     #[test]
     fn trace_unpaired_mode_is_zero() {
-        // only bit 0 (gamma_0, no matching gamma_1) → number-changing → trace 0
         let m = mon(0b01, 8);
         assert_eq!(m.trace_with_fock_state(0), 0.0);
         assert_eq!(m.trace_with_fock_state(1), 0.0);
@@ -295,13 +284,11 @@ mod tests {
 
     #[test]
     fn trace_site0_empty_fock() {
-        // modes=0b11 (site 0), fock_state=0 (site 0 empty): 2*0-1 = -1, phase=1 → -1.0
         assert_eq!(mon(0b11, 8).trace_with_fock_state(0), -1.0);
     }
 
     #[test]
     fn trace_site0_occupied_fock() {
-        // modes=0b11, fock_state=1 (site 0 occupied): 2*1-1 = 1, phase=1 → 1.0
         assert_eq!(mon(0b11, 8).trace_with_fock_state(1), 1.0);
     }
 
@@ -359,15 +346,13 @@ mod tests {
     fn commutes_disjoint_even_lengths() {
         let a = mon(0b0011, 8);
         let b = mon(0b1100, 8);
-        // length 2 * length 2 + overlap 0 = 4, even → commutes
         assert!(a.commutes_with(&b));
     }
 
     #[test]
     fn anticommutes_single_overlap_even_lengths() {
-        let a = mon(0b0011, 8); // bits 0,1
-        let b = mon(0b0110, 8); // bits 1,2
-        // length 2 * length 2 + overlap 1 = 5, odd → anticommutes
+        let a = mon(0b0011, 8);
+        let b = mon(0b0110, 8);
         assert!(!a.commutes_with(&b));
     }
 
@@ -375,10 +360,10 @@ mod tests {
     fn commutes_single_modes_disjoint() {
         let a = mon(0b0001, 8);
         let b = mon(0b0010, 8);
-        // length 1 * length 1 + overlap 0 = 1, odd → anticommutes
         assert!(!a.commutes_with(&b));
     }
 }
+
 impl Eq for MajoranaMonomial {}
 
 impl Hash for MajoranaMonomial {
@@ -401,13 +386,36 @@ fn hermiticity_exp(length: usize) -> i32 {
 }
 
 pub(crate) fn resorting_parity(a: &Bitset, b: &Bitset) -> bool {
+    let a_words = a.as_words();
+    let b_words = b.as_words();
+    if a_words.is_empty() || b_words.is_empty() {
+        return false;
+    }
+
+    let mut prefix = vec![0u32; a_words.len() + 1];
+    for i in 0..a_words.len() {
+        prefix[i + 1] = prefix[i] + a_words[i].count_ones();
+    }
+    let total = prefix[a_words.len()] as u64;
+
     let mut count = 0u64;
-    let mut remaining = b.clone();
-    loop {
-        let pos = remaining.trailing_zeros();
-        if pos == usize::MAX { break; }
-        count += a.count_ones_above(pos);
-        remaining.clear_bit(pos);
+    for (wi, &bw) in b_words.iter().enumerate() {
+        let mut bword = bw;
+        while bword != 0 {
+            let bi = bword.trailing_zeros() as usize;
+            let above_same_word = if bi < 63 {
+                (a_words.get(wi).copied().unwrap_or(0) >> (bi + 1)).count_ones() as u64
+            } else {
+                0
+            };
+            let above_higher_words = if wi + 1 < prefix.len() {
+                total - prefix[wi + 1] as u64
+            } else {
+                0
+            };
+            count += above_same_word + above_higher_words;
+            bword &= bword - 1;
+        }
     }
     (count & 1) != 0
 }
