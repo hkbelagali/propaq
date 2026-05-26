@@ -63,7 +63,7 @@ impl MajoranaPropagator {
         observable: &MajoranaTermSum,
         circuit: &Bound<'_, PyAny>,
     ) -> PyResult<MajoranaTermSum> {
-        let rotations: Vec<PyObject> = circuit.getattr("rotations")?.extract()?;
+        let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
         let mut evolved = observable.copy();
 
         let damping: Option<f64> = if let Some(ref noise_obj) = self.noise {
@@ -77,47 +77,57 @@ impl MajoranaPropagator {
             None
         };
 
+        let total_rotations: usize = layers.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = if self.progress_bar {
             let tqdm = py.import("tqdm.auto")?;
             let postfix = pyo3::types::PyDict::new(py);
             let kwargs = pyo3::types::PyDict::new(py);
-            kwargs.set_item("total", rotations.len())?;
+            kwargs.set_item("total", total_rotations)?;
             kwargs.set_item("desc", "Propagating through gates")?;
             let pbar = tqdm.call_method("tqdm", (), Some(&kwargs))?;
             (Some(pbar), Some(postfix))
         } else {
             (None, None)
         };
-        
 
-        for rotation_obj in rotations.iter().rev() {
-            let rot = rotation_obj.bind(py);
-            let generator: MajoranaMonomial = rot.getattr("generator")?.extract()?;
-            let angle: f64 = rot.getattr("angle")?.extract()?;
+        for layer in layers.iter().rev() {
+            for rotation_obj in layer.iter().rev() {
+                let rot = rotation_obj.bind(py);
+                let generator: MajoranaMonomial = rot.getattr("generator")?.extract()?;
+                let angle: f64 = rot.getattr("angle")?.extract()?;
+                let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
 
-            // Release GIL for the gate application
-            evolved = py.allow_threads(|| {
-                self.apply_gate(&evolved, &generator, angle, damping)
-            });
+                evolved = py.allow_threads(|| {
+                    self.apply_gate(&evolved, &generator, angle)
+                });
 
-            // Reacquire GIL for non-uniform noise, truncation, and progress bar
-            if self.noise.is_some() && damping.is_none() {
-                let noise = self.noise.as_ref().unwrap().bind(py);
-                evolved.apply_damping(noise, generator.compute_weight())?;
-            }
+                // Truncate after every rotation except intermediate rotations within NP gates
+                if !(is_intermediate && generator.is_number_preserving) {
+                    if let Some(ref trunc_obj) = self.truncation {
+                        evolved.truncate(trunc_obj.bind(py))?;
+                    }
+                }
 
-            if generator.is_number_preserving {
-                if let Some(ref trunc_obj) = self.truncation {
-                    evolved.truncate(trunc_obj.bind(py))?;
+                if let (Some(pbar), Some(postfix)) = (&pbar, &postfix) {
+                    postfix.set_item("terms", evolved.terms.len())?;
+                    pbar.call_method("set_postfix", (), Some(postfix))?;
+                    pbar.call_method0("update")?;
                 }
             }
 
-            if let (Some(pbar), Some(postfix)) = (&pbar, &postfix) {
-                postfix.set_item("terms", evolved.terms.len())?;
-                pbar.call_method("set_postfix", (), Some(postfix))?;
-                pbar.call_method0("update")?;
+            // Apply noise once per layer
+            if self.noise.is_some() {
+                if let Some(d) = damping {
+                    py.allow_threads(|| {
+                        for (term, coeff) in evolved.terms.iter_mut() {
+                            *coeff *= (-d * term.compute_weight() as f64).exp();
+                        }
+                    });
+                } else {
+                    let noise = self.noise.as_ref().unwrap().bind(py);
+                    evolved.apply_damping(noise, 0)?;
+                }
             }
-            
         }
 
         if let Some(pbar) = &pbar {
@@ -139,9 +149,9 @@ impl MajoranaPropagator {
         circuit: &Bound<'_, PyAny>,
         fock_state: u64,
     ) -> PyResult<PropagationResult> {
-        let rotations: Vec<PyObject> = circuit.getattr("rotations")?.extract()?;
+        let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
         let mut evolved = observable.copy();
-        let mut n_terms: Vec<usize> = Vec::with_capacity(rotations.len());
+        let mut n_terms: Vec<usize> = Vec::new();
 
         let damping: Option<f64> = if let Some(ref noise_obj) = self.noise {
             let noise = noise_obj.bind(py);
@@ -154,11 +164,12 @@ impl MajoranaPropagator {
             None
         };
 
+        let total_rotations: usize = layers.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = if self.progress_bar {
             let tqdm = py.import("tqdm.auto")?;
             let postfix = pyo3::types::PyDict::new(py);
             let kwargs = pyo3::types::PyDict::new(py);
-            kwargs.set_item("total", rotations.len())?;
+            kwargs.set_item("total", total_rotations)?;
             kwargs.set_item("desc", "Propagating through gates")?;
             let pbar = tqdm.call_method("tqdm", (), Some(&kwargs))?;
             (Some(pbar), Some(postfix))
@@ -166,32 +177,44 @@ impl MajoranaPropagator {
             (None, None)
         };
 
-        for rotation_obj in rotations.iter().rev() {
-            let rot = rotation_obj.bind(py);
-            let generator: MajoranaMonomial = rot.getattr("generator")?.extract()?;
-            let angle: f64 = rot.getattr("angle")?.extract()?;
+        for layer in layers.iter().rev() {
+            for rotation_obj in layer.iter().rev() {
+                let rot = rotation_obj.bind(py);
+                let generator: MajoranaMonomial = rot.getattr("generator")?.extract()?;
+                let angle: f64 = rot.getattr("angle")?.extract()?;
+                let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
 
-            evolved = py.allow_threads(|| {
-                self.apply_gate(&evolved, &generator, angle, damping)
-            });
+                evolved = py.allow_threads(|| {
+                    self.apply_gate(&evolved, &generator, angle)
+                });
 
-            if self.noise.is_some() && damping.is_none() {
-                let noise = self.noise.as_ref().unwrap().bind(py);
-                evolved.apply_damping(noise, generator.compute_weight())?;
-            }
+                if !(is_intermediate && generator.is_number_preserving) {
+                    if let Some(ref trunc_obj) = self.truncation {
+                        evolved.truncate(trunc_obj.bind(py))?;
+                    }
+                }
 
-            if generator.is_number_preserving {
-                if let Some(ref trunc_obj) = self.truncation {
-                    evolved.truncate(trunc_obj.bind(py))?;
+                n_terms.push(evolved.terms.len());
+
+                if let (Some(pbar), Some(postfix)) = (&pbar, &postfix) {
+                    postfix.set_item("terms", evolved.terms.len())?;
+                    pbar.call_method("set_postfix", (), Some(postfix))?;
+                    pbar.call_method0("update")?;
                 }
             }
 
-            n_terms.push(evolved.terms.len());
-
-            if let (Some(pbar), Some(postfix)) = (&pbar, &postfix) {
-                postfix.set_item("terms", evolved.terms.len())?;
-                pbar.call_method("set_postfix", (), Some(postfix))?;
-                pbar.call_method0("update")?;
+            // Apply noise once per layer
+            if self.noise.is_some() {
+                if let Some(d) = damping {
+                    py.allow_threads(|| {
+                        for (term, coeff) in evolved.terms.iter_mut() {
+                            *coeff *= (-d * term.compute_weight() as f64).exp();
+                        }
+                    });
+                } else {
+                    let noise = self.noise.as_ref().unwrap().bind(py);
+                    evolved.apply_damping(noise, 0)?;
+                }
             }
         }
 
@@ -219,7 +242,6 @@ impl MajoranaPropagator {
         terms: &MajoranaTermSum,
         generator: &MajoranaMonomial,
         angle: f64,
-        damping: Option<f64>,
     ) -> MajoranaTermSum {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
@@ -230,8 +252,6 @@ impl MajoranaPropagator {
                 .terms
                 .par_iter()
                 .fold(
-                    // Each chunk may produce up to 2× entries (commuting keeps 1, non-commuting adds 1 new term).
-                    // Rough per-chunk pre-allocation; rayon sizes chunks so dividing evenly is close enough.
                     || FxHashMap::with_capacity_and_hasher(64, Default::default()),
                     |mut map, (term, coeff)| {
                         if term.commutes_with(generator) {
@@ -256,15 +276,6 @@ impl MajoranaPropagator {
                 )
         });
 
-        let mut result = MajoranaTermSum { terms: result_map };
-
-        // Apply uniform noise if damping was pre-extracted
-        if let Some(d) = damping {
-            for (term, coeff) in result.terms.iter_mut() {
-                *coeff *= (-d * term.compute_weight() as f64).exp();
-            }
-        }
-
-        result
+        MajoranaTermSum { terms: result_map }
     }
 }
