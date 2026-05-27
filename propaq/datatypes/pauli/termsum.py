@@ -10,7 +10,7 @@ from qiskit.quantum_info import SparsePauliOp
 from .pauli import PauliString 
 from .._abstract import BitMask 
 
-from propaq.stubs import PauliTermSum as _RustPauliTermSum 
+from propaq._rust_core import PauliTermSum as _RustPauliTermSum 
 
 T = TypeVar("T")
 

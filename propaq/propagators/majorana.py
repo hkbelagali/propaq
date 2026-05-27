@@ -5,4 +5,4 @@ Majorana propagators for quantum simulation.
     Dec. 16, 2025, arXiv: arXiv:2503.18939. doi: 10.48550/arXiv.2503.18939.
 """
 
-from propaq.stubs import MajoranaPropagator as MajoranaPropagator
+from propaq._rust_core import MajoranaPropagator as MajoranaPropagator
