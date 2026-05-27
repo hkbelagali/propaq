@@ -65,7 +65,14 @@ impl MajoranaMonomial {
         if self.modes == other.modes {
             return true;
         }
-        (self.length() * other.length() + self.overlap(other) as usize) % 2 == 0
+        let a = self.modes.as_words();
+        let b = other.modes.as_words();
+        let overlap: u32 = (0..a.len().min(b.len()))
+            .map(|i| (a[i] & b[i]).count_ones())
+            .sum();
+        (self.modes.count_ones() as usize * other.modes.count_ones() as usize
+            + overlap as usize)
+            % 2 == 0
     }
 
     fn resulting_weight(&self, other: &MajoranaMonomial) -> u32 {
@@ -147,11 +154,6 @@ impl MajoranaMonomial {
         };
 
         (&occupied | &string).count_ones()
-    }
-
-    /// Returns the cached Pauli weight.
-    pub fn compute_weight(&self) -> u32 {
-        self.weight
     }
 
     pub(crate) fn matmul_internal(&self, other: &MajoranaMonomial) -> (Complex64, MajoranaMonomial) {
@@ -239,33 +241,33 @@ mod tests {
 
     #[test]
     fn weight_identity() {
-        assert_eq!(mon(0, 8).compute_weight(), 0);
+        assert_eq!(mon(0, 8).weight, 0);
     }
 
     #[test]
     fn weight_single_gamma() {
-        assert_eq!(mon(0b01, 8).compute_weight(), 1);
+        assert_eq!(mon(0b01, 8).weight, 1);
     }
 
     #[test]
     fn weight_number_operator() {
-        assert_eq!(mon(0b11, 8).compute_weight(), 1);
+        assert_eq!(mon(0b11, 8).weight, 1);
     }
 
     #[test]
     fn weight_four_x_modes() {
-        assert_eq!(mon(0b0101_0101, 8).compute_weight(), 4);
+        assert_eq!(mon(0b0101_0101, 8).weight, 4);
     }
 
     #[test]
     fn weight_large_n_modes() {
-        assert_eq!(mon(0b01, 128).compute_weight(), 1);
+        assert_eq!(mon(0b01, 128).weight, 1);
     }
 
     #[test]
     fn weight_multi_word_mode() {
         let m = mon_bits(vec![0u64, 1u64], 128);
-        assert_eq!(m.compute_weight(), 33);
+        assert_eq!(m.weight, 33);
     }
 
     #[test]
@@ -392,28 +394,23 @@ pub(crate) fn resorting_parity(a: &Bitset, b: &Bitset) -> bool {
         return false;
     }
 
-    let mut prefix = vec![0u32; a_words.len() + 1];
-    for i in 0..a_words.len() {
-        prefix[i + 1] = prefix[i] + a_words[i].count_ones();
-    }
-    let total = prefix[a_words.len()] as u64;
-
+    let total: u64 = a_words.iter().map(|w| w.count_ones() as u64).sum();
+    let mut running = 0u64;
     let mut count = 0u64;
+
     for (wi, &bw) in b_words.iter().enumerate() {
+        let a_word = a_words.get(wi).copied().unwrap_or(0);
+        running += a_word.count_ones() as u64;
+        let above_higher = total - running;
         let mut bword = bw;
         while bword != 0 {
             let bi = bword.trailing_zeros() as usize;
-            let above_same_word = if bi < 63 {
-                (a_words.get(wi).copied().unwrap_or(0) >> (bi + 1)).count_ones() as u64
+            let above_same = if bi < 63 {
+                (a_word >> (bi + 1)).count_ones() as u64
             } else {
                 0
             };
-            let above_higher_words = if wi + 1 < prefix.len() {
-                total - prefix[wi + 1] as u64
-            } else {
-                0
-            };
-            count += above_same_word + above_higher_words;
+            count += above_same + above_higher;
             bword &= bword - 1;
         }
     }

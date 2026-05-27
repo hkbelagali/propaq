@@ -2,7 +2,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use num_complex::Complex64;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 
+use crate::bitset::Bitset;
 use crate::monomial::MajoranaMonomial;
 use crate::truncation::TruncationPolicy;
 use crate::noise::UniformNoiseModel;
@@ -13,24 +15,43 @@ pub struct MajoranaTermSum {
 }
 
 impl MajoranaTermSum {
-    /// Deduplicate in-place: parallel sort by monomial then sequential coefficient accumulation.
+    /// Deduplicate in-place using a parallel fold into FxHashMap: O(N/T) vs O(N/T log N).
+    /// Term order is not preserved; callers must not rely on ordering after consolidation.
     pub fn consolidate(&mut self) {
         if self.terms.len() <= 1 {
             return;
         }
-        self.terms.par_sort_unstable_by(|(a, _), (b, _)| a.modes.cmp(&b.modes));
-        // Merge adjacent equal monomials.
-        let mut write = 0usize;
-        for read in 1..self.terms.len() {
-            if self.terms[read].0 == self.terms[write].0 {
-                let coeff = self.terms[read].1;
-                self.terms[write].1 += coeff;
-            } else {
-                write += 1;
-                self.terms.swap(write, read);
-            }
-        }
-        self.terms.truncate(write + 1);
+
+        // Monomial metadata (weight, is_number_preserving, n_modes) is deterministic from
+        // `modes` alone; recover it from the first occurrence of each key.
+        type Meta = (u32, bool, usize);
+
+        let map = std::mem::take(&mut self.terms)
+            .into_par_iter()
+            .fold(
+                || FxHashMap::<Bitset, (Complex64, Meta)>::default(),
+                |mut m, (term, coeff)| {
+                    m.entry(term.modes.clone())
+                        .and_modify(|(c, _)| *c += coeff)
+                        .or_insert((coeff, (term.weight, term.is_number_preserving, term.n_modes)));
+                    m
+                },
+            )
+            .reduce(FxHashMap::default, |mut a, b| {
+                for (k, (v, meta)) in b {
+                    a.entry(k)
+                        .and_modify(|(c, _)| *c += v)
+                        .or_insert((v, meta));
+                }
+                a
+            });
+
+        self.terms = map
+            .into_iter()
+            .map(|(modes, (coeff, (weight, is_number_preserving, n_modes)))| {
+                (MajoranaMonomial { modes, weight, is_number_preserving, n_modes }, coeff)
+            })
+            .collect();
     }
 }
 
@@ -144,7 +165,4 @@ impl MajoranaTermSum {
         MajoranaTermSum { terms: self.terms.clone() }
     }
 
-    fn consolidate_py(&mut self) {
-        self.consolidate();
-    }
 }

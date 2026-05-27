@@ -34,6 +34,7 @@ pub struct MajoranaPropagator {
     progress_bar: bool,
     #[pyo3(get)]
     truncation_interval: usize,
+    flags_buf: Vec<bool>,
 }
 
 #[pymethods]
@@ -61,11 +62,11 @@ impl MajoranaPropagator {
                 .build()
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
         );
-        Ok(MajoranaPropagator { noise, truncation, pool, progress_bar, truncation_interval })
+        Ok(MajoranaPropagator { noise, truncation, pool, progress_bar, truncation_interval, flags_buf: Vec::new() })
     }
 
     fn propagate(
-        &self,
+        &mut self,
         py: Python<'_>,
         observable: &MajoranaTermSum,
         circuit: &Bound<'_, PyAny>,
@@ -105,8 +106,8 @@ impl MajoranaPropagator {
                 let angle: f64 = rot.getattr("angle")?.extract()?;
                 let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
 
-                evolved = py.allow_threads(|| {
-                    self.apply_gate(&evolved, &generator, angle)
+                py.allow_threads(|| {
+                    self.apply_gate_inplace(&mut evolved, &generator, angle)
                 });
 
                 if !(is_intermediate && generator.is_number_preserving) {
@@ -157,7 +158,7 @@ impl MajoranaPropagator {
 
     #[pyo3(signature = (observable, circuit, fock_state=0))]
     fn expectation_value(
-        &self,
+        &mut self,
         py: Python<'_>,
         observable: &MajoranaTermSum,
         circuit: &Bound<'_, PyAny>,
@@ -199,8 +200,8 @@ impl MajoranaPropagator {
                 let angle: f64 = rot.getattr("angle")?.extract()?;
                 let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
 
-                evolved = py.allow_threads(|| {
-                    self.apply_gate(&evolved, &generator, angle)
+                py.allow_threads(|| {
+                    self.apply_gate_inplace(&mut evolved, &generator, angle)
                 });
 
                 if !(is_intermediate && generator.is_number_preserving) {
@@ -259,35 +260,69 @@ impl MajoranaPropagator {
 }
 
 impl MajoranaPropagator {
-    fn apply_gate(
-        &self,
-        terms: &MajoranaTermSum,
+    fn apply_gate_inplace(
+        &mut self,
+        evolved: &mut MajoranaTermSum,
         generator: &MajoranaMonomial,
         angle: f64,
-    ) -> MajoranaTermSum {
+    ) {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
+        let n = evolved.terms.len();
 
-        let new_terms: Vec<(MajoranaMonomial, Complex64)> = self.pool.install(|| {
-            terms
-                .terms
-                .par_iter()
-                .flat_map_iter(|(term, coeff)| {
-                    if term.commutes_with(generator) {
-                        [Some((term.clone(), *coeff)), None]
-                    } else {
+        // Clone the Arc once per call to avoid borrowing self.pool and self.flags_buf
+        // through self simultaneously (which the borrow checker disallows).
+        let pool = Arc::clone(&self.pool);
+
+        // Classification pass: resize reuses the existing allocation after the first gate.
+        self.flags_buf.resize(n, false);
+        {
+            let flags = &mut self.flags_buf;
+            pool.install(|| {
+                flags
+                    .par_iter_mut()
+                    .zip(evolved.terms.par_iter())
+                    .for_each(|(f, (term, _))| *f = !term.commutes_with(generator));
+            });
+        }
+
+        // Collect new sin-terms using original coefficients (before in-place scaling).
+        // Allocates O(N_anti) rather than O(N + N_anti) as the old flat_map approach did.
+        let new_terms: Vec<(MajoranaMonomial, Complex64)> = {
+            let flags = &self.flags_buf;
+            pool.install(|| {
+                evolved
+                    .terms
+                    .par_iter()
+                    .zip(flags.par_iter())
+                    .filter_map(|((term, coeff), &is_anti)| {
+                        if !is_anti {
+                            return None;
+                        }
                         let (phase, new_term) = generator.matmul_internal(term);
-                        [
-                            Some((term.clone(), *coeff * cos_t)),
-                            Some((new_term, *coeff * Complex64::new(0.0, sin_t) * phase)),
-                        ]
-                    }
-                    .into_iter()
-                    .flatten()
-                })
-                .collect()
-        });
+                        Some((new_term, *coeff * Complex64::new(0.0, sin_t) * phase))
+                    })
+                    .collect()
+            })
+        };
 
-        MajoranaTermSum { terms: new_terms }
+        // Scale anticommuting terms in place by cos_t.
+        {
+            let flags = &self.flags_buf;
+            pool.install(|| {
+                evolved
+                    .terms
+                    .par_iter_mut()
+                    .zip(flags.par_iter())
+                    .for_each(|((_, coeff), &is_anti)| {
+                        if is_anti {
+                            *coeff *= cos_t;
+                        }
+                    });
+            });
+        }
+
+        // Append; Vec::extend grows geometrically, so amortised O(1) per term.
+        evolved.terms.extend(new_terms);
     }
 }
