@@ -7,7 +7,7 @@ from qiskit.circuit import Instruction
 from qiskit.quantum_info import SparsePauliOp
 
 from .majorana import MajoranaMonomial
-from ._abstract import BitMask
+from .._abstract import BitMask
 
 from propaq._rust_core import MajoranaTermSum as _RustMajoranaTermSum
 
