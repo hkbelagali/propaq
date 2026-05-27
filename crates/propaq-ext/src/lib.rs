@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 
 use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult};
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator};
-use propaq_pauli::{PauliMonomial, PauliTermSum, PauliPropagator};
+use propaq_pauli::{PauliString, PauliTermSum, PauliPropagator};
 
 #[pyfunction]
 fn rust_available() -> bool {
@@ -13,7 +13,7 @@ fn rust_available() -> bool {
 fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_available, m)?)?;
     m.add_class::<MajoranaMonomial>()?;
-    m.add_class::<PauliMonomial>()?;
+    m.add_class::<PauliString>()?;
     m.add_class::<MajoranaTermSum>()?;
     m.add_class::<PauliTermSum>()?;
     m.add_class::<TruncationPolicy>()?;
