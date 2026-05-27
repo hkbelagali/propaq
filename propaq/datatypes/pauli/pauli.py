@@ -1,7 +1,7 @@
 """Pauli monomial datatype for Pauli propagation."""
 
 try:
-    from propaq.stubs import PauliString as PauliString
+    from propaq._rust_core import PauliString as PauliString
 except ImportError:
     # Pure-Python fallback when the Rust extension is not built.
     from typing import Tuple

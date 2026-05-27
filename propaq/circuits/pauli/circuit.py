@@ -2,7 +2,7 @@
 
 from typing import List, Union
 
-from ...datatypes.pauli.pauli import PauliMonomial
+from ...datatypes.pauli.pauli import PauliString
 from .rotation import PauliRotation
 
 
@@ -30,7 +30,7 @@ class PauliCircuit:
     """A quantum circuit expressed as a sequence of Pauli-string rotations.
 
     Unlike MajoranaCircuit, no Jordan-Wigner transform is required — generators
-    are Pauli strings (PauliMonomial) supplied directly by the caller.
+    are Pauli strings (PauliString) supplied directly by the caller.
     """
 
     def __init__(
@@ -53,7 +53,7 @@ class PauliCircuit:
     @classmethod
     def from_generators_and_angles(
         cls,
-        generators: List[PauliMonomial],
+        generators: List[PauliString],
         angles: List[float],
     ) -> "PauliCircuit":
         """Construct a PauliCircuit from lists of Pauli generators and rotation angles."""

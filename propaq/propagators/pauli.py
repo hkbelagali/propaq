@@ -10,4 +10,4 @@ analogous to the Majorana propagation described in:
 
 """
 
-from propaq.stubs import PauliPropagator as PauliPropagator
+from propaq._rust_core import PauliPropagator as PauliPropagator

@@ -1,6 +1,6 @@
 """Uniform noise model."""
 
-from propaq.stubs import UniformNoiseModel as _RustUniformNoiseModel
+from propaq._rust_core import UniformNoiseModel as _RustUniformNoiseModel
 
 
 class UniformNoiseModel(_RustUniformNoiseModel):

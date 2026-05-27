@@ -1,7 +1,7 @@
 """Majorana monomial datatype for Majorana Propagation."""
 
 try:
-    from propaq.stubs import MajoranaMonomial as MajoranaMonomial
+    from propaq._rust_core import MajoranaMonomial as MajoranaMonomial
 except ImportError as exc:
     raise ImportError(
         "MajoranaMonomial requires the compiled Rust extension (_rust_core). "
