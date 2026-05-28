@@ -51,6 +51,9 @@ pub struct AbstractPropagator<M: AbstractTerm> {
     // outboxes[src][dst]: terms produced by partition src that belong to partition dst
     outboxes: Vec<Vec<Vec<(M, Complex64)>>>,
     total_terms: usize,
+    scratch_new_terms: Vec<Vec<(usize, M, Complex64)>>,
+    scratch_snap: Vec<Vec<usize>>,
+    scratch_inboxes: Vec<Vec<(M, Complex64)>>,
     _marker: PhantomData<M>,
 }
 
@@ -78,6 +81,9 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         let outboxes = (0..n_partitions)
             .map(|_| (0..n_partitions).map(|_| Vec::new()).collect())
             .collect();
+        let scratch_new_terms = (0..n_partitions).map(|_| Vec::new()).collect();
+        let scratch_snap = (0..n_partitions).map(|_| Vec::new()).collect();
+        let scratch_inboxes = (0..n_partitions).map(|_| Vec::new()).collect();
         Ok(AbstractPropagator {
             noise,
             truncation,
@@ -89,6 +95,9 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             thread_maps,
             outboxes,
             total_terms: 0,
+            scratch_new_terms,
+            scratch_snap,
+            scratch_inboxes,
             _marker: PhantomData,
         })
     }
@@ -126,13 +135,17 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         let pool = Arc::clone(&self.pool);
         let thread_maps = &mut self.thread_maps;
         let outboxes = &mut self.outboxes;
+        let scratch_new_terms = &mut self.scratch_new_terms;
+        let scratch_snap = &mut self.scratch_snap;
 
         pool.install(|| {
             thread_maps
                 .par_iter_mut()
                 .zip(outboxes.par_iter_mut())
-                .map(|(local_map, outbox_row)| {
-                    let mut new_terms: Vec<(usize, M, Complex64)> = Vec::new();
+                .zip(scratch_new_terms.par_iter_mut())
+                .zip(scratch_snap.par_iter_mut())
+                .map(|(((local_map, outbox_row), new_terms), snap)| {
+                    new_terms.clear();
 
                     // Apply gate to thread_map entries.
                     for (term, coeff) in local_map.iter_mut() {
@@ -147,7 +160,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
                     // Apply gate to existing outbox items. Snapshot lengths first so
                     // items appended in this same pass are not re-processed.
-                    let snap: Vec<usize> = outbox_row.iter().map(|v| v.len()).collect();
+                    snap.clear();
+                    snap.extend(outbox_row.iter().map(|v| v.len()));
                     for dst in 0..n {
                         for i in 0..snap[dst] {
                             let (term, coeff) = &mut outbox_row[dst][i];
@@ -162,7 +176,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                     }
 
                     let count = new_terms.len();
-                    for (dst, term, coeff) in new_terms {
+                    for (dst, term, coeff) in new_terms.drain(..) {
                         outbox_row[dst].push((term, coeff));
                     }
                     count
@@ -176,23 +190,26 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
     fn flush_and_maybe_truncate(&mut self, tp: Option<&TruncationPolicy>) {
         let n = self.n_partitions;
 
-        // Phase 1: serial transpose — collect inboxes[dst] from all outboxes[src][dst]
-        let mut inboxes: Vec<Vec<(M, Complex64)>> = (0..n).map(|_| Vec::new()).collect();
+        // Phase 1: serial transpose — reuse scratch_inboxes to avoid allocation
+        for inbox in &mut self.scratch_inboxes {
+            inbox.clear();
+        }
         for src in 0..n {
             for dst in 0..n {
-                inboxes[dst].extend(self.outboxes[src][dst].drain(..));
+                self.scratch_inboxes[dst].extend(self.outboxes[src][dst].drain(..));
             }
         }
 
         // Phase 2: parallel insert + optional truncate
         let pool = Arc::clone(&self.pool);
         let thread_maps = &mut self.thread_maps;
+        let scratch_inboxes = &mut self.scratch_inboxes;
         pool.install(|| {
             thread_maps
                 .par_iter_mut()
-                .zip(inboxes.into_par_iter())
+                .zip(scratch_inboxes.par_iter_mut())
                 .for_each(|(map, inbox)| {
-                    for (term, coeff) in inbox {
+                    for (term, coeff) in inbox.drain(..) {
                         *map.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
                     }
                     if let Some(tp) = tp {
@@ -355,8 +372,9 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
                 self.total_terms += added;
-                let trunc = if self.total_terms >= self.truncation_threshold { tp.as_ref() } else { None };
-                py.allow_threads(|| self.flush_and_maybe_truncate(trunc));
+                if self.total_terms >= self.truncation_threshold {
+                    py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref()));
+                }
 
                 n_terms.push(self.total_terms);
                 Self::tick_progress_bar(py, &pbar, &postfix, self.total_terms)?;
