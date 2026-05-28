@@ -88,7 +88,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         staging.reserve(evolved.terms.len());
 
         if evolved.terms.len() >= PARALLEL_THRESHOLD {
-            self.pool.install(|| {
+            staging = self.pool.install(|| {
                 evolved.terms
                     .par_iter_mut()
                     .filter_map(|(term, coeff)| {
@@ -100,7 +100,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                         *coeff *= cos_t;
                         Some((new_term, new_coeff))
                     })
-                    .collect_into_vec(&mut staging);
+                    .collect()
             });
         } else {
             for (term, coeff) in evolved.terms.iter_mut() {
