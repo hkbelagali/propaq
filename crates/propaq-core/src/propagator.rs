@@ -1,7 +1,6 @@
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use num_complex::Complex64;
-use rustc_hash::FxHashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -28,6 +27,8 @@ impl PropagationResult {
     }
 }
 
+const PARALLEL_THRESHOLD: usize = 512;
+
 // Abstract propagator (not a pyclass — only concrete wrappers are exposed)
 pub struct AbstractPropagator<M: AbstractTerm> {
     pub noise: Option<PyObject>,
@@ -35,6 +36,7 @@ pub struct AbstractPropagator<M: AbstractTerm> {
     pub pool: Arc<rayon::ThreadPool>,
     pub progress_bar: bool,
     pub truncation_interval: usize,
+    staging: Vec<(M, Complex64)>,
     _marker: PhantomData<M>,
 }
 
@@ -66,13 +68,13 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             pool,
             progress_bar,
             truncation_interval,
+            staging: Vec::new(),
             _marker: PhantomData,
         })
     }
 
     fn apply_gate_inplace(
-        &self,
-        pool: &rayon::ThreadPool,
+        &mut self,
         evolved: &mut AbstractTermSum<M>,
         generator: &M,
         angle: f64,
@@ -80,38 +82,45 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
 
-        // Single parallel pass: scale anti-commuting terms in-place and collect new terms,
-        // folding into per-thread HashMaps to deduplicate before merging.
-        let new_map: FxHashMap<M, Complex64> = pool.install(|| {
-            evolved.terms
-                .par_iter_mut()
-                .filter_map(|(term, coeff)| {
-                    if term.commutes_with(generator) {
-                        return None;
-                    }
-                    let (phase, new_term) = generator.matmul_internal(term);
-                    let new_coeff = *coeff * Complex64::new(0.0, sin_t) * phase;
-                    *coeff *= cos_t;
-                    Some((new_term, new_coeff))
-                })
-                .fold(
-                    || FxHashMap::<M, Complex64>::default(),
-                    |mut m, (k, v)| {
-                        *m.entry(k).or_insert(Complex64::new(0.0, 0.0)) += v;
-                        m
-                    },
-                )
-                .reduce(FxHashMap::default, |mut a, b| {
-                    for (k, v) in b {
-                        *a.entry(k).or_insert(Complex64::new(0.0, 0.0)) += v;
-                    }
-                    a
-                })
-        });
+        let mut staging = std::mem::take(&mut self.staging);
+        staging.clear();
+        // Reserve worst case (every term non-commuting → one new term each).
+        staging.reserve(evolved.terms.len());
 
-        for (k, v) in new_map {
+        if evolved.terms.len() >= PARALLEL_THRESHOLD {
+            self.pool.install(|| {
+                evolved.terms
+                    .par_iter_mut()
+                    .filter_map(|(term, coeff)| {
+                        if term.commutes_with(generator) {
+                            return None;
+                        }
+                        let (phase, new_term) = generator.matmul_internal(term);
+                        let new_coeff = *coeff * Complex64::new(0.0, sin_t) * phase;
+                        *coeff *= cos_t;
+                        Some((new_term, new_coeff))
+                    })
+                    .collect_into_vec(&mut staging);
+            });
+        } else {
+            for (term, coeff) in evolved.terms.iter_mut() {
+                if term.commutes_with(generator) {
+                    continue;
+                }
+                let (phase, new_term) = generator.matmul_internal(term);
+                let new_coeff = *coeff * Complex64::new(0.0, sin_t) * phase;
+                *coeff *= cos_t;
+                staging.push((new_term, new_coeff));
+            }
+        }
+
+        // Reserve before merging to avoid HashMap rehashing mid-loop.
+        evolved.terms.reserve(staging.len());
+        for (k, v) in staging.drain(..) {
             *evolved.terms.entry(k).or_insert(Complex64::new(0.0, 0.0)) += v;
         }
+
+        self.staging = staging;
     }
 
     pub fn run_propagate(
@@ -124,22 +133,33 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         M: for<'py> FromPyObject<'py>,
     {
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
+
+        // Pre-extract all rotation data while holding the GIL once, rather than
+        // re-crossing the Python boundary on every gate inside the hot loop.
+        let circuit_data: Vec<Vec<(M, f64, bool)>> = layers
+            .iter()
+            .map(|layer| {
+                layer.iter().map(|rot_obj| -> PyResult<(M, f64, bool)> {
+                    let rot = rot_obj.bind(py);
+                    let generator: M = rot.getattr("generator")?.extract()?;
+                    let angle: f64 = rot.getattr("angle")?.extract()?;
+                    let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
+                    Ok((generator, angle, is_intermediate))
+                }).collect::<PyResult<_>>()
+            })
+            .collect::<PyResult<_>>()?;
+
         let damping = self.uniform_damping(py);
-        let total_rotations: usize = layers.iter().map(|l| l.len()).sum();
+        let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = self.make_progress_bar(py, total_rotations)?;
         let pool = Arc::clone(&self.pool);
 
         let mut trunc_counter: usize = 0;
-        for layer in layers.iter().rev() {
-            for rotation_obj in layer.iter().rev() {
-                let rot = rotation_obj.bind(py);
-                let generator: M = rot.getattr("generator")?.extract()?;
-                let angle: f64 = rot.getattr("angle")?.extract()?;
-                let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
+        for layer_data in circuit_data.iter().rev() {
+            for (generator, angle, is_intermediate) in layer_data.iter().rev() {
+                py.allow_threads(|| self.apply_gate_inplace(evolved, generator, *angle));
 
-                py.allow_threads(|| self.apply_gate_inplace(&pool, evolved, &generator, angle));
-
-                if !(is_intermediate && generator.is_number_preserving()) {
+                if !(*is_intermediate && generator.is_number_preserving()) {
                     trunc_counter += 1;
                     if trunc_counter % self.truncation_interval == 0 {
                         if let Some(ref trunc_obj) = self.truncation {
@@ -174,23 +194,32 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         M: for<'py> FromPyObject<'py>,
     {
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
+
+        let circuit_data: Vec<Vec<(M, f64, bool)>> = layers
+            .iter()
+            .map(|layer| {
+                layer.iter().map(|rot_obj| -> PyResult<(M, f64, bool)> {
+                    let rot = rot_obj.bind(py);
+                    let generator: M = rot.getattr("generator")?.extract()?;
+                    let angle: f64 = rot.getattr("angle")?.extract()?;
+                    let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
+                    Ok((generator, angle, is_intermediate))
+                }).collect::<PyResult<_>>()
+            })
+            .collect::<PyResult<_>>()?;
+
         let mut n_terms: Vec<usize> = Vec::new();
         let damping = self.uniform_damping(py);
-        let total_rotations: usize = layers.iter().map(|l| l.len()).sum();
+        let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = self.make_progress_bar(py, total_rotations)?;
         let pool = Arc::clone(&self.pool);
 
         let mut trunc_counter: usize = 0;
-        for layer in layers.iter().rev() {
-            for rotation_obj in layer.iter().rev() {
-                let rot = rotation_obj.bind(py);
-                let generator: M = rot.getattr("generator")?.extract()?;
-                let angle: f64 = rot.getattr("angle")?.extract()?;
-                let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
+        for layer_data in circuit_data.iter().rev() {
+            for (generator, angle, is_intermediate) in layer_data.iter().rev() {
+                py.allow_threads(|| self.apply_gate_inplace(evolved, generator, *angle));
 
-                py.allow_threads(|| self.apply_gate_inplace(&pool, evolved, &generator, angle));
-
-                if !(is_intermediate && generator.is_number_preserving()) {
+                if !(*is_intermediate && generator.is_number_preserving()) {
                     trunc_counter += 1;
                     if trunc_counter % self.truncation_interval == 0 {
                         if let Some(ref trunc_obj) = self.truncation {
