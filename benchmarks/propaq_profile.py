@@ -1,25 +1,8 @@
 """
 Propaq-isolated performance benchmark.
 
-Builds the H6 UCJ circuit once, then measures only the propaq
-expectation_value() call across thread counts. Separates circuit
-construction from timing so ffsim/scipy never appears in the numbers.
-
-Usage
------
-# Thread-scaling sweep (outputs propaq_scaling.png):
-    python benchmarks/propaq_profile.py
-
-# Custom thread list and repetitions:
-    python benchmarks/propaq_profile.py --threads 1 2 4 8 --reps 5
-
-# Single long run designed to be captured by py-spy:
-    python benchmarks/propaq_profile.py --flamegraph --threads 8
-
-# Full native flamegraph (Python + Rust frames):
-    py-spy record --native --rate 1000 -o benchmarks/propaq_flamegraph.svg \
-        -- venv/bin/python benchmarks/propaq_profile.py --flamegraph --threads 8
-"""
+Build a UCJ ansatz with fixed-seed random angles for reproducibility
+""" 
 
 import argparse
 import os
@@ -53,12 +36,16 @@ def parse_args():
         help="Untimed warm-up runs per thread count (default: 1)",
     )
     p.add_argument(
-        "--natoms", type=int, default=6,
-        help="Number of hydrogen atoms (default: 6)",
+        "--n-orbs", type=int, default=50,
+        help="Number of spatial orbitals (default: 50)",
     )
     p.add_argument(
-        "--nlayers", type=int, default=2,
+        "--n-layers", type=int, default=2,
         help="UCJ ansatz layers (default: 2)",
+    )
+    p.add_argument(
+        "--seed", type=int, default=42,
+        help="RNG seed for gate angles (default: 42)",
     )
     p.add_argument(
         "--flamegraph", action="store_true",
@@ -74,93 +61,58 @@ def parse_args():
     )
     return p.parse_args()
 
-def build_circuit(natoms: int, nlayers: int):
-    import warnings
-    import pyscf, pyscf.cc, pyscf.mcscf
-    import ffsim
-    import qiskit
-    from qiskit import QuantumCircuit, QuantumRegister
-    from qiskit.providers.fake_provider import GenericBackendV2
-    from qiskit.quantum_info import Statevector, SparsePauliOp
-    from qiskit.transpiler import CouplingMap
-
+def build_circuit(n_orbs: int = 50, n_layers: int = 2, seed: int = 42):
     from propaq.circuits import MajoranaCircuit
-    from propaq.datatypes import MajoranaTermSum
+    from propaq.circuits.majorana.rotation import MajoranaRotation
+    from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
+    from propaq.propagators import MajoranaPropagator
+    from propaq.noise import TruncationPolicy
 
-    warnings.filterwarnings("ignore")
+    n_modes = 4 * n_orbs  # 2 spin-orbitals per spatial orbital × 2 Majorana per spin-orbital
 
-    atom = "H"
-    geometry = "; ".join([f"{atom} 0 0 {i}" for i in range(natoms)])
+    rng = np.random.default_rng(seed)
 
-    mol = pyscf.gto.Mole()
-    mol.build(atom=geometry, basis="sto-6g", verbose=0)
+    def orbital_rotation_layer():
+        rots = []
+        for i in range(n_orbs):
+            for j in range(i + 1, n_orbs):
+                modes = (1 << (2 * i)) | (1 << (2 * j + 1))
+                gen = MajoranaMonomial(modes, n_modes=n_modes, is_number_preserving=False)
+                rots.append(MajoranaRotation(gen, float(rng.uniform(-np.pi, np.pi))))
+        return rots
 
-    active_space = range(mol.nao_nr())
-    scf = pyscf.scf.RHF(mol).run(verbose=0)
-    norb = len(active_space)
-    n_electrons = int(sum(scf.mo_occ[active_space]))
-    n_alpha = (n_electrons + mol.spin) // 2
-    n_beta = (n_electrons - mol.spin) // 2
-    nelec = (n_alpha, n_beta)
+    def diagonal_coulomb_layer():
+        rots = []
+        for i in range(n_orbs):
+            modes = (1 << (2 * i)) | (1 << (2 * i + 1))
+            gen = MajoranaMonomial(modes, n_modes=n_modes, is_number_preserving=True)
+            rots.append(MajoranaRotation(gen, float(rng.uniform(-np.pi, np.pi))))
+        return rots
 
-    ccsd = pyscf.cc.CCSD(scf, frozen=[i for i in range(mol.nao_nr()) if i not in active_space])
-    ccsd.verbose = 0
-    ccsd.run()
-    t1, t2 = ccsd.t1, ccsd.t2
+    layers = []
+    for _ in range(n_layers):
+        layers.append(orbital_rotation_layer())
+        layers.append(diagonal_coulomb_layer())
 
-    pairs_aa = [(p, p + 1) for p in range(norb - 1)]
+    mc = MajoranaCircuit(layers, n_modes=n_modes)
 
-    coupling_map = CouplingMap.from_grid(
-        num_rows=int(np.ceil(np.sqrt(2 * norb))),
-        num_columns=int(np.ceil(np.sqrt(2 * norb))),
+    obs_mono = MajoranaMonomial(0b111111, n_modes=n_modes, is_number_preserving=True)
+    obs_mts = MajoranaTermSum({obs_mono: 1.0})
+
+    ref_prop = MajoranaPropagator(
+        None,
+        TruncationPolicy(weight_cutoff=100_000, coeff_cutoff=1e-6),
+        n_threads=1,
+        progress_bar=False,
+        truncation_interval=2,
     )
-    backend = GenericBackendV2(
-        coupling_map.size(),
-        coupling_map=coupling_map,
-        basis_gates=["cp", "xx_plus_yy", "p", "x", "swap"],
-    )
+    ref_ev = ref_prop.expectation_value(obs_mts, mc, fock_state=0).expectation_value
 
-    try:
-        pass_manager, pairs_ab = ffsim.qiskit.generate_lucj_pass_manager(
-            backend=backend,
-            norb=norb,
-            connectivity="heavy-hex",
-            interaction_pairs=(pairs_aa, None),
-            optimization_level=3,
-        )
-    except RuntimeError:
-        pass_manager = None
-        pairs_ab = None
+    total_gates = sum(len(layer) for layer in layers)
+    print(f"  n_orbs={n_orbs}  n_modes={n_modes}  n_layers={n_layers}  total_gates={total_gates}  seed={seed}")
+    print(f"  reference <obs> = {ref_ev:.6f}  (1-thread, used as truth)")
 
-    ucj_op = ffsim.UCJOpSpinBalanced.from_t_amplitudes(
-        t2=t2, t1=t1, n_reps=nlayers,
-        interaction_pairs=(pairs_aa, pairs_ab),
-        optimize=True,
-        options=dict(maxiter=1000),
-    )
-
-    qubits = QuantumRegister(2 * norb, name="q")
-    qc = QuantumCircuit(qubits)
-    qc.append(ffsim.qiskit.PrepareHartreeFockJW(norb, nelec), qubits)
-    qc.append(ffsim.qiskit.UCJOpSpinBalancedJW(ucj_op), qubits)
-
-    compiled = (
-        pass_manager.run(qc)
-        if pass_manager is not None
-        else qiskit.transpile(qc, backend=backend, optimization_level=3)
-    )
-
-    observable = SparsePauliOp("ZZZ")
-    sv_ev = Statevector(compiled).expectation_value(observable).real
-
-    mc = MajoranaCircuit.from_qiskit(compiled.copy(), n_modes=2 * compiled.num_qubits)
-    obs_mts = MajoranaTermSum.from_sparse_pauli_op(observable)
-
-    print(f"  norb={norb}  nelec={nelec}  qubits={compiled.num_qubits}")
-    print(f"  gate counts: {compiled.count_ops()}")
-    print(f"  statevector <ZZZ> = {sv_ev:.6f}")
-
-    return mc, obs_mts, sv_ev
+    return mc, obs_mts, ref_ev
 
 def run_once(mc, obs_mts, n_threads: int, sv_ev: float) -> float:
     from propaq.propagators import MajoranaPropagator
@@ -232,7 +184,7 @@ def plot_results(results, out_path):
     efficiencies = [s / n * 100 for s, n in zip(speedups, thread_counts)]
 
     fig, axes = plt.subplots(1, 3, figsize=(14, 4))
-    fig.suptitle("Propaq thread scaling — H6 UCJ circuit", fontsize=13)
+    fig.suptitle("Propaq thread scaling — UCJ circuit", fontsize=13)
 
     # Wall time
     ax = axes[0]
@@ -301,7 +253,7 @@ def main():
     args = parse_args()
 
     print("Building circuit (not counted in timings)...")
-    mc, obs_mts, sv_ev = build_circuit(args.natoms, args.nlayers)
+    mc, obs_mts, sv_ev = build_circuit(args.n_orbs, args.n_layers, args.seed)
 
     if args.flamegraph:
         n_threads = args.threads[0] if args.threads else (os.cpu_count() or 4)
