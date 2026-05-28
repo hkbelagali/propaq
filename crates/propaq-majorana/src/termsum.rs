@@ -22,7 +22,7 @@ impl MajoranaTermSum {
             for (k, v) in dict.iter() {
                 let key: MajoranaMonomial = k.extract()?;
                 let val: Complex64 = v.extract()?;
-                inner.terms.push((key, val));
+                inner.terms.insert(key, val);
             }
         }
         Ok(MajoranaTermSum { inner })
@@ -53,7 +53,7 @@ impl MajoranaTermSum {
     }
 
     fn items(&self) -> Vec<(MajoranaMonomial, Complex64)> {
-        self.inner.terms.clone()
+        self.inner.terms.iter().map(|(k, v)| (k.clone(), *v)).collect()
     }
 
     fn __len__(&self) -> usize {
@@ -61,16 +61,11 @@ impl MajoranaTermSum {
     }
 
     fn __setitem__(&mut self, term: MajoranaMonomial, coeff: Complex64) {
-        self.inner.terms.retain(|(t, _)| t != &term);
-        self.inner.terms.push((term, coeff));
+        self.inner.terms.insert(term, coeff);
     }
 
     fn __getitem__(&self, term: &MajoranaMonomial) -> Complex64 {
-        self.inner.terms
-            .iter()
-            .filter(|(t, _)| t == term)
-            .map(|(_, c)| *c)
-            .sum()
+        self.inner.terms.get(term).copied().unwrap_or_default()
     }
 
     fn copy(&self) -> MajoranaTermSum {

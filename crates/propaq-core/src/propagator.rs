@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use num_complex::Complex64;
+use rustc_hash::FxHashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -34,7 +35,6 @@ pub struct AbstractPropagator<M: AbstractTerm> {
     pub pool: Arc<rayon::ThreadPool>,
     pub progress_bar: bool,
     pub truncation_interval: usize,
-    flags_buf: Vec<bool>,
     _marker: PhantomData<M>,
 }
 
@@ -66,68 +66,52 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             pool,
             progress_bar,
             truncation_interval,
-            flags_buf: Vec::new(),
             _marker: PhantomData,
         })
     }
 
     fn apply_gate_inplace(
-        &mut self,
+        &self,
+        pool: &rayon::ThreadPool,
         evolved: &mut AbstractTermSum<M>,
         generator: &M,
         angle: f64,
     ) {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
-        let n = evolved.terms.len();
 
-        let pool = Arc::clone(&self.pool);
+        // Single parallel pass: scale anti-commuting terms in-place and collect new terms,
+        // folding into per-thread HashMaps to deduplicate before merging.
+        let new_map: FxHashMap<M, Complex64> = pool.install(|| {
+            evolved.terms
+                .par_iter_mut()
+                .filter_map(|(term, coeff)| {
+                    if term.commutes_with(generator) {
+                        return None;
+                    }
+                    let (phase, new_term) = generator.matmul_internal(term);
+                    let new_coeff = *coeff * Complex64::new(0.0, sin_t) * phase;
+                    *coeff *= cos_t;
+                    Some((new_term, new_coeff))
+                })
+                .fold(
+                    || FxHashMap::<M, Complex64>::default(),
+                    |mut m, (k, v)| {
+                        *m.entry(k).or_insert(Complex64::new(0.0, 0.0)) += v;
+                        m
+                    },
+                )
+                .reduce(FxHashMap::default, |mut a, b| {
+                    for (k, v) in b {
+                        *a.entry(k).or_insert(Complex64::new(0.0, 0.0)) += v;
+                    }
+                    a
+                })
+        });
 
-        self.flags_buf.resize(n, false);
-        {
-            let flags = &mut self.flags_buf;
-            pool.install(|| {
-                flags
-                    .par_iter_mut()
-                    .zip(evolved.terms.par_iter())
-                    .for_each(|(f, (term, _))| *f = !term.commutes_with(generator));
-            });
+        for (k, v) in new_map {
+            *evolved.terms.entry(k).or_insert(Complex64::new(0.0, 0.0)) += v;
         }
-
-        let new_terms: Vec<(M, Complex64)> = {
-            let flags = &self.flags_buf;
-            pool.install(|| {
-                evolved
-                    .terms
-                    .par_iter()
-                    .zip(flags.par_iter())
-                    .filter_map(|((term, coeff), &is_anti)| {
-                        if !is_anti {
-                            return None;
-                        }
-                        let (phase, new_term) = generator.matmul_internal(term);
-                        Some((new_term, *coeff * Complex64::new(0.0, sin_t) * phase))
-                    })
-                    .collect()
-            })
-        };
-
-        {
-            let flags = &self.flags_buf;
-            pool.install(|| {
-                evolved
-                    .terms
-                    .par_iter_mut()
-                    .zip(flags.par_iter())
-                    .for_each(|((_, coeff), &is_anti)| {
-                        if is_anti {
-                            *coeff *= cos_t;
-                        }
-                    });
-            });
-        }
-
-        evolved.terms.extend(new_terms);
     }
 
     pub fn run_propagate(
@@ -143,6 +127,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         let damping = self.uniform_damping(py);
         let total_rotations: usize = layers.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = self.make_progress_bar(py, total_rotations)?;
+        let pool = Arc::clone(&self.pool);
 
         let mut trunc_counter: usize = 0;
         for layer in layers.iter().rev() {
@@ -152,7 +137,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 let angle: f64 = rot.getattr("angle")?.extract()?;
                 let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
 
-                py.allow_threads(|| self.apply_gate_inplace(evolved, &generator, angle));
+                py.allow_threads(|| self.apply_gate_inplace(&pool, evolved, &generator, angle));
 
                 if !(is_intermediate && generator.is_number_preserving()) {
                     trunc_counter += 1;
@@ -166,15 +151,13 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 Self::tick_progress_bar(py, &pbar, &postfix, evolved.terms.len())?;
             }
 
-            self.apply_layer_noise(py, evolved, damping)?;
+            self.apply_layer_noise(py, &pool, evolved, damping)?;
         }
 
         Self::close_progress_bar(py, &pbar)?;
 
         if let Some(ref t) = self.truncation {
             evolved.truncate(t.bind(py))?;
-        } else {
-            py.allow_threads(|| evolved.consolidate());
         }
 
         Ok(())
@@ -195,6 +178,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         let damping = self.uniform_damping(py);
         let total_rotations: usize = layers.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = self.make_progress_bar(py, total_rotations)?;
+        let pool = Arc::clone(&self.pool);
 
         let mut trunc_counter: usize = 0;
         for layer in layers.iter().rev() {
@@ -204,7 +188,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 let angle: f64 = rot.getattr("angle")?.extract()?;
                 let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
 
-                py.allow_threads(|| self.apply_gate_inplace(evolved, &generator, angle));
+                py.allow_threads(|| self.apply_gate_inplace(&pool, evolved, &generator, angle));
 
                 if !(is_intermediate && generator.is_number_preserving()) {
                     trunc_counter += 1;
@@ -219,15 +203,13 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 Self::tick_progress_bar(py, &pbar, &postfix, evolved.terms.len())?;
             }
 
-            self.apply_layer_noise(py, evolved, damping)?;
+            self.apply_layer_noise(py, &pool, evolved, damping)?;
         }
 
         Self::close_progress_bar(py, &pbar)?;
 
         if let Some(ref t) = self.truncation {
             evolved.truncate(t.bind(py))?;
-        } else {
-            py.allow_threads(|| evolved.consolidate());
         }
 
         let total: Complex64 = evolved
@@ -292,6 +274,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
     fn apply_layer_noise(
         &self,
         py: Python<'_>,
+        pool: &rayon::ThreadPool,
         evolved: &mut AbstractTermSum<M>,
         damping: Option<f64>,
     ) -> PyResult<()> {
@@ -299,7 +282,6 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             return Ok(());
         }
         if let Some(d) = damping {
-            let pool = Arc::clone(&self.pool);
             py.allow_threads(|| {
                 pool.install(|| {
                     evolved.terms.par_iter_mut().for_each(|(term, coeff)| {
