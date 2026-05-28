@@ -20,8 +20,17 @@ pub struct PauliString {
 
 impl PauliString {
     fn commutes_with_impl(&self, other: &PauliString) -> bool {
-        let anticomm = &(&self.x & &other.z) ^ &(&self.z & &other.x);
-        anticomm.count_ones() % 2 == 0
+        // Anticommutator parity = popcount(x1 & z2) + popcount(z1 & x2) mod 2.
+        // Compute word-by-word to avoid allocating intermediate Bitsets.
+        let xz: u32 = self.x.as_words().iter()
+            .zip(other.z.as_words())
+            .map(|(a, b)| (a & b).count_ones())
+            .sum();
+        let zx: u32 = self.z.as_words().iter()
+            .zip(other.x.as_words())
+            .map(|(a, b)| (a & b).count_ones())
+            .sum();
+        (xz + zx) % 2 == 0
     }
 
     pub(crate) fn matmul_impl(&self, other: &PauliString) -> (Complex64, PauliString) {
