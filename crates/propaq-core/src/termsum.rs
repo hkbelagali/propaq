@@ -41,7 +41,10 @@ impl<M: AbstractTerm> AbstractTermSum<M> {
         if let Ok(tp) = policy.extract::<PyRef<TruncationPolicy>>() {
             let wc = tp.weight_cutoff;
             let cc = tp.coeff_cutoff;
-            self.terms.retain(|term, coeff| !(term.weight() > wc || coeff.norm() < cc));
+            self.terms.retain(|term, coeff| {
+                let weight_ok = wc.map_or(true, |w| term.weight() <= w);
+                weight_ok && coeff.norm() >= cc
+            });
             return Ok(());
         }
 
