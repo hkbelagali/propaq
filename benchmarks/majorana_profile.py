@@ -1,5 +1,5 @@
 """
-Propaq-isolated performance benchmark.
+Propaq-isolated Majorana propagation performance benchmark.
 
 Build a UCJ ansatz with fixed-seed random angles for reproducibility
 """ 
@@ -56,8 +56,8 @@ def parse_args():
         help="Repetitions in --flamegraph mode (default: 20)",
     )
     p.add_argument(
-        "--out", default="benchmarks/propaq_scaling.png",
-        help="Output plot path (default: benchmarks/propaq_scaling.png)",
+        "--out", default="benchmarks/majorana_scaling.png",
+        help="Output plot path (default: benchmarks/majorana_scaling.png)",
     )
     return p.parse_args()
 
@@ -184,7 +184,7 @@ def plot_results(results, out_path):
     efficiencies = [s / n * 100 for s, n in zip(speedups, thread_counts)]
 
     fig, axes = plt.subplots(1, 3, figsize=(14, 4))
-    fig.suptitle("Propaq thread scaling — UCJ circuit", fontsize=13)
+    fig.suptitle("Majorana thread scaling — UCJ circuit", fontsize=13)
 
     # Wall time
     ax = axes[0]
@@ -226,7 +226,7 @@ def flamegraph_burn(mc, obs_mts, sv_ev, n_threads, n_reps):
     from propaq.noise import TruncationPolicy
 
     print(f"Flamegraph burn: {n_reps} reps at {n_threads} threads")
-    print("Run this script under: py-spy record --native --rate 1000 -o propaq_flamegraph.svg -- ...")
+    print("Run this script under: py-spy record --native --rate 1000 -o majorana_flamegraph.svg -- ...")
 
     prop = MajoranaPropagator(
         None,
