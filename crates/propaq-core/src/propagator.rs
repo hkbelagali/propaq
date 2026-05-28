@@ -3,9 +3,11 @@ use rayon::prelude::*;
 use num_complex::Complex64;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use rustc_hash::FxHashMap;
 
 use crate::termsum::AbstractTermSum;
 use crate::noise::UniformNoiseModel;
+use crate::truncation::TruncationPolicy;
 use crate::traits::AbstractTerm;
 
 #[pyclass]
@@ -27,16 +29,28 @@ impl PropagationResult {
     }
 }
 
-const PARALLEL_THRESHOLD: usize = 512;
+/// Multiply-shift partition hash: XOR-folds the term's bits, then maps
+/// uniformly into [0, n_partitions) where n_partitions is a power of two.
+#[inline]
+fn owner_of<M: AbstractTerm>(term: &M, log2_n: u32) -> usize {
+    if log2_n == 0 {
+        return 0;
+    }
+    (term.partition_key().wrapping_mul(0x517cc1b727220a95) >> (64 - log2_n)) as usize
+}
 
-// Abstract propagator (not a pyclass — only concrete wrappers are exposed)
 pub struct AbstractPropagator<M: AbstractTerm> {
     pub noise: Option<PyObject>,
     pub truncation: Option<PyObject>,
     pub pool: Arc<rayon::ThreadPool>,
     pub progress_bar: bool,
-    pub truncation_interval: usize,
-    staging: Vec<(M, Complex64)>,
+    pub truncation_threshold: usize,
+    n_partitions: usize,
+    log2_n: u32,
+    thread_maps: Vec<FxHashMap<M, Complex64>>,
+    // outboxes[src][dst]: terms produced by partition src that belong to partition dst
+    outboxes: Vec<Vec<Vec<(M, Complex64)>>>,
+    total_terms: usize,
     _marker: PhantomData<M>,
 }
 
@@ -46,13 +60,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         truncation: Option<PyObject>,
         n_threads: Option<usize>,
         progress_bar: bool,
-        truncation_interval: usize,
+        truncation_threshold: usize,
     ) -> PyResult<Self> {
-        if truncation_interval == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "truncation_interval must be >= 1",
-            ));
-        }
         let mut builder = rayon::ThreadPoolBuilder::new();
         if let Some(n) = n_threads {
             builder = builder.num_threads(n);
@@ -62,65 +71,180 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 .build()
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
         );
+        let n_threads_actual = pool.current_num_threads();
+        let n_partitions = n_threads_actual.next_power_of_two().max(1);
+        let log2_n = n_partitions.trailing_zeros();
+        let thread_maps = (0..n_partitions).map(|_| FxHashMap::default()).collect();
+        let outboxes = (0..n_partitions)
+            .map(|_| (0..n_partitions).map(|_| Vec::new()).collect())
+            .collect();
         Ok(AbstractPropagator {
             noise,
             truncation,
             pool,
             progress_bar,
-            truncation_interval,
-            staging: Vec::new(),
+            truncation_threshold,
+            n_partitions,
+            log2_n,
+            thread_maps,
+            outboxes,
+            total_terms: 0,
             _marker: PhantomData,
         })
     }
 
-    fn apply_gate_inplace(
-        &mut self,
-        evolved: &mut AbstractTermSum<M>,
-        generator: &M,
-        angle: f64,
-    ) {
+    /// Partition `evolved.terms` into per-partition maps at the start of a run.
+    fn initialize_from(&mut self, evolved: &AbstractTermSum<M>) {
+        for m in &mut self.thread_maps {
+            m.clear();
+        }
+        for (term, coeff) in &evolved.terms {
+            let p = owner_of(term, self.log2_n);
+            self.thread_maps[p].insert(term.clone(), *coeff);
+        }
+        self.total_terms = evolved.terms.len();
+    }
+
+    /// Reassemble `evolved.terms` from per-partition maps at the end of a run.
+    fn finalize_to(&self, evolved: &mut AbstractTermSum<M>) {
+        evolved.terms.clear();
+        evolved.terms.reserve(self.total_terms);
+        for map in &self.thread_maps {
+            evolved.terms.extend(map.iter().map(|(k, v)| (k.clone(), *v)));
+        }
+    }
+
+    /// Apply one rotation gate to all live terms: those in thread_maps and those
+    /// sitting in outboxes. Outbox items are processed up to their pre-gate lengths
+    /// so newly appended items are not re-processed in the same pass.
+    /// Returns the number of new outbox items produced (added to total_terms by caller).
+    fn apply_gate_inplace(&mut self, generator: &M, angle: f64) -> usize {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
+        let log2_n = self.log2_n;
+        let n = self.n_partitions;
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &mut self.thread_maps;
+        let outboxes = &mut self.outboxes;
 
-        let mut staging = std::mem::take(&mut self.staging);
-        staging.clear();
-        // Reserve worst case (every term non-commuting → one new term each).
-        staging.reserve(evolved.terms.len());
+        pool.install(|| {
+            thread_maps
+                .par_iter_mut()
+                .zip(outboxes.par_iter_mut())
+                .map(|(local_map, outbox_row)| {
+                    let mut new_terms: Vec<(usize, M, Complex64)> = Vec::new();
 
-        if evolved.terms.len() >= PARALLEL_THRESHOLD {
-            staging = self.pool.install(|| {
-                evolved.terms
-                    .par_iter_mut()
-                    .filter_map(|(term, coeff)| {
-                        if term.commutes_with(generator) {
-                            return None;
+                    // Apply gate to thread_map entries.
+                    for (term, coeff) in local_map.iter_mut() {
+                        if !term.commutes_with(generator) {
+                            let (phase, new_term) = generator.matmul_internal(term);
+                            let new_coeff = *coeff * Complex64::new(0.0, sin_t) * phase;
+                            *coeff *= cos_t;
+                            let dst = owner_of(&new_term, log2_n);
+                            new_terms.push((dst, new_term, new_coeff));
                         }
-                        let (phase, new_term) = generator.matmul_internal(term);
-                        let new_coeff = *coeff * Complex64::new(0.0, sin_t) * phase;
-                        *coeff *= cos_t;
-                        Some((new_term, new_coeff))
-                    })
-                    .collect()
-            });
-        } else {
-            for (term, coeff) in evolved.terms.iter_mut() {
-                if term.commutes_with(generator) {
-                    continue;
-                }
-                let (phase, new_term) = generator.matmul_internal(term);
-                let new_coeff = *coeff * Complex64::new(0.0, sin_t) * phase;
-                *coeff *= cos_t;
-                staging.push((new_term, new_coeff));
+                    }
+
+                    // Apply gate to existing outbox items. Snapshot lengths first so
+                    // items appended in this same pass are not re-processed.
+                    let snap: Vec<usize> = outbox_row.iter().map(|v| v.len()).collect();
+                    for dst in 0..n {
+                        for i in 0..snap[dst] {
+                            let (term, coeff) = &mut outbox_row[dst][i];
+                            if !term.commutes_with(generator) {
+                                let (phase, new_term) = generator.matmul_internal(term);
+                                let new_coeff = *coeff * Complex64::new(0.0, sin_t) * phase;
+                                *coeff *= cos_t;
+                                let new_dst = owner_of(&new_term, log2_n);
+                                new_terms.push((new_dst, new_term, new_coeff));
+                            }
+                        }
+                    }
+
+                    let count = new_terms.len();
+                    for (dst, term, coeff) in new_terms {
+                        outbox_row[dst].push((term, coeff));
+                    }
+                    count
+                })
+                .sum()
+        })
+    }
+
+    /// Transpose outboxes into per-destination inboxes, then in parallel insert
+    /// inbox items into each partition's map and optionally truncate.
+    fn flush_and_maybe_truncate(&mut self, tp: Option<&TruncationPolicy>) {
+        let n = self.n_partitions;
+
+        // Phase 1: serial transpose — collect inboxes[dst] from all outboxes[src][dst]
+        let mut inboxes: Vec<Vec<(M, Complex64)>> = (0..n).map(|_| Vec::new()).collect();
+        for src in 0..n {
+            for dst in 0..n {
+                inboxes[dst].extend(self.outboxes[src][dst].drain(..));
             }
         }
 
-        // Reserve before merging to avoid HashMap rehashing mid-loop.
-        evolved.terms.reserve(staging.len());
-        for (k, v) in staging.drain(..) {
-            *evolved.terms.entry(k).or_insert(Complex64::new(0.0, 0.0)) += v;
+        // Phase 2: parallel insert + optional truncate
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &mut self.thread_maps;
+        pool.install(|| {
+            thread_maps
+                .par_iter_mut()
+                .zip(inboxes.into_par_iter())
+                .for_each(|(map, inbox)| {
+                    for (term, coeff) in inbox {
+                        *map.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
+                    }
+                    if let Some(tp) = tp {
+                        let wc = tp.weight_cutoff;
+                        let cc = tp.coeff_cutoff;
+                        map.retain(|t, c| t.weight() <= wc && c.norm() >= cc);
+                    }
+                });
+        });
+
+        self.total_terms = self.thread_maps.iter().map(|m| m.len()).sum();
+    }
+
+    /// Apply per-term damping to all live terms: thread_maps and outboxes alike.
+    fn apply_layer_noise(
+        &mut self,
+        py: Python<'_>,
+        pool: &rayon::ThreadPool,
+        damping: Option<f64>,
+    ) -> PyResult<()> {
+        if self.noise.is_none() {
+            return Ok(());
         }
 
-        self.staging = staging;
+        if let Some(d) = damping {
+            py.allow_threads(|| {
+                pool.install(|| {
+                    self.thread_maps
+                        .par_iter_mut()
+                        .zip(self.outboxes.par_iter_mut())
+                        .for_each(|(map, outbox_row)| {
+                            map.iter_mut().for_each(|(term, coeff)| {
+                                *coeff *= (-d * term.weight() as f64).exp();
+                            });
+                            for outbox in outbox_row.iter_mut() {
+                                for (term, coeff) in outbox.iter_mut() {
+                                    *coeff *= (-d * term.weight() as f64).exp();
+                                }
+                            }
+                        });
+                });
+            });
+        } else {
+            // Generic Python noise: flush first, apply via Python callback, re-partition.
+            py.allow_threads(|| self.flush_and_maybe_truncate(None));
+            let noise = self.noise.as_ref().unwrap().bind(py);
+            let mut tmp = AbstractTermSum::new();
+            self.finalize_to(&mut tmp);
+            tmp.apply_damping(noise, 0)?;
+            self.initialize_from(&tmp);
+        }
+        Ok(())
     }
 
     pub fn run_propagate(
@@ -134,8 +258,6 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
     {
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
 
-        // Pre-extract all rotation data while holding the GIL once, rather than
-        // re-crossing the Python boundary on every gate inside the hot loop.
         let circuit_data: Vec<Vec<(M, f64, bool)>> = layers
             .iter()
             .map(|layer| {
@@ -149,35 +271,44 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             })
             .collect::<PyResult<_>>()?;
 
+        // Extract TruncationPolicy once (requires GIL).
+        let tp: Option<TruncationPolicy> = self.truncation.as_ref().and_then(|t| {
+            t.bind(py).extract::<PyRef<TruncationPolicy>>().ok().map(|p| p.clone())
+        });
+
         let damping = self.uniform_damping(py);
         let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = self.make_progress_bar(py, total_rotations)?;
         let pool = Arc::clone(&self.pool);
 
-        let mut trunc_counter: usize = 0;
-        for layer_data in circuit_data.iter().rev() {
-            for (generator, angle, is_intermediate) in layer_data.iter().rev() {
-                py.allow_threads(|| self.apply_gate_inplace(evolved, generator, *angle));
+        self.initialize_from(evolved);
 
-                if !(*is_intermediate && generator.is_number_preserving()) {
-                    trunc_counter += 1;
-                    if trunc_counter % self.truncation_interval == 0 {
-                        if let Some(ref trunc_obj) = self.truncation {
-                            evolved.truncate(trunc_obj.bind(py))?;
-                        }
-                    }
+        for layer_data in circuit_data.iter().rev() {
+            for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
+                let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
+                self.total_terms += added;
+                if self.total_terms >= self.truncation_threshold {
+                    py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref()));
                 }
 
-                Self::tick_progress_bar(py, &pbar, &postfix, evolved.terms.len())?;
+                Self::tick_progress_bar(py, &pbar, &postfix, self.total_terms)?;
             }
 
-            self.apply_layer_noise(py, &pool, evolved, damping)?;
+            self.apply_layer_noise(py, &pool, damping)?;
         }
 
         Self::close_progress_bar(py, &pbar)?;
 
-        if let Some(ref t) = self.truncation {
-            evolved.truncate(t.bind(py))?;
+        // Final flush + truncation.
+        py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref()));
+
+        self.finalize_to(evolved);
+
+        // Generic Python policy: apply truncation to the finalized map.
+        if tp.is_none() {
+            if let Some(ref t) = self.truncation {
+                evolved.truncate(t.bind(py))?;
+            }
         }
 
         Ok(())
@@ -208,37 +339,42 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             })
             .collect::<PyResult<_>>()?;
 
+        let tp: Option<TruncationPolicy> = self.truncation.as_ref().and_then(|t| {
+            t.bind(py).extract::<PyRef<TruncationPolicy>>().ok().map(|p| p.clone())
+        });
+
         let mut n_terms: Vec<usize> = Vec::new();
         let damping = self.uniform_damping(py);
         let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = self.make_progress_bar(py, total_rotations)?;
         let pool = Arc::clone(&self.pool);
 
-        let mut trunc_counter: usize = 0;
+        self.initialize_from(evolved);
+
         for layer_data in circuit_data.iter().rev() {
-            for (generator, angle, is_intermediate) in layer_data.iter().rev() {
-                py.allow_threads(|| self.apply_gate_inplace(evolved, generator, *angle));
+            for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
+                let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
+                self.total_terms += added;
+                let trunc = if self.total_terms >= self.truncation_threshold { tp.as_ref() } else { None };
+                py.allow_threads(|| self.flush_and_maybe_truncate(trunc));
 
-                if !(*is_intermediate && generator.is_number_preserving()) {
-                    trunc_counter += 1;
-                    if trunc_counter % self.truncation_interval == 0 {
-                        if let Some(ref trunc_obj) = self.truncation {
-                            evolved.truncate(trunc_obj.bind(py))?;
-                        }
-                    }
-                }
-
-                n_terms.push(evolved.terms.len());
-                Self::tick_progress_bar(py, &pbar, &postfix, evolved.terms.len())?;
+                n_terms.push(self.total_terms);
+                Self::tick_progress_bar(py, &pbar, &postfix, self.total_terms)?;
             }
 
-            self.apply_layer_noise(py, &pool, evolved, damping)?;
+            self.apply_layer_noise(py, &pool, damping)?;
         }
 
         Self::close_progress_bar(py, &pbar)?;
 
-        if let Some(ref t) = self.truncation {
-            evolved.truncate(t.bind(py))?;
+        py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref()));
+
+        self.finalize_to(evolved);
+
+        if tp.is_none() {
+            if let Some(ref t) = self.truncation {
+                evolved.truncate(t.bind(py))?;
+            }
         }
 
         let total: Complex64 = evolved
@@ -296,31 +432,6 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
     fn close_progress_bar(py: Python<'_>, pbar: &Option<Py<PyAny>>) -> PyResult<()> {
         if let Some(pbar) = pbar {
             pbar.bind(py).call_method0("close")?;
-        }
-        Ok(())
-    }
-
-    fn apply_layer_noise(
-        &self,
-        py: Python<'_>,
-        pool: &rayon::ThreadPool,
-        evolved: &mut AbstractTermSum<M>,
-        damping: Option<f64>,
-    ) -> PyResult<()> {
-        if self.noise.is_none() {
-            return Ok(());
-        }
-        if let Some(d) = damping {
-            py.allow_threads(|| {
-                pool.install(|| {
-                    evolved.terms.par_iter_mut().for_each(|(term, coeff)| {
-                        *coeff *= (-d * term.weight() as f64).exp();
-                    });
-                });
-            });
-        } else {
-            let noise = self.noise.as_ref().unwrap().bind(py);
-            evolved.apply_damping(noise, 0)?;
         }
         Ok(())
     }

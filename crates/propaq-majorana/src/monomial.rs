@@ -188,6 +188,9 @@ impl AbstractTerm for MajoranaMonomial {
         bytes.resize(byte_length, 0);
         bytes
     }
+    fn partition_key(&self) -> u64 {
+        self.modes.as_words().iter().fold(0u64, |acc, &w| acc ^ w)
+    }
     fn is_number_preserving(&self) -> bool { self.is_number_preserving }
 }
 
