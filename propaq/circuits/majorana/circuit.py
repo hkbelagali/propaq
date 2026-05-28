@@ -2,10 +2,7 @@
 
 from typing import Dict, List, Union
 
-import qiskit
-
 from qiskit import QuantumCircuit
-from ffsim.qiskit import PrepareHartreeFockJW, UCJOpSpinBalancedJW
 
 from ...datatypes import MajoranaMonomial
 from ...datatypes import MajoranaTermSum
@@ -187,14 +184,6 @@ class MajoranaCircuit:
         mc._layers = layers
         mc.n_modes = n_modes
         return mc
-
-    @classmethod
-    def lucj_from_ffsim(cls, lucj: UCJOpSpinBalancedJW):
-        """Construct a MajoranaCircuit from an ffsim UCJOpSpinBalancedJW and PrepareHartreeFockJW."""
-        raise NotImplementedError(
-            "Conversion from ffsim to MajoranaCircuit is not yet implemented. "
-            "Convert the ffsim circuit to Qiskit and use the from_qiskit class method."
-        )
 
     def inverse(self):
         """Return a new MajoranaCircuit with reversed order and negated angles (U†)."""

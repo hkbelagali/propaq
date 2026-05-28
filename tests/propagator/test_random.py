@@ -15,7 +15,7 @@ from qiskit.circuit.library import (
 from qiskit.quantum_info import Statevector, SparsePauliOp
 
 from propaq.datatypes._abstract import BitMask
-from propaq.datatypes.majorana import MajoranaMonomial
+from propaq.datatypes.majorana.majorana import MajoranaMonomial
 from propaq.propagators.majorana import MajoranaPropagator
 
 GATES = [

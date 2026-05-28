@@ -33,7 +33,7 @@ def test_weight_4():
 ])
 
 def test_hermiticity_exp(w, expected):
-    from propaq.datatypes.majorana import _hermiticity_exp
+    from propaq.datatypes.majorana.majorana import _hermiticity_exp
     assert _hermiticity_exp(w) == expected
 
 def test_same_mode_commutes(): 

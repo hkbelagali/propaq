@@ -66,7 +66,7 @@ impl Bitset {
     }
 
     /// Read-only access to the underlying words, used for optimised algorithms.
-    pub(crate) fn as_words(&self) -> &[u64] {
+    pub fn as_words(&self) -> &[u64] {
         &self.words
     }
 

@@ -1,20 +1,20 @@
 import pytest
-from propaq.datatypes import PauliTerm
+from propaq.datatypes import PauliString
 
 def X(qubit=0, n_qubits=1):
-    return PauliTerm(1 << qubit, z=0, n_qubits=n_qubits)
+    return PauliString(1 << qubit, z=0, n_qubits=n_qubits)
 
 
 def Z(qubit=0, n_qubits=1):
-    return PauliTerm(0, z=(1 << qubit), n_qubits=n_qubits)
+    return PauliString(0, z=(1 << qubit), n_qubits=n_qubits)
 
 
 def Y(qubit=0, n_qubits=1):
-    return PauliTerm(1 << qubit, z=(1 << qubit), n_qubits=n_qubits)
+    return PauliString(1 << qubit, z=(1 << qubit), n_qubits=n_qubits)
 
 
 def I(qubit=0, n_qubits=1):
-    return PauliTerm(0, z=0, n_qubits=n_qubits)
+    return PauliString(0, z=0, n_qubits=n_qubits)
 
 def test_xz_anticommute():
     x = X(n_qubits=1)
@@ -96,8 +96,8 @@ SINGLE_QUBIT_MUL = {
 
 
 def test_multi_qubit_multiplication_masks_and_phase():
-    p1 = PauliTerm(x=0b01, z=0b10, n_qubits=2)  # X on q0, Z on q1
-    p2 = PauliTerm(x=0b10, z=0b01, n_qubits=2)  # X on q1, Z on q0
+    p1 = PauliString(x=0b01, z=0b10, n_qubits=2)  # X on q0, Z on q1
+    p2 = PauliString(x=0b10, z=0b01, n_qubits=2)  # X on q1, Z on q0
 
     phase, result = p1 @ p2
 
@@ -131,13 +131,13 @@ def test_overlapping_odd_parity_anticommute():
 def test_weight_and_identity():
     identity = I(n_qubits=3)
     assert identity.weight == 0
-    p = PauliTerm(x=0b101, z=0b010, n_qubits=3)  # nontrivial on 2 qubits
+    p = PauliString(x=0b101, z=0b010, n_qubits=3)  # nontrivial on 2 qubits
     assert p.weight == 3
 
 
 def test_to_bytes_consistent_for_equal_terms():
-    p1 = PauliTerm(x=0b11, z=0b00, n_qubits=2)
-    p2 = PauliTerm(x=0b11, z=0b00, n_qubits=2)
+    p1 = PauliString(x=0b11, z=0b00, n_qubits=2)
+    p2 = PauliString(x=0b11, z=0b00, n_qubits=2)
     assert p1.to_bytes() == p2.to_bytes()
 
 

@@ -1,52 +1,76 @@
-from dataclasses import dataclass 
+from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from numbers import Number
-from typing import NewType, Tuple
+from typing import List, NewType, Tuple
 
 # define a new type for bitmasks, which are used
 # to represent the X and Z components of a PauliTerm
-BitMask = NewType("BitMask", int) 
+BitMask = NewType("BitMask", int)
 
 
-"""
-Abstract term datatype for propaq. 
-
-Concrete examples include 
-PauliTerm and MajoranaMonomial 
-"""
-@dataclass(frozen=True, slots=True) 
-class AbstractTerm(ABC): 
+@dataclass(frozen=True, slots=True)
+class AbstractTerm(ABC):
+    """Abstract monomial datatype.  Concrete examples: PauliMonomial, MajoranaMonomial."""
 
     @property
     @abstractmethod
     def weight(self) -> int:
-        """Returns the weight of the term, i.e. the number of non-identity operators in the term."""
-        pass 
+        """Number of non-identity single-site operators in the term."""
+        pass
 
-    @abstractmethod 
+    @abstractmethod
     def commutes_with(self, other) -> bool:
-        """Returns True if the term commutes with another term, False otherwise."""
-        pass 
+        """Returns True if the term commutes with *other*, False otherwise."""
+        pass
 
-    @abstractmethod 
-    def to_bytes(self) -> bytes: 
+    @abstractmethod
+    def to_bytes(self) -> bytes:
         """Serializes the term to bytes."""
-        pass 
+        pass
 
-    @abstractmethod 
+    @abstractmethod
     def __matmul__(self, other) -> Tuple[Number, "AbstractTerm"]:
-        """
-        Defines the multiplication of two terms, which may result in a new term. 
-        Additionally outputs a phase factor that arises from the multiplication.
-        """
+        """Multiply two terms; returns (phase, product_term)."""
         pass
 
     @abstractmethod
     def __hash__(self) -> int:
-        """Returns a hash of the term, which should be consistent for terms that are equal modulo phase."""
+        """Hash consistent for terms that are equal modulo phase."""
         pass
 
-    @abstractmethod 
+    @abstractmethod
     def __eq__(self, other: object) -> bool:
-        """Checks if two terms are equal modulo phase."""
+        """Equality modulo phase."""
+        pass
+
+
+class AbstractTermSum(ABC):
+    """Abstract container for a linear combination of monomials with complex coefficients.
+
+    Concrete examples: MajoranaTermSum, PauliTermSum.
+    """
+
+    @abstractmethod
+    def add(self, term, coeff: complex) -> None:
+        """Add *coeff* * *term* to the sum."""
+        pass
+
+    @abstractmethod
+    def scale(self, factor: complex) -> None:
+        """Multiply every coefficient by *factor* in-place."""
+        pass
+
+    @abstractmethod
+    def merge(self, other: "AbstractTermSum") -> None:
+        """Add all terms from *other* into this sum."""
+        pass
+
+    @abstractmethod
+    def truncate(self, policy) -> None:
+        """Remove terms according to *policy*."""
+        pass
+
+    @abstractmethod
+    def items(self) -> List[Tuple]:
+        """Return a list of (monomial, coefficient) pairs."""
         pass
