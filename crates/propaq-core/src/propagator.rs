@@ -215,7 +215,9 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                     if let Some(tp) = tp {
                         let wc = tp.weight_cutoff;
                         let cc = tp.coeff_cutoff;
-                        map.retain(|t, c| t.weight() <= wc && c.norm() >= cc);
+                        map.retain(|t, c| {
+                            wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc
+                        });
                     }
                 });
         });
