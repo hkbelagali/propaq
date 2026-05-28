@@ -86,7 +86,3 @@ def test_from_qiskit_cp_generator_modes():
     assert 0b1100 in modes_set   # site 1 number operator
     assert 0b1111 in modes_set   # cross-site four-mode term
 
-
-def test_lucj_from_ffsim_not_implemented():
-    with pytest.raises(NotImplementedError):
-        MajoranaCircuit.lucj_from_ffsim(None)

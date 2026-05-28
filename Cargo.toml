@@ -1,16 +1,13 @@
-[package]
-name = "propaq"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "crates/propaq-core",
+    "crates/propaq-majorana",
+    "crates/propaq-pauli",
+    "crates/propaq-ext",
+]
+resolver = "2"
 
-[lib]
-name = "_rust_core"
-crate-type = ["cdylib"]
-path = "crates/src/lib.rs"
-
-[dependencies]
-pyo3 = { version = "0.23", features = ["extension-module", "num-complex"] }
-num-complex = "0.4"
-rayon = "1.10"
-rustc-hash = "2"
-smallvec = { version = "1", features = ["union"] }
+[profile.flamegraph]
+inherits = "release"
+debug = true
+strip = false
