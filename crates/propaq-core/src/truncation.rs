@@ -12,7 +12,7 @@ pub struct TruncationPolicy {
 #[pymethods]
 impl TruncationPolicy {
     #[new]
-    #[pyo3(signature = (weight_cutoff, coeff_cutoff))]
+    #[pyo3(signature = (weight_cutoff=None, coeff_cutoff=0.0))]
     fn new(weight_cutoff: Option<u32>, coeff_cutoff: f64) -> Self {
         TruncationPolicy { weight_cutoff, coeff_cutoff }
     }
