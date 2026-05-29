@@ -4,13 +4,15 @@ from ._majorana_propagator import PropagationResult
 
 
 class PauliPropagator:
+    truncation_threshold: int
+
     def __init__(
         self,
         noise: object | None = None,
         truncation: object | None = None,
         n_threads: int | None = None,
         progress_bar: bool = False,
-        truncation_interval: int = 1,
+        truncation_threshold: int = 10_000_000,
     ) -> None:
         """
         Initialize the Pauli propagator.
@@ -25,11 +27,10 @@ class PauliPropagator:
             n_threads: Number of worker threads for parallel gate application.
                 Defaults to the number of logical CPU cores.
             progress_bar: If True, display a tqdm progress bar over circuit gates.
-            truncation_interval: Apply truncation every this many gates (default 1).
+            truncation_threshold: Flush outboxes and truncate when the total number of
+                terms across all partitions exceeds this value. Default 10_000_000.
         """
         ...
-
-    truncation_interval: int
 
     def propagate(self, observable: PauliTermSum, circuit: "PauliCircuit") -> PauliTermSum:
         """

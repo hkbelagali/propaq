@@ -147,6 +147,10 @@ impl AbstractTerm for PauliString {
         x_bytes.extend_from_slice(&z_bytes);
         x_bytes
     }
+    fn partition_key(&self) -> u64 {
+        self.x.as_words().iter().chain(self.z.as_words().iter())
+            .fold(0u64, |acc, &w| acc ^ w)
+    }
 }
 
 impl PartialEq for PauliString {
