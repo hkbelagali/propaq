@@ -68,12 +68,12 @@ warnings.formatwarning = lambda msg, *args, **kwargs: f"Warning: {msg}\n"
 
 # Set ansatz properties
 n_reps = nlayers
-pairs_aa = [(p, p + 1) for p in range(norb - 1)]
+pairs_aa = [(p, q) for p in range(norb) for q in range(p + 1, norb)]
 pairs_ab = None  # Let generate_lucj_pass_manager determine the alpha-beta interactions
 
 # Initialize backend — use exactly 2*norb qubits so transpilation adds no ancilla
 # qubits and physical qubit indices match the molecular spin-orbital ordering.
-coupling_map = CouplingMap.from_line(2 * norb, bidirectional=True)
+coupling_map = CouplingMap.from_full(2 * norb, bidirectional=True)
 backend = GenericBackendV2(
     2 * norb,
     coupling_map=coupling_map,
@@ -101,9 +101,7 @@ ucj_op = ffsim.UCJOpSpinBalanced.from_t_amplitudes(
     interaction_pairs=(pairs_aa, pairs_ab),
     # Setting optimize=True enables the "compressed" factorization
     optimize=True,
-    # Limit the number of optimization iterations to prevent the code cell from running
-    # too long. Removing this line may improve results.
-    options=dict(maxiter=1000),
+    options=dict(maxiter=10_000),
 )
 
 # create an empty quantum circuit
@@ -188,9 +186,9 @@ print(f"HF energy            : {scf.e_tot:.6f} Ha")
 
 
 prop_ham = MajoranaPropagator(
-        UniformNoiseModel(damping=0.0001),
+        UniformNoiseModel(damping=0.00),
         TruncationPolicy(weight_cutoff=100000, coeff_cutoff=1e-16),
-        n_threads=10,
+        n_threads=16,
         progress_bar=True,
         truncation_threshold=10_000_000,
 )
