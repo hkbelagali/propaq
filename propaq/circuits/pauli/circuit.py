@@ -1,8 +1,9 @@
 """Circuit representation for Pauli propagation."""
 
-from typing import Dict, List, Union
+from typing import List, Union
 
 from qiskit import QuantumCircuit
+from qiskit.converters import circuit_to_dag
 
 from ...datatypes.pauli.pauli import PauliString
 from ...datatypes.pauli.termsum import PauliTermSum
@@ -72,103 +73,92 @@ class PauliCircuit:
             qc: A Qiskit QuantumCircuit to convert.
         """
         n_qubits = qc.num_qubits
-        qubit_max_layer: Dict[int, int] = {}
-        layer_rotations: Dict[int, List[PauliRotation]] = {}
-
-        def _gate_layer(q_indices: List[int]) -> int:
-            return max((qubit_max_layer.get(q, -1) for q in q_indices), default=-1) + 1
-
-        def _update_qubits(q_indices: List[int], layer_id: int) -> None:
-            for q in q_indices:
-                qubit_max_layer[q] = layer_id
-
-        def _add_rots(layer_id: int, rots: List[PauliRotation]) -> None:
-            if layer_id not in layer_rotations:
-                layer_rotations[layer_id] = []
-            layer_rotations[layer_id].extend(rots)
 
         def _mark_intermediate(rots: List[PauliRotation]) -> List[PauliRotation]:
-            """Mark all but the last rotation as intermediate."""
             for i, rot in enumerate(rots):
                 rot.is_intermediate = i < len(rots) - 1
             return rots
 
-        for op in qc.data:
-            instr = op.operation
-            qargs = op.qubits
+        all_layers: List[List[PauliRotation]] = []
 
-            if instr.name in ["measure", "barrier"]:
-                continue
-            if instr.name not in ["xx_plus_yy", "p", "rz", "cp", "x", "swap"]:
-                raise ValueError(
-                    f"Unsupported gate {instr.name} in Qiskit circuit. "
-                    "Supported gates: xx_plus_yy, p, rz, cp, x, swap."
-                )
+        for layer in circuit_to_dag(qc).layers():
+            layer_rots: List[PauliRotation] = []
+            for node in layer["graph"].topological_op_nodes():
+                instr = node.op
+                qargs = node.qargs
 
-            q_indices = [qc.find_bit(q).index for q in qargs]
-            layer_id = _gate_layer(q_indices)
-            _update_qubits(q_indices, layer_id)
-
-            if instr.name == "xx_plus_yy":
-                if len(qargs) != 2:
-                    raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
-                beta = float(instr.params[1]) if len(instr.params) > 1 else 0.0
-
-                rots: List[PauliRotation] = []
-                if abs(beta) > 1e-14:
-                    rz_sum = PauliTermSum[PauliString].from_rz_angle(
-                        q_indices[1], -beta, n_qubits
+                if instr.name in ["measure", "barrier"]:
+                    continue
+                if instr.name not in ["xx_plus_yy", "p", "rz", "cp", "x", "swap"]:
+                    raise ValueError(
+                        f"Unsupported gate {instr.name} in Qiskit circuit. "
+                        "Supported gates: xx_plus_yy, p, rz, cp, x, swap."
                     )
-                    for gen, ang in rz_sum.items():
+
+                q_indices = [qc.find_bit(q).index for q in qargs]
+
+                if instr.name == "xx_plus_yy":
+                    if len(qargs) != 2:
+                        raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
+                    beta = float(instr.params[1]) if len(instr.params) > 1 else 0.0
+
+                    rots: List[PauliRotation] = []
+                    if abs(beta) > 1e-14:
+                        rz_sum = PauliTermSum[PauliString].from_rz_angle(
+                            q_indices[1], -beta, n_qubits
+                        )
+                        for gen, ang in rz_sum.items():
+                            rots.append(PauliRotation(gen, float(ang.real)))
+
+                    paulisum: PauliTermSum[PauliString] = (
+                        PauliTermSum[PauliString].from_xx_plus_yy(instr, q_indices, n_qubits)
+                    )
+                    for gen, ang in paulisum.items():
                         rots.append(PauliRotation(gen, float(ang.real)))
 
-                paulisum: PauliTermSum[PauliString] = (
-                    PauliTermSum[PauliString].from_xx_plus_yy(instr, q_indices, n_qubits)
-                )
-                for gen, ang in paulisum.items():
-                    rots.append(PauliRotation(gen, float(ang.real)))
+                    if abs(beta) > 1e-14:
+                        rz_neg_sum = PauliTermSum[PauliString].from_rz_angle(
+                            q_indices[1], beta, n_qubits
+                        )
+                        for gen, ang in rz_neg_sum.items():
+                            rots.append(PauliRotation(gen, float(ang.real)))
 
-                if abs(beta) > 1e-14:
-                    rz_neg_sum = PauliTermSum[PauliString].from_rz_angle(
-                        q_indices[1], beta, n_qubits
-                    )
-                    for gen, ang in rz_neg_sum.items():
-                        rots.append(PauliRotation(gen, float(ang.real)))
+                    layer_rots.extend(_mark_intermediate(rots))
+                    continue
 
-                _add_rots(layer_id, _mark_intermediate(rots))
-                continue
+                elif instr.name == "p":
+                    paulisum = PauliTermSum[PauliString].from_phase(instr, q_indices, n_qubits)
 
-            elif instr.name == "p":
-                paulisum = PauliTermSum[PauliString].from_phase(instr, q_indices, n_qubits)
+                elif instr.name == "rz":
+                    paulisum = PauliTermSum[PauliString].from_rz(instr, q_indices, n_qubits)
 
-            elif instr.name == "rz":
-                paulisum = PauliTermSum[PauliString].from_rz(instr, q_indices, n_qubits)
+                elif instr.name == "cp":
+                    if len(qargs) != 2:
+                        raise ValueError("cp gate must have exactly 2 qubits.")
+                    paulisum = PauliTermSum[PauliString].from_cp(instr, q_indices, n_qubits)
 
-            elif instr.name == "cp":
-                if len(qargs) != 2:
-                    raise ValueError("cp gate must have exactly 2 qubits.")
-                paulisum = PauliTermSum[PauliString].from_cp(instr, q_indices, n_qubits)
+                elif instr.name == "swap":
+                    if len(qargs) != 2:
+                        raise ValueError("swap gate must have exactly 2 qubits.")
+                    paulisum = PauliTermSum[PauliString].from_swap(instr, q_indices, n_qubits)
 
-            elif instr.name == "swap":
-                if len(qargs) != 2:
-                    raise ValueError("swap gate must have exactly 2 qubits.")
-                paulisum = PauliTermSum[PauliString].from_swap(instr, q_indices, n_qubits)
+                elif instr.name == "x":
+                    if len(qargs) != 1:
+                        raise ValueError("x gate must have exactly 1 qubit.")
+                    paulisum = PauliTermSum[PauliString].from_x(instr, q_indices, n_qubits)
 
-            elif instr.name == "x":
-                if len(qargs) != 1:
-                    raise ValueError("x gate must have exactly 1 qubit.")
-                paulisum = PauliTermSum[PauliString].from_x(instr, q_indices, n_qubits)
+                else:
+                    raise ValueError(f"Unsupported gate {instr.name}.")
 
-            else:
-                raise ValueError(f"Unsupported gate {instr.name}.")
+                items = list(paulisum.items())
+                rots = [PauliRotation(gen, float(ang.real)) for gen, ang in items]
+                layer_rots.extend(_mark_intermediate(rots))
 
-            items = list(paulisum.items())
-            rots = [PauliRotation(gen, float(ang.real)) for gen, ang in items]
-            _add_rots(layer_id, _mark_intermediate(rots))
+            if layer_rots:
+                all_layers.append(layer_rots)
 
-        layers = [layer_rotations[i] for i in sorted(layer_rotations.keys())]
         circ = cls.__new__(cls)
-        circ._layers = layers
+        circ._layers = all_layers
         return circ
 
     def inverse(self) -> "PauliCircuit":
