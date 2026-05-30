@@ -9,7 +9,7 @@ import pytest
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import CPhaseGate, PhaseGate, RZGate, SwapGate, XGate, XXPlusYYGate
 from qiskit.converters import circuit_to_dag
-from qiskit.quantum_info import DensityMatrix, Kraus, SparsePauliOp, Statevector
+from qiskit.quantum_info import DensityMatrix, Kraus, SparsePauliOp, Statevector, random_pauli_list
 
 from propaq.circuits import MajoranaCircuit, PauliCircuit
 from propaq.datatypes import MajoranaTermSum, PauliTermSum
@@ -19,7 +19,8 @@ from propaq.propagators.pauli import PauliPropagator
 
 N_QUBITS = 4
 N_MODES = 2 * N_QUBITS
-OBSERVABLE = SparsePauliOp("ZZZZ")
+paulis = random_pauli_list(N_QUBITS, 10)
+OBSERVABLE = SparsePauliOp(paulis)
 TRUNC = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0.0)
 
 

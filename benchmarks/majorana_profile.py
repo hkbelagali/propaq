@@ -104,7 +104,6 @@ def build_circuit(n_orbs: int = 50, n_layers: int = 2, seed: int = 42):
         TruncationPolicy(weight_cutoff=100_000, coeff_cutoff=1e-6),
         n_threads=1,
         progress_bar=False,
-        truncation_interval=2,
     )
     ref_ev = ref_prop.expectation_value(obs_mts, mc, fock_state=0).expectation_value
 
@@ -123,7 +122,6 @@ def run_once(mc, obs_mts, n_threads: int, sv_ev: float) -> float:
         TruncationPolicy(weight_cutoff=100_000, coeff_cutoff=1e-6),
         n_threads=n_threads,
         progress_bar=False,
-        truncation_interval=2,
     )
 
     t0 = time.perf_counter()
@@ -228,12 +226,11 @@ def flamegraph_burn(mc, obs_mts, sv_ev, n_threads, n_reps):
     print(f"Flamegraph burn: {n_reps} reps at {n_threads} threads")
     print("Run this script under: py-spy record --native --rate 1000 -o majorana_flamegraph.svg -- ...")
 
-    prop = MajoranaPropagator(
+/    prop = MajoranaPropagator(
         None,
         TruncationPolicy(weight_cutoff=100_000, coeff_cutoff=1e-6),
         n_threads=n_threads,
         progress_bar=False,
-        truncation_interval=2,
     )
 
     # One warm-up outside the hot loop

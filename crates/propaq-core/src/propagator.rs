@@ -303,6 +303,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         self.initialize_from(evolved);
 
         for layer_data in circuit_data.iter().rev() {
+            self.apply_layer_noise(py, &pool, damping)?;
+
             for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
                 self.total_terms += added;
@@ -312,8 +314,6 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
                 Self::tick_progress_bar(py, &pbar, &postfix, self.total_terms)?;
             }
-
-            self.apply_layer_noise(py, &pool, damping)?;
         }
 
         Self::close_progress_bar(py, &pbar)?;
@@ -371,6 +371,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         self.initialize_from(evolved);
 
         for layer_data in circuit_data.iter().rev() {
+            self.apply_layer_noise(py, &pool, damping)?;
+
             for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
                 self.total_terms += added;
@@ -381,8 +383,6 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 n_terms.push(self.total_terms);
                 Self::tick_progress_bar(py, &pbar, &postfix, self.total_terms)?;
             }
-
-            self.apply_layer_noise(py, &pool, damping)?;
         }
 
         Self::close_progress_bar(py, &pbar)?;
