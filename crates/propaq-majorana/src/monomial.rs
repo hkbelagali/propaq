@@ -82,7 +82,7 @@ impl MajoranaMonomial {
             p
         };
 
-        (&occupied | &string).count_ones()
+        (&single | &(&occupied ^ &string)).count_ones()
     }
 
     pub(crate) fn matmul_internal(&self, other: &MajoranaMonomial) -> (Complex64, MajoranaMonomial) {
