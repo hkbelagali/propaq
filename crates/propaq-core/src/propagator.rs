@@ -204,14 +204,15 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         let pool = Arc::clone(&self.pool);
         let thread_maps = &mut self.thread_maps;
         let scratch_inboxes = &mut self.scratch_inboxes;
-        pool.install(|| {
+        self.total_terms = pool.install(|| {
             thread_maps
                 .par_iter_mut()
                 .zip(scratch_inboxes.par_iter_mut())
-                .for_each(|(map, inbox)| {
+                .map(|(map, inbox)| {
                     for (term, coeff) in inbox.drain(..) {
                         *map.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
                     }
+                    let n = map.len();
                     if let Some(tp) = tp {
                         let wc = tp.weight_cutoff;
                         let cc = tp.coeff_cutoff;
@@ -219,10 +220,10 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                             wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc
                         });
                     }
-                });
+                    n
+                })
+                .sum()
         });
-
-        self.total_terms = self.thread_maps.iter().map(|m| m.len()).sum();
     }
 
     /// Apply per-term damping to all live terms: thread_maps and outboxes alike.
@@ -302,14 +303,16 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
         self.initialize_from(evolved);
 
+        let mut pending: usize = 0;
         for layer_data in circuit_data.iter().rev() {
             self.apply_layer_noise(py, &pool, damping)?;
 
             for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
-                self.total_terms += added;
-                if self.total_terms >= self.truncation_threshold {
+                pending += added;
+                if self.total_terms + pending >= self.truncation_threshold {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref()));
+                    pending = 0;
                 }
 
                 Self::tick_progress_bar(py, &pbar, &postfix, self.total_terms)?;
@@ -370,14 +373,16 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
         self.initialize_from(evolved);
 
+        let mut pending: usize = 0;
         for layer_data in circuit_data.iter().rev() {
             self.apply_layer_noise(py, &pool, damping)?;
 
             for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
-                self.total_terms += added;
-                if self.total_terms >= self.truncation_threshold {
+                pending += added;
+                if self.total_terms + pending >= self.truncation_threshold {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref()));
+                    pending = 0;
                 }
 
                 n_terms.push(self.total_terms);
