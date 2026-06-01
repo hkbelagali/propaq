@@ -1,6 +1,7 @@
 from ._pauli_string import PauliString
 from ._pauli_term_sum import PauliTermSum
 from ._majorana_propagator import PropagationResult
+from ._logger import Logger
 
 
 class PauliPropagator:
@@ -13,6 +14,7 @@ class PauliPropagator:
         n_threads: int | None = None,
         progress_bar: bool = False,
         truncation_threshold: int = 10_000_000,
+        logger: Logger | None = None,
     ) -> None:
         """
         Initialize the Pauli propagator.
@@ -29,6 +31,9 @@ class PauliPropagator:
             progress_bar: If True, display a tqdm progress bar over circuit gates.
             truncation_threshold: Flush outboxes and truncate when the total number of
                 terms across all partitions exceeds this value. Default 10_000_000.
+            logger: Optional Logger instance. When provided, emits JSONL events to the
+                configured file: per-gate state (map_terms, outbox_terms) and truncation
+                events (terms_before, terms_after, discarded_coeff_l1, etc.).
         """
         ...
 

@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult};
+use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator};
 use propaq_pauli::{PauliString, PauliTermSum, PauliPropagator};
 
@@ -22,5 +22,6 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MajoranaPropagator>()?;
     m.add_class::<PauliPropagator>()?;
     m.add_class::<PropagationResult>()?;
+    m.add_class::<Logger>()?;
     Ok(())
 }
