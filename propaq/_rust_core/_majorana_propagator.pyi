@@ -2,6 +2,7 @@ from typing import List
 
 from ._majorana_monomial import MajoranaMonomial
 from ._majorana_term_sum import MajoranaTermSum
+from ._logger import Logger
 
 class PropagationResult:
     n_terms: List[int] 
@@ -17,6 +18,7 @@ class MajoranaPropagator:
         n_threads: int | None = None,
         progress_bar: bool = False,
         truncation_threshold: int = 10_000_000,
+        logger: Logger | None = None,
     ) -> None:
         """
         Initialize the Majorana propagator.
@@ -28,6 +30,9 @@ class MajoranaPropagator:
             progress_bar: If true, display a tqdm progress bar showing the progress through the circuit the total number of terms in the observable.
             truncation_threshold: Flush outboxes and truncate when the total number of
                 terms across all partitions exceeds this value. Default 10_000_000.
+            logger: Optional Logger instance. When provided, emits JSONL events to the
+                configured file: per-gate state (map_terms, outbox_terms) and truncation
+                events (terms_before, terms_after, discarded_coeff_l1, etc.).
 
         NOTE: We use multithreading instead of multiprocessing to avoid the overhead of inter-process communication, which can be significant for large term sums
         that consume a lot of memory. Multithreading allows us to share memory between threads, which can be more efficient for our use case.

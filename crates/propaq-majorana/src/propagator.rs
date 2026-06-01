@@ -13,16 +13,17 @@ pub struct MajoranaPropagator {
 #[pymethods]
 impl MajoranaPropagator {
     #[new]
-    #[pyo3(signature = (noise=None, truncation=None, n_threads=None, progress_bar=false, truncation_threshold=10_000_000))]
+    #[pyo3(signature = (noise=None, truncation=None, n_threads=None, progress_bar=false, truncation_threshold=10_000_000, logger=None))]
     fn new(
         noise: Option<PyObject>,
         truncation: Option<PyObject>,
         n_threads: Option<usize>,
         progress_bar: bool,
         truncation_threshold: usize,
+        logger: Option<PyObject>,
     ) -> PyResult<Self> {
         Ok(MajoranaPropagator {
-            inner: AbstractPropagator::new(noise, truncation, n_threads, progress_bar, truncation_threshold)?,
+            inner: AbstractPropagator::new(noise, truncation, n_threads, progress_bar, truncation_threshold, logger)?,
         })
     }
 

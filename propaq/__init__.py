@@ -16,3 +16,5 @@ from .circuits import (
     PauliCircuit as PauliCircuit,
     PauliRotation as PauliRotation,
 )
+from ._rust_core import Logger as Logger
+from .log_parser import LogParser as LogParser, GateEvent as GateEvent, TruncationEvent as TruncationEvent
