@@ -303,14 +303,16 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
         self.initialize_from(evolved);
 
+        let mut pending: usize = 0;
         for layer_data in circuit_data.iter().rev() {
             self.apply_layer_noise(py, &pool, damping)?;
 
             for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
-                self.total_terms += added;
-                if self.total_terms >= self.truncation_threshold {
+                pending += added;
+                if self.total_terms + pending >= self.truncation_threshold {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref()));
+                    pending = 0;
                 }
 
                 Self::tick_progress_bar(py, &pbar, &postfix, self.total_terms)?;
@@ -371,14 +373,16 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
         self.initialize_from(evolved);
 
+        let mut pending: usize = 0;
         for layer_data in circuit_data.iter().rev() {
             self.apply_layer_noise(py, &pool, damping)?;
 
             for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
-                self.total_terms += added;
-                if self.total_terms >= self.truncation_threshold {
+                pending += added;
+                if self.total_terms + pending >= self.truncation_threshold {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref()));
+                    pending = 0;
                 }
 
                 n_terms.push(self.total_terms);
