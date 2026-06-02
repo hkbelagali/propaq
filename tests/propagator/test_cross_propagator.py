@@ -19,7 +19,7 @@ from propaq.propagators.pauli import PauliPropagator
 
 N_QUBITS = 4
 N_MODES = 2 * N_QUBITS
-OBSERVABLE = SparsePauliOp("ZZZZ")
+OBSERVABLES = ["ZZZZ", "XXXX", "IIZZ"]
 TRUNC = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0.0)
 
 
@@ -66,15 +66,17 @@ def _dm_expectation_noisy(qc: QuantumCircuit, obs: SparsePauliOp, damping: float
     return dm.expectation_value(obs).real
 
 
+@pytest.mark.parametrize("obs_str", OBSERVABLES)
 @pytest.mark.parametrize("seed", [0, 1, 2])
-def test_noiseless_majorana_pauli_agree_with_statevector(seed):
+def test_noiseless_majorana_pauli_agree_with_statevector(seed, obs_str):
     qc = _make_circuit(seed)
-    sv_ev = Statevector(qc).expectation_value(OBSERVABLE).real
+    obs = SparsePauliOp(obs_str)
+    sv_ev = Statevector(qc).expectation_value(obs).real
 
     mc = MajoranaCircuit.from_qiskit(qc, n_modes=N_MODES)
     pc = PauliCircuit.from_qiskit(qc)
-    maj_obs = MajoranaTermSum.from_sparse_pauli_op(OBSERVABLE)
-    pau_obs = PauliTermSum.from_sparse_pauli_op(OBSERVABLE)
+    maj_obs = MajoranaTermSum.from_sparse_pauli_op(obs)
+    pau_obs = PauliTermSum.from_sparse_pauli_op(obs)
 
     maj_ev = MajoranaPropagator(None, TRUNC).expectation_value(maj_obs, mc, fock_state=0).expectation_value
     pau_ev = PauliPropagator(None, TRUNC).expectation_value(pau_obs, pc, fock_state=0).expectation_value
@@ -83,15 +85,17 @@ def test_noiseless_majorana_pauli_agree_with_statevector(seed):
     assert np.isclose(pau_ev, sv_ev, atol=1e-6), f"Pauli vs Statevector: {pau_ev} vs {sv_ev}"
 
 
+@pytest.mark.parametrize("obs_str", OBSERVABLES)
 @pytest.mark.parametrize("seed", [0, 1, 2])
-def test_noisy_majorana_pauli_agree(seed):
+def test_noisy_majorana_pauli_agree(seed, obs_str):
     qc = _make_circuit(seed)
+    obs = SparsePauliOp(obs_str)
     noise = UniformNoiseModel(damping=0.05)
 
     mc = MajoranaCircuit.from_qiskit(qc, n_modes=N_MODES)
     pc = PauliCircuit.from_qiskit(qc)
-    maj_obs = MajoranaTermSum.from_sparse_pauli_op(OBSERVABLE)
-    pau_obs = PauliTermSum.from_sparse_pauli_op(OBSERVABLE)
+    maj_obs = MajoranaTermSum.from_sparse_pauli_op(obs)
+    pau_obs = PauliTermSum.from_sparse_pauli_op(obs)
 
     maj_ev = MajoranaPropagator(noise, TRUNC).expectation_value(maj_obs, mc, fock_state=0).expectation_value
     pau_ev = PauliPropagator(noise, TRUNC).expectation_value(pau_obs, pc, fock_state=0).expectation_value
@@ -99,20 +103,22 @@ def test_noisy_majorana_pauli_agree(seed):
     assert np.isclose(maj_ev, pau_ev, atol=1e-10), f"Majorana vs Pauli (noisy): {maj_ev} vs {pau_ev}"
 
 
+@pytest.mark.parametrize("obs_str", OBSERVABLES)
 @pytest.mark.parametrize("seed", [0, 1, 2])
-def test_noisy_propagators_match_density_matrix(seed):
+def test_noisy_propagators_match_density_matrix(seed, obs_str):
     qc = _make_circuit(seed)
+    obs = SparsePauliOp(obs_str)
     damping = 0.1
     noise = UniformNoiseModel(damping=damping)
 
     mc = MajoranaCircuit.from_qiskit(qc, n_modes=N_MODES)
     pc = PauliCircuit.from_qiskit(qc)
-    maj_obs = MajoranaTermSum.from_sparse_pauli_op(OBSERVABLE)
-    pau_obs = PauliTermSum.from_sparse_pauli_op(OBSERVABLE)
+    maj_obs = MajoranaTermSum.from_sparse_pauli_op(obs)
+    pau_obs = PauliTermSum.from_sparse_pauli_op(obs)
 
     maj_ev = MajoranaPropagator(noise, TRUNC).expectation_value(maj_obs, mc, fock_state=0).expectation_value
     pau_ev = PauliPropagator(noise, TRUNC).expectation_value(pau_obs, pc, fock_state=0).expectation_value
-    dm_ev = _dm_expectation_noisy(qc, OBSERVABLE, damping)
+    dm_ev = _dm_expectation_noisy(qc, obs, damping)
 
     assert np.isclose(maj_ev, dm_ev, atol=1e-6), f"Majorana vs DensityMatrix: {maj_ev} vs {dm_ev}"
     assert np.isclose(pau_ev, dm_ev, atol=1e-6), f"Pauli vs DensityMatrix: {pau_ev} vs {dm_ev}"
