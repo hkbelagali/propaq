@@ -1,0 +1,45 @@
+#!/bin/bash
+# ── Change this to run a different Pauli weight ──────────────────────────────
+WEIGHT=2
+# ─────────────────────────────────────────────────────────────────────────────
+
+cd "$(dirname "$0")"
+
+module purge
+module load Miniforge3
+conda activate env
+
+# Count weight-N Majorana monomials from the cached Hamiltonian
+N_TERMS=$(python3 - <<PYEOF
+import sys, numpy as np
+from qiskit.quantum_info import SparsePauliOp
+
+cache = "hamiltonian_cache.npz"
+try:
+    data = np.load(cache, allow_pickle=False)
+except FileNotFoundError:
+    print("hamiltonian_cache.npz not found — run python FeS_LUCJ.py once first to build it", file=sys.stderr)
+    sys.exit(1)
+
+ham = SparsePauliOp.from_list(list(zip(data["paulis"].astype(str), data["coeffs"])))
+# Majorana monomials may differ from Pauli terms, but count from Pauli weight as a proxy
+n = sum(sum(c != "I" for c in lbl) == $WEIGHT for lbl in ham.paulis.to_labels())
+print(n)
+PYEOF
+) || exit 1
+
+if [ "$N_TERMS" -eq 0 ]; then
+    echo "No weight-${WEIGHT} terms found. Nothing to submit."
+    exit 0
+fi
+
+N_TASKS=$(( N_TERMS < 5000 ? N_TERMS : 5000 ))
+echo "Weight-${WEIGHT}: ${N_TERMS} terms → ${N_TASKS} array tasks"
+
+mkdir -p logs results
+
+sbatch \
+    --job-name="FeS-LUCJ-w${WEIGHT}" \
+    --array=0-$(( N_TASKS - 1 )) \
+    --export=ALL,WEIGHT=${WEIGHT} \
+    run.sh
