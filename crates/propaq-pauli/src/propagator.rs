@@ -13,23 +13,17 @@ pub struct PauliPropagator {
 #[pymethods]
 impl PauliPropagator {
     #[new]
-    #[pyo3(signature = (noise=None, truncation=None, n_threads=None, progress_bar=false, truncation_threshold=10_000_000, logger=None))]
+    #[pyo3(signature = (noise=None, truncation=None, n_threads=None, progress_bar=false, logger=None))]
     fn new(
         noise: Option<PyObject>,
         truncation: Option<PyObject>,
         n_threads: Option<usize>,
         progress_bar: bool,
-        truncation_threshold: usize,
         logger: Option<PyObject>,
     ) -> PyResult<Self> {
         Ok(PauliPropagator {
-            inner: AbstractPropagator::new(noise, truncation, n_threads, progress_bar, truncation_threshold, logger)?,
+            inner: AbstractPropagator::new(noise, truncation, n_threads, progress_bar, logger)?,
         })
-    }
-
-    #[getter]
-    fn truncation_threshold(&self) -> usize {
-        self.inner.truncation_threshold
     }
 
     fn propagate(

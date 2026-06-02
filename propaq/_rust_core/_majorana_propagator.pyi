@@ -5,11 +5,10 @@ from ._majorana_term_sum import MajoranaTermSum
 from ._logger import Logger
 
 class PropagationResult:
-    n_terms: List[int] 
-    expectation_value: float 
+    n_terms: List[int]
+    expectation_value: float
 
 class MajoranaPropagator:
-    truncation_threshold: int
 
     def __init__(
         self,
@@ -17,7 +16,6 @@ class MajoranaPropagator:
         truncation: object | None = None,
         n_threads: int | None = None,
         progress_bar: bool = False,
-        truncation_threshold: int = 10_000_000,
         logger: Logger | None = None,
     ) -> None:
         """
@@ -26,10 +24,9 @@ class MajoranaPropagator:
         Arguments:
             noise: The noise model to use. This will trigger a callback to Python for custom noise models, which can hurt performance.
             truncation: The truncation policy to use. This will trigger a callback to Python for custom policies, which can hurt performance.
+                Pass a TruncationPolicy with ``truncation_range=(min, max)`` to control when truncation fires.
             n_threads: The number of threads to use.
             progress_bar: If true, display a tqdm progress bar showing the progress through the circuit the total number of terms in the observable.
-            truncation_threshold: Flush outboxes and truncate when the total number of
-                terms across all partitions exceeds this value. Default 10_000_000.
             logger: Optional Logger instance. When provided, emits JSONL events to the
                 configured file: per-gate state (map_terms, outbox_terms) and truncation
                 events (terms_before, terms_after, discarded_coeff_l1, etc.).
@@ -39,19 +36,19 @@ class MajoranaPropagator:
         """
         ...
 
-    def propagate(self, observable: MajoranaTermSum, circuit: "MajoranaCircuit") -> MajoranaTermSum: 
+    def propagate(self, observable: MajoranaTermSum, circuit: "MajoranaCircuit") -> MajoranaTermSum:
         """
         Back-propagate a circuit through an observable in the Heisenberg picture.
 
-        General workflow: 
+        General workflow:
 
         __init__ initializes a thread pool and stores the noise model and truncation policy.
 
-        For each parameterized gate in the circuit, we back-propagate the gate through the observable. 
+        For each parameterized gate in the circuit, we back-propagate the gate through the observable.
         This is done batch-wise over the terms of the observable to leverage multithreading.
-        
+
         Then, the noise model and truncation policies are applied to the resulting term sum.
-        We make sure that intermediate parameterizations that do not preserve particle number are 
+        We make sure that intermediate parameterizations that do not preserve particle number are
         not truncated.
 
         Finally, compute the expectation value of the observable with respect to a Fock state
@@ -61,7 +58,7 @@ class MajoranaPropagator:
         Arguments:
             observable: The observable to propagate, represented in the Majorana term sum format.
             circuit: The quantum circuit to propagate through.
-            
+
         Returns:
             The propagated observable, represented in the Majorana term sum format.
         """
@@ -72,7 +69,7 @@ class MajoranaPropagator:
         observable: MajoranaTermSum,
         circuit: "MajoranaCircuit",
         fock_state: int = 0,
-    ) -> PropagationResult: 
+    ) -> PropagationResult:
         """
         Calculate the expectation value of an observable with respect to a Fock state.
 
