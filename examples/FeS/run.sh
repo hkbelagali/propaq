@@ -1,10 +1,10 @@
 #!/bin/bash
 
 #SBATCH --job-name=FeS-LUCJ
-#SBATCH --partition=scavenger
+# #SBATCH --partition=scavenger
 #SBATCH --account=general
-#SBATCH --qos=scavenger
-#SBATCH --time=00:10:00
+# #SBATCH --qos=scavenger
+#SBATCH --time=04:30:00
 #SBATCH --mem=100G
 #SBATCH --cpus-per-task=128
 #SBATCH --output=logs/%x_%A_%a.out
@@ -24,4 +24,4 @@ mkdir -p logs results
 python FeS_LUCJ.py \
     --weight  "$WEIGHT" \
     --task-id "$SLURM_ARRAY_TASK_ID" \
-    --n-tasks "$SLURM_ARRAY_TASK_COUNT"
+    --n-tasks "${N_TASKS:-$SLURM_ARRAY_TASK_COUNT}"
