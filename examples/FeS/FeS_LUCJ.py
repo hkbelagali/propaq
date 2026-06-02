@@ -92,8 +92,9 @@ compiled = pass_manager.run(circuit)
 print(f"Number of qubits: {compiled.num_qubits}")
 print(f"Gate counts: {compiled.count_ops()}")
 
-with open("circuit.qpy", "wb") as f:
-    qpy.dump([compiled], f)
+if task_id == 0:
+    with open("circuit.qpy", "wb") as f:
+        qpy.dump([compiled], f)
 
 mc = MajoranaCircuit.from_qiskit(compiled.copy(), n_modes=2 * compiled.num_qubits)
 

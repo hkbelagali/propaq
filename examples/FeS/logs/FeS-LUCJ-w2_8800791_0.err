@@ -3,3 +3,4 @@ Overwritten attributes  get_ovlp get_hcore  of <class 'pyscf.scf.hf_symm.SymAdap
   warnings.warn(msg)
 /mnt/home/belagal1/.local/lib/python3.11/site-packages/pyscf/gto/mole.py:1293: UserWarning: Function mol.dumps drops attribute intor_symmetric because it is not JSON-serializable
   warnings.warn(msg)
+weight-2 task 0:   0%|          | 0/1 [00:00<?, ?it/s][2026-06-01T20:26:42.005] error: *** JOB 8800795 ON nal-007 CANCELLED AT 2026-06-01T20:26:42 DUE TO TIME LIMIT ***

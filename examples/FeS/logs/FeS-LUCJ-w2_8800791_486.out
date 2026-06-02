@@ -1,0 +1,14 @@
+Parsing fcidump_Fe4S4_MO.txt
+SCF not converged.
+SCF energy = -325.99962155641
+CCSD not converged
+E(CCSD) = -326.8682033203461  E_corr = -0.8685817639360419
+Number of qubits: 81
+Gate counts: OrderedDict([('xx_plus_yy', 1908), ('p', 72), ('cp', 37), ('x', 36)])
+Loading Hamiltonian from hamiltonian_cache.npz
+Weight-2 terms: 768 / 388290
+Observable has 768 Majorana monomial(s)
+Task 486/768: 1 monomials
+Partial expectation value: -9.5899112244e-03
+CCSD energy:               -3.2686820332e+02
+Saved results/FeS_LUCJ_w2_00486of00768.npz
