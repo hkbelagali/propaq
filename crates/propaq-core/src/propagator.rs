@@ -47,7 +47,6 @@ pub struct AbstractPropagator<M: AbstractTerm> {
     pub truncation: Option<PyObject>,
     pub pool: Arc<rayon::ThreadPool>,
     pub progress_bar: bool,
-    pub truncation_threshold: usize,
     n_partitions: usize,
     log2_n: u32,
     thread_maps: Vec<FxHashMap<M, Complex64>>,
@@ -69,7 +68,6 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         truncation: Option<PyObject>,
         n_threads: Option<usize>,
         progress_bar: bool,
-        truncation_threshold: usize,
         logger: Option<PyObject>,
     ) -> PyResult<Self> {
         let mut builder = rayon::ThreadPoolBuilder::new();
@@ -103,7 +101,6 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             truncation,
             pool,
             progress_bar,
-            truncation_threshold,
             n_partitions,
             log2_n,
             thread_maps,
@@ -230,7 +227,9 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
         if verbose && tp.is_some() {
             let tp_inner = tp.unwrap();
-            // Collect per-partition (pre_trunc, discarded_count, discarded_l1, discarded_max)
+            let min_terms = tp_inner.truncation_range.0.unwrap_or(0);
+
+            // Phase 2a: insert and collect per-partition stats (no retain yet)
             let stats: Vec<(usize, usize, f64, f64)> = {
                 let thread_maps = &mut self.thread_maps;
                 let scratch_inboxes = &mut self.scratch_inboxes;
@@ -254,9 +253,6 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                                     dmax = dmax.max(norm);
                                 }
                             }
-                            map.retain(|t, c| {
-                                wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc
-                            });
                             (pre, dc, dl1, dmax)
                         })
                         .collect()
@@ -265,9 +261,25 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
             let terms_before: usize = stats.iter().map(|(p, _, _, _)| p).sum();
             self.total_terms = terms_before;
-            let disc_count: usize = stats.iter().map(|(_, d, _, _)| d).sum();
-            let disc_l1: f64 = stats.iter().map(|(_, _, l, _)| l).sum();
-            let disc_max: f64 = stats.iter().map(|(_, _, _, m)| *m).fold(0.0_f64, f64::max);
+
+            // Phase 2b: retain only if above min_terms
+            let do_truncate = terms_before >= min_terms;
+            if do_truncate {
+                let wc = tp_inner.weight_cutoff;
+                let cc = tp_inner.coeff_cutoff;
+                let thread_maps = &mut self.thread_maps;
+                pool.install(|| {
+                    thread_maps.par_iter_mut().for_each(|map| {
+                        map.retain(|t, c| {
+                            wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc
+                        });
+                    });
+                });
+            }
+
+            let disc_count: usize = if do_truncate { stats.iter().map(|(_, d, _, _)| d).sum() } else { 0 };
+            let disc_l1: f64 = if do_truncate { stats.iter().map(|(_, _, l, _)| l).sum() } else { 0.0 };
+            let disc_max: f64 = if do_truncate { stats.iter().map(|(_, _, _, m)| *m).fold(0.0_f64, f64::max) } else { 0.0 };
             let terms_after: usize = self.thread_maps.iter().map(|m| m.len()).sum();
 
             if let Some(ref mut log) = self.verbose_log {
@@ -280,30 +292,41 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 );
             }
         } else {
-            self.total_terms = {
+            // Phase 2a: insert
+            {
                 let thread_maps = &mut self.thread_maps;
                 let scratch_inboxes = &mut self.scratch_inboxes;
                 pool.install(|| {
                     thread_maps
                         .par_iter_mut()
                         .zip(scratch_inboxes.par_iter_mut())
-                        .map(|(map, inbox)| {
+                        .for_each(|(map, inbox)| {
                             for (term, coeff) in inbox.drain(..) {
                                 *map.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
                             }
-                            let n = map.len();
-                            if let Some(tp) = tp {
-                                let wc = tp.weight_cutoff;
-                                let cc = tp.coeff_cutoff;
-                                map.retain(|t, c| {
-                                    wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc
-                                });
-                            }
-                            n
-                        })
-                        .sum()
-                })
-            };
+                        });
+                });
+            }
+
+            let total: usize = self.thread_maps.iter().map(|m| m.len()).sum();
+            self.total_terms = total;
+
+            // Phase 2b: retain only if policy is set and above min_terms
+            if let Some(tp) = tp {
+                let min_terms = tp.truncation_range.0.unwrap_or(0);
+                if total >= min_terms {
+                    let wc = tp.weight_cutoff;
+                    let cc = tp.coeff_cutoff;
+                    let thread_maps = &mut self.thread_maps;
+                    pool.install(|| {
+                        thread_maps.par_iter_mut().for_each(|map| {
+                            map.retain(|t, c| {
+                                wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc
+                            });
+                        });
+                    });
+                }
+            }
         }
     }
 
@@ -380,6 +403,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         let tp: Option<TruncationPolicy> = self.truncation.as_ref().and_then(|t| {
             t.bind(py).extract::<PyRef<TruncationPolicy>>().ok().map(|p| p.clone())
         });
+        let max_terms: Option<usize> = tp.as_ref().and_then(|p| p.truncation_range.1);
 
         let damping = self.uniform_damping(py);
         let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
@@ -409,7 +433,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                     }
                 }
 
-                if self.total_terms + pending >= self.truncation_threshold {
+                if max_terms.map_or(false, |max| self.total_terms + pending >= max) {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref(), gate_idx, layer_idx, "threshold"));
                     pending = 0;
                 }
@@ -470,6 +494,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         let tp: Option<TruncationPolicy> = self.truncation.as_ref().and_then(|t| {
             t.bind(py).extract::<PyRef<TruncationPolicy>>().ok().map(|p| p.clone())
         });
+        let max_terms: Option<usize> = tp.as_ref().and_then(|p| p.truncation_range.1);
 
         let mut n_terms: Vec<usize> = Vec::new();
         let damping = self.uniform_damping(py);
@@ -500,7 +525,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                     }
                 }
 
-                if self.total_terms + pending >= self.truncation_threshold {
+                if max_terms.map_or(false, |max| self.total_terms + pending >= max) {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref(), gate_idx, layer_idx, "threshold"));
                     pending = 0;
                 }

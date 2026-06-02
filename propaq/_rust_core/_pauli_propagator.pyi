@@ -5,7 +5,6 @@ from ._logger import Logger
 
 
 class PauliPropagator:
-    truncation_threshold: int
 
     def __init__(
         self,
@@ -13,7 +12,6 @@ class PauliPropagator:
         truncation: object | None = None,
         n_threads: int | None = None,
         progress_bar: bool = False,
-        truncation_threshold: int = 10_000_000,
         logger: Logger | None = None,
     ) -> None:
         """
@@ -25,12 +23,12 @@ class PauliPropagator:
                 Custom models trigger a Python callback per layer, which may hurt performance.
             truncation: Optional truncation policy (TruncationPolicy or custom object with
                 ``should_truncate(weight, abs_coeff)``).
-                Custom policies trigger a Python callback per term, which may hurt performance.
+                Pass a TruncationPolicy with ``truncation_range=(min, max)`` to control when
+                truncation fires. Custom policies trigger a Python callback per term, which
+                may hurt performance.
             n_threads: Number of worker threads for parallel gate application.
                 Defaults to the number of logical CPU cores.
             progress_bar: If True, display a tqdm progress bar over circuit gates.
-            truncation_threshold: Flush outboxes and truncate when the total number of
-                terms across all partitions exceeds this value. Default 10_000_000.
             logger: Optional Logger instance. When provided, emits JSONL events to the
                 configured file: per-gate state (map_terms, outbox_terms) and truncation
                 events (terms_before, terms_after, discarded_coeff_l1, etc.).
