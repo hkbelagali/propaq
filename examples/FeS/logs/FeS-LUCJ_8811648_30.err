@@ -1,6 +1,0 @@
-Overwritten attributes  get_ovlp get_hcore  of <class 'pyscf.scf.hf_symm.SymAdaptedRHF'>
-/mnt/home/belagal1/.local/lib/python3.11/site-packages/pyscf/gto/mole.py:1293: UserWarning: Function mol.dumps drops attribute energy_nuc because it is not JSON-serializable
-  warnings.warn(msg)
-/mnt/home/belagal1/.local/lib/python3.11/site-packages/pyscf/gto/mole.py:1293: UserWarning: Function mol.dumps drops attribute intor_symmetric because it is not JSON-serializable
-  warnings.warn(msg)
-weight-2 task 30:   0%|          | 0/36 [00:00<?, ?it/s]weight-2 task 30:   3%|▎         | 1/36 [01:56<1:07:48, 116.25s/it]weight-2 task 30:   6%|▌         | 2/36 [04:03<1:09:25, 122.50s/it]

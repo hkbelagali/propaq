@@ -1,10 +1,10 @@
 #!/bin/bash
 
 #SBATCH --job-name=FeS-LUCJ
-# #SBATCH --partition=scavenger
+#SBATCH --partition=scavenger
 #SBATCH --account=general
-# #SBATCH --qos=scavenger
-#SBATCH --time=04:30:00
+#SBATCH --qos=scavenger
+#SBATCH --time=00:30:00
 #SBATCH --mem=100G
 #SBATCH --cpus-per-task=128
 #SBATCH --output=logs/%x_%A_%a.out

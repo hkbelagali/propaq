@@ -1,7 +1,0 @@
-Overwritten attributes  get_ovlp get_hcore  of <class 'pyscf.scf.hf_symm.SymAdaptedRHF'>
-/mnt/home/belagal1/.local/lib/python3.11/site-packages/pyscf/gto/mole.py:1293: UserWarning: Function mol.dumps drops attribute energy_nuc because it is not JSON-serializable
-  warnings.warn(msg)
-/mnt/home/belagal1/.local/lib/python3.11/site-packages/pyscf/gto/mole.py:1293: UserWarning: Function mol.dumps drops attribute intor_symmetric because it is not JSON-serializable
-  warnings.warn(msg)
-weight-2 task 662:   0%|          | 0/1 [00:00<?, ?it/s]/var/lib/slurmd/job8808020/slurm_script: line 27: 755969 Killed                  python FeS_LUCJ.py --weight "$WEIGHT" --task-id "$SLURM_ARRAY_TASK_ID" --n-tasks "$SLURM_ARRAY_TASK_COUNT"
-[2026-06-01T22:41:05.685] error: Detected 1 oom_kill event in StepId=8808020.batch. Some of the step tasks have been OOM Killed.

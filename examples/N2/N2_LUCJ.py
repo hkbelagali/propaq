@@ -1,15 +1,7 @@
-"""
-FeS_LUCJ.py — run LUCJ simulation on weight-N observable terms.
-
-    python FeS_LUCJ.py [--weight N] [--task-id K] [--n-tasks M]
-
-In array-job mode each task handles a round-robin slice of the monomials.
-Results land in results/FeS_LUCJ_w{N}_{K:05d}of{M:05d}.npz.
-"""
-
 import argparse
 import os
 
+import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
@@ -21,25 +13,21 @@ from qiskit.transpiler import CouplingMap
 from qiskit.quantum_info import SparsePauliOp
 from qiskit import qpy
 
-from propaq import Logger
 from propaq.datatypes import MajoranaTermSum
 from propaq.circuits import MajoranaCircuit
 from propaq.propagators import MajoranaPropagator
 from propaq.noise import UniformNoiseModel, TruncationPolicy
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--weight",  type=int, default=1, help="Pauli weight of observable terms to include")
 parser.add_argument("--task-id", type=int, default=0, help="0-indexed array task id")
 parser.add_argument("--n-tasks", type=int, default=1, help="total number of array tasks")
 args = parser.parse_args()
-weight:   int = args.weight
 task_id:  int = args.task_id
 n_tasks:  int = args.n_tasks
 
 damping: float = 0.001
-cutoff: float = 1e-3
 
-fcidump_filename = "fcidump_Fe4S4_MO.txt"
+fcidump_filename = "fcidump_N2.txt"
 
 mf_as = tools.fcidump.to_scf(fcidump_filename)
 mf_as.kernel()
@@ -58,7 +46,7 @@ ccsd_energy = ccsd.e_tot
 t1 = ccsd.t1
 t2 = ccsd.t2
 
-n_reps = 1
+n_reps = 3
 alpha_alpha_indices = [(p, p + 1) for p in range(num_orb - 1)]
 alpha_beta_indices = [(p, p) for p in range(0, num_orb, 4)]
 
@@ -107,55 +95,72 @@ hamiltonian = SparsePauliOp.from_list(
 )
 hamiltonian_physical = hamiltonian.apply_layout(compiled.layout)
 
-weight_mask = np.array(
-    [sum(c != 'I' for c in lbl) == weight for lbl in hamiltonian_physical.paulis.to_labels()]
-)
-hamiltonian_wN = hamiltonian_physical[weight_mask]
-print(f"Weight-{weight} terms: {len(hamiltonian_wN)} / {len(hamiltonian)}")
+pauli_labels = hamiltonian_physical.paulis.to_labels()
+weights = np.array([sum(c != 'I' for c in lbl) for lbl in pauli_labels])
+max_weight = int(weights.max())
 
-observable = MajoranaTermSum.from_sparse_pauli_op(hamiltonian_wN)
-all_items = list(observable.items())
-print(f"Observable has {len(all_items)} Majorana monomial(s)")
+identity_coeff = float(hamiltonian_physical.coeffs[weights == 0].real.sum()) if (weights == 0).any() else 0.0
+print(f"Identity coefficient (constant offset): {identity_coeff:.10e}")
+print(f"Hamiltonian has {len(pauli_labels)} terms, max Pauli weight {max_weight}")
 
-# Round-robin slice for this task
-task_items = all_items[task_id::n_tasks]
-print(f"Task {task_id}/{n_tasks}: {len(task_items)} monomials")
+cutoffs = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]
 
 os.makedirs("results", exist_ok=True)
-tag = f"w{weight}_{task_id:05d}of{n_tasks:05d}" if n_tasks > 1 else f"w{weight}"
 
-logger = Logger(f"results/FeS_LUCJ_{tag}.jsonl", log_every=100)
+# ev_by_weight[w] = list of EVs, one per cutoff
+ev_by_weight: dict[int, list[float]] = {}
 
-prop = MajoranaPropagator(
-    UniformNoiseModel(damping=damping),
-    TruncationPolicy(weight_cutoff=None, coeff_cutoff=cutoff, truncation_range=(None, 10_000_000)),
-    n_threads=128,
-    progress_bar=True,
-    logger=logger,
-)
+for w in range(1, max_weight + 1):
+    mask = weights == w
+    if not mask.any():
+        print(f"Weight {w}: 0 terms, skipping")
+        continue
 
-values = []
-n_terms = []
-for monomial, coeff in tqdm(task_items, desc=f"weight-{weight} task {task_id}"):
-    single_term = MajoranaTermSum()
-    single_term.add(monomial, coeff)
-    result = prop.expectation_value(single_term, mc, fock_state=0)
-    values.append(result.expectation_value)
-    n_terms.append(result.n_terms)
+    ham_w = hamiltonian_physical[mask]
+    observable_w = MajoranaTermSum.from_sparse_pauli_op(ham_w)
+    n_mono = len(list(observable_w.items()))
+    print(f"Weight {w}: {int(mask.sum())} Pauli terms → {n_mono} Majorana monomials")
 
-expectation_value = sum(values)
-print(f"Partial expectation value: {expectation_value:.10e}")
-print(f"CCSD energy:               {ccsd_energy:.10e}")
+    evs = []
+    for c in tqdm(cutoffs, desc=f"weight-{w} cutoffs"):
+        prop_w = MajoranaPropagator(
+            UniformNoiseModel(damping=damping),
+            TruncationPolicy(weight_cutoff=None, coeff_cutoff=c, truncation_range=(None, 10_000_000)),
+            n_threads=128,
+            progress_bar=False,
+        )
+        ev = prop_w.expectation_value(observable_w, mc).expectation_value
+        evs.append(ev)
+        print(f"  cutoff {c:.0e}: {ev:.10e}")
 
-out = f"results/FeS_LUCJ_{tag}.npz"
+    plt.plot(cutoffs, evs, marker="o")
+    plt.xscale("log")
+    plt.gca().invert_xaxis()
+    plt.savefig(f"N2_LUCJ_weight_{w}_cutoff_convergence.png")
+    plt.close()
+    ev_by_weight[w] = evs
+
 np.savez(
-    out,
-    values=np.array(values),
-    n_terms=np.array(n_terms),
+    "results/N2_LUCJ_cutoff_convergence.npz",
+    cutoffs=np.array(cutoffs),
+    weights=np.array(sorted(ev_by_weight.keys())),
+    ev_matrix=np.array([ev_by_weight[w] for w in sorted(ev_by_weight.keys())]),
+    identity_coeff=identity_coeff,
     ccsd_energy=ccsd_energy,
-    n_qubits=compiled.num_qubits,
-    n_wN_pauli_terms=len(hamiltonian_wN),
-    task_id=task_id,
-    n_tasks=n_tasks,
 )
-print(f"Saved {out}")
+
+# --- plot ---
+fig, ax = plt.subplots(figsize=(7, 4))
+for w in sorted(ev_by_weight.keys()):
+    ax.plot(cutoffs, ev_by_weight[w], marker="o", label=f"weight {w}")
+ax.set_xscale("log")
+ax.invert_xaxis()
+ax.set_xlabel("coeff_cutoff (tighter →)")
+ax.set_ylabel("EV contribution (Ha)")
+ax.set_title("N2 LUCJ: per-weight EV vs truncation cutoff")
+ax.legend(fontsize=8, ncol=2)
+ax.grid(True, which="both", alpha=0.3)
+plt.tight_layout()
+plt.savefig("results/N2_LUCJ_cutoff_convergence.pdf")
+plt.savefig("results/N2_LUCJ_cutoff_convergence.png", dpi=150)
+print("Saved results/N2_LUCJ_cutoff_convergence.{pdf,png}")
