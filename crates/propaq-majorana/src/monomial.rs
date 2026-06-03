@@ -88,10 +88,12 @@ impl MajoranaMonomial {
     pub(crate) fn matmul_internal(&self, other: &MajoranaMonomial) -> (Complex64, MajoranaMonomial) {
         let result_modes = &self.modes ^ &other.modes;
         let weight = Self::compute_weight_for(&result_modes, self.n_modes);
+        let n_fermionic = self.n_modes / 2;
+        let is_np = (0..n_fermionic).all(|k| result_modes.bit(2 * k) == result_modes.bit(2 * k + 1));
         let result = MajoranaMonomial {
             modes: result_modes,
             n_modes: self.n_modes,
-            is_number_preserving: true,
+            is_number_preserving: is_np,
             weight,
         };
 

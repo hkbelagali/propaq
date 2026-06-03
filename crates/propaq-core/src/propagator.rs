@@ -281,6 +281,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             let disc_l1: f64 = if do_truncate { stats.iter().map(|(_, _, l, _)| l).sum() } else { 0.0 };
             let disc_max: f64 = if do_truncate { stats.iter().map(|(_, _, _, m)| *m).fold(0.0_f64, f64::max) } else { 0.0 };
             let terms_after: usize = self.thread_maps.iter().map(|m| m.len()).sum();
+            self.total_terms = terms_after;
 
             if let Some(ref mut log) = self.verbose_log {
                 let wc_str = tp_inner.weight_cutoff
@@ -308,8 +309,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 });
             }
 
-            let total: usize = self.thread_maps.iter().map(|m| m.len()).sum();
-            self.total_terms = total;
+            let mut total: usize = self.thread_maps.iter().map(|m| m.len()).sum();
 
             // Phase 2b: retain only if policy is set and above min_terms
             if let Some(tp) = tp {
@@ -325,8 +325,10 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                             });
                         });
                     });
+                    total = self.thread_maps.iter().map(|m| m.len()).sum();
                 }
             }
+            self.total_terms = total;
         }
     }
 
@@ -417,7 +419,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
             self.apply_layer_noise(py, &pool, damping, gate_idx, layer_idx)?;
 
-            for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
+            let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
+            for (idx, (generator, angle, _is_intermediate)) in reversed_layer.iter().enumerate() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
                 pending += added;
 
@@ -433,7 +436,11 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                     }
                 }
 
-                if max_terms.map_or(false, |max| self.total_terms + pending >= max) {
+                // Only flush at compound-gate boundaries. In the reversed iteration,
+                // a compound gate [R_final, R_inter, ..., R_inter] ends when the next
+                // rotation is not intermediate (or there is no next rotation).
+                let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni)| *ni);
+                if !next_is_intermediate && max_terms.map_or(false, |max| self.total_terms + pending >= max) {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref(), gate_idx, layer_idx, "threshold"));
                     pending = 0;
                 }
@@ -509,7 +516,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
             self.apply_layer_noise(py, &pool, damping, gate_idx, layer_idx)?;
 
-            for (generator, angle, _is_intermediate) in layer_data.iter().rev() {
+            let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
+            for (idx, (generator, angle, _is_intermediate)) in reversed_layer.iter().enumerate() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
                 pending += added;
 
@@ -525,7 +533,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                     }
                 }
 
-                if max_terms.map_or(false, |max| self.total_terms + pending >= max) {
+                let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni)| *ni);
+                if !next_is_intermediate && max_terms.map_or(false, |max| self.total_terms + pending >= max) {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref(), gate_idx, layer_idx, "threshold"));
                     pending = 0;
                 }
