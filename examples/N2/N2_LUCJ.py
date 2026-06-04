@@ -103,7 +103,7 @@ identity_coeff = float(hamiltonian_physical.coeffs[weights == 0].real.sum()) if 
 print(f"Identity coefficient (constant offset): {identity_coeff:.10e}")
 print(f"Hamiltonian has {len(pauli_labels)} terms, max Pauli weight {max_weight}")
 
-cutoffs = [1e-16]
+cutoffs = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]
 
 os.makedirs("results", exist_ok=True)
 
