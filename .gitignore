@@ -15,4 +15,5 @@ scratch.py
 
 # SLURM files 
 *.err 
-*.out
+*.npz
+*.jsonl
