@@ -7,3 +7,11 @@ Number of electrons (alpha): 27
 Number of electrons (beta): 27
 CCSD not converged
 E(CCSD) = -326.8682032354293  E_corr = -0.8685815107542667
+Number of qubits: 81
+Gate counts: OrderedDict([('xx_plus_yy', 1746), ('p', 72), ('x', 54), ('cp', 37)])
+Weight-2 terms: 2832 / 2397581
+Observable has 2832 Majorana monomial(s)
+Task 2504/2832: 1 monomials
+Partial expectation value: -1.7640540205e-02
+CCSD energy:               -3.2686820324e+02
+Saved results/FeS_LUCJ_w2_02504of02832.npz

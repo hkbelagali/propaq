@@ -12,3 +12,6 @@ Gate counts: OrderedDict([('xx_plus_yy', 1746), ('p', 72), ('x', 54), ('cp', 37)
 Weight-2 terms: 2832 / 2397581
 Observable has 2832 Majorana monomial(s)
 Task 2491/2832: 1 monomials
+Partial expectation value: -2.0612696628e-02
+CCSD energy:               -3.2686820323e+02
+Saved results/FeS_LUCJ_w2_02491of02832.npz
