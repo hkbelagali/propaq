@@ -6,7 +6,7 @@
 #SBATCH --qos=scavenger
 #SBATCH --time=00:30:00
 #SBATCH --mem=100G
-#SBATCH --cpus-per-task=128
+#SBATCH --cpus-per-task=8
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
 

@@ -38,8 +38,3 @@ np.savez(hamiltonian_cache, paulis=hamiltonian.paulis.to_labels(), coeffs=hamilt
 print("Number of terms after cutoff:", len(hamiltonian.coeffs))
 print(f"Hamiltonian cached to {hamiltonian_cache}")
 
-# Check if the identity term is present and print its coefficient 
-identity_idx = np.where(hamiltonian.paulis.to_labels() == 'I' * n_qubits)[0]
-if len(identity_idx) > 0:
-    identity_coeff = hamiltonian.coeffs[identity_idx[0]]
-    print(f"Identity term coefficient: {identity_coeff}")

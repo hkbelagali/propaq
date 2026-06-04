@@ -1,0 +1,7 @@
+Parsing fcidump_Fe4S4_MO.txt
+Number of spatial orbitals: 36, Number of qubits: 72
+Parsing fcidump_Fe4S4_MO.txt
+Constant term (ECORE): 0.0
+Hamiltonian has 2471201 Pauli terms before cutoff.
+Number of terms after cutoff: 2397581
+Hamiltonian cached to hamiltonian_cache.npz

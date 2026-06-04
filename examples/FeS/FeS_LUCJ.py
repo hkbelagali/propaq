@@ -37,7 +37,7 @@ task_id:  int = args.task_id
 n_tasks:  int = args.n_tasks
 
 damping: float = 0.001
-cutoff: float = 1e-3
+cutoff: float = 1e-6
 
 fcidump_filename = "fcidump_Fe4S4_MO.txt"
 
@@ -129,7 +129,7 @@ logger = Logger(f"results/FeS_LUCJ_{tag}.jsonl", log_every=100)
 prop = MajoranaPropagator(
     UniformNoiseModel(damping=damping),
     TruncationPolicy(weight_cutoff=None, coeff_cutoff=cutoff, truncation_range=(None, 10_000_000)),
-    n_threads=128,
+    n_threads=8,
     progress_bar=True,
     logger=logger,
 )
