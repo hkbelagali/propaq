@@ -1,0 +1,19 @@
+Parsing fcidump_Fe4S4_MO.txt
+SCF not converged.
+SCF energy = -325.999621732548
+Parsing fcidump_Fe4S4_MO.txt
+Number of orbitals: 36
+Number of electrons (alpha): 27
+Number of electrons (beta): 27
+CCSD not converged
+E(CCSD) = -326.8682032314595  E_corr = -0.8685814989118208
+Number of qubits: 81
+Gate counts: OrderedDict([('xx_plus_yy', 1746), ('p', 72), ('x', 54), ('cp', 37)])
+Weight-3 terms: 10136 / 2397581
+Observable has 10136 Majorana monomial(s)
+Task 1755/4850: 2 monomials
+Expectation value: 5.2864086015e-07
+Expectation value: 0.0000000000e+00
+Partial expectation value: 5.2864086015e-07
+CCSD energy:               -3.2686820323e+02
+Saved results/FeS_LUCJ_w3_01755of04850.npz
