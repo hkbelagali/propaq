@@ -22,7 +22,7 @@ impl TruncationPolicy {
         TruncationPolicy {
             weight_cutoff,
             coeff_cutoff,
-            truncation_range: truncation_range.unwrap_or((None, None)),
+            truncation_range: truncation_range.unwrap_or((None, Some(10_000_000))),
         }
     }
 
@@ -107,9 +107,9 @@ mod tests {
     }
 
     #[test]
-    fn truncation_range_defaults_to_none_none() {
-        let p = TruncationPolicy { weight_cutoff: None, coeff_cutoff: 0.0, truncation_range: (None, None) };
-        assert_eq!(p.truncation_range, (None, None));
+    fn truncation_range_default() {
+        let p = TruncationPolicy::new(None, 0.0, None);
+        assert_eq!(p.truncation_range, (None, Some(10_000_000)));
     }
 
     #[test]
