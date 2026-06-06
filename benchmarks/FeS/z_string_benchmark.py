@@ -28,7 +28,7 @@ from propaq import Logger, LogParser
 
 # ── Parameters (edit here) ────────────────────────────────────────────────────
 
-weight  = 2
+weight  = 72
 damping = 0.001
 cutoffs = [1e-6]   # 1e-1 … 1e-8
 
@@ -61,10 +61,9 @@ for cutoff in cutoffs:
 
     prop = MajoranaPropagator(
         UniformNoiseModel(damping=damping),
-        TruncationPolicy(weight_cutoff=None, coeff_cutoff=cutoff),
+        TruncationPolicy(weight_cutoff=None, coeff_cutoff=cutoff, truncation_range=(None, 10_000_000)),
         n_threads=128,
         progress_bar=True,
-        truncation_threshold=10_000_000,
         logger=logger,
     )
 

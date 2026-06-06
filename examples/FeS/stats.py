@@ -101,7 +101,7 @@ def plot_pauli_weight_distribution(hamiltonian: SparsePauliOp):
     plt.ylabel("Number of Pauli terms")
     plt.title("Pauli Weight Distribution of Hamiltonian")
     plt.yscale("log")  # optional but VERY useful for large Hamiltonians
-    plt.savefig("results/weight_distribution.png")
+    plt.savefig("plots/weight_distribution.png")
     plt.close()
 
     return weight_counts
@@ -156,7 +156,7 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
     ax[1].set_ylabel("Sum of coeffs")
 
     plt.tight_layout()
-    plt.savefig("results/weight_statistics.png")
+    plt.savefig("plots/weight_statistics.png")
     plt.close()
 
     return {
@@ -167,7 +167,7 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
     }
 
 if __name__ == "__main__":
-    os.makedirs("results", exist_ok=True)
+    os.makedirs("plots", exist_ok=True)
 
     print("Analyzing Hamiltonian statistics...")
     weight_counts = plot_pauli_weight_distribution(hamiltonian_physical)

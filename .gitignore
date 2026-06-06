@@ -13,7 +13,6 @@ Cargo.lock
 # Playground files 
 scratch.py
 
-# SLURM files 
-*.err 
-*.npz
+# SLURM files
+*.err
 *.jsonl

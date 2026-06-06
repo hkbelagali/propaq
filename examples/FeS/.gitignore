@@ -1,0 +1,9 @@
+# SLURM job logs — thousands of files per run, not for remote
+logs/
+one-layer/logs/
+
+# Per-task intermediate computation results — derived from logs, not for remote
+one-layer/results/
+
+# SLURM stdout files (*.err is already covered by root .gitignore)
+*.out

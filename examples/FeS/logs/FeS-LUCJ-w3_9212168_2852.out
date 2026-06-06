@@ -1,9 +1,0 @@
-Parsing fcidump_Fe4S4_MO.txt
-SCF not converged.
-SCF energy = -325.999621633515
-Parsing fcidump_Fe4S4_MO.txt
-Number of orbitals: 36
-Number of electrons (alpha): 27
-Number of electrons (beta): 27
-CCSD not converged
-E(CCSD) = -326.8682032814215  E_corr = -0.8685816479069832
