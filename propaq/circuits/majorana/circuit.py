@@ -8,30 +8,7 @@ from qiskit.converters import circuit_to_dag
 from ...datatypes import MajoranaMonomial
 from ...datatypes import MajoranaTermSum
 from .rotation import MajoranaRotation
-
-
-def _compound_gate_reversed(layer: List[MajoranaRotation]) -> List[MajoranaRotation]:
-    """Reverse a layer's rotations, recomputing is_intermediate for the inverse circuit.
-
-    Rotations within a compound gate are contiguous; a gate ends at each is_intermediate=False
-    boundary.  After reversal, all positions except the new last become intermediate.
-    """
-    compound_gates: List[List[MajoranaRotation]] = []
-    current: List[MajoranaRotation] = []
-    for rot in layer:
-        current.append(rot)
-        if not rot.is_intermediate:
-            compound_gates.append(current)
-            current = []
-    if current:
-        compound_gates.append(current)
-
-    result: List[MajoranaRotation] = []
-    for gate in reversed(compound_gates):
-        reversed_gate = list(reversed(gate))
-        for i, rot in enumerate(reversed_gate):
-            result.append(MajoranaRotation(rot.generator, -rot.angle, i < len(reversed_gate) - 1))
-    return result
+from .._utils import compound_gate_reversed as _compound_gate_reversed
 
 
 class MajoranaCircuit:
