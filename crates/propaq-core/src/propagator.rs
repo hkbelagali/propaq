@@ -16,6 +16,13 @@ use crate::logger::Logger;
 /// Fibonacci hashing multiplier for multiply-shift uniform partition distribution.
 const PARTITION_HASH_MUL: u64 = 0x517cc1b727220a95;
 
+struct SendPtr<T>(*mut T);
+unsafe impl<T> Send for SendPtr<T> {}
+unsafe impl<T> Sync for SendPtr<T> {}
+impl<T> SendPtr<T> {
+    unsafe fn offset(&self, idx: usize) -> *mut T { self.0.add(idx) }
+}
+
 #[pyclass]
 pub struct PropagationResult {
     #[pyo3(get)]
@@ -267,15 +274,30 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
     ) {
         let n = self.n_partitions;
 
-        // Phase 1: serial transpose — reuse scratch_inboxes to avoid allocation
+        // Phase 1: parallel transpose — reuse scratch_inboxes to avoid allocation
         for inbox in &mut self.scratch_inboxes {
             inbox.clear();
         }
-        for src in 0..n {
-            for dst in 0..n {
-                self.scratch_inboxes[dst].extend(self.outboxes[src][dst].drain(..));
-            }
-        }
+        let pool = Arc::clone(&self.pool);
+        let outboxes = &mut self.outboxes;
+        let scratch_inboxes = &mut self.scratch_inboxes;
+        let outboxes_ptr = SendPtr(outboxes.as_mut_ptr());
+        pool.install(|| {
+            scratch_inboxes
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(dst, inbox)| {
+                    for src in 0..n {
+                        // SAFETY: Each parallel task owns a unique `dst`.
+                        // Thread `dst` drains outboxes[src][dst] for all src.
+                        // No two threads share a (src, dst) pair; the cells are
+                        // distinct heap allocations. `outboxes` is not resized
+                        // during this block (n is fixed, no push occurs).
+                        let cell = unsafe { &mut (&mut *outboxes_ptr.offset(src))[dst] };
+                        inbox.extend(cell.drain(..));
+                    }
+                });
+        });
 
         self.insert_from_inboxes();
         let total_before: usize = self.thread_maps.iter().map(|m| m.len()).sum();
