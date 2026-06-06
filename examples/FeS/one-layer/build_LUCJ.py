@@ -83,10 +83,9 @@ hamiltonian = SparsePauliOp.from_list(
 hamiltonian_physical = hamiltonian.apply_layout(compiled.layout)
 
 np.savez(
-    "physical_hamiltonian_cache.npz",
+    "compiled_hamiltonian_cache.npz",
     paulis=np.array(hamiltonian_physical.paulis.to_labels()),
     coeffs=np.array(hamiltonian_physical.coeffs),
     ccsd_energy=np.float64(ccsd_energy),
     n_qubits=np.int64(compiled.num_qubits),
 )
-print("Saved: physical_hamiltonian_cache.npz")

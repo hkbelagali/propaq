@@ -51,13 +51,18 @@ def _fmt_time(sec: float) -> str:
 # ── ECORE from Hamiltonian cache ─────────────────────────────────────────────
 
 ecore = None
+weight_coeff_mass: dict[int, float] = {}
 for cache_name in (args.hamiltonian_cache,):
     p = Path(cache_name)
     if p.exists():
         _c     = np.load(p, allow_pickle=False)
         paulis = _c["paulis"].astype(str)
         coeffs = _c["coeffs"]
-        ecore  = float(coeffs[np.array([all(c == "I" for c in x) for x in paulis])].sum().real)
+        pw = np.array([sum(c != "I" for c in s) for s in paulis])
+        ecore = float(coeffs[pw == 0].sum().real)
+        for _w in np.unique(pw):
+            if _w > 0:
+                weight_coeff_mass[int(_w)] = float(np.abs(coeffs[pw == _w]).sum().real)
         break
 else:
     print("WARNING: Hamiltonian cache not found — ECORE (weight-0) not included")
@@ -112,7 +117,8 @@ for w in sorted(raw):
     if missing_ids:
         print(f"WARNING: weight {w} — {len(missing_ids)} task(s) missing from results/")
         print(f"         Resubmit: sbatch --array={','.join(map(str, missing_ids))} "
-              f"--export=ALL,WEIGHT={w} run.sh")
+              f"--job-name=FeS-LUCJ-w{w} "
+              f"--export=ALL,WEIGHT={w},N_TASKS={n_tasks} run.sh")
 
     values_all = np.concatenate([task_map[tid]["values"] for tid in present_ids]) \
         if present_ids else np.array([], dtype=float)
@@ -165,14 +171,16 @@ print(f"Saved {len(weight_results)} weight file(s) to {REFINED_DIR}/")
 
 print()
 if ccsd_energy is not None:
-    print(f"CCSD energy: {ccsd_energy:.10e}")
+    print(f"CCSD energy: {ccsd_energy:.6f}")
 print()
 
 RTW = 10
 TW  = 8
+CMW = 16
+EVW = 16
 header = (
     f"{'Weight':>7}  {'Pres.T':>{TW}}  {'Miss.T':>{TW}}  "
-    f"{'EV contribution':>18}  {'Cumulative EV':>18}  "
+    f"{'|c| mass':>{CMW}}  {'EV contribution':>{EVW}}  {'Cumulative EV':>{EVW}}  "
     f"{'RT mean':>{RTW}}  {'RT std':>{RTW}}"
 )
 print(header)
@@ -184,7 +192,7 @@ if ecore is not None:
     cumulative += ecore
     print(
         f"{'0':>7}  {blank:>{TW}}  {blank:>{TW}}  "
-        f"{ecore:>18.10e}  {cumulative:>18.10e}  "
+        f"{blank:>{CMW}}  {ecore:>{EVW}.6f}  {cumulative:>{EVW}.6f}  "
         f"{blank:>{RTW}}  {blank:>{RTW}}  (ECORE)"
     )
 elif 0 not in weight_results:
@@ -194,14 +202,16 @@ for w in sorted(weight_results):
     ev_sum, n_tasks, present_ids, missing_ids, rt_mean, rt_std, present_terms, missing_terms_str = weight_results[w]
     cumulative += ev_sum
     flag = " *" if missing_ids else ""
+    cm = weight_coeff_mass.get(w)
+    cm_str = f"{cm:>{CMW}.6f}" if cm is not None else f"{blank:>{CMW}}"
     print(
         f"{w:>7}  {present_terms:>{TW}}  {missing_terms_str:>{TW}}  "
-        f"{ev_sum:>18.10e}  {cumulative:>18.10e}  "
+        f"{cm_str}  {ev_sum:>{EVW}.6f}  {cumulative:>{EVW}.6f}  "
         f"{_fmt_time(rt_mean):>{RTW}}  {_fmt_time(rt_std):>{RTW}}{flag}"
     )
 
 print()
-print(f"Cumulative expectation value: {cumulative:.10e}")
+print(f"Cumulative expectation value: {cumulative:.6f}")
 if ccsd_energy is not None:
-    print(f"CCSD energy:                  {ccsd_energy:.10e}")
-    print(f"Difference:                   {cumulative - ccsd_energy:.10e}")
+    print(f"CCSD energy:                  {ccsd_energy:.6f}")
+    print(f"Difference:                   {cumulative - ccsd_energy:.6f}")
