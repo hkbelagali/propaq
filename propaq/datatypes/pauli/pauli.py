@@ -1,8 +1,16 @@
 """Pauli monomial datatype for Pauli propagation."""
 
+import warnings
+
 try:
     from propaq._rust_core import PauliString as PauliString
 except ImportError:
+    warnings.warn(
+        "propaq: Rust extension not built; using slow pure-Python PauliString fallback. "
+        "Rebuild with maturin to restore full performance.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
     # Pure-Python fallback when the Rust extension is not built.
     from typing import Tuple
     from dataclasses import dataclass

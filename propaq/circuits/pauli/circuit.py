@@ -8,26 +8,7 @@ from qiskit.converters import circuit_to_dag
 from ...datatypes.pauli.pauli import PauliString
 from ...datatypes.pauli.termsum import PauliTermSum
 from .rotation import PauliRotation
-
-
-def _compound_gate_reversed(layer: List[PauliRotation]) -> List[PauliRotation]:
-    """Reverse a layer's rotations for the inverse circuit, preserving compound-gate grouping."""
-    compound_gates: List[List[PauliRotation]] = []
-    current: List[PauliRotation] = []
-    for rot in layer:
-        current.append(rot)
-        if not rot.is_intermediate:
-            compound_gates.append(current)
-            current = []
-    if current:
-        compound_gates.append(current)
-
-    result: List[PauliRotation] = []
-    for gate in reversed(compound_gates):
-        reversed_gate = list(reversed(gate))
-        for i, rot in enumerate(reversed_gate):
-            result.append(PauliRotation(rot.generator, -rot.angle, i < len(reversed_gate) - 1))
-    return result
+from .._utils import compound_gate_reversed as _compound_gate_reversed
 
 
 class PauliCircuit:
