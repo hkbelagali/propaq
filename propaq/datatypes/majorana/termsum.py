@@ -14,6 +14,40 @@ from propaq._rust_core import MajoranaTermSum as _RustMajoranaTermSum
 T = TypeVar("T")
 
 
+def _jw_transform(pauli_str: str, n_qubits: int) -> tuple[int, complex]:
+    """
+    Apply the Jordan-Wigner inverse transform to a single Pauli string.
+    """
+    modes = 0
+    z_parity = 0
+    fwd_phase: complex = 1 + 0j
+    for q in range(n_qubits - 1, -1, -1):
+        p = pauli_str[n_qubits - 1 - q]
+        if p == 'I':
+            if z_parity:
+                modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
+                fwd_phase *= 1j
+        elif p == 'X':
+            if z_parity == 0:
+                modes |= (1 << (2 * q))
+            else:
+                modes |= (1 << (2 * q + 1))
+                fwd_phase *= 1j
+            z_parity ^= 1
+        elif p == 'Y':
+            if z_parity == 0:
+                modes |= (1 << (2 * q + 1))
+            else:
+                modes |= (1 << (2 * q))
+                fwd_phase *= -1j
+            z_parity ^= 1
+        elif p == 'Z':
+            if z_parity == 0:
+                modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
+                fwd_phase *= 1j
+    return modes, fwd_phase
+
+
 class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     """Rust-backed term sum with Qiskit factory class methods."""
 
@@ -239,35 +273,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         n_modes = 2 * n_qubits
 
         for pauli_str, coeff in op.to_list():
-            modes = 0
-            z_parity = 0 
-            fwd_phase = 1 + 0j 
-
-            for q in range(n_qubits - 1, -1, -1):
-                p = pauli_str[n_qubits - 1 - q]
-
-                if p == 'I':
-                    if z_parity:
-                        modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
-                        fwd_phase *= 1j
-                elif p == 'X':
-                    if z_parity == 0:
-                        modes |= (1 << (2 * q))
-                    else:
-                        modes |= (1 << (2 * q + 1))
-                        fwd_phase *= 1j
-                    z_parity ^= 1
-                elif p == 'Y':
-                    if z_parity == 0:
-                        modes |= (1 << (2 * q + 1))
-                    else:
-                        modes |= (1 << (2 * q))
-                        fwd_phase *= -1j
-                    z_parity ^= 1
-                elif p == 'Z':
-                    if z_parity == 0:
-                        modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
-                        fwd_phase *= 1j
+            modes, fwd_phase = _jw_transform(pauli_str, n_qubits)
 
             k = bin(modes).count('1')
             e = (k // 2) % 2

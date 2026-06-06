@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 
+const DEFAULT_MAX_TERMS: usize = 10_000_000;
+
 #[pyclass(subclass)]
 #[derive(Clone)]
 pub struct TruncationPolicy {
@@ -22,7 +24,7 @@ impl TruncationPolicy {
         TruncationPolicy {
             weight_cutoff,
             coeff_cutoff,
-            truncation_range: truncation_range.unwrap_or((None, Some(10_000_000))),
+            truncation_range: truncation_range.unwrap_or((None, Some(DEFAULT_MAX_TERMS))),
         }
     }
 
