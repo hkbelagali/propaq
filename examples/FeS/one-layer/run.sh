@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=FeS-LUCJ
+# Job name must be set by submit.sh: --job-name=FeS-LUCJ-w{N}
 #SBATCH --partition=scavenger
 #SBATCH --account=general
 #SBATCH --qos=scavenger

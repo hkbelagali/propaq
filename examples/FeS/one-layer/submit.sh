@@ -1,6 +1,6 @@
 #!/bin/bash
 # ── Change this to run a different Pauli weight ──────────────────────────────
-WEIGHT=3
+WEIGHT=4
 # ─────────────────────────────────────────────────────────────────────────────
 
 cd "$(dirname "$0")"
@@ -13,11 +13,11 @@ conda activate env
 N_TERMS=$(python3 - <<PYEOF
 import sys, numpy as np
 
-cache = "physical_hamiltonian_cache.npz"
+cache = "compiled_hamiltonian_cache.npz"
 try:
     data = np.load(cache, allow_pickle=False)
 except FileNotFoundError:
-    print(f"physical_hamiltonian_cache.npz not found — run python build_LUCJ.py first", file=sys.stderr)
+    print(f"compiled_hamiltonian_cache.npz not found — run python build_LUCJ.py first", file=sys.stderr)
     sys.exit(1)
 
 paulis = data["paulis"].astype(str)
@@ -31,7 +31,7 @@ if [ "$N_TERMS" -eq 0 ]; then
     exit 0
 fi
 
-N_TASKS=$(( N_TERMS < 4850 ? N_TERMS : 4850 ))
+N_TASKS=$(( N_TERMS < 5000 ? N_TERMS : 5000 ))
 echo "Weight-${WEIGHT}: ${N_TERMS} terms → ${N_TASKS} array tasks"
 
 mkdir -p logs results

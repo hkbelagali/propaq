@@ -35,14 +35,14 @@ task_id: int = args.task_id
 n_tasks: int = args.n_tasks
 
 damping: float = 0.001
-cutoff:  float = 1e-7
+cutoff:  float = 1e-6
 
 with open("FeS_LUCJ_circuit.qpy", "rb") as f:
     compiled = qpy.load(f)[0]
 
 mc = MajoranaCircuit.from_qiskit(compiled.copy(), n_modes=2 * compiled.num_qubits)
 
-cache = np.load("../hamiltonian_cache.npz", allow_pickle=False)
+cache = np.load("compiled_hamiltonian_cache.npz", allow_pickle=False)
 ccsd_energy = float(cache["ccsd_energy"])
 
 hamiltonian_physical = SparsePauliOp.from_list(
