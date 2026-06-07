@@ -1,6 +1,6 @@
 #!/bin/bash
 # ── Change this to run a different Pauli weight ──────────────────────────────
-WEIGHT=5
+WEIGHT=4
 # ─────────────────────────────────────────────────────────────────────────────
 
 cd "$(dirname "$0")"
@@ -31,7 +31,7 @@ if [ "$N_TERMS" -eq 0 ]; then
     exit 0
 fi
 
-N_TASKS=$(( N_TERMS < 5000 ? N_TERMS : 5000 ))
+N_TASKS=$(( N_TERMS < 1000 ? N_TERMS : 1000 ))
 echo "Weight-${WEIGHT}: ${N_TERMS} terms → ${N_TASKS} array tasks"
 
 mkdir -p logs results
@@ -40,4 +40,4 @@ sbatch \
     --job-name="FeS-LUCJ-w${WEIGHT}" \
     --array=0-$(( N_TASKS - 1 )) \
     --export=ALL,WEIGHT=${WEIGHT} \
-    run.sh
+    run_general.sh
