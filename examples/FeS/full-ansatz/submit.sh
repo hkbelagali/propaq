@@ -1,6 +1,6 @@
 #!/bin/bash
 # ── Change this to run a different Pauli weight ──────────────────────────────
-WEIGHT=4
+WEIGHT=1
 # ─────────────────────────────────────────────────────────────────────────────
 
 cd "$(dirname "$0")"

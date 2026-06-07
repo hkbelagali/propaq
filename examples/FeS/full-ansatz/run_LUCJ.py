@@ -35,7 +35,7 @@ task_id: int = args.task_id
 n_tasks: int = args.n_tasks
 
 damping: float = 0.001
-cutoff:  float = 1e-7
+cutoff:  float = 1e-10
 
 with open("FeS_LUCJ_circuit.qpy", "rb") as f:
     compiled = qpy.load(f)[0]
