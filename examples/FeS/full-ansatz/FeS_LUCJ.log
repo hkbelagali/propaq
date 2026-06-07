@@ -1,0 +1,13 @@
+Saved 2 weight file(s) to refined_data/
+
+CCSD energy: -326.868203
+
+ Weight    Pres.T    Miss.T          |c| mass   EV contribution     Cumulative EV     RT mean      RT std
+---------------------------------------------------------------------------------------------------------
+      0         —         —                 —       -287.322912       -287.322912           —           —  (ECORE)
+      1        72         0        139.357893        -60.756691       -348.079603       04:30       02:10
+      2      2832         0        148.579136         25.610179       -322.469423       06:23       02:25
+
+Cumulative expectation value: -322.469423
+CCSD energy:                  -326.868203
+Difference:                   4.398780
