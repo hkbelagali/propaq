@@ -237,6 +237,41 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         });
     }
 
+    /// Apply the truncation policy only to threads where `mask[i]` is true.
+    fn retain_by_policy_masked(&mut self, tp: &TruncationPolicy, mask: &[bool]) {
+        let wc = tp.weight_cutoff;
+        let cc = tp.coeff_cutoff;
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &mut self.thread_maps;
+        pool.install(|| {
+            thread_maps
+                .par_iter_mut()
+                .zip(mask.par_iter())
+                .for_each(|(map, &apply)| {
+                    if apply {
+                        map.retain(|t, c| wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc);
+                    }
+                });
+        });
+    }
+
+    /// Count surviving terms per thread under the policy without modifying state.
+    fn count_surviving_per_thread(&self, tp: &TruncationPolicy) -> Vec<usize> {
+        let wc = tp.weight_cutoff;
+        let cc = tp.coeff_cutoff;
+        let pool = Arc::clone(&self.pool);
+        pool.install(|| {
+            self.thread_maps
+                .par_iter()
+                .map(|map| {
+                    map.iter()
+                        .filter(|(t, c)| wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc)
+                        .count()
+                })
+                .collect()
+        })
+    }
+
     /// Read-only pass over thread_maps to compute discard statistics before truncation.
     /// Returns (discarded_count, discarded_coeff_l1, discarded_coeff_max).
     fn collect_discard_stats(&self, tp: &TruncationPolicy) -> (usize, f64, f64) {
@@ -306,23 +341,43 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         if let Some(tp) = tp {
             let min_terms = tp.truncation_range.0.unwrap_or(0);
             if total_before >= min_terms {
-                let (disc_count, disc_l1, disc_max) = if self.verbose_log.is_some() {
+                let (_disc_count, disc_l1, disc_max) = if self.verbose_log.is_some() {
                     self.collect_discard_stats(tp)
                 } else {
                     (0, 0.0, 0.0)
                 };
 
-                self.retain_by_policy(tp);
+                if min_terms > 0 {
+                    // Check whether applying the policy globally would drop the total
+                    // below min_terms. If so, redistribute: only truncate threads where
+                    // surviving[i] meets its proportional share of min_terms so that the
+                    // global total stays >= min_terms after truncation.
+                    let surviving = self.count_surviving_per_thread(tp);
+                    let total_surviving: usize = surviving.iter().sum();
+                    if total_surviving < min_terms {
+                        let mask: Vec<bool> = surviving.iter()
+                            .zip(self.thread_maps.iter())
+                            .map(|(&surv, map)| surv >= map.len() * min_terms / total_before)
+                            .collect();
+                        self.retain_by_policy_masked(tp, &mask);
+                    } else {
+                        self.retain_by_policy(tp);
+                    }
+                } else {
+                    self.retain_by_policy(tp);
+                }
+
                 let total_after: usize = self.thread_maps.iter().map(|m| m.len()).sum();
                 self.total_terms = total_after;
 
                 if let Some(ref mut log) = self.verbose_log {
+                    let actual_discarded = total_before - total_after;
                     let wc_str = tp.weight_cutoff
                         .map_or_else(|| "null".to_string(), |w| w.to_string());
                     let cc = tp.coeff_cutoff;
                     let _ = writeln!(
                         log,
-                        r#"{{"event":"truncation","gate_idx":{gate_idx},"layer_idx":{layer_idx},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{disc_count},"discarded_coeff_l1":{disc_l1:.6e},"discarded_coeff_max":{disc_max:.6e},"weight_cutoff":{wc_str},"coeff_cutoff":{cc:.6e}}}"#
+                        r#"{{"event":"truncation","gate_idx":{gate_idx},"layer_idx":{layer_idx},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{actual_discarded},"discarded_coeff_l1":{disc_l1:.6e},"discarded_coeff_max":{disc_max:.6e},"weight_cutoff":{wc_str},"coeff_cutoff":{cc:.6e}}}"#
                     );
                 }
             }

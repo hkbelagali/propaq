@@ -57,7 +57,7 @@ impl MajoranaMonomial {
         (phase * product) as f64
     }
 
-    pub(crate) fn compute_weight_for(modes: &Bitset, n_modes: usize) -> u32 {
+    pub fn compute_weight_for(modes: &Bitset, n_modes: usize) -> u32 {
         let n_qubits = n_modes / 2;
         if n_qubits == 0 { return 0; }
 
