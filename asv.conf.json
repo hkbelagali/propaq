@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "project": "propaq",
+    "repo": ".",
+    "branches": ["main"],
+    "benchmark_dir": "benchmarks",
+    "environment_type": "virtualenv",
+    "pythons": ["3.12"],
+    "build_cache_size": 2,
+    "build_dependencies": ["maturin>=1.7,<2"],
+    "install_command": [
+        "in-dir={build_dir} python -m pip install --no-build-isolation -e {build_dir}"
+    ]
+}
