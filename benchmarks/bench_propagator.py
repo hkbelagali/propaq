@@ -1,9 +1,5 @@
 """
 Benchmarks for MajoranaPropagator and PauliPropagator.
-
-Uses a UCJ-style ansatz (orbital-rotation + diagonal-Coulomb layers) for
-Majorana, and a RZ + nearest-neighbour XX ansatz for Pauli.
-TruncationPolicy(weight_cutoff=6) keeps term counts manageable for CI.
 """
 
 import numpy as np

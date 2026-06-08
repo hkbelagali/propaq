@@ -1,19 +1,9 @@
-"""
-End-to-end LUCJ benchmark using a hydrogen-chain ansatz generated via ffsim.
-
-Mirrors the UCJ.ipynb notebook workflow:
-  PySCF RHF → CCSD → ffsim LUCJ ansatz → Qiskit transpile → from_qiskit → propagate.
-
-Requires: ffsim, pyscf, qiskit (GenericBackendV2).
-If any of these are unavailable the benchmarks are skipped via NotImplementedError
-in setup().
-"""
-
 import numpy as np
 
 DAMPING = 0.001325
 WEIGHT_CUTOFF = 100000
 COEFF_CUTOFF = 1e-16
+TRUNCATION_RANGE = (100_000, 1_000_000)
 
 
 def _build_lucj_circuit(natoms, nlayers):
@@ -100,7 +90,8 @@ class LUCJMajoranaBench:
         observable = SparsePauliOp("ZZ" + "I" * (n_qubits - 2))
         self.obs = MajoranaTermSum.from_sparse_pauli_op(observable)
         self.trunc = TruncationPolicy(
-            weight_cutoff=WEIGHT_CUTOFF, coeff_cutoff=COEFF_CUTOFF
+            weight_cutoff=WEIGHT_CUTOFF, coeff_cutoff=COEFF_CUTOFF,
+            truncation_range=TRUNCATION_RANGE,
         )
 
     def time_expectation_value(self, natoms, nlayers):
@@ -134,7 +125,8 @@ class LUCJPauliBench:
         observable = SparsePauliOp("ZZ" + "I" * (n_qubits - 2))
         self.obs = PauliTermSum.from_sparse_pauli_op(observable)
         self.trunc = TruncationPolicy(
-            weight_cutoff=WEIGHT_CUTOFF, coeff_cutoff=COEFF_CUTOFF
+            weight_cutoff=WEIGHT_CUTOFF, coeff_cutoff=COEFF_CUTOFF,
+            truncation_range=TRUNCATION_RANGE,
         )
 
     def time_expectation_value(self, natoms, nlayers):
