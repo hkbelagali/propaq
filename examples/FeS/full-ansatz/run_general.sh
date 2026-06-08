@@ -2,7 +2,7 @@
 
 # Job name must be set by submit.sh: --job-name=FeS-LUCJ-w{N}
 #SBATCH --account=general
-#SBATCH --time=04:00:00
+#SBATCH --time=04:30:00
 #SBATCH --mem=100G
 #SBATCH --cpus-per-task=8
 #SBATCH --output=logs/%x_%a.out

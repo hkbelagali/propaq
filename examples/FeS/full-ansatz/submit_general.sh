@@ -1,6 +1,6 @@
 #!/bin/bash
 # ── Change this to run a different Pauli weight ──────────────────────────────
-WEIGHT=4
+WEIGHT=7
 # ─────────────────────────────────────────────────────────────────────────────
 
 cd "$(dirname "$0")"
@@ -31,7 +31,7 @@ if [ "$N_TERMS" -eq 0 ]; then
     exit 0
 fi
 
-N_TASKS=$(( N_TERMS < 1000 ? N_TERMS : 1000 ))
+N_TASKS=$(( N_TERMS < 998 ? N_TERMS : 998 ))
 echo "Weight-${WEIGHT}: ${N_TERMS} terms → ${N_TASKS} array tasks"
 
 mkdir -p logs results
