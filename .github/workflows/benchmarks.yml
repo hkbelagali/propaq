@@ -1,0 +1,48 @@
+name: benchmarks
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  asv-bench:
+    if: contains(github.event.pull_request.labels.*.name, 'benchmark')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # HEAD^ must be reachable; asv run HEAD^! spans two commits
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ASV and build tools
+        run: pip install asv virtualenv "maturin>=1.7,<2"
+
+      - name: Run ASV benchmarks (quick mode)
+        run: asv run --quick --show-stderr HEAD^!
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asv-results
+          path: .asv/results/
+
+  criterion-bench:
+    if: contains(github.event.pull_request.labels.*.name, 'benchmark')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Criterion benchmarks
+        run: cargo bench --workspace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: criterion-results
+          path: target/criterion/
