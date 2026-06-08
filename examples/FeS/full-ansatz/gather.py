@@ -40,6 +40,22 @@ REFINED_DIR = Path(args.refined_dir)
 NPZ_RE = re.compile(r"FeS_LUCJ_w(\d+)_(\d{5})of(\d{5})\.npz$")
 
 
+def _compress_ids(ids: list[int]) -> str:
+    """Convert a sorted list of ints to SLURM range notation, e.g. [0,1,2,5] -> '0-2,5'."""
+    if not ids:
+        return ""
+    parts = []
+    start = end = ids[0]
+    for n in ids[1:]:
+        if n == end + 1:
+            end = n
+        else:
+            parts.append(f"{start}-{end}" if end > start else str(start))
+            start = end = n
+    parts.append(f"{start}-{end}" if end > start else str(start))
+    return ",".join(parts)
+
+
 def _fmt_time(sec: float) -> str:
     if np.isnan(sec):
         return "—"
@@ -116,7 +132,7 @@ for w in sorted(raw):
 
     if missing_ids:
         print(f"WARNING: weight {w} — {len(missing_ids)} task(s) missing from results/")
-        print(f"         Resubmit: sbatch --array={','.join(map(str, missing_ids))} "
+        print(f"         Resubmit: sbatch --array={_compress_ids(missing_ids)} "
               f"--job-name=FeS-LUCJ-w{w} "
               f"--export=ALL,WEIGHT={w},N_TASKS={n_tasks} run.sh")
 

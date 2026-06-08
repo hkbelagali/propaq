@@ -99,8 +99,11 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
 
     # 2. Sum of coefficients (signed)
     ax[1].bar(weights, sum_coeffs)
+    ax[1].set_xlim(0, 36)
+    ax[1].set_xticks(range(37))
     ax[1].set_title("Sum of Coefficients per Pauli Weight")
     ax[1].set_xlabel("Pauli weight")
+    ax[1].set_yscale("symlog")  # handle positive and negative values
     ax[1].set_ylabel("Sum of coeffs")
 
     plt.tight_layout()
