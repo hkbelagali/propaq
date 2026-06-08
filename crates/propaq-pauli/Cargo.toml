@@ -8,3 +8,11 @@ propaq-core = { path = "../propaq-core" }
 pyo3 = { version = "0.23", features = ["num-complex"] }
 num-complex = "0.4"
 rustc-hash = "2"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+num-complex = "0.4"
+
+[[bench]]
+name = "pauli_bench"
+harness = false
