@@ -44,7 +44,6 @@ class MajoranaMonomialBench:
     param_names = ["n_modes"]
 
     def setup(self, n_modes):
-        # Anticommuting pair: overlap = 1 bit → anticommutes
         self.m1 = _make_mon(0b0011, n_modes)
         self.m2 = _make_mon(0b0110, n_modes)
         self.m3 = _make_mon(0b1100, n_modes)
@@ -68,9 +67,6 @@ class PauliTermSumBench:
         from propaq.datatypes import PauliString, PauliTermSum
         from propaq.noise import TruncationPolicy
 
-        # n_qubits must be >= n_terms so that 1 << i lands on a unique bit for
-        # each i; cycling with modulo would collapse n_terms=1000 to only ~22
-        # distinct keys.
         n_qubits = n_terms + 1
         ts1 = PauliTermSum()
         ts2 = PauliTermSum()
@@ -110,9 +106,7 @@ class MajoranaTermSumBench:
         ts1 = MajoranaTermSum()
         ts2 = MajoranaTermSum()
         for i in range(n_terms):
-            # number-preserving monomials: pairs (2i, 2i+1)
             m_a = MajoranaMonomial((1 << (2 * i)) | (1 << (2 * i + 1)), n_modes, is_number_preserving=True)
-            # shift by one pair for ts2 to get distinct keys
             j = (i + n_terms) % (n_modes // 2)
             m_b = MajoranaMonomial((1 << (2 * j)) | (1 << (2 * j + 1)), n_modes, is_number_preserving=True)
             ts1.add(m_a, 1.0 / (i + 1))

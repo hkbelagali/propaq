@@ -1,8 +1,5 @@
 """
 Benchmarks isolating noise-model and truncation overhead during propagation.
-
-Four configs sweep from no noise/truncation to fully configured, letting you
-measure how much each contributes to propagation cost.
 """
 
 import numpy as np
