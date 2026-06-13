@@ -16,6 +16,9 @@ use crate::logger::Logger;
 /// Fibonacci hashing multiplier for multiply-shift uniform partition distribution.
 const PARTITION_HASH_MUL: u64 = 0x517cc1b727220a95;
 
+// Limit for uniform noise LUT 
+const EXP_LUT_SIZE: usize = 4096;
+
 struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
 unsafe impl<T> Sync for SendPtr<T> {}
@@ -142,9 +145,15 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
     fn finalize_to(&self, evolved: &mut AbstractTermSum<M>) {
         evolved.terms.clear();
         evolved.terms.reserve(self.total_terms);
-        for map in &self.thread_maps {
-            evolved.terms.extend(map.iter().map(|(k, v)| (k.clone(), *v)));
-        }
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &self.thread_maps;
+        let all_items: Vec<(M, Complex64)> = pool.install(|| {
+            thread_maps
+                .par_iter()
+                .flat_map_iter(|map| map.iter().map(|(k, v)| (k.clone(), *v)))
+                .collect()
+        });
+        evolved.terms.extend(all_items);
     }
 
     fn apply_gate_inplace(&mut self, generator: &M, angle: f64) -> usize {
@@ -255,49 +264,37 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         });
     }
 
-    /// Count surviving terms per thread under the policy without modifying state.
-    fn count_surviving_per_thread(&self, tp: &TruncationPolicy) -> Vec<usize> {
+    /// Single parallel pass returning per-thread surviving counts and aggregate discard
+    /// statistics (discarded_coeff_l1, discarded_coeff_max). Replaces the two separate
+    /// `count_surviving_per_thread` and `collect_discard_stats` passes.
+    fn collect_stats_and_count_surviving(&self, tp: &TruncationPolicy) -> ((f64, f64), Vec<usize>) {
         let wc = tp.weight_cutoff;
         let cc = tp.coeff_cutoff;
         let pool = Arc::clone(&self.pool);
-        pool.install(|| {
-            self.thread_maps
+        let thread_maps = &self.thread_maps;
+        let per_thread: Vec<((f64, f64), usize)> = pool.install(|| {
+            thread_maps
                 .par_iter()
                 .map(|map| {
-                    map.iter()
-                        .filter(|(t, c)| wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc)
-                        .count()
-                })
-                .collect()
-        })
-    }
-
-    /// Read-only pass over thread_maps to compute discard statistics before truncation.
-    /// Returns (discarded_count, discarded_coeff_l1, discarded_coeff_max).
-    fn collect_discard_stats(&self, tp: &TruncationPolicy) -> (usize, f64, f64) {
-        let wc = tp.weight_cutoff;
-        let cc = tp.coeff_cutoff;
-        let pool = Arc::clone(&self.pool);
-        pool.install(|| {
-            self.thread_maps
-                .par_iter()
-                .map(|map| {
-                    let (mut dc, mut dl1, mut dmax) = (0usize, 0.0f64, 0.0f64);
+                    let (mut dl1, mut dmax, mut surv) = (0.0f64, 0.0f64, 0usize);
                     for (t, c) in map.iter() {
-                        if !wc.map_or(true, |w| t.weight() <= w) || c.norm() < cc {
-                            dc += 1;
+                        if wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc {
+                            surv += 1;
+                        } else {
                             let norm = c.norm();
                             dl1 += norm;
                             dmax = dmax.max(norm);
                         }
                     }
-                    (dc, dl1, dmax)
+                    ((dl1, dmax), surv)
                 })
-                .reduce(
-                    || (0, 0.0, 0.0f64),
-                    |(a0, a1, a2), (b0, b1, b2)| (a0 + b0, a1 + b1, a2.max(b2)),
-                )
-        })
+                .collect()
+        });
+        let (dl1, dmax) = per_thread.iter().fold((0.0f64, 0.0f64), |acc, ((dl1, dmax), _)| {
+            (acc.0 + dl1, acc.1.max(*dmax))
+        });
+        let surviving: Vec<usize> = per_thread.into_iter().map(|(_, s)| s).collect();
+        ((dl1, dmax), surviving)
     }
 
     fn flush_and_maybe_truncate(
@@ -341,18 +338,23 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         if let Some(tp) = tp {
             let min_terms = tp.truncation_range.0.unwrap_or(0);
             if total_before >= min_terms {
-                let (_disc_count, disc_l1, disc_max) = if self.verbose_log.is_some() {
-                    self.collect_discard_stats(tp)
+                let need_surviving = min_terms > 0;
+                let need_stats = self.verbose_log.is_some();
+
+                // Single parallel pass instead of the former two separate scans.
+                let (disc_l1, disc_max, surviving) = if need_surviving || need_stats {
+                    let ((dl1, dmax), surv) = self.collect_stats_and_count_surviving(tp);
+                    let (dl1, dmax) = if need_stats { (dl1, dmax) } else { (0.0, 0.0) };
+                    (dl1, dmax, surv)
                 } else {
-                    (0, 0.0, 0.0)
+                    (0.0, 0.0, Vec::new())
                 };
 
-                if min_terms > 0 {
+                if need_surviving {
                     // Check whether applying the policy globally would drop the total
                     // below min_terms. If so, redistribute: only truncate threads where
                     // surviving[i] meets its proportional share of min_terms so that the
                     // global total stays >= min_terms after truncation.
-                    let surviving = self.count_surviving_per_thread(tp);
                     let total_surviving: usize = surviving.iter().sum();
                     if total_surviving < min_terms {
                         let mask: Vec<bool> = surviving.iter()
@@ -398,6 +400,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         }
 
         if let Some(d) = damping {
+            let exp_lut: Vec<f64> = (0..=EXP_LUT_SIZE).map(|w| (-d * w as f64).exp()).collect();
             py.allow_threads(|| {
                 pool.install(|| {
                     self.thread_maps
@@ -405,11 +408,11 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                         .zip(self.outboxes.par_iter_mut())
                         .for_each(|(map, outbox_row)| {
                             map.iter_mut().for_each(|(term, coeff)| {
-                                *coeff *= (-d * term.weight() as f64).exp();
+                                *coeff *= exp_lut[term.weight() as usize];
                             });
                             for outbox in outbox_row.iter_mut() {
                                 for (term, coeff) in outbox.iter_mut() {
-                                    *coeff *= (-d * term.weight() as f64).exp();
+                                    *coeff *= exp_lut[term.weight() as usize];
                                 }
                             }
                         });
@@ -554,11 +557,13 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
     {
         let n_terms = self.run_propagation_inner(py, evolved, circuit, true)?;
 
-        let total: Complex64 = evolved
-            .terms
-            .iter()
-            .map(|(term, coeff)| *coeff * term.trace_with_fock_state(fock_state))
-            .sum();
+        let pool = Arc::clone(&self.pool);
+        let total: Complex64 = pool.install(|| {
+            evolved.terms
+                .par_iter()
+                .map(|(term, coeff)| *coeff * term.trace_with_fock_state(fock_state))
+                .sum()
+        });
 
         Ok(PropagationResult { n_terms, expectation_value: total.re })
     }
