@@ -48,4 +48,14 @@ impl MajoranaPropagator {
         let mut evolved = observable.inner.copy();
         self.inner.run_expectation_value(py, &mut evolved, circuit, fock_state)
     }
+
+    #[getter]
+    fn noise(&self, py: Python<'_>) -> Option<PyObject> {
+        self.inner.noise.as_ref().map(|n| n.clone_ref(py))
+    }
+
+    #[pyo3(signature = (noise=None))]
+    fn set_noise(&mut self, noise: Option<PyObject>) {
+        self.inner.noise = noise;
+    }
 }
