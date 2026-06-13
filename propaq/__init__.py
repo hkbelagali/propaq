@@ -18,3 +18,4 @@ from .circuits import (
 )
 from ._rust_core import Logger as Logger
 from .log_parser import LogParser as LogParser, GateEvent as GateEvent, TruncationEvent as TruncationEvent
+from .extrapolators import ZNEExtrapolator as ZNEExtrapolator, ZNEResult as ZNEResult
