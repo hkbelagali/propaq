@@ -1,1 +1,1 @@
-from .zne import ZNEExtrapolator as ZNEExtrapolator, ZNEResult as ZNEResult
+from .zne import ZeroNoiseExtrapolator as ZeroNoiseExtrapolator, ZNEResult as ZNEResult
