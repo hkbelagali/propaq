@@ -17,7 +17,7 @@ class ZNEResult:
     fit_covariance: np.ndarray
 
 
-class ZNEExtrapolator:
+class ZeroNoiseExtrapolator:
     """Zero-noise extrapolation via curve fitting.
 
     Args:
