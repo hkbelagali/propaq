@@ -6,7 +6,7 @@ from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
 from propaq.noise import UniformNoiseModel
 from propaq.propagators.majorana import MajoranaPropagator
-from propaq.extrapolators import ZNEExtrapolator, ZNEResult
+from propaq.extrapolators import ZeroNoiseExtrapolator, ZNEResult
 
 N = 8
 
@@ -40,7 +40,7 @@ def test_zne_result_fields():
     circuit = one_gate_circuit()
     prop = MajoranaPropagator()
 
-    extrapolator = ZNEExtrapolator(
+    extrapolator = ZeroNoiseExtrapolator(
         fitting_fn=lambda x, a, b: a + b * x,
         noise_values=[0.01, 0.02, 0.03],
     )
@@ -60,7 +60,7 @@ def test_zne_linear_extrapolation_close_to_noiseless():
 
     noiseless = prop.expectation_value(obs, circuit, fock_state=0).expectation_value
 
-    extrapolator = ZNEExtrapolator(
+    extrapolator = ZeroNoiseExtrapolator(
         fitting_fn=lambda x, a, b: a + b * x,
         noise_values=[0.01, 0.02, 0.03, 0.04],
     )
@@ -76,7 +76,7 @@ def test_zne_exponential_fit_with_p0():
 
     noiseless = prop.expectation_value(obs, circuit, fock_state=0).expectation_value
 
-    extrapolator = ZNEExtrapolator(
+    extrapolator = ZeroNoiseExtrapolator(
         fitting_fn=lambda x, a, b: a * np.exp(-b * x),
         noise_values=[0.01, 0.02, 0.03, 0.04],
     )
@@ -89,7 +89,7 @@ def test_zne_restores_original_noise_none():
     circuit = one_gate_circuit()
     prop = MajoranaPropagator()
 
-    ZNEExtrapolator(lambda x, a, b: a + b * x, [0.01, 0.02]).run(prop, obs, circuit)
+    ZeroNoiseExtrapolator(lambda x, a, b: a + b * x, [0.01, 0.02]).run(prop, obs, circuit)
 
     assert prop.noise is None
 
@@ -99,6 +99,6 @@ def test_zne_restores_original_noise_model():
     circuit = one_gate_circuit()
     prop = MajoranaPropagator(noise=UniformNoiseModel(0.005))
 
-    ZNEExtrapolator(lambda x, a, b: a + b * x, [0.01, 0.02]).run(prop, obs, circuit)
+    ZeroNoiseExtrapolator(lambda x, a, b: a + b * x, [0.01, 0.02]).run(prop, obs, circuit)
 
     assert prop.noise is not None
