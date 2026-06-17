@@ -1,0 +1,15 @@
+{"event":"gate","gate_idx":0,"layer_idx":0,"map_terms":1,"outbox_terms":0}
+{"event":"gate","gate_idx":100,"layer_idx":3,"map_terms":1,"outbox_terms":83}
+{"event":"gate","gate_idx":200,"layer_idx":6,"map_terms":1,"outbox_terms":91979}
+{"event":"truncation","gate_idx":275,"layer_idx":8,"trigger":"threshold","terms_before":153,"terms_after":153,"terms_discarded":0,"discarded_coeff_l1":0.000000e0,"discarded_coeff_max":0.000000e0,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
+{"event":"gate","gate_idx":300,"layer_idx":9,"map_terms":153,"outbox_terms":752}
+{"event":"gate","gate_idx":400,"layer_idx":14,"map_terms":153,"outbox_terms":17934249}
+{"event":"truncation","gate_idx":401,"layer_idx":14,"trigger":"threshold","terms_before":1702,"terms_after":382,"terms_discarded":1320,"discarded_coeff_l1":1.259644e-9,"discarded_coeff_max":8.990740e-11,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
+{"event":"truncation","gate_idx":469,"layer_idx":17,"trigger":"threshold","terms_before":72421,"terms_after":1537,"terms_discarded":70884,"discarded_coeff_l1":2.013893e-8,"discarded_coeff_max":9.174295e-11,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
+{"event":"gate","gate_idx":500,"layer_idx":18,"map_terms":1537,"outbox_terms":194654}
+{"event":"truncation","gate_idx":528,"layer_idx":19,"trigger":"threshold","terms_before":197599,"terms_after":2299,"terms_discarded":195300,"discarded_coeff_l1":2.375068e-8,"discarded_coeff_max":9.922355e-11,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
+{"event":"truncation","gate_idx":580,"layer_idx":20,"trigger":"threshold","terms_before":306297,"terms_after":2550,"terms_discarded":303747,"discarded_coeff_l1":5.712315e-7,"discarded_coeff_max":6.300493e-8,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
+{"event":"gate","gate_idx":600,"layer_idx":21,"map_terms":2550,"outbox_terms":61636}
+{"event":"truncation","gate_idx":624,"layer_idx":22,"trigger":"threshold","terms_before":311616,"terms_after":3240,"terms_discarded":308376,"discarded_coeff_l1":2.095115e-8,"discarded_coeff_max":9.752810e-11,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
+{"event":"truncation","gate_idx":656,"layer_idx":24,"trigger":"threshold","terms_before":232647,"terms_after":4696,"terms_discarded":227951,"discarded_coeff_l1":1.126372e-7,"discarded_coeff_max":2.975166e-9,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
+{"event":"truncation","gate_idx":671,"layer_idx":26,"trigger":"final","terms_before":61772,"terms_after":5946,"terms_discarded":55826,"discarded_coeff_l1":1.567452e-8,"discarded_coeff_max":8.134164e-11,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}

@@ -1,0 +1,9 @@
+
+Evaluating H20 (heavy-hex) order--2 terms with damping=0.0 and cutoff=1e-07
+Order--2 terms: 5226 / 116297
+Observable has 5226 Majorana monomial(s)
+Task 653/4000: 2 monomials
+Expectation value: -7.1723680014e-06
+Expectation value: 9.4520586078e-06
+Partial expectation value: 2.2796906064e-06
+Saved results/Hchain_n20_heavy-hex_o-2_00653of04000.npz

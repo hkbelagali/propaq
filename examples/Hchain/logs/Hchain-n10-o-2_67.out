@@ -1,0 +1,8 @@
+
+Evaluating H10 (heavy-hex) order--2 terms with damping=0.0 and cutoff=1e-07
+Order--2 terms: 1649 / 7151
+Observable has 1649 Majorana monomial(s)
+Task 67/1649: 1 monomials
+Expectation value: -3.3074145243e-06
+Partial expectation value: -3.3074145243e-06
+Saved results/Hchain_n10_heavy-hex_o-2_00067of01649.npz

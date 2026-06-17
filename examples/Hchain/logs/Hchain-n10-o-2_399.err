@@ -1,0 +1,982 @@
+H10 order--2 task 399:   0%|          | 0/1 [00:00<?, ?it/s]/mnt/ufs18/rs/qcsl/hrishi/propaq/examples/Hchain/run_LUCJ.py:113: UserWarning: propaq: the progress bar term count stays stale between truncation flushes. Reduce `truncation_threshold` for more frequent updates.
+  result = prop.expectation_value(single_term, mc, fock_state=0)
+
+Propagating through gates:   0%|          | 0/692 [00:00<?, ?it/s][A
+Propagating through gates:   0%|          | 0/692 [00:00<?, ?it/s, terms=1][A
+Propagating through gates:   0%|          | 1/692 [00:00<00:01, 429.48it/s, terms=1][A
+Propagating through gates:   0%|          | 2/692 [00:00<00:02, 232.75it/s, terms=1][A
+Propagating through gates:   0%|          | 3/692 [00:00<00:02, 296.75it/s, terms=1][A
+Propagating through gates:   1%|          | 4/692 [00:00<00:01, 359.67it/s, terms=1][A
+Propagating through gates:   1%|          | 5/692 [00:00<00:01, 420.96it/s, terms=1][A
+Propagating through gates:   1%|          | 6/692 [00:00<00:01, 477.91it/s, terms=1][A
+Propagating through gates:   1%|          | 7/692 [00:00<00:01, 491.74it/s, terms=1][A
+Propagating through gates:   1%|          | 8/692 [00:00<00:01, 534.20it/s, terms=1][A
+Propagating through gates:   1%|▏         | 9/692 [00:00<00:01, 577.65it/s, terms=1][A
+Propagating through gates:   1%|▏         | 10/692 [00:00<00:01, 618.50it/s, terms=1][A
+Propagating through gates:   2%|▏         | 11/692 [00:00<00:01, 624.27it/s, terms=1][A
+Propagating through gates:   2%|▏         | 12/692 [00:00<00:01, 630.57it/s, terms=1][A
+Propagating through gates:   2%|▏         | 13/692 [00:00<00:01, 658.34it/s, terms=1][A
+Propagating through gates:   2%|▏         | 14/692 [00:00<00:00, 682.17it/s, terms=1][A
+Propagating through gates:   2%|▏         | 15/692 [00:00<00:00, 701.32it/s, terms=1][A
+Propagating through gates:   2%|▏         | 16/692 [00:00<00:00, 723.41it/s, terms=1][A
+Propagating through gates:   2%|▏         | 17/692 [00:00<00:00, 742.55it/s, terms=1][A
+Propagating through gates:   3%|▎         | 18/692 [00:00<00:00, 761.35it/s, terms=1][A
+Propagating through gates:   3%|▎         | 19/692 [00:00<00:00, 764.03it/s, terms=1][A
+Propagating through gates:   3%|▎         | 20/692 [00:00<00:00, 781.15it/s, terms=1][A
+Propagating through gates:   3%|▎         | 21/692 [00:00<00:00, 800.19it/s, terms=1][A
+Propagating through gates:   3%|▎         | 22/692 [00:00<00:00, 794.51it/s, terms=1][A
+Propagating through gates:   3%|▎         | 23/692 [00:00<00:00, 732.95it/s, terms=1][A
+Propagating through gates:   3%|▎         | 24/692 [00:00<00:00, 736.93it/s, terms=1][A
+Propagating through gates:   4%|▎         | 25/692 [00:00<00:00, 738.98it/s, terms=1][A
+Propagating through gates:   4%|▍         | 26/692 [00:00<00:00, 741.86it/s, terms=1][A
+Propagating through gates:   4%|▍         | 27/692 [00:00<00:00, 739.92it/s, terms=1][A
+Propagating through gates:   4%|▍         | 28/692 [00:00<00:00, 755.38it/s, terms=1][A
+Propagating through gates:   4%|▍         | 29/692 [00:00<00:00, 770.12it/s, terms=1][A
+Propagating through gates:   4%|▍         | 30/692 [00:00<00:00, 785.27it/s, terms=1][A
+Propagating through gates:   4%|▍         | 31/692 [00:00<00:00, 797.96it/s, terms=1][A
+Propagating through gates:   5%|▍         | 32/692 [00:00<00:00, 809.17it/s, terms=1][A
+Propagating through gates:   5%|▍         | 33/692 [00:00<00:00, 822.89it/s, terms=1][A
+Propagating through gates:   5%|▍         | 34/692 [00:00<00:00, 836.24it/s, terms=1][A
+Propagating through gates:   5%|▌         | 35/692 [00:00<00:00, 849.53it/s, terms=1][A
+Propagating through gates:   5%|▌         | 36/692 [00:00<00:00, 862.31it/s, terms=1][A
+Propagating through gates:   5%|▌         | 37/692 [00:00<00:00, 830.88it/s, terms=1][A
+Propagating through gates:   5%|▌         | 38/692 [00:00<00:00, 842.08it/s, terms=1][A
+Propagating through gates:   6%|▌         | 39/692 [00:00<00:00, 851.61it/s, terms=1][A
+Propagating through gates:   6%|▌         | 40/692 [00:00<00:00, 862.39it/s, terms=1][A
+Propagating through gates:   6%|▌         | 41/692 [00:00<00:00, 854.80it/s, terms=1][A
+Propagating through gates:   6%|▌         | 42/692 [00:00<00:00, 842.17it/s, terms=1][A
+Propagating through gates:   6%|▌         | 43/692 [00:00<00:00, 847.80it/s, terms=1][A
+Propagating through gates:   6%|▋         | 44/692 [00:00<00:00, 845.83it/s, terms=1][A
+Propagating through gates:   7%|▋         | 45/692 [00:00<00:00, 844.76it/s, terms=1][A
+Propagating through gates:   7%|▋         | 46/692 [00:00<00:00, 822.36it/s, terms=1][A
+Propagating through gates:   7%|▋         | 47/692 [00:00<00:00, 830.35it/s, terms=1][A
+Propagating through gates:   7%|▋         | 48/692 [00:00<00:00, 838.21it/s, terms=1][A
+Propagating through gates:   7%|▋         | 49/692 [00:00<00:00, 846.72it/s, terms=1][A
+Propagating through gates:   7%|▋         | 50/692 [00:00<00:00, 854.22it/s, terms=1][A
+Propagating through gates:   7%|▋         | 51/692 [00:00<00:00, 854.97it/s, terms=1][A
+Propagating through gates:   8%|▊         | 52/692 [00:00<00:00, 862.03it/s, terms=1][A
+Propagating through gates:   8%|▊         | 53/692 [00:00<00:00, 869.56it/s, terms=1][A
+Propagating through gates:   8%|▊         | 54/692 [00:00<00:00, 877.09it/s, terms=1][A
+Propagating through gates:   8%|▊         | 55/692 [00:00<00:00, 885.00it/s, terms=1][A
+Propagating through gates:   8%|▊         | 56/692 [00:00<00:00, 888.53it/s, terms=1][A
+Propagating through gates:   8%|▊         | 57/692 [00:00<00:00, 891.61it/s, terms=1][A
+Propagating through gates:   8%|▊         | 58/692 [00:00<00:00, 896.76it/s, terms=1][A
+Propagating through gates:   9%|▊         | 59/692 [00:00<00:00, 903.58it/s, terms=1][A
+Propagating through gates:   9%|▊         | 60/692 [00:00<00:00, 910.62it/s, terms=1][A
+Propagating through gates:   9%|▉         | 61/692 [00:00<00:00, 916.35it/s, terms=1][A
+Propagating through gates:   9%|▉         | 62/692 [00:00<00:00, 919.25it/s, terms=1][A
+Propagating through gates:   9%|▉         | 63/692 [00:00<00:00, 916.63it/s, terms=1][A
+Propagating through gates:   9%|▉         | 64/692 [00:00<00:00, 920.60it/s, terms=1][A
+Propagating through gates:   9%|▉         | 65/692 [00:00<00:00, 907.31it/s, terms=1][A
+Propagating through gates:  10%|▉         | 66/692 [00:00<00:00, 910.82it/s, terms=1][A
+Propagating through gates:  10%|▉         | 67/692 [00:00<00:00, 916.18it/s, terms=1][A
+Propagating through gates:  10%|▉         | 68/692 [00:00<00:00, 920.53it/s, terms=1][A
+Propagating through gates:  10%|▉         | 69/692 [00:00<00:00, 916.00it/s, terms=1][A
+Propagating through gates:  10%|█         | 70/692 [00:00<00:00, 904.63it/s, terms=1][A
+Propagating through gates:  10%|█         | 71/692 [00:00<00:00, 889.09it/s, terms=1][A
+Propagating through gates:  10%|█         | 72/692 [00:00<00:00, 822.24it/s, terms=1][A
+Propagating through gates:  11%|█         | 73/692 [00:00<00:00, 821.64it/s, terms=1][A
+Propagating through gates:  11%|█         | 74/692 [00:00<00:00, 815.48it/s, terms=1][A
+Propagating through gates:  11%|█         | 75/692 [00:00<00:00, 796.02it/s, terms=1][A
+Propagating through gates:  11%|█         | 76/692 [00:00<00:00, 796.58it/s, terms=1][A
+Propagating through gates:  11%|█         | 77/692 [00:00<00:00, 798.72it/s, terms=1][A
+Propagating through gates:  11%|█▏        | 78/692 [00:00<00:00, 799.98it/s, terms=1][A
+Propagating through gates:  11%|█▏        | 79/692 [00:00<00:00, 800.42it/s, terms=1][A
+Propagating through gates:  12%|█▏        | 80/692 [00:00<00:00, 713.80it/s, terms=1][A
+Propagating through gates:  12%|█▏        | 81/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  12%|█▏        | 81/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  12%|█▏        | 82/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  12%|█▏        | 83/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  12%|█▏        | 84/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  12%|█▏        | 85/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  12%|█▏        | 86/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  13%|█▎        | 87/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  13%|█▎        | 88/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  13%|█▎        | 89/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  13%|█▎        | 90/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  13%|█▎        | 91/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  13%|█▎        | 92/692 [00:00<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  13%|█▎        | 93/692 [00:01<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  14%|█▎        | 94/692 [00:01<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  14%|█▎        | 95/692 [00:02<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  14%|█▍        | 96/692 [00:02<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  14%|█▍        | 97/692 [00:03<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  14%|█▍        | 98/692 [00:04<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  14%|█▍        | 99/692 [00:06<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  14%|█▍        | 100/692 [00:06<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  15%|█▍        | 101/692 [00:06<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  15%|█▍        | 102/692 [00:06<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  15%|█▍        | 103/692 [00:06<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  15%|█▌        | 104/692 [00:06<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  15%|█▌        | 105/692 [00:09<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  15%|█▌        | 106/692 [00:11<00:00, 718.21it/s, terms=1][A
+Propagating through gates:  15%|█▌        | 107/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  16%|█▌        | 108/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  16%|█▌        | 109/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  16%|█▌        | 110/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  16%|█▌        | 111/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  16%|█▌        | 112/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  16%|█▋        | 113/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  16%|█▋        | 114/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  17%|█▋        | 115/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  17%|█▋        | 116/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  17%|█▋        | 117/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  17%|█▋        | 118/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  17%|█▋        | 119/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  17%|█▋        | 120/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  17%|█▋        | 121/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  18%|█▊        | 122/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  18%|█▊        | 123/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  18%|█▊        | 124/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  18%|█▊        | 125/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  18%|█▊        | 126/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  18%|█▊        | 127/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  18%|█▊        | 128/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  19%|█▊        | 129/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  19%|█▉        | 130/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  19%|█▉        | 131/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  19%|█▉        | 132/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  19%|█▉        | 133/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  19%|█▉        | 134/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  20%|█▉        | 135/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  20%|█▉        | 136/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  20%|█▉        | 137/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  20%|█▉        | 138/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  20%|██        | 139/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  20%|██        | 140/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  20%|██        | 141/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  21%|██        | 142/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  21%|██        | 143/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  21%|██        | 144/692 [00:16<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  21%|██        | 145/692 [00:17<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  21%|██        | 146/692 [00:17<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  21%|██        | 147/692 [00:17<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  21%|██▏       | 148/692 [00:17<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  22%|██▏       | 149/692 [00:17<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  22%|██▏       | 150/692 [00:17<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  22%|██▏       | 151/692 [00:17<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  22%|██▏       | 152/692 [00:17<00:00, 718.21it/s, terms=797][A
+Propagating through gates:  22%|██▏       | 153/692 [00:17<01:13,  7.32it/s, terms=797] [A
+Propagating through gates:  22%|██▏       | 153/692 [00:17<01:13,  7.32it/s, terms=797][A
+Propagating through gates:  22%|██▏       | 154/692 [00:17<01:14,  7.23it/s, terms=797][A
+Propagating through gates:  22%|██▏       | 154/692 [00:18<01:14,  7.23it/s, terms=797][A
+Propagating through gates:  22%|██▏       | 155/692 [00:18<01:14,  7.23it/s, terms=797][A
+Propagating through gates:  23%|██▎       | 156/692 [00:18<01:14,  7.23it/s, terms=797][A
+Propagating through gates:  23%|██▎       | 157/692 [00:18<01:13,  7.23it/s, terms=797][A
+Propagating through gates:  23%|██▎       | 158/692 [00:19<01:13,  7.23it/s, terms=797][A
+Propagating through gates:  23%|██▎       | 159/692 [00:19<01:13,  7.23it/s, terms=797][A
+Propagating through gates:  23%|██▎       | 160/692 [00:20<01:13,  7.23it/s, terms=6982][A
+Propagating through gates:  23%|██▎       | 161/692 [00:20<01:13,  7.23it/s, terms=6982][A
+Propagating through gates:  23%|██▎       | 162/692 [00:20<01:13,  7.23it/s, terms=6982][A
+Propagating through gates:  24%|██▎       | 163/692 [00:20<01:13,  7.23it/s, terms=6982][A
+Propagating through gates:  24%|██▎       | 164/692 [00:20<01:13,  7.23it/s, terms=6982][A
+Propagating through gates:  24%|██▍       | 165/692 [00:20<01:12,  7.23it/s, terms=6982][A
+Propagating through gates:  24%|██▍       | 166/692 [00:20<01:12,  7.23it/s, terms=6982][A
+Propagating through gates:  24%|██▍       | 167/692 [00:20<01:12,  7.23it/s, terms=6982][A
+Propagating through gates:  24%|██▍       | 168/692 [00:20<01:12,  7.23it/s, terms=6982][A
+Propagating through gates:  24%|██▍       | 169/692 [00:20<01:12,  7.23it/s, terms=6982][A
+Propagating through gates:  25%|██▍       | 170/692 [00:20<01:12,  7.23it/s, terms=6982][A
+Propagating through gates:  25%|██▍       | 171/692 [00:20<01:12,  7.23it/s, terms=6982][A
+Propagating through gates:  25%|██▍       | 172/692 [00:20<01:11,  7.23it/s, terms=6982][A
+Propagating through gates:  25%|██▌       | 173/692 [00:20<01:11,  7.23it/s, terms=6982][A
+Propagating through gates:  25%|██▌       | 174/692 [00:20<01:11,  7.23it/s, terms=6982][A
+Propagating through gates:  25%|██▌       | 175/692 [00:20<01:11,  7.23it/s, terms=6982][A
+Propagating through gates:  25%|██▌       | 176/692 [00:20<01:11,  7.23it/s, terms=6982][A
+Propagating through gates:  26%|██▌       | 177/692 [00:20<01:11,  7.23it/s, terms=6982][A
+Propagating through gates:  26%|██▌       | 178/692 [00:20<01:11,  7.23it/s, terms=6982][A
+Propagating through gates:  26%|██▌       | 179/692 [00:20<01:10,  7.23it/s, terms=6982][A
+Propagating through gates:  26%|██▌       | 180/692 [00:20<01:10,  7.23it/s, terms=6982][A
+Propagating through gates:  26%|██▌       | 181/692 [00:20<01:10,  7.23it/s, terms=6982][A
+Propagating through gates:  26%|██▋       | 182/692 [00:20<01:10,  7.23it/s, terms=6982][A
+Propagating through gates:  26%|██▋       | 183/692 [00:20<01:10,  7.23it/s, terms=6982][A
+Propagating through gates:  27%|██▋       | 184/692 [00:20<01:01,  8.24it/s, terms=6982][A
+Propagating through gates:  27%|██▋       | 184/692 [00:20<01:01,  8.24it/s, terms=6982][A
+Propagating through gates:  27%|██▋       | 185/692 [00:20<01:01,  8.24it/s, terms=6982][A
+Propagating through gates:  27%|██▋       | 186/692 [00:20<01:01,  8.24it/s, terms=6982][A
+Propagating through gates:  27%|██▋       | 187/692 [00:20<01:01,  8.24it/s, terms=6982][A
+Propagating through gates:  27%|██▋       | 188/692 [00:20<01:01,  8.24it/s, terms=6982][A
+Propagating through gates:  27%|██▋       | 189/692 [00:20<01:01,  8.24it/s, terms=6982][A
+Propagating through gates:  27%|██▋       | 190/692 [00:20<01:00,  8.24it/s, terms=6982][A
+Propagating through gates:  28%|██▊       | 191/692 [00:20<01:00,  8.24it/s, terms=6982][A
+Propagating through gates:  28%|██▊       | 192/692 [00:21<01:00,  8.24it/s, terms=6982][A
+Propagating through gates:  28%|██▊       | 193/692 [00:21<01:00,  8.24it/s, terms=6982][A
+Propagating through gates:  28%|██▊       | 194/692 [00:21<01:00,  8.24it/s, terms=6982][A
+Propagating through gates:  28%|██▊       | 195/692 [00:21<01:00,  8.24it/s, terms=6982][A
+Propagating through gates:  28%|██▊       | 196/692 [00:21<01:00,  8.24it/s, terms=6982][A
+Propagating through gates:  28%|██▊       | 197/692 [00:21<01:00,  8.24it/s, terms=6982][A
+Propagating through gates:  29%|██▊       | 198/692 [00:21<00:59,  8.24it/s, terms=6982][A
+Propagating through gates:  29%|██▉       | 199/692 [00:21<00:59,  8.24it/s, terms=6982][A
+Propagating through gates:  29%|██▉       | 200/692 [00:21<00:59,  8.24it/s, terms=6982][A
+Propagating through gates:  29%|██▉       | 201/692 [00:21<00:54,  8.97it/s, terms=6982][A
+Propagating through gates:  29%|██▉       | 201/692 [00:21<00:54,  8.97it/s, terms=6982][A
+Propagating through gates:  29%|██▉       | 202/692 [00:22<00:54,  8.97it/s, terms=6982][A
+Propagating through gates:  29%|██▉       | 203/692 [00:22<00:54,  8.97it/s, terms=6982][A
+Propagating through gates:  29%|██▉       | 204/692 [00:23<00:54,  8.97it/s, terms=14753][A
+Propagating through gates:  30%|██▉       | 205/692 [00:23<00:54,  8.97it/s, terms=14753][A
+Propagating through gates:  30%|██▉       | 206/692 [00:23<00:54,  8.97it/s, terms=14753][A
+Propagating through gates:  30%|██▉       | 207/692 [00:23<00:54,  8.97it/s, terms=14753][A
+Propagating through gates:  30%|███       | 208/692 [00:23<00:53,  8.97it/s, terms=14753][A
+Propagating through gates:  30%|███       | 209/692 [00:23<00:53,  8.97it/s, terms=14753][A
+Propagating through gates:  30%|███       | 210/692 [00:23<00:53,  8.97it/s, terms=14753][A
+Propagating through gates:  30%|███       | 211/692 [00:23<00:53,  8.97it/s, terms=14753][A
+Propagating through gates:  31%|███       | 212/692 [00:23<00:58,  8.27it/s, terms=14753][A
+Propagating through gates:  31%|███       | 212/692 [00:23<00:58,  8.27it/s, terms=14753][A
+Propagating through gates:  31%|███       | 213/692 [00:23<00:57,  8.27it/s, terms=14753][A
+Propagating through gates:  31%|███       | 214/692 [00:23<00:57,  8.27it/s, terms=14753][A
+Propagating through gates:  31%|███       | 215/692 [00:23<00:57,  8.27it/s, terms=14753][A
+Propagating through gates:  31%|███       | 216/692 [00:23<00:57,  8.27it/s, terms=14753][A
+Propagating through gates:  31%|███▏      | 217/692 [00:23<00:57,  8.27it/s, terms=14753][A
+Propagating through gates:  32%|███▏      | 218/692 [00:23<00:57,  8.27it/s, terms=14753][A
+Propagating through gates:  32%|███▏      | 219/692 [00:23<00:57,  8.27it/s, terms=14753][A
+Propagating through gates:  32%|███▏      | 220/692 [00:23<00:57,  8.27it/s, terms=14753][A
+Propagating through gates:  32%|███▏      | 221/692 [00:23<00:56,  8.27it/s, terms=14753][A
+Propagating through gates:  32%|███▏      | 222/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  32%|███▏      | 222/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  32%|███▏      | 223/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  32%|███▏      | 224/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  33%|███▎      | 225/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  33%|███▎      | 226/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  33%|███▎      | 227/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  33%|███▎      | 228/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  33%|███▎      | 229/692 [00:23<00:47,  9.81it/s, terms=14753][A
+Propagating through gates:  33%|███▎      | 230/692 [00:23<00:41, 11.09it/s, terms=14753][A
+Propagating through gates:  33%|███▎      | 230/692 [00:23<00:41, 11.09it/s, terms=14753][A
+Propagating through gates:  33%|███▎      | 231/692 [00:24<00:41, 11.09it/s, terms=14753][A
+Propagating through gates:  34%|███▎      | 232/692 [00:24<00:41, 11.09it/s, terms=14753][A
+Propagating through gates:  34%|███▎      | 233/692 [00:24<00:41, 11.09it/s, terms=14753][A
+Propagating through gates:  34%|███▍      | 234/692 [00:24<00:41, 11.09it/s, terms=14753][A
+Propagating through gates:  34%|███▍      | 235/692 [00:24<00:41, 11.09it/s, terms=14753][A
+Propagating through gates:  34%|███▍      | 236/692 [00:24<00:41, 11.09it/s, terms=14753][A
+Propagating through gates:  34%|███▍      | 237/692 [00:24<00:42, 10.70it/s, terms=14753][A
+Propagating through gates:  34%|███▍      | 237/692 [00:24<00:42, 10.70it/s, terms=14753][A
+Propagating through gates:  34%|███▍      | 238/692 [00:24<00:42, 10.70it/s, terms=14753][A
+Propagating through gates:  35%|███▍      | 239/692 [00:25<00:42, 10.70it/s, terms=14753][A
+Propagating through gates:  35%|███▍      | 240/692 [00:25<00:42, 10.70it/s, terms=14753][A
+Propagating through gates:  35%|███▍      | 241/692 [00:25<00:42, 10.70it/s, terms=14753][A
+Propagating through gates:  35%|███▍      | 242/692 [00:25<00:49,  9.07it/s, terms=14753][A
+Propagating through gates:  35%|███▍      | 242/692 [00:26<00:49,  9.07it/s, terms=14753][A
+Propagating through gates:  35%|███▌      | 243/692 [00:27<00:49,  9.07it/s, terms=14753][A
+Propagating through gates:  35%|███▌      | 244/692 [00:28<00:49,  9.07it/s, terms=18786][A
+Propagating through gates:  35%|███▌      | 245/692 [00:28<00:49,  9.07it/s, terms=18786][A
+Propagating through gates:  36%|███▌      | 246/692 [00:28<01:33,  4.79it/s, terms=18786][A
+Propagating through gates:  36%|███▌      | 246/692 [00:28<01:33,  4.79it/s, terms=18786][A
+Propagating through gates:  36%|███▌      | 247/692 [00:28<01:32,  4.79it/s, terms=18786][A
+Propagating through gates:  36%|███▌      | 248/692 [00:28<01:32,  4.79it/s, terms=18786][A
+Propagating through gates:  36%|███▌      | 249/692 [00:28<01:32,  4.79it/s, terms=18786][A
+Propagating through gates:  36%|███▌      | 250/692 [00:28<01:32,  4.79it/s, terms=18786][A
+Propagating through gates:  36%|███▋      | 251/692 [00:28<01:32,  4.79it/s, terms=18786][A
+Propagating through gates:  36%|███▋      | 252/692 [00:28<01:31,  4.79it/s, terms=18786][A
+Propagating through gates:  37%|███▋      | 253/692 [00:28<01:31,  4.79it/s, terms=18786][A
+Propagating through gates:  37%|███▋      | 254/692 [00:28<01:31,  4.79it/s, terms=18786][A
+Propagating through gates:  37%|███▋      | 255/692 [00:28<01:31,  4.79it/s, terms=18786][A
+Propagating through gates:  37%|███▋      | 256/692 [00:28<01:30,  4.79it/s, terms=18786][A
+Propagating through gates:  37%|███▋      | 257/692 [00:28<01:30,  4.79it/s, terms=18786][A
+Propagating through gates:  37%|███▋      | 258/692 [00:28<01:30,  4.79it/s, terms=18786][A
+Propagating through gates:  37%|███▋      | 259/692 [00:28<01:30,  4.79it/s, terms=18786][A
+Propagating through gates:  38%|███▊      | 260/692 [00:28<01:30,  4.79it/s, terms=18786][A
+Propagating through gates:  38%|███▊      | 261/692 [00:28<01:29,  4.79it/s, terms=18786][A
+Propagating through gates:  38%|███▊      | 262/692 [00:28<01:29,  4.79it/s, terms=18786][A
+Propagating through gates:  38%|███▊      | 263/692 [00:29<01:29,  4.79it/s, terms=18786][A
+Propagating through gates:  38%|███▊      | 264/692 [00:29<00:47,  9.00it/s, terms=18786][A
+Propagating through gates:  38%|███▊      | 264/692 [00:29<00:47,  9.00it/s, terms=18786][A
+Propagating through gates:  38%|███▊      | 265/692 [00:29<00:47,  9.00it/s, terms=18786][A
+Propagating through gates:  38%|███▊      | 266/692 [00:29<00:47,  9.00it/s, terms=18786][A
+Propagating through gates:  39%|███▊      | 267/692 [00:29<00:47,  9.00it/s, terms=18786][A
+Propagating through gates:  39%|███▊      | 268/692 [00:29<00:47,  9.00it/s, terms=18786][A
+Propagating through gates:  39%|███▉      | 269/692 [00:29<00:47,  9.00it/s, terms=18786][A
+Propagating through gates:  39%|███▉      | 270/692 [00:29<00:46,  9.00it/s, terms=18786][A
+Propagating through gates:  39%|███▉      | 271/692 [00:29<00:38, 10.83it/s, terms=18786][A
+Propagating through gates:  39%|███▉      | 271/692 [00:29<00:38, 10.83it/s, terms=18786][A
+Propagating through gates:  39%|███▉      | 272/692 [00:29<00:38, 10.83it/s, terms=18786][A
+Propagating through gates:  39%|███▉      | 273/692 [00:29<00:38, 10.83it/s, terms=18786][A
+Propagating through gates:  40%|███▉      | 274/692 [00:29<00:38, 10.83it/s, terms=18786][A
+Propagating through gates:  40%|███▉      | 275/692 [00:29<00:38, 10.83it/s, terms=18786][A
+Propagating through gates:  40%|███▉      | 276/692 [00:29<00:38, 10.83it/s, terms=18786][A
+Propagating through gates:  40%|████      | 277/692 [00:29<00:36, 11.47it/s, terms=18786][A
+Propagating through gates:  40%|████      | 277/692 [00:29<00:36, 11.47it/s, terms=18786][A
+Propagating through gates:  40%|████      | 278/692 [00:29<00:36, 11.47it/s, terms=18786][A
+Propagating through gates:  40%|████      | 279/692 [00:30<00:35, 11.47it/s, terms=18786][A
+Propagating through gates:  40%|████      | 280/692 [00:30<00:35, 11.47it/s, terms=18786][A
+Propagating through gates:  41%|████      | 281/692 [00:30<00:35, 11.47it/s, terms=18786][A
+Propagating through gates:  41%|████      | 282/692 [00:30<00:40, 10.07it/s, terms=18786][A
+Propagating through gates:  41%|████      | 282/692 [00:30<00:40, 10.07it/s, terms=18786][A
+Propagating through gates:  41%|████      | 283/692 [00:30<00:40, 10.07it/s, terms=18786][A
+Propagating through gates:  41%|████      | 284/692 [00:30<00:40, 10.07it/s, terms=18786][A
+Propagating through gates:  41%|████      | 285/692 [00:30<00:40, 10.07it/s, terms=18786][A
+Propagating through gates:  41%|████▏     | 286/692 [00:30<00:45,  8.97it/s, terms=18786][A
+Propagating through gates:  41%|████▏     | 286/692 [00:31<00:45,  8.97it/s, terms=18786][A
+Propagating through gates:  41%|████▏     | 287/692 [00:31<00:45,  8.97it/s, terms=21403][A
+Propagating through gates:  42%|████▏     | 288/692 [00:31<00:45,  8.97it/s, terms=21403][A
+Propagating through gates:  42%|████▏     | 289/692 [00:31<00:52,  7.71it/s, terms=21403][A
+Propagating through gates:  42%|████▏     | 289/692 [00:31<00:52,  7.71it/s, terms=21403][A
+Propagating through gates:  42%|████▏     | 290/692 [00:31<00:52,  7.71it/s, terms=21403][A
+Propagating through gates:  42%|████▏     | 291/692 [00:31<00:52,  7.71it/s, terms=21403][A
+Propagating through gates:  42%|████▏     | 292/692 [00:31<00:51,  7.71it/s, terms=21403][A
+Propagating through gates:  42%|████▏     | 293/692 [00:31<00:51,  7.71it/s, terms=21403][A
+Propagating through gates:  42%|████▏     | 294/692 [00:31<00:51,  7.71it/s, terms=21403][A
+Propagating through gates:  43%|████▎     | 295/692 [00:31<00:51,  7.71it/s, terms=21403][A
+Propagating through gates:  43%|████▎     | 296/692 [00:31<00:51,  7.71it/s, terms=21403][A
+Propagating through gates:  43%|████▎     | 297/692 [00:31<00:51,  7.71it/s, terms=21403][A
+Propagating through gates:  43%|████▎     | 298/692 [00:31<00:51,  7.71it/s, terms=21403][A
+Propagating through gates:  43%|████▎     | 299/692 [00:31<00:50,  7.71it/s, terms=21403][A
+Propagating through gates:  43%|████▎     | 300/692 [00:31<00:50,  7.71it/s, terms=21403][A
+Propagating through gates:  43%|████▎     | 301/692 [00:31<00:50,  7.71it/s, terms=21403][A
+Propagating through gates:  44%|████▎     | 302/692 [00:31<00:50,  7.71it/s, terms=21403][A
+Propagating through gates:  44%|████▍     | 303/692 [00:31<00:50,  7.71it/s, terms=21403][A
+Propagating through gates:  44%|████▍     | 304/692 [00:31<00:24, 15.64it/s, terms=21403][A
+Propagating through gates:  44%|████▍     | 304/692 [00:31<00:24, 15.64it/s, terms=21403][A
+Propagating through gates:  44%|████▍     | 305/692 [00:31<00:24, 15.64it/s, terms=21403][A
+Propagating through gates:  44%|████▍     | 306/692 [00:31<00:24, 15.64it/s, terms=21403][A
+Propagating through gates:  44%|████▍     | 307/692 [00:31<00:24, 15.64it/s, terms=21403][A
+Propagating through gates:  45%|████▍     | 308/692 [00:31<00:24, 15.64it/s, terms=21403][A
+Propagating through gates:  45%|████▍     | 309/692 [00:31<00:24, 15.64it/s, terms=21403][A
+Propagating through gates:  45%|████▍     | 310/692 [00:31<00:21, 17.99it/s, terms=21403][A
+Propagating through gates:  45%|████▍     | 310/692 [00:31<00:21, 17.99it/s, terms=21403][A
+Propagating through gates:  45%|████▍     | 311/692 [00:31<00:21, 17.99it/s, terms=21403][A
+Propagating through gates:  45%|████▌     | 312/692 [00:32<00:21, 17.99it/s, terms=21403][A
+Propagating through gates:  45%|████▌     | 313/692 [00:32<00:21, 17.99it/s, terms=21403][A
+Propagating through gates:  45%|████▌     | 314/692 [00:32<00:21, 17.99it/s, terms=21403][A
+Propagating through gates:  46%|████▌     | 315/692 [00:32<00:19, 19.40it/s, terms=21403][A
+Propagating through gates:  46%|████▌     | 315/692 [00:32<00:19, 19.40it/s, terms=21403][A
+Propagating through gates:  46%|████▌     | 316/692 [00:32<00:19, 19.40it/s, terms=21403][A
+Propagating through gates:  46%|████▌     | 317/692 [00:32<00:19, 19.40it/s, terms=21403][A
+Propagating through gates:  46%|████▌     | 318/692 [00:32<00:19, 19.40it/s, terms=21403][A
+Propagating through gates:  46%|████▌     | 319/692 [00:32<00:19, 19.40it/s, terms=21403][A
+Propagating through gates:  46%|████▌     | 320/692 [00:32<00:26, 14.11it/s, terms=21403][A
+Propagating through gates:  46%|████▌     | 320/692 [00:32<00:26, 14.11it/s, terms=21403][A
+Propagating through gates:  46%|████▋     | 321/692 [00:33<00:26, 14.11it/s, terms=21403][A
+Propagating through gates:  47%|████▋     | 322/692 [00:33<00:26, 14.11it/s, terms=21403][A
+Propagating through gates:  47%|████▋     | 323/692 [00:33<00:26, 14.11it/s, terms=21403][A
+Propagating through gates:  47%|████▋     | 324/692 [00:33<00:38,  9.68it/s, terms=21403][A
+Propagating through gates:  47%|████▋     | 324/692 [00:33<00:38,  9.68it/s, terms=21403][A
+Propagating through gates:  47%|████▋     | 325/692 [00:34<00:37,  9.68it/s, terms=21403][A
+Propagating through gates:  47%|████▋     | 326/692 [00:34<00:37,  9.68it/s, terms=21403][A
+Propagating through gates:  47%|████▋     | 327/692 [00:34<00:50,  7.17it/s, terms=21403][A
+Propagating through gates:  47%|████▋     | 327/692 [00:35<00:50,  7.17it/s, terms=26762][A
+Propagating through gates:  47%|████▋     | 328/692 [00:35<00:50,  7.17it/s, terms=26762][A
+Propagating through gates:  48%|████▊     | 329/692 [00:35<01:07,  5.37it/s, terms=26762][A
+Propagating through gates:  48%|████▊     | 329/692 [00:35<01:07,  5.37it/s, terms=26762][A
+Propagating through gates:  48%|████▊     | 330/692 [00:35<01:07,  5.37it/s, terms=26762][A
+Propagating through gates:  48%|████▊     | 331/692 [00:35<01:07,  5.37it/s, terms=26762][A
+Propagating through gates:  48%|████▊     | 332/692 [00:35<01:07,  5.37it/s, terms=26762][A
+Propagating through gates:  48%|████▊     | 333/692 [00:35<01:06,  5.37it/s, terms=26762][A
+Propagating through gates:  48%|████▊     | 334/692 [00:35<01:06,  5.37it/s, terms=26762][A
+Propagating through gates:  48%|████▊     | 335/692 [00:35<01:06,  5.37it/s, terms=26762][A
+Propagating through gates:  49%|████▊     | 336/692 [00:35<01:06,  5.37it/s, terms=26762][A
+Propagating through gates:  49%|████▊     | 337/692 [00:35<01:06,  5.37it/s, terms=26762][A
+Propagating through gates:  49%|████▉     | 338/692 [00:35<01:05,  5.37it/s, terms=26762][A
+Propagating through gates:  49%|████▉     | 339/692 [00:35<00:33, 10.47it/s, terms=26762][A
+Propagating through gates:  49%|████▉     | 339/692 [00:35<00:33, 10.47it/s, terms=26762][A
+Propagating through gates:  49%|████▉     | 340/692 [00:35<00:33, 10.47it/s, terms=26762][A
+Propagating through gates:  49%|████▉     | 341/692 [00:35<00:33, 10.47it/s, terms=26762][A
+Propagating through gates:  49%|████▉     | 342/692 [00:35<00:33, 10.47it/s, terms=26762][A
+Propagating through gates:  50%|████▉     | 343/692 [00:35<00:28, 12.42it/s, terms=26762][A
+Propagating through gates:  50%|████▉     | 343/692 [00:35<00:28, 12.42it/s, terms=26762][A
+Propagating through gates:  50%|████▉     | 344/692 [00:35<00:28, 12.42it/s, terms=26762][A
+Propagating through gates:  50%|████▉     | 345/692 [00:35<00:27, 12.42it/s, terms=26762][A
+Propagating through gates:  50%|█████     | 346/692 [00:36<00:27, 12.42it/s, terms=26762][A
+Propagating through gates:  50%|█████     | 347/692 [00:36<00:29, 11.75it/s, terms=26762][A
+Propagating through gates:  50%|█████     | 347/692 [00:36<00:29, 11.75it/s, terms=26762][A
+Propagating through gates:  50%|█████     | 348/692 [00:36<00:29, 11.75it/s, terms=26762][A
+Propagating through gates:  50%|█████     | 349/692 [00:36<00:29, 11.75it/s, terms=26762][A
+Propagating through gates:  51%|█████     | 350/692 [00:36<00:32, 10.45it/s, terms=26762][A
+Propagating through gates:  51%|█████     | 350/692 [00:36<00:32, 10.45it/s, terms=26762][A
+Propagating through gates:  51%|█████     | 351/692 [00:37<00:32, 10.45it/s, terms=26762][A
+Propagating through gates:  51%|█████     | 352/692 [00:37<00:32, 10.45it/s, terms=26762][A
+Propagating through gates:  51%|█████     | 353/692 [00:37<00:47,  7.13it/s, terms=26762][A
+Propagating through gates:  51%|█████     | 353/692 [00:37<00:47,  7.13it/s, terms=26762][A
+Propagating through gates:  51%|█████     | 354/692 [00:38<00:47,  7.13it/s, terms=27638][A
+Propagating through gates:  51%|█████▏    | 355/692 [00:38<01:14,  4.52it/s, terms=27638][A
+Propagating through gates:  51%|█████▏    | 355/692 [00:38<01:14,  4.52it/s, terms=27638][A
+Propagating through gates:  51%|█████▏    | 356/692 [00:38<01:14,  4.52it/s, terms=27638][A
+Propagating through gates:  52%|█████▏    | 357/692 [00:38<01:14,  4.52it/s, terms=27638][A
+Propagating through gates:  52%|█████▏    | 358/692 [00:38<01:13,  4.52it/s, terms=27638][A
+Propagating through gates:  52%|█████▏    | 359/692 [00:38<01:13,  4.52it/s, terms=27638][A
+Propagating through gates:  52%|█████▏    | 360/692 [00:38<01:13,  4.52it/s, terms=27638][A
+Propagating through gates:  52%|█████▏    | 361/692 [00:38<01:13,  4.52it/s, terms=27638][A
+Propagating through gates:  52%|█████▏    | 362/692 [00:38<01:13,  4.52it/s, terms=27638][A
+Propagating through gates:  52%|█████▏    | 363/692 [00:38<01:12,  4.52it/s, terms=27638][A
+Propagating through gates:  53%|█████▎    | 364/692 [00:38<01:12,  4.52it/s, terms=27638][A
+Propagating through gates:  53%|█████▎    | 365/692 [00:38<01:12,  4.52it/s, terms=27638][A
+Propagating through gates:  53%|█████▎    | 366/692 [00:38<01:12,  4.52it/s, terms=27638][A
+Propagating through gates:  53%|█████▎    | 367/692 [00:38<00:30, 10.81it/s, terms=27638][A
+Propagating through gates:  53%|█████▎    | 367/692 [00:38<00:30, 10.81it/s, terms=27638][A
+Propagating through gates:  53%|█████▎    | 368/692 [00:38<00:29, 10.81it/s, terms=27638][A
+Propagating through gates:  53%|█████▎    | 369/692 [00:38<00:29, 10.81it/s, terms=27638][A
+Propagating through gates:  53%|█████▎    | 370/692 [00:38<00:29, 10.81it/s, terms=27638][A
+Propagating through gates:  54%|█████▎    | 371/692 [00:38<00:29, 10.81it/s, terms=27638][A
+Propagating through gates:  54%|█████▍    | 372/692 [00:38<00:25, 12.60it/s, terms=27638][A
+Propagating through gates:  54%|█████▍    | 372/692 [00:38<00:25, 12.60it/s, terms=27638][A
+Propagating through gates:  54%|█████▍    | 373/692 [00:38<00:25, 12.60it/s, terms=27638][A
+Propagating through gates:  54%|█████▍    | 374/692 [00:39<00:25, 12.60it/s, terms=27638][A
+Propagating through gates:  54%|█████▍    | 375/692 [00:39<00:25, 12.60it/s, terms=27638][A
+Propagating through gates:  54%|█████▍    | 376/692 [00:39<00:24, 12.74it/s, terms=27638][A
+Propagating through gates:  54%|█████▍    | 376/692 [00:39<00:24, 12.74it/s, terms=27638][A
+Propagating through gates:  54%|█████▍    | 377/692 [00:39<00:24, 12.74it/s, terms=27638][A
+Propagating through gates:  55%|█████▍    | 378/692 [00:39<00:24, 12.74it/s, terms=27638][A
+Propagating through gates:  55%|█████▍    | 379/692 [00:39<00:26, 11.95it/s, terms=27638][A
+Propagating through gates:  55%|█████▍    | 379/692 [00:39<00:26, 11.95it/s, terms=27638][A
+Propagating through gates:  55%|█████▍    | 380/692 [00:39<00:26, 11.95it/s, terms=27638][A
+Propagating through gates:  55%|█████▌    | 381/692 [00:40<00:26, 11.95it/s, terms=27638][A
+Propagating through gates:  55%|█████▌    | 382/692 [00:40<00:32,  9.54it/s, terms=27638][A
+Propagating through gates:  55%|█████▌    | 382/692 [00:40<00:32,  9.54it/s, terms=27638][A
+Propagating through gates:  55%|█████▌    | 383/692 [00:40<00:32,  9.54it/s, terms=27638][A
+Propagating through gates:  55%|█████▌    | 384/692 [00:40<00:35,  8.58it/s, terms=27638][A
+Propagating through gates:  55%|█████▌    | 384/692 [00:40<00:35,  8.58it/s, terms=27638][A
+Propagating through gates:  56%|█████▌    | 385/692 [00:40<00:35,  8.58it/s, terms=27638][A
+Propagating through gates:  56%|█████▌    | 386/692 [00:40<00:37,  8.09it/s, terms=27638][A
+Propagating through gates:  56%|█████▌    | 386/692 [00:40<00:37,  8.09it/s, terms=27638][A
+Propagating through gates:  56%|█████▌    | 387/692 [00:41<00:37,  8.09it/s, terms=38316][A
+Propagating through gates:  56%|█████▌    | 388/692 [00:41<00:53,  5.66it/s, terms=38316][A
+Propagating through gates:  56%|█████▌    | 388/692 [00:41<00:53,  5.66it/s, terms=38316][A
+Propagating through gates:  56%|█████▌    | 389/692 [00:41<00:53,  5.66it/s, terms=38316][A
+Propagating through gates:  56%|█████▋    | 390/692 [00:41<00:53,  5.66it/s, terms=38316][A
+Propagating through gates:  57%|█████▋    | 391/692 [00:41<00:53,  5.66it/s, terms=38316][A
+Propagating through gates:  57%|█████▋    | 392/692 [00:41<00:53,  5.66it/s, terms=38316][A
+Propagating through gates:  57%|█████▋    | 393/692 [00:41<00:52,  5.66it/s, terms=38316][A
+Propagating through gates:  57%|█████▋    | 394/692 [00:41<00:52,  5.66it/s, terms=38316][A
+Propagating through gates:  57%|█████▋    | 395/692 [00:41<00:52,  5.66it/s, terms=38316][A
+Propagating through gates:  57%|█████▋    | 396/692 [00:41<00:52,  5.66it/s, terms=38316][A
+Propagating through gates:  57%|█████▋    | 397/692 [00:41<00:23, 12.48it/s, terms=38316][A
+Propagating through gates:  57%|█████▋    | 397/692 [00:41<00:23, 12.48it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 398/692 [00:41<00:23, 12.48it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 399/692 [00:41<00:23, 12.48it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 400/692 [00:41<00:23, 12.48it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 401/692 [00:41<00:20, 14.21it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 401/692 [00:41<00:20, 14.21it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 402/692 [00:41<00:20, 14.21it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 403/692 [00:41<00:20, 14.21it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 404/692 [00:41<00:21, 13.70it/s, terms=38316][A
+Propagating through gates:  58%|█████▊    | 404/692 [00:42<00:21, 13.70it/s, terms=38316][A
+Propagating through gates:  59%|█████▊    | 405/692 [00:42<00:20, 13.70it/s, terms=38316][A
+Propagating through gates:  59%|█████▊    | 406/692 [00:42<00:20, 13.70it/s, terms=38316][A
+Propagating through gates:  59%|█████▉    | 407/692 [00:42<00:25, 11.15it/s, terms=38316][A
+Propagating through gates:  59%|█████▉    | 407/692 [00:42<00:25, 11.15it/s, terms=38316][A
+Propagating through gates:  59%|█████▉    | 408/692 [00:43<00:25, 11.15it/s, terms=38316][A
+Propagating through gates:  59%|█████▉    | 409/692 [00:43<00:37,  7.46it/s, terms=38316][A
+Propagating through gates:  59%|█████▉    | 409/692 [00:43<00:37,  7.46it/s, terms=38316][A
+Propagating through gates:  59%|█████▉    | 410/692 [00:44<00:37,  7.46it/s, terms=75113][A
+Propagating through gates:  59%|█████▉    | 411/692 [00:44<01:13,  3.83it/s, terms=75113][A
+Propagating through gates:  59%|█████▉    | 411/692 [00:44<01:13,  3.83it/s, terms=75113][A
+Propagating through gates:  60%|█████▉    | 412/692 [00:44<01:13,  3.83it/s, terms=75113][A
+Propagating through gates:  60%|█████▉    | 413/692 [00:44<01:12,  3.83it/s, terms=75113][A
+Propagating through gates:  60%|█████▉    | 414/692 [00:44<01:12,  3.83it/s, terms=75113][A
+Propagating through gates:  60%|█████▉    | 415/692 [00:44<01:12,  3.83it/s, terms=75113][A
+Propagating through gates:  60%|██████    | 416/692 [00:44<01:12,  3.83it/s, terms=75113][A
+Propagating through gates:  60%|██████    | 417/692 [00:44<01:11,  3.83it/s, terms=75113][A
+Propagating through gates:  60%|██████    | 418/692 [00:44<01:11,  3.83it/s, terms=75113][A
+Propagating through gates:  61%|██████    | 419/692 [00:44<01:11,  3.83it/s, terms=75113][A
+Propagating through gates:  61%|██████    | 420/692 [00:44<00:32,  8.37it/s, terms=75113][A
+Propagating through gates:  61%|██████    | 420/692 [00:44<00:32,  8.37it/s, terms=75113][A
+Propagating through gates:  61%|██████    | 421/692 [00:44<00:32,  8.37it/s, terms=75113][A
+Propagating through gates:  61%|██████    | 422/692 [00:44<00:32,  8.37it/s, terms=75113][A
+Propagating through gates:  61%|██████    | 423/692 [00:44<00:27,  9.68it/s, terms=75113][A
+Propagating through gates:  61%|██████    | 423/692 [00:44<00:27,  9.68it/s, terms=75113][A
+Propagating through gates:  61%|██████▏   | 424/692 [00:44<00:27,  9.68it/s, terms=75113][A
+Propagating through gates:  61%|██████▏   | 425/692 [00:44<00:27,  9.68it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 426/692 [00:44<00:23, 11.23it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 426/692 [00:44<00:23, 11.23it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 427/692 [00:45<00:23, 11.23it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 428/692 [00:45<00:23, 11.23it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 429/692 [00:45<00:26,  9.75it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 429/692 [00:45<00:26,  9.75it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 430/692 [00:45<00:26,  9.75it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 431/692 [00:45<00:29,  8.88it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 431/692 [00:45<00:29,  8.88it/s, terms=75113][A
+Propagating through gates:  62%|██████▏   | 432/692 [00:45<00:29,  8.88it/s, terms=75113][A
+Propagating through gates:  63%|██████▎   | 433/692 [00:45<00:29,  8.81it/s, terms=75113][A
+Propagating through gates:  63%|██████▎   | 433/692 [00:46<00:29,  8.81it/s, terms=75113][A
+Propagating through gates:  63%|██████▎   | 434/692 [00:46<00:29,  8.81it/s, terms=75113][A
+Propagating through gates:  63%|██████▎   | 435/692 [00:46<00:36,  7.10it/s, terms=75113][A
+Propagating through gates:  63%|██████▎   | 435/692 [00:46<00:36,  7.10it/s, terms=75113][A
+Propagating through gates:  63%|██████▎   | 436/692 [00:48<00:36,  7.10it/s, terms=173433][A
+Propagating through gates:  63%|██████▎   | 437/692 [00:48<01:42,  2.49it/s, terms=173433][A
+Propagating through gates:  63%|██████▎   | 437/692 [00:48<01:42,  2.49it/s, terms=173433][A
+Propagating through gates:  63%|██████▎   | 438/692 [00:48<01:41,  2.49it/s, terms=173433][A
+Propagating through gates:  63%|██████▎   | 439/692 [00:48<01:41,  2.49it/s, terms=173433][A
+Propagating through gates:  64%|██████▎   | 440/692 [00:48<01:41,  2.49it/s, terms=173433][A
+Propagating through gates:  64%|██████▎   | 441/692 [00:48<01:40,  2.49it/s, terms=173433][A
+Propagating through gates:  64%|██████▍   | 442/692 [00:48<01:40,  2.49it/s, terms=173433][A
+Propagating through gates:  64%|██████▍   | 443/692 [00:48<00:50,  4.91it/s, terms=173433][A
+Propagating through gates:  64%|██████▍   | 443/692 [00:48<00:50,  4.91it/s, terms=173433][A
+Propagating through gates:  64%|██████▍   | 444/692 [00:48<00:50,  4.91it/s, terms=173433][A
+Propagating through gates:  64%|██████▍   | 445/692 [00:48<00:50,  4.91it/s, terms=173433][A
+Propagating through gates:  64%|██████▍   | 446/692 [00:48<00:39,  6.28it/s, terms=173433][A
+Propagating through gates:  64%|██████▍   | 446/692 [00:48<00:39,  6.28it/s, terms=173433][A
+Propagating through gates:  65%|██████▍   | 447/692 [00:48<00:39,  6.28it/s, terms=173433][A
+Propagating through gates:  65%|██████▍   | 448/692 [00:49<00:38,  6.28it/s, terms=173433][A
+Propagating through gates:  65%|██████▍   | 449/692 [00:49<00:31,  7.67it/s, terms=173433][A
+Propagating through gates:  65%|██████▍   | 449/692 [00:49<00:31,  7.67it/s, terms=173433][A
+Propagating through gates:  65%|██████▌   | 450/692 [00:49<00:31,  7.67it/s, terms=173433][A
+Propagating through gates:  65%|██████▌   | 451/692 [00:49<00:31,  7.67it/s, terms=173433][A
+Propagating through gates:  65%|██████▌   | 452/692 [00:49<00:29,  8.14it/s, terms=173433][A
+Propagating through gates:  65%|██████▌   | 452/692 [00:49<00:29,  8.14it/s, terms=173433][A
+Propagating through gates:  65%|██████▌   | 453/692 [00:49<00:29,  8.14it/s, terms=173433][A
+Propagating through gates:  66%|██████▌   | 454/692 [00:49<00:34,  6.89it/s, terms=173433][A
+Propagating through gates:  66%|██████▌   | 454/692 [00:50<00:34,  6.89it/s, terms=173433][A
+Propagating through gates:  66%|██████▌   | 455/692 [00:51<00:34,  6.89it/s, terms=451944][A
+Propagating through gates:  66%|██████▌   | 456/692 [00:51<01:01,  3.81it/s, terms=451944][A
+Propagating through gates:  66%|██████▌   | 456/692 [00:51<01:01,  3.81it/s, terms=451944][A
+Propagating through gates:  66%|██████▌   | 457/692 [00:51<01:01,  3.81it/s, terms=451944][A
+Propagating through gates:  66%|██████▌   | 458/692 [00:51<01:01,  3.81it/s, terms=451944][A
+Propagating through gates:  66%|██████▋   | 459/692 [00:51<00:43,  5.30it/s, terms=451944][A
+Propagating through gates:  66%|██████▋   | 459/692 [00:51<00:43,  5.30it/s, terms=451944][A
+Propagating through gates:  66%|██████▋   | 460/692 [00:51<00:43,  5.30it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 461/692 [00:51<00:37,  6.23it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 461/692 [00:51<00:37,  6.23it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 462/692 [00:51<00:36,  6.23it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 463/692 [00:51<00:33,  6.78it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 463/692 [00:51<00:33,  6.78it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 464/692 [00:51<00:33,  6.78it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 465/692 [00:51<00:34,  6.59it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 465/692 [00:52<00:34,  6.59it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 466/692 [00:52<00:34,  6.59it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 467/692 [00:52<00:37,  5.97it/s, terms=451944][A
+Propagating through gates:  67%|██████▋   | 467/692 [00:52<00:37,  5.97it/s, terms=451944][A
+Propagating through gates:  68%|██████▊   | 468/692 [00:52<00:39,  5.62it/s, terms=451944][A
+Propagating through gates:  68%|██████▊   | 468/692 [00:52<00:39,  5.62it/s, terms=451944][A
+Propagating through gates:  68%|██████▊   | 469/692 [00:52<00:41,  5.40it/s, terms=451944][A
+Propagating through gates:  68%|██████▊   | 469/692 [00:53<00:41,  5.40it/s, terms=451944][A
+Propagating through gates:  68%|██████▊   | 470/692 [00:53<00:56,  3.92it/s, terms=451944][A
+Propagating through gates:  68%|██████▊   | 470/692 [00:53<00:56,  3.92it/s, terms=451944][A
+Propagating through gates:  68%|██████▊   | 471/692 [00:53<01:05,  3.39it/s, terms=451944][A
+Propagating through gates:  68%|██████▊   | 471/692 [00:55<01:05,  3.39it/s, terms=960957][A
+Propagating through gates:  68%|██████▊   | 472/692 [00:55<02:44,  1.34it/s, terms=960957][A
+Propagating through gates:  68%|██████▊   | 472/692 [00:55<02:44,  1.34it/s, terms=960957][A
+Propagating through gates:  68%|██████▊   | 473/692 [00:55<02:43,  1.34it/s, terms=960957][A
+Propagating through gates:  68%|██████▊   | 474/692 [00:55<01:39,  2.19it/s, terms=960957][A
+Propagating through gates:  68%|██████▊   | 474/692 [00:56<01:39,  2.19it/s, terms=960957][A
+Propagating through gates:  69%|██████▊   | 475/692 [00:56<01:39,  2.19it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 476/692 [00:56<01:08,  3.17it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 476/692 [00:56<01:08,  3.17it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 477/692 [00:56<00:59,  3.60it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 477/692 [00:56<00:59,  3.60it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 478/692 [00:56<00:54,  3.93it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 478/692 [00:56<00:54,  3.93it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 479/692 [00:56<00:54,  3.89it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 479/692 [00:56<00:54,  3.89it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 480/692 [00:56<00:50,  4.17it/s, terms=960957][A
+Propagating through gates:  69%|██████▉   | 480/692 [00:57<00:50,  4.17it/s, terms=960957][A
+Propagating through gates:  70%|██████▉   | 481/692 [00:57<01:03,  3.31it/s, terms=960957][A
+Propagating through gates:  70%|██████▉   | 481/692 [00:58<01:03,  3.31it/s, terms=960957][A
+Propagating through gates:  70%|██████▉   | 482/692 [00:58<01:28,  2.38it/s, terms=960957][A
+Propagating through gates:  70%|██████▉   | 482/692 [01:00<01:28,  2.38it/s, terms=1764652][A
+Propagating through gates:  70%|██████▉   | 483/692 [01:00<03:07,  1.11it/s, terms=1764652][A
+Propagating through gates:  70%|██████▉   | 483/692 [01:00<03:07,  1.11it/s, terms=1764652][A
+Propagating through gates:  70%|██████▉   | 484/692 [01:00<03:06,  1.11it/s, terms=1764652][A
+Propagating through gates:  70%|███████   | 485/692 [01:00<01:54,  1.80it/s, terms=1764652][A
+Propagating through gates:  70%|███████   | 485/692 [01:00<01:54,  1.80it/s, terms=1764652][A
+Propagating through gates:  70%|███████   | 486/692 [01:00<01:39,  2.06it/s, terms=1764652][A
+Propagating through gates:  70%|███████   | 486/692 [01:01<01:39,  2.06it/s, terms=1764652][A
+Propagating through gates:  70%|███████   | 487/692 [01:01<01:31,  2.25it/s, terms=1764652][A
+Propagating through gates:  70%|███████   | 487/692 [01:01<01:31,  2.25it/s, terms=1764652][A
+Propagating through gates:  71%|███████   | 488/692 [01:01<01:32,  2.22it/s, terms=1764652][A
+Propagating through gates:  71%|███████   | 488/692 [01:02<01:32,  2.22it/s, terms=1764652][A
+Propagating through gates:  71%|███████   | 489/692 [01:02<01:43,  1.96it/s, terms=1764652][A
+Propagating through gates:  71%|███████   | 489/692 [01:02<01:43,  1.96it/s, terms=1764652][A
+Propagating through gates:  71%|███████   | 490/692 [01:02<02:00,  1.68it/s, terms=1764652][A
+Propagating through gates:  71%|███████   | 490/692 [01:05<02:00,  1.68it/s, terms=2841713][A
+Propagating through gates:  71%|███████   | 491/692 [01:05<04:15,  1.27s/it, terms=2841713][A
+Propagating through gates:  71%|███████   | 491/692 [01:06<04:15,  1.27s/it, terms=2841713][A
+Propagating through gates:  71%|███████   | 492/692 [01:06<03:06,  1.07it/s, terms=2841713][A
+Propagating through gates:  71%|███████   | 492/692 [01:06<03:06,  1.07it/s, terms=2841713][A
+Propagating through gates:  71%|███████   | 493/692 [01:06<02:19,  1.42it/s, terms=2841713][A
+Propagating through gates:  71%|███████   | 493/692 [01:06<02:19,  1.42it/s, terms=2841713][A
+Propagating through gates:  71%|███████▏  | 494/692 [01:06<01:46,  1.85it/s, terms=2841713][A
+Propagating through gates:  71%|███████▏  | 494/692 [01:06<01:46,  1.85it/s, terms=2841713][A
+Propagating through gates:  72%|███████▏  | 495/692 [01:06<01:31,  2.15it/s, terms=2841713][A
+Propagating through gates:  72%|███████▏  | 495/692 [01:07<01:31,  2.15it/s, terms=2841713][A
+Propagating through gates:  72%|███████▏  | 496/692 [01:07<01:28,  2.21it/s, terms=2841713][A
+Propagating through gates:  72%|███████▏  | 496/692 [01:07<01:28,  2.21it/s, terms=2841713][A
+Propagating through gates:  72%|███████▏  | 497/692 [01:07<01:37,  2.01it/s, terms=2841713][A
+Propagating through gates:  72%|███████▏  | 497/692 [01:09<01:37,  2.01it/s, terms=3163435][A
+Propagating through gates:  72%|███████▏  | 498/692 [01:09<02:51,  1.13it/s, terms=3163435][A
+Propagating through gates:  72%|███████▏  | 498/692 [01:09<02:51,  1.13it/s, terms=3163435][A
+Propagating through gates:  72%|███████▏  | 499/692 [01:09<02:12,  1.45it/s, terms=3163435][A
+Propagating through gates:  72%|███████▏  | 499/692 [01:10<02:12,  1.45it/s, terms=3163435][A
+Propagating through gates:  72%|███████▏  | 500/692 [01:10<01:53,  1.68it/s, terms=3163435][A
+Propagating through gates:  72%|███████▏  | 500/692 [01:10<01:53,  1.68it/s, terms=3163435][A
+Propagating through gates:  72%|███████▏  | 501/692 [01:10<01:49,  1.75it/s, terms=3163435][A
+Propagating through gates:  72%|███████▏  | 501/692 [01:12<01:49,  1.75it/s, terms=3546008][A
+Propagating through gates:  73%|███████▎  | 502/692 [01:12<02:40,  1.19it/s, terms=3546008][A
+Propagating through gates:  73%|███████▎  | 502/692 [01:12<02:40,  1.19it/s, terms=3546008][A
+Propagating through gates:  73%|███████▎  | 503/692 [01:12<02:09,  1.46it/s, terms=3546008][A
+Propagating through gates:  73%|███████▎  | 503/692 [01:12<02:09,  1.46it/s, terms=3546008][A
+Propagating through gates:  73%|███████▎  | 504/692 [01:12<01:55,  1.62it/s, terms=3546008][A
+Propagating through gates:  73%|███████▎  | 504/692 [01:13<01:55,  1.62it/s, terms=3546008][A
+Propagating through gates:  73%|███████▎  | 505/692 [01:13<01:55,  1.62it/s, terms=3546008][A
+Propagating through gates:  73%|███████▎  | 505/692 [01:15<01:55,  1.62it/s, terms=4074640][A
+Propagating through gates:  73%|███████▎  | 506/692 [01:15<02:52,  1.08it/s, terms=4074640][A
+Propagating through gates:  73%|███████▎  | 506/692 [01:15<02:52,  1.08it/s, terms=4074640][A
+Propagating through gates:  73%|███████▎  | 507/692 [01:15<02:15,  1.37it/s, terms=4074640][A
+Propagating through gates:  73%|███████▎  | 507/692 [01:15<02:15,  1.37it/s, terms=4074640][A
+Propagating through gates:  73%|███████▎  | 508/692 [01:15<02:01,  1.52it/s, terms=4074640][A
+Propagating through gates:  73%|███████▎  | 508/692 [01:16<02:01,  1.52it/s, terms=4074640][A
+Propagating through gates:  74%|███████▎  | 509/692 [01:16<02:00,  1.51it/s, terms=4074640][A
+Propagating through gates:  74%|███████▎  | 509/692 [01:18<02:00,  1.51it/s, terms=4e+6]   [A
+Propagating through gates:  74%|███████▎  | 510/692 [01:18<03:02,  1.00s/it, terms=4e+6][A
+Propagating through gates:  74%|███████▎  | 510/692 [01:18<03:02,  1.00s/it, terms=4e+6][A
+Propagating through gates:  74%|███████▍  | 511/692 [01:18<02:16,  1.32it/s, terms=4e+6][A
+Propagating through gates:  74%|███████▍  | 511/692 [01:18<02:16,  1.32it/s, terms=4e+6][A
+Propagating through gates:  74%|███████▍  | 512/692 [01:18<01:55,  1.56it/s, terms=4e+6][A
+Propagating through gates:  74%|███████▍  | 512/692 [01:19<01:55,  1.56it/s, terms=4e+6][A
+Propagating through gates:  74%|███████▍  | 513/692 [01:19<01:50,  1.62it/s, terms=4e+6][A
+Propagating through gates:  74%|███████▍  | 513/692 [01:20<01:50,  1.62it/s, terms=3978683][A
+Propagating through gates:  74%|███████▍  | 514/692 [01:20<02:35,  1.14it/s, terms=3978683][A
+Propagating through gates:  74%|███████▍  | 514/692 [01:21<02:35,  1.14it/s, terms=3978683][A
+Propagating through gates:  74%|███████▍  | 515/692 [01:21<02:08,  1.38it/s, terms=3978683][A
+Propagating through gates:  74%|███████▍  | 515/692 [01:21<02:08,  1.38it/s, terms=3978683][A
+Propagating through gates:  75%|███████▍  | 516/692 [01:21<01:56,  1.52it/s, terms=3978683][A
+Propagating through gates:  75%|███████▍  | 516/692 [01:22<01:56,  1.52it/s, terms=3978683][A
+Propagating through gates:  75%|███████▍  | 517/692 [01:22<02:00,  1.46it/s, terms=3978683][A
+Propagating through gates:  75%|███████▍  | 517/692 [01:24<02:00,  1.46it/s, terms=4.2e+6] [A
+Propagating through gates:  75%|███████▍  | 518/692 [01:24<02:56,  1.02s/it, terms=4.2e+6][A
+Propagating through gates:  75%|███████▍  | 518/692 [01:24<02:56,  1.02s/it, terms=4.2e+6][A
+Propagating through gates:  75%|███████▌  | 519/692 [01:24<02:19,  1.24it/s, terms=4.2e+6][A
+Propagating through gates:  75%|███████▌  | 519/692 [01:25<02:19,  1.24it/s, terms=4.2e+6][A
+Propagating through gates:  75%|███████▌  | 520/692 [01:25<01:59,  1.43it/s, terms=4.2e+6][A
+Propagating through gates:  75%|███████▌  | 520/692 [01:25<01:59,  1.43it/s, terms=4.2e+6][A
+Propagating through gates:  75%|███████▌  | 521/692 [01:25<01:39,  1.73it/s, terms=4.2e+6][A
+Propagating through gates:  75%|███████▌  | 521/692 [01:25<01:39,  1.73it/s, terms=4.2e+6][A
+Propagating through gates:  75%|███████▌  | 522/692 [01:25<01:28,  1.93it/s, terms=4.2e+6][A
+Propagating through gates:  75%|███████▌  | 522/692 [01:26<01:28,  1.93it/s, terms=4.2e+6][A
+Propagating through gates:  76%|███████▌  | 523/692 [01:26<01:22,  2.06it/s, terms=4.2e+6][A
+Propagating through gates:  76%|███████▌  | 523/692 [01:27<01:22,  2.06it/s, terms=4394284][A
+Propagating through gates:  76%|███████▌  | 524/692 [01:27<01:57,  1.43it/s, terms=4394284][A
+Propagating through gates:  76%|███████▌  | 524/692 [01:27<01:57,  1.43it/s, terms=4394284][A
+Propagating through gates:  76%|███████▌  | 525/692 [01:27<01:29,  1.87it/s, terms=4394284][A
+Propagating through gates:  76%|███████▌  | 525/692 [01:27<01:29,  1.87it/s, terms=4394284][A
+Propagating through gates:  76%|███████▌  | 526/692 [01:27<01:09,  2.38it/s, terms=4394284][A
+Propagating through gates:  76%|███████▌  | 526/692 [01:27<01:09,  2.38it/s, terms=4394284][A
+Propagating through gates:  76%|███████▌  | 527/692 [01:27<01:01,  2.70it/s, terms=4394284][A
+Propagating through gates:  76%|███████▌  | 527/692 [01:28<01:01,  2.70it/s, terms=4394284][A
+Propagating through gates:  76%|███████▋  | 528/692 [01:28<00:57,  2.86it/s, terms=4394284][A
+Propagating through gates:  76%|███████▋  | 528/692 [01:28<00:57,  2.86it/s, terms=4394284][A
+Propagating through gates:  76%|███████▋  | 529/692 [01:28<01:12,  2.23it/s, terms=4394284][A
+Propagating through gates:  76%|███████▋  | 529/692 [01:30<01:12,  2.23it/s, terms=4430085][A
+Propagating through gates:  77%|███████▋  | 530/692 [01:30<01:58,  1.37it/s, terms=4430085][A
+Propagating through gates:  77%|███████▋  | 530/692 [01:30<01:58,  1.37it/s, terms=4430085][A
+Propagating through gates:  77%|███████▋  | 531/692 [01:30<01:41,  1.59it/s, terms=4430085][A
+Propagating through gates:  77%|███████▋  | 531/692 [01:31<01:41,  1.59it/s, terms=4430085][A
+Propagating through gates:  77%|███████▋  | 532/692 [01:31<01:36,  1.67it/s, terms=4430085][A
+Propagating through gates:  77%|███████▋  | 532/692 [01:31<01:36,  1.67it/s, terms=4430085][A
+Propagating through gates:  77%|███████▋  | 533/692 [01:31<01:41,  1.56it/s, terms=4430085][A
+Propagating through gates:  77%|███████▋  | 533/692 [01:34<01:41,  1.56it/s, terms=6363969][A
+Propagating through gates:  77%|███████▋  | 534/692 [01:34<03:07,  1.19s/it, terms=6363969][A
+Propagating through gates:  77%|███████▋  | 534/692 [01:34<03:07,  1.19s/it, terms=6363969][A
+Propagating through gates:  77%|███████▋  | 535/692 [01:34<02:30,  1.04it/s, terms=6363969][A
+Propagating through gates:  77%|███████▋  | 535/692 [01:35<02:30,  1.04it/s, terms=6363969][A
+Propagating through gates:  77%|███████▋  | 536/692 [01:35<02:17,  1.14it/s, terms=6363969][A
+Propagating through gates:  77%|███████▋  | 536/692 [01:36<02:17,  1.14it/s, terms=6363969][A
+Propagating through gates:  78%|███████▊  | 537/692 [01:36<02:21,  1.10it/s, terms=6363969][A
+Propagating through gates:  78%|███████▊  | 537/692 [01:39<02:21,  1.10it/s, terms=6489468][A
+Propagating through gates:  78%|███████▊  | 538/692 [01:39<03:53,  1.52s/it, terms=6489468][A
+Propagating through gates:  78%|███████▊  | 538/692 [01:39<03:53,  1.52s/it, terms=6489468][A
+Propagating through gates:  78%|███████▊  | 539/692 [01:39<02:52,  1.13s/it, terms=6489468][A
+Propagating through gates:  78%|███████▊  | 539/692 [01:40<02:52,  1.13s/it, terms=6489468][A
+Propagating through gates:  78%|███████▊  | 540/692 [01:40<02:24,  1.05it/s, terms=6489468][A
+Propagating through gates:  78%|███████▊  | 540/692 [01:40<02:24,  1.05it/s, terms=6489468][A
+Propagating through gates:  78%|███████▊  | 541/692 [01:40<02:15,  1.12it/s, terms=6489468][A
+Propagating through gates:  78%|███████▊  | 541/692 [01:43<02:15,  1.12it/s, terms=6758891][A
+Propagating through gates:  78%|███████▊  | 542/692 [01:43<03:50,  1.54s/it, terms=6758891][A
+Propagating through gates:  78%|███████▊  | 542/692 [01:44<03:50,  1.54s/it, terms=6758891][A
+Propagating through gates:  78%|███████▊  | 543/692 [01:44<03:10,  1.28s/it, terms=6758891][A
+Propagating through gates:  78%|███████▊  | 543/692 [01:45<03:10,  1.28s/it, terms=6758891][A
+Propagating through gates:  79%|███████▊  | 544/692 [01:45<02:54,  1.18s/it, terms=6758891][A
+Propagating through gates:  79%|███████▊  | 544/692 [01:46<02:54,  1.18s/it, terms=6758891][A
+Propagating through gates:  79%|███████▉  | 545/692 [01:46<03:01,  1.23s/it, terms=6758891][A
+Propagating through gates:  79%|███████▉  | 545/692 [01:51<03:01,  1.23s/it, terms=8.2e+6] [A
+Propagating through gates:  79%|███████▉  | 546/692 [01:51<05:06,  2.10s/it, terms=8.2e+6][A
+Propagating through gates:  79%|███████▉  | 546/692 [01:51<05:06,  2.10s/it, terms=8.2e+6][A
+Propagating through gates:  79%|███████▉  | 547/692 [01:51<03:58,  1.64s/it, terms=8.2e+6][A
+Propagating through gates:  79%|███████▉  | 547/692 [01:52<03:58,  1.64s/it, terms=8.2e+6][A
+Propagating through gates:  79%|███████▉  | 548/692 [01:52<03:29,  1.45s/it, terms=8.2e+6][A
+Propagating through gates:  79%|███████▉  | 548/692 [01:53<03:29,  1.45s/it, terms=8.2e+6][A
+Propagating through gates:  79%|███████▉  | 549/692 [01:53<03:19,  1.39s/it, terms=8.2e+6][A
+Propagating through gates:  79%|███████▉  | 549/692 [01:57<03:19,  1.39s/it, terms=7772793][A
+Propagating through gates:  79%|███████▉  | 550/692 [01:57<04:46,  2.02s/it, terms=7772793][A
+Propagating through gates:  79%|███████▉  | 550/692 [01:57<04:46,  2.02s/it, terms=7772793][A
+Propagating through gates:  80%|███████▉  | 551/692 [01:57<03:30,  1.50s/it, terms=7772793][A
+Propagating through gates:  80%|███████▉  | 551/692 [01:58<03:30,  1.50s/it, terms=7772793][A
+Propagating through gates:  80%|███████▉  | 552/692 [01:58<02:55,  1.26s/it, terms=7772793][A
+Propagating through gates:  80%|███████▉  | 552/692 [01:59<02:55,  1.26s/it, terms=7772793][A
+Propagating through gates:  80%|███████▉  | 553/692 [01:59<02:48,  1.21s/it, terms=7772793][A
+Propagating through gates:  80%|███████▉  | 553/692 [02:02<02:48,  1.21s/it, terms=9360987][A
+Propagating through gates:  80%|████████  | 554/692 [02:02<04:07,  1.79s/it, terms=9360987][A
+Propagating through gates:  80%|████████  | 554/692 [02:02<04:07,  1.79s/it, terms=9360987][A
+Propagating through gates:  80%|████████  | 555/692 [02:02<03:03,  1.34s/it, terms=9360987][A
+Propagating through gates:  80%|████████  | 555/692 [02:03<03:03,  1.34s/it, terms=9360987][A
+Propagating through gates:  80%|████████  | 556/692 [02:03<02:38,  1.17s/it, terms=9360987][A
+Propagating through gates:  80%|████████  | 556/692 [02:04<02:38,  1.17s/it, terms=9360987][A
+Propagating through gates:  80%|████████  | 557/692 [02:04<02:40,  1.19s/it, terms=9360987][A
+Propagating through gates:  80%|████████  | 557/692 [02:07<02:40,  1.19s/it, terms=1.11e+7][A
+Propagating through gates:  81%|████████  | 558/692 [02:07<03:49,  1.71s/it, terms=1.11e+7][A
+Propagating through gates:  81%|████████  | 558/692 [02:08<03:49,  1.71s/it, terms=1.11e+7][A
+Propagating through gates:  81%|████████  | 559/692 [02:08<03:19,  1.50s/it, terms=1.11e+7][A
+Propagating through gates:  81%|████████  | 559/692 [02:10<03:19,  1.50s/it, terms=1.11e+7][A
+Propagating through gates:  81%|████████  | 560/692 [02:10<03:12,  1.46s/it, terms=1.11e+7][A
+Propagating through gates:  81%|████████  | 560/692 [02:12<03:12,  1.46s/it, terms=1.11e+7][A
+Propagating through gates:  81%|████████  | 561/692 [02:12<03:27,  1.58s/it, terms=1.11e+7][A
+Propagating through gates:  81%|████████  | 561/692 [02:17<03:27,  1.58s/it, terms=1.05e+7][A
+Propagating through gates:  81%|████████  | 562/692 [02:17<06:04,  2.80s/it, terms=1.05e+7][A
+Propagating through gates:  81%|████████  | 562/692 [02:18<06:04,  2.80s/it, terms=1.05e+7][A
+Propagating through gates:  81%|████████▏ | 563/692 [02:18<04:40,  2.18s/it, terms=1.05e+7][A
+Propagating through gates:  81%|████████▏ | 563/692 [02:19<04:40,  2.18s/it, terms=1.05e+7][A
+Propagating through gates:  82%|████████▏ | 564/692 [02:19<04:03,  1.90s/it, terms=1.05e+7][A
+Propagating through gates:  82%|████████▏ | 564/692 [02:21<04:03,  1.90s/it, terms=1.05e+7][A
+Propagating through gates:  82%|████████▏ | 565/692 [02:21<03:55,  1.85s/it, terms=1.05e+7][A
+Propagating through gates:  82%|████████▏ | 565/692 [02:27<03:55,  1.85s/it, terms=1.32e+7][A
+Propagating through gates:  82%|████████▏ | 566/692 [02:27<06:13,  2.97s/it, terms=1.32e+7][A
+Propagating through gates:  82%|████████▏ | 566/692 [02:27<06:13,  2.97s/it, terms=1.32e+7][A
+Propagating through gates:  82%|████████▏ | 567/692 [02:27<04:38,  2.22s/it, terms=1.32e+7][A
+Propagating through gates:  82%|████████▏ | 567/692 [02:28<04:38,  2.22s/it, terms=1.32e+7][A
+Propagating through gates:  82%|████████▏ | 568/692 [02:28<04:01,  1.95s/it, terms=1.32e+7][A
+Propagating through gates:  82%|████████▏ | 568/692 [02:30<04:01,  1.95s/it, terms=1.32e+7][A
+Propagating through gates:  82%|████████▏ | 569/692 [02:30<03:56,  1.93s/it, terms=1.32e+7][A
+Propagating through gates:  82%|████████▏ | 569/692 [02:36<03:56,  1.93s/it, terms=1.82e+7][A
+Propagating through gates:  82%|████████▏ | 570/692 [02:36<06:10,  3.04s/it, terms=1.82e+7][A
+Propagating through gates:  82%|████████▏ | 570/692 [02:37<06:10,  3.04s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 571/692 [02:37<05:06,  2.53s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 571/692 [02:39<05:06,  2.53s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 572/692 [02:39<04:44,  2.37s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 572/692 [02:42<04:44,  2.37s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 573/692 [02:42<04:48,  2.43s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 573/692 [02:51<04:48,  2.43s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 574/692 [02:51<08:56,  4.55s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 574/692 [02:52<08:56,  4.55s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 575/692 [02:52<06:52,  3.53s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 575/692 [02:55<06:52,  3.53s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 576/692 [02:55<06:00,  3.11s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 576/692 [02:57<06:00,  3.11s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 577/692 [02:57<05:43,  2.99s/it, terms=1.82e+7][A
+Propagating through gates:  83%|████████▎ | 577/692 [03:05<05:43,  2.99s/it, terms=1.91e+7][A
+Propagating through gates:  84%|████████▎ | 578/692 [03:05<08:24,  4.42s/it, terms=1.91e+7][A
+Propagating through gates:  84%|████████▎ | 578/692 [03:06<08:24,  4.42s/it, terms=1.91e+7][A
+Propagating through gates:  84%|████████▎ | 579/692 [03:06<06:12,  3.29s/it, terms=1.91e+7][A
+Propagating through gates:  84%|████████▎ | 579/692 [03:07<06:12,  3.29s/it, terms=1.91e+7][A
+Propagating through gates:  84%|████████▍ | 580/692 [03:07<05:03,  2.71s/it, terms=1.91e+7][A
+Propagating through gates:  84%|████████▍ | 580/692 [03:09<05:03,  2.71s/it, terms=1.91e+7][A
+Propagating through gates:  84%|████████▍ | 581/692 [03:09<04:29,  2.42s/it, terms=1.91e+7][A
+Propagating through gates:  84%|████████▍ | 581/692 [03:14<04:29,  2.42s/it, terms=1.92e+7][A
+Propagating through gates:  84%|████████▍ | 582/692 [03:14<05:52,  3.20s/it, terms=1.92e+7][A
+Propagating through gates:  84%|████████▍ | 582/692 [03:15<05:52,  3.20s/it, terms=1.92e+7][A
+Propagating through gates:  84%|████████▍ | 583/692 [03:15<04:58,  2.73s/it, terms=1.92e+7][A
+Propagating through gates:  84%|████████▍ | 583/692 [03:18<04:58,  2.73s/it, terms=1.92e+7][A
+Propagating through gates:  84%|████████▍ | 584/692 [03:18<04:44,  2.63s/it, terms=1.92e+7][A
+Propagating through gates:  84%|████████▍ | 584/692 [03:21<04:44,  2.63s/it, terms=1.92e+7][A
+Propagating through gates:  85%|████████▍ | 585/692 [03:21<05:01,  2.82s/it, terms=1.92e+7][A
+Propagating through gates:  85%|████████▍ | 585/692 [03:31<05:01,  2.82s/it, terms=1.87e+7][A
+Propagating through gates:  85%|████████▍ | 586/692 [03:31<08:50,  5.01s/it, terms=1.87e+7][A
+Propagating through gates:  85%|████████▍ | 586/692 [03:33<08:50,  5.01s/it, terms=1.87e+7][A
+Propagating through gates:  85%|████████▍ | 587/692 [03:33<06:56,  3.97s/it, terms=1.87e+7][A
+Propagating through gates:  85%|████████▍ | 587/692 [03:35<06:56,  3.97s/it, terms=1.87e+7][A
+Propagating through gates:  85%|████████▍ | 588/692 [03:35<05:48,  3.35s/it, terms=1.87e+7][A
+Propagating through gates:  85%|████████▍ | 588/692 [03:37<05:48,  3.35s/it, terms=1.87e+7][A
+Propagating through gates:  85%|████████▌ | 589/692 [03:37<05:18,  3.09s/it, terms=1.87e+7][A
+Propagating through gates:  85%|████████▌ | 589/692 [03:45<05:18,  3.09s/it, terms=1.82e+7][A
+Propagating through gates:  85%|████████▌ | 590/692 [03:45<07:49,  4.60s/it, terms=1.82e+7][A
+Propagating through gates:  85%|████████▌ | 590/692 [03:46<07:49,  4.60s/it, terms=1.82e+7][A
+Propagating through gates:  85%|████████▌ | 591/692 [03:46<05:55,  3.52s/it, terms=1.82e+7][A
+Propagating through gates:  85%|████████▌ | 591/692 [03:48<05:55,  3.52s/it, terms=1.82e+7][A
+Propagating through gates:  86%|████████▌ | 592/692 [03:48<05:04,  3.05s/it, terms=1.82e+7][A
+Propagating through gates:  86%|████████▌ | 592/692 [03:51<05:04,  3.05s/it, terms=1.82e+7][A
+Propagating through gates:  86%|████████▌ | 593/692 [03:51<04:55,  2.99s/it, terms=1.82e+7][A
+Propagating through gates:  86%|████████▌ | 593/692 [04:00<04:55,  2.99s/it, terms=1.74e+7][A
+Propagating through gates:  86%|████████▌ | 594/692 [04:00<07:43,  4.73s/it, terms=1.74e+7][A
+Propagating through gates:  86%|████████▌ | 594/692 [04:00<07:43,  4.73s/it, terms=1.74e+7][A
+Propagating through gates:  86%|████████▌ | 595/692 [04:00<05:33,  3.43s/it, terms=1.74e+7][A
+Propagating through gates:  86%|████████▌ | 595/692 [04:02<05:33,  3.43s/it, terms=1.74e+7][A
+Propagating through gates:  86%|████████▌ | 596/692 [04:02<04:33,  2.85s/it, terms=1.74e+7][A
+Propagating through gates:  86%|████████▌ | 596/692 [04:04<04:33,  2.85s/it, terms=1.74e+7][A
+Propagating through gates:  86%|████████▋ | 597/692 [04:04<04:15,  2.69s/it, terms=1.74e+7][A
+Propagating through gates:  86%|████████▋ | 597/692 [04:11<04:15,  2.69s/it, terms=1.71e+7][A
+Propagating through gates:  86%|████████▋ | 598/692 [04:11<06:04,  3.88s/it, terms=1.71e+7][A
+Propagating through gates:  86%|████████▋ | 598/692 [04:12<06:04,  3.88s/it, terms=1.71e+7][A
+Propagating through gates:  87%|████████▋ | 599/692 [04:12<04:58,  3.21s/it, terms=1.71e+7][A
+Propagating through gates:  87%|████████▋ | 599/692 [04:14<04:58,  3.21s/it, terms=1.71e+7][A
+Propagating through gates:  87%|████████▋ | 600/692 [04:14<04:24,  2.87s/it, terms=1.71e+7][A
+Propagating through gates:  87%|████████▋ | 600/692 [04:17<04:24,  2.87s/it, terms=1.71e+7][A
+Propagating through gates:  87%|████████▋ | 601/692 [04:17<04:15,  2.81s/it, terms=1.71e+7][A
+Propagating through gates:  87%|████████▋ | 601/692 [04:26<04:15,  2.81s/it, terms=1.63e+7][A
+Propagating through gates:  87%|████████▋ | 602/692 [04:26<07:09,  4.77s/it, terms=1.63e+7][A
+Propagating through gates:  87%|████████▋ | 602/692 [04:28<07:09,  4.77s/it, terms=1.63e+7][A
+Propagating through gates:  87%|████████▋ | 603/692 [04:28<05:38,  3.80s/it, terms=1.63e+7][A
+Propagating through gates:  87%|████████▋ | 603/692 [04:30<05:38,  3.80s/it, terms=1.63e+7][A
+Propagating through gates:  87%|████████▋ | 604/692 [04:30<04:47,  3.27s/it, terms=1.63e+7][A
+Propagating through gates:  87%|████████▋ | 604/692 [04:33<04:47,  3.27s/it, terms=1.63e+7][A
+Propagating through gates:  87%|████████▋ | 605/692 [04:33<04:30,  3.10s/it, terms=1.63e+7][A
+Propagating through gates:  87%|████████▋ | 605/692 [04:42<04:30,  3.10s/it, terms=1.72e+7][A
+Propagating through gates:  88%|████████▊ | 606/692 [04:42<07:04,  4.93s/it, terms=1.72e+7][A
+Propagating through gates:  88%|████████▊ | 606/692 [04:43<07:04,  4.93s/it, terms=1.72e+7][A
+Propagating through gates:  88%|████████▊ | 607/692 [04:43<05:26,  3.84s/it, terms=1.72e+7][A
+Propagating through gates:  88%|████████▊ | 607/692 [04:45<05:26,  3.84s/it, terms=1.72e+7][A
+Propagating through gates:  88%|████████▊ | 608/692 [04:45<04:42,  3.36s/it, terms=1.72e+7][A
+Propagating through gates:  88%|████████▊ | 608/692 [04:49<04:42,  3.36s/it, terms=1.72e+7][A
+Propagating through gates:  88%|████████▊ | 609/692 [04:49<04:33,  3.30s/it, terms=1.72e+7][A
+Propagating through gates:  88%|████████▊ | 609/692 [04:59<04:33,  3.30s/it, terms=2.02e+7][A
+Propagating through gates:  88%|████████▊ | 610/692 [04:59<07:25,  5.43s/it, terms=2.02e+7][A
+Propagating through gates:  88%|████████▊ | 610/692 [05:00<07:25,  5.43s/it, terms=2.02e+7][A
+Propagating through gates:  88%|████████▊ | 611/692 [05:00<05:30,  4.08s/it, terms=2.02e+7][A
+Propagating through gates:  88%|████████▊ | 611/692 [05:02<05:30,  4.08s/it, terms=2.02e+7][A
+Propagating through gates:  88%|████████▊ | 612/692 [05:02<04:38,  3.48s/it, terms=2.02e+7][A
+Propagating through gates:  88%|████████▊ | 612/692 [05:05<04:38,  3.48s/it, terms=2.02e+7][A
+Propagating through gates:  89%|████████▊ | 613/692 [05:05<04:18,  3.27s/it, terms=2.02e+7][A
+Propagating through gates:  89%|████████▊ | 613/692 [05:16<04:18,  3.27s/it, terms=2.42e+7][A
+Propagating through gates:  89%|████████▊ | 614/692 [05:16<07:21,  5.66s/it, terms=2.42e+7][A
+Propagating through gates:  89%|████████▊ | 614/692 [05:18<07:21,  5.66s/it, terms=2.42e+7][A
+Propagating through gates:  89%|████████▉ | 615/692 [05:18<05:46,  4.50s/it, terms=2.42e+7][A
+Propagating through gates:  89%|████████▉ | 615/692 [05:21<05:46,  4.50s/it, terms=2.42e+7][A
+Propagating through gates:  89%|████████▉ | 616/692 [05:21<05:14,  4.14s/it, terms=2.42e+7][A
+Propagating through gates:  89%|████████▉ | 616/692 [05:26<05:14,  4.14s/it, terms=2.42e+7][A
+Propagating through gates:  89%|████████▉ | 617/692 [05:26<05:32,  4.43s/it, terms=2.42e+7][A
+Propagating through gates:  89%|████████▉ | 617/692 [05:41<05:32,  4.43s/it, terms=2.58e+7][A
+Propagating through gates:  89%|████████▉ | 618/692 [05:41<09:11,  7.45s/it, terms=2.58e+7][A
+Propagating through gates:  89%|████████▉ | 618/692 [05:43<09:11,  7.45s/it, terms=2.58e+7][A
+Propagating through gates:  89%|████████▉ | 619/692 [05:43<07:10,  5.90s/it, terms=2.58e+7][A
+Propagating through gates:  89%|████████▉ | 619/692 [05:46<07:10,  5.90s/it, terms=2.58e+7][A
+Propagating through gates:  90%|████████▉ | 620/692 [05:46<05:59,  5.00s/it, terms=2.58e+7][A
+Propagating through gates:  90%|████████▉ | 620/692 [05:49<05:59,  5.00s/it, terms=2.58e+7][A
+Propagating through gates:  90%|████████▉ | 621/692 [05:49<05:14,  4.43s/it, terms=2.58e+7][A
+Propagating through gates:  90%|████████▉ | 621/692 [06:02<05:14,  4.43s/it, terms=3.28e+7][A
+Propagating through gates:  90%|████████▉ | 622/692 [06:02<08:05,  6.93s/it, terms=3.28e+7][A
+Propagating through gates:  90%|████████▉ | 622/692 [06:04<08:05,  6.93s/it, terms=3.28e+7][A
+Propagating through gates:  90%|█████████ | 623/692 [06:04<06:12,  5.40s/it, terms=3.28e+7][A
+Propagating through gates:  90%|█████████ | 623/692 [06:08<06:12,  5.40s/it, terms=3.28e+7][A
+Propagating through gates:  90%|█████████ | 624/692 [06:08<05:37,  4.96s/it, terms=3.28e+7][A
+Propagating through gates:  90%|█████████ | 624/692 [06:13<05:37,  4.96s/it, terms=3.28e+7][A
+Propagating through gates:  90%|█████████ | 625/692 [06:13<05:46,  5.17s/it, terms=3.28e+7][A
+Propagating through gates:  90%|█████████ | 625/692 [06:32<05:46,  5.17s/it, terms=3.52e+7][A
+Propagating through gates:  90%|█████████ | 626/692 [06:32<10:02,  9.13s/it, terms=3.52e+7][A
+Propagating through gates:  90%|█████████ | 626/692 [06:33<10:02,  9.13s/it, terms=3.52e+7][A
+Propagating through gates:  91%|█████████ | 627/692 [06:33<07:20,  6.78s/it, terms=3.52e+7][A
+Propagating through gates:  91%|█████████ | 627/692 [06:35<07:20,  6.78s/it, terms=3.52e+7][A
+Propagating through gates:  91%|█████████ | 628/692 [06:35<05:45,  5.40s/it, terms=3.52e+7][A
+Propagating through gates:  91%|█████████ | 628/692 [06:38<05:45,  5.40s/it, terms=3.52e+7][A
+Propagating through gates:  91%|█████████ | 629/692 [06:38<04:55,  4.68s/it, terms=3.52e+7][A
+Propagating through gates:  91%|█████████ | 629/692 [06:45<04:55,  4.68s/it, terms=3.56e+7][A
+Propagating through gates:  91%|█████████ | 630/692 [06:45<05:30,  5.33s/it, terms=3.56e+7][A
+Propagating through gates:  91%|█████████ | 630/692 [06:48<05:30,  5.33s/it, terms=3.56e+7][A
+Propagating through gates:  91%|█████████ | 631/692 [06:48<04:44,  4.66s/it, terms=3.56e+7][A
+Propagating through gates:  91%|█████████ | 631/692 [06:52<04:44,  4.66s/it, terms=3.56e+7][A
+Propagating through gates:  91%|█████████▏| 632/692 [06:52<04:35,  4.59s/it, terms=3.56e+7][A
+Propagating through gates:  91%|█████████▏| 632/692 [06:59<04:35,  4.59s/it, terms=3.56e+7][A
+Propagating through gates:  91%|█████████▏| 633/692 [06:59<05:07,  5.21s/it, terms=3.56e+7][A
+Propagating through gates:  91%|█████████▏| 633/692 [07:20<05:07,  5.21s/it, terms=3.94e+7][A
+Propagating through gates:  92%|█████████▏| 634/692 [07:20<09:33,  9.89s/it, terms=3.94e+7][A
+Propagating through gates:  92%|█████████▏| 634/692 [07:24<09:33,  9.89s/it, terms=3.94e+7][A
+Propagating through gates:  92%|█████████▏| 635/692 [07:24<07:37,  8.02s/it, terms=3.94e+7][A
+Propagating through gates:  92%|█████████▏| 635/692 [07:29<07:37,  8.02s/it, terms=3.94e+7][A
+Propagating through gates:  92%|█████████▏| 636/692 [07:29<06:40,  7.15s/it, terms=3.94e+7][A
+Propagating through gates:  92%|█████████▏| 636/692 [07:36<06:40,  7.15s/it, terms=3.94e+7][A
+Propagating through gates:  92%|█████████▏| 637/692 [07:36<06:39,  7.26s/it, terms=3.94e+7][A
+Propagating through gates:  92%|█████████▏| 637/692 [08:00<06:39,  7.26s/it, terms=4.14e+7][A
+Propagating through gates:  92%|█████████▏| 638/692 [08:00<11:07, 12.35s/it, terms=4.14e+7][A
+Propagating through gates:  92%|█████████▏| 638/692 [08:05<11:07, 12.35s/it, terms=4.14e+7][A
+Propagating through gates:  92%|█████████▏| 639/692 [08:05<08:45,  9.92s/it, terms=4.14e+7][A
+Propagating through gates:  92%|█████████▏| 639/692 [08:11<08:45,  9.92s/it, terms=4.14e+7][A
+Propagating through gates:  92%|█████████▏| 640/692 [08:11<07:37,  8.80s/it, terms=4.14e+7][A
+Propagating through gates:  92%|█████████▏| 640/692 [08:20<07:37,  8.80s/it, terms=4.14e+7][A
+Propagating through gates:  93%|█████████▎| 641/692 [08:20<07:29,  8.81s/it, terms=4.14e+7][A
+Propagating through gates:  93%|█████████▎| 641/692 [08:47<07:29,  8.81s/it, terms=4.31e+7][A
+Propagating through gates:  93%|█████████▎| 642/692 [08:47<11:58, 14.37s/it, terms=4.31e+7][A
+Propagating through gates:  93%|█████████▎| 642/692 [08:51<11:58, 14.37s/it, terms=4.31e+7][A
+Propagating through gates:  93%|█████████▎| 643/692 [08:51<09:10, 11.24s/it, terms=4.31e+7][A
+Propagating through gates:  93%|█████████▎| 643/692 [08:56<09:10, 11.24s/it, terms=4.31e+7][A
+Propagating through gates:  93%|█████████▎| 644/692 [08:56<07:33,  9.45s/it, terms=4.31e+7][A
+Propagating through gates:  93%|█████████▎| 644/692 [09:03<07:33,  9.45s/it, terms=4.31e+7][A
+Propagating through gates:  93%|█████████▎| 645/692 [09:03<06:44,  8.61s/it, terms=4.31e+7][A
+Propagating through gates:  93%|█████████▎| 645/692 [09:25<06:44,  8.61s/it, terms=4.25e+7][A
+Propagating through gates:  93%|█████████▎| 646/692 [09:25<09:45, 12.73s/it, terms=4.25e+7][A
+Propagating through gates:  93%|█████████▎| 646/692 [09:27<09:45, 12.73s/it, terms=4.25e+7][A
+Propagating through gates:  93%|█████████▎| 647/692 [09:27<07:11,  9.59s/it, terms=4.25e+7][A
+Propagating through gates:  93%|█████████▎| 647/692 [09:31<07:11,  9.59s/it, terms=4.25e+7][A
+Propagating through gates:  94%|█████████▎| 648/692 [09:31<05:44,  7.83s/it, terms=4.25e+7][A
+Propagating through gates:  94%|█████████▎| 648/692 [09:37<05:44,  7.83s/it, terms=4.25e+7][A
+Propagating through gates:  94%|█████████▍| 649/692 [09:37<05:05,  7.09s/it, terms=4.25e+7][A
+Propagating through gates:  94%|█████████▍| 649/692 [09:54<05:05,  7.09s/it, terms=4.38e+7][A
+Propagating through gates:  94%|█████████▍| 650/692 [09:54<07:12, 10.30s/it, terms=4.38e+7][A
+Propagating through gates:  94%|█████████▍| 650/692 [09:56<07:12, 10.30s/it, terms=4.38e+7][A
+Propagating through gates:  94%|█████████▍| 651/692 [09:56<05:15,  7.69s/it, terms=4.38e+7][A
+Propagating through gates:  94%|█████████▍| 651/692 [09:59<05:15,  7.69s/it, terms=4.38e+7][A
+Propagating through gates:  94%|█████████▍| 652/692 [09:59<04:12,  6.32s/it, terms=4.38e+7][A
+Propagating through gates:  94%|█████████▍| 652/692 [10:03<04:12,  6.32s/it, terms=4.38e+7][A
+Propagating through gates:  94%|█████████▍| 653/692 [10:03<03:39,  5.62s/it, terms=4.38e+7][A
+Propagating through gates:  94%|█████████▍| 653/692 [10:15<03:39,  5.62s/it, terms=4.76e+7][A
+Propagating through gates:  95%|█████████▍| 654/692 [10:15<04:47,  7.56s/it, terms=4.76e+7][A
+Propagating through gates:  95%|█████████▍| 654/692 [10:19<04:47,  7.56s/it, terms=4.76e+7][A
+Propagating through gates:  95%|█████████▍| 655/692 [10:19<03:55,  6.36s/it, terms=4.76e+7][A
+Propagating through gates:  95%|█████████▍| 655/692 [10:24<03:55,  6.36s/it, terms=4.76e+7][A
+Propagating through gates:  95%|█████████▍| 656/692 [10:24<03:41,  6.16s/it, terms=4.76e+7][A
+Propagating through gates:  95%|█████████▍| 656/692 [10:32<03:41,  6.16s/it, terms=4.76e+7][A
+Propagating through gates:  95%|█████████▍| 657/692 [10:32<03:51,  6.61s/it, terms=4.76e+7][A
+Propagating through gates:  95%|█████████▍| 657/692 [10:57<03:51,  6.61s/it, terms=4.7e+7] [A
+Propagating through gates:  95%|█████████▌| 658/692 [10:57<06:52, 12.12s/it, terms=4.7e+7][A
+Propagating through gates:  95%|█████████▌| 658/692 [11:02<06:52, 12.12s/it, terms=4.7e+7][A
+Propagating through gates:  95%|█████████▌| 659/692 [11:02<05:24,  9.83s/it, terms=4.7e+7][A
+Propagating through gates:  95%|█████████▌| 659/692 [11:08<05:24,  9.83s/it, terms=4.7e+7][A
+Propagating through gates:  95%|█████████▌| 660/692 [11:08<04:41,  8.79s/it, terms=4.7e+7][A
+Propagating through gates:  95%|█████████▌| 660/692 [11:17<04:41,  8.79s/it, terms=4.7e+7][A
+Propagating through gates:  96%|█████████▌| 661/692 [11:17<04:34,  8.86s/it, terms=4.7e+7][A
+Propagating through gates:  96%|█████████▌| 661/692 [11:44<04:34,  8.86s/it, terms=4.23e+7][A
+Propagating through gates:  96%|█████████▌| 662/692 [11:44<07:13, 14.44s/it, terms=4.23e+7][A
+Propagating through gates:  96%|█████████▌| 662/692 [11:47<07:13, 14.44s/it, terms=4.23e+7][A
+Propagating through gates:  96%|█████████▌| 663/692 [11:47<05:17, 10.95s/it, terms=4.23e+7][A
+Propagating through gates:  96%|█████████▌| 663/692 [11:52<05:17, 10.95s/it, terms=4.23e+7][A
+Propagating through gates:  96%|█████████▌| 664/692 [11:52<04:16,  9.16s/it, terms=4.23e+7][A
+Propagating through gates:  96%|█████████▌| 664/692 [12:00<04:16,  9.16s/it, terms=4.23e+7][A
+Propagating through gates:  96%|█████████▌| 665/692 [12:00<03:55,  8.71s/it, terms=4.23e+7][A
+Propagating through gates:  96%|█████████▌| 665/692 [12:31<03:55,  8.71s/it, terms=4.22e+7][A
+Propagating through gates:  96%|█████████▌| 666/692 [12:31<06:42, 15.50s/it, terms=4.22e+7][A
+Propagating through gates:  96%|█████████▌| 666/692 [12:34<06:42, 15.50s/it, terms=4.22e+7][A
+Propagating through gates:  96%|█████████▋| 667/692 [12:34<04:50, 11.63s/it, terms=4.22e+7][A
+Propagating through gates:  96%|█████████▋| 667/692 [12:39<04:50, 11.63s/it, terms=4.22e+7][A
+Propagating through gates:  97%|█████████▋| 668/692 [12:39<03:51,  9.66s/it, terms=4.22e+7][A
+Propagating through gates:  97%|█████████▋| 668/692 [12:46<03:51,  9.66s/it, terms=4.22e+7][A
+Propagating through gates:  97%|█████████▋| 669/692 [12:46<03:22,  8.82s/it, terms=4.22e+7][A
+Propagating through gates:  97%|█████████▋| 669/692 [13:11<03:22,  8.82s/it, terms=4.33e+7][A
+Propagating through gates:  97%|█████████▋| 670/692 [13:11<05:01, 13.71s/it, terms=4.33e+7][A
+Propagating through gates:  97%|█████████▋| 670/692 [13:15<05:01, 13.71s/it, terms=4.33e+7][A
+Propagating through gates:  97%|█████████▋| 671/692 [13:15<03:50, 11.00s/it, terms=4.33e+7][A
+Propagating through gates:  97%|█████████▋| 671/692 [13:22<03:50, 11.00s/it, terms=4.33e+7][A
+Propagating through gates:  97%|█████████▋| 672/692 [13:22<03:14,  9.71s/it, terms=4.33e+7][A
+Propagating through gates:  97%|█████████▋| 672/692 [13:31<03:14,  9.71s/it, terms=4.33e+7][A
+Propagating through gates:  97%|█████████▋| 673/692 [13:31<03:01,  9.54s/it, terms=4.33e+7][A
+Propagating through gates:  97%|█████████▋| 673/692 [14:00<03:01,  9.54s/it, terms=3.79e+7][A
+Propagating through gates:  97%|█████████▋| 674/692 [14:00<04:36, 15.35s/it, terms=3.79e+7][A
+Propagating through gates:  97%|█████████▋| 674/692 [14:04<04:36, 15.35s/it, terms=3.79e+7][A
+Propagating through gates:  98%|█████████▊| 675/692 [14:04<03:20, 11.78s/it, terms=3.79e+7][A
+Propagating through gates:  98%|█████████▊| 675/692 [14:08<03:20, 11.78s/it, terms=3.79e+7][A
+Propagating through gates:  98%|█████████▊| 676/692 [14:08<02:34,  9.66s/it, terms=3.79e+7][A
+Propagating through gates:  98%|█████████▊| 676/692 [14:15<02:34,  9.66s/it, terms=3.79e+7][A
+Propagating through gates:  98%|█████████▊| 677/692 [14:15<02:09,  8.65s/it, terms=3.79e+7][A
+Propagating through gates:  98%|█████████▊| 677/692 [14:37<02:09,  8.65s/it, terms=3.38e+7][A
+Propagating through gates:  98%|█████████▊| 678/692 [14:37<02:59, 12.84s/it, terms=3.38e+7][A
+Propagating through gates:  98%|█████████▊| 678/692 [14:41<02:59, 12.84s/it, terms=3.38e+7][A
+Propagating through gates:  98%|█████████▊| 679/692 [14:41<02:10, 10.02s/it, terms=3.38e+7][A
+Propagating through gates:  98%|█████████▊| 679/692 [14:45<02:10, 10.02s/it, terms=3.38e+7][A
+Propagating through gates:  98%|█████████▊| 680/692 [14:45<01:41,  8.43s/it, terms=3.38e+7][A
+Propagating through gates:  98%|█████████▊| 680/692 [14:53<01:41,  8.43s/it, terms=3.38e+7][A
+Propagating through gates:  98%|█████████▊| 681/692 [14:53<01:28,  8.03s/it, terms=3.38e+7][A
+Propagating through gates:  98%|█████████▊| 681/692 [15:14<01:28,  8.03s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▊| 682/692 [15:14<02:01, 12.12s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▊| 682/692 [15:20<02:01, 12.12s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▊| 683/692 [15:20<01:32, 10.26s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▊| 683/692 [15:24<01:32, 10.26s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 684/692 [15:24<01:07,  8.43s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 684/692 [15:29<01:07,  8.43s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 685/692 [15:29<00:52,  7.46s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 685/692 [15:33<00:52,  7.46s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 686/692 [15:33<00:37,  6.17s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 686/692 [15:38<00:37,  6.17s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 687/692 [15:38<00:30,  6.05s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 687/692 [15:41<00:30,  6.05s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 688/692 [15:41<00:20,  5.13s/it, terms=2.94e+7][A
+Propagating through gates:  99%|█████████▉| 688/692 [15:46<00:20,  5.13s/it, terms=2.94e+7][A
+Propagating through gates: 100%|█████████▉| 689/692 [15:46<00:14,  4.85s/it, terms=2.94e+7][A
+Propagating through gates: 100%|█████████▉| 689/692 [15:48<00:14,  4.85s/it, terms=2.94e+7][A
+Propagating through gates: 100%|█████████▉| 690/692 [15:48<00:08,  4.06s/it, terms=2.94e+7][A
+Propagating through gates: 100%|█████████▉| 690/692 [15:52<00:08,  4.06s/it, terms=2.94e+7][A
+Propagating through gates: 100%|█████████▉| 691/692 [15:52<00:04,  4.11s/it, terms=2.94e+7][A
+Propagating through gates: 100%|█████████▉| 691/692 [15:57<00:04,  4.11s/it, terms=2.94e+7][A
+Propagating through gates: 100%|██████████| 692/692 [15:57<00:00,  4.27s/it, terms=2.94e+7][APropagating through gates: 100%|██████████| 692/692 [15:57<00:00,  1.38s/it, terms=2.94e+7]
+H10 order--2 task 399: 100%|██████████| 1/1 [16:03<00:00, 963.15s/it]H10 order--2 task 399: 100%|██████████| 1/1 [16:03<00:00, 963.15s/it]
