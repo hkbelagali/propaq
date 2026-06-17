@@ -103,6 +103,10 @@ backend = GenericBackendV2(
 pairs_aa = [(p, p + 1) for p in range(norb - 1)]
 pairs_ab = [(p, p) for p in range(0, norb, 4) if p <= 16]
 
+# TODO: Runtime and energy as a function of ansatz parameters 
+# TODO: Remove the p <= 16 first, change steps of 4 to steps of 2, 1 etc
+# TODO: Just the scripts on
+
 # Create pass manager (only for topology-constrained connectivity)
 if connectivity == "all-to-all":
     pass_manager = None
