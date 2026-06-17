@@ -1,0 +1,3 @@
+{"event":"gate","gate_idx":0,"layer_idx":0,"map_terms":1,"outbox_terms":1}
+{"event":"truncation","gate_idx":34,"layer_idx":6,"trigger":"threshold","terms_before":244,"terms_after":60,"terms_discarded":184,"discarded_coeff_l1":3.880559e-17,"discarded_coeff_max":2.272396e-18,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
+{"event":"truncation","gate_idx":37,"layer_idx":8,"trigger":"final","terms_before":135,"terms_after":60,"terms_discarded":75,"discarded_coeff_l1":1.395859e-17,"discarded_coeff_max":3.149438e-18,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}

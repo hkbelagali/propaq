@@ -1,0 +1,2 @@
+{"event":"gate","gate_idx":0,"layer_idx":0,"map_terms":1,"outbox_terms":0}
+{"event":"truncation","gate_idx":35,"layer_idx":7,"trigger":"final","terms_before":2,"terms_after":1,"terms_discarded":1,"discarded_coeff_l1":1.301074e-17,"discarded_coeff_max":1.301074e-17,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
