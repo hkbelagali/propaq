@@ -19,7 +19,8 @@ from qiskit.transpiler import CouplingMap
 from qiskit.quantum_info import SparsePauliOp
 from qiskit import qpy
 
-import matplotlib.pyplot as plt; plt.rcParams.update({"font.family": "serif", "font.size": 12})
+import matplotlib.pyplot as plt
+plt.style.use(Path(__file__).resolve().parent.parent.parent / "presentation.mplstyle")
 from collections import Counter, defaultdict
 from propaq.datatypes import MajoranaTermSum
 
@@ -60,14 +61,14 @@ def plot_pauli_weight_distribution(hamiltonian: SparsePauliOp):
     y = np.array([weight_counts.get(i, 0) for i in x])
 
     # Plot
-    plt.figure(figsize=(8, 5))
+    plt.figure(figsize=(6, 4))
     plt.bar(x, y)
 
     plt.xlabel("Pauli weight (# non-identity operators)")
     plt.ylabel("Number of Pauli terms")
     plt.title("Pauli Weight Distribution of Hamiltonian")
     plt.yscale("log")  # optional but VERY useful for large Hamiltonians
-    plt.savefig(plots_dir / f"{args.system}_weight_distribution.png")
+    plt.savefig(plots_dir / f"{args.system}_weight_distribution.pdf")
     plt.close()
 
     return weight_counts
@@ -106,7 +107,7 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
             sum_coeffs.append(0.0)
 
     # Plot
-    fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+    fig, ax = plt.subplots(1, 2, figsize=(10, 4))
 
     # 1. Average absolute coefficient magnitude
     ax[0].bar(weights, avg_abs)
@@ -123,7 +124,7 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
     ax[1].set_ylabel("Sum of coeffs")
 
     plt.tight_layout()
-    plt.savefig(plots_dir / f"{args.system}_weight_statistics.png")
+    plt.savefig(plots_dir / f"{args.system}_weight_statistics.pdf")
     plt.close()
 
     return {
@@ -153,7 +154,7 @@ for term, coeff in observable.items():
 # --- Plot ---
 all_weights = sorted(set(list(np_mass.keys()) + list(non_np_mass.keys())))
 
-fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
 # Left: coefficient mass
 ax = axes[0]
@@ -169,7 +170,7 @@ ax.bar(
 )
 ax.set_yscale("log")
 ax.set_xlabel("Pauli weight")
-ax.set_ylabel("Σ|c|")
+ax.set_ylabel("$\sum \|c\|$")
 ax.set_title("Coefficient mass: NP vs non-NP")
 ax.legend()
 
@@ -192,7 +193,7 @@ ax.set_title("Term count: NP vs non-NP")
 ax.legend()
 
 plt.tight_layout()
-plt.savefig(plots_dir / f"{args.system}_np_vs_non_np.png")
+plt.savefig(plots_dir / f"{args.system}_np_vs_non_np.pdf")
 
 
 def plot_coeff_magnitude_distribution(observable: "MajoranaTermSum"):
@@ -227,7 +228,7 @@ def plot_coeff_magnitude_distribution(observable: "MajoranaTermSum"):
     cmap = plt.get_cmap("viridis")
     bottoms = np.zeros(len(all_orders))
 
-    fig, ax = plt.subplots(figsize=(max(10, len(all_orders) * 0.6), 6))
+    fig, ax = plt.subplots(figsize=(max(8, len(all_orders) * 0.5), 4.5))
     for w in all_weights:
         heights = np.array([counts[o][w] for o in all_orders], dtype=float)
         ax.bar(x, heights, bottom=bottoms, color=cmap(norm(w)), width=0.8)
@@ -245,7 +246,7 @@ def plot_coeff_magnitude_distribution(observable: "MajoranaTermSum"):
     fig.colorbar(sm, ax=ax, label="Pauli weight")
 
     plt.tight_layout()
-    out = plots_dir / f"{args.system}_coeff_magnitude_distribution.png"
+    out = plots_dir / f"{args.system}_coeff_magnitude_distribution.pdf"
     plt.savefig(out, bbox_inches="tight")
     plt.close()
     print(f"Saved {out}")
