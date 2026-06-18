@@ -19,7 +19,7 @@ from qiskit.transpiler import CouplingMap
 from qiskit.quantum_info import SparsePauliOp
 from qiskit import qpy
 
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt; plt.rcParams.update({"font.family": "serif", "font.size": 12})
 from collections import Counter, defaultdict
 from propaq.datatypes import MajoranaTermSum
 
@@ -33,7 +33,7 @@ args = ap.parse_args()
 system_dir   = BASE_DIR / args.system
 circuit_path = Path(args.circuit)            if args.circuit            else system_dir / "FeS_LUCJ_circuit.qpy"
 ham_path     = Path(args.hamiltonian_cache)  if args.hamiltonian_cache  else system_dir / "compiled_hamiltonian_cache.npz"
-plots_dir    = Path(args.plots_dir)          if args.plots_dir          else system_dir / "plots"
+plots_dir    = Path(args.plots_dir)          if args.plots_dir          else BASE_DIR / "plots"
 
 with open(circuit_path, "rb") as f:
     compiled = qpy.load(f)[0]
@@ -67,7 +67,7 @@ def plot_pauli_weight_distribution(hamiltonian: SparsePauliOp):
     plt.ylabel("Number of Pauli terms")
     plt.title("Pauli Weight Distribution of Hamiltonian")
     plt.yscale("log")  # optional but VERY useful for large Hamiltonians
-    plt.savefig(plots_dir / "weight_distribution.png")
+    plt.savefig(plots_dir / f"{args.system}_weight_distribution.png")
     plt.close()
 
     return weight_counts
@@ -123,7 +123,7 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
     ax[1].set_ylabel("Sum of coeffs")
 
     plt.tight_layout()
-    plt.savefig(plots_dir / "weight_statistics.png")
+    plt.savefig(plots_dir / f"{args.system}_weight_statistics.png")
     plt.close()
 
     return {
@@ -192,7 +192,7 @@ ax.set_title("Term count: NP vs non-NP")
 ax.legend()
 
 plt.tight_layout()
-plt.savefig(plots_dir / "np_vs_non_np.png")
+plt.savefig(plots_dir / f"{args.system}_np_vs_non_np.png")
 
 
 def plot_coeff_magnitude_distribution(observable: "MajoranaTermSum"):
@@ -245,7 +245,7 @@ def plot_coeff_magnitude_distribution(observable: "MajoranaTermSum"):
     fig.colorbar(sm, ax=ax, label="Pauli weight")
 
     plt.tight_layout()
-    out = plots_dir / "coeff_magnitude_distribution.png"
+    out = plots_dir / f"{args.system}_coeff_magnitude_distribution.png"
     plt.savefig(out, bbox_inches="tight")
     plt.close()
     print(f"Saved {out}")

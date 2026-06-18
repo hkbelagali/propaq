@@ -21,7 +21,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt; plt.rcParams.update({"font.family": "serif", "font.size": 12})
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -40,7 +40,7 @@ args = ap.parse_args()
 
 system_dir  = BASE_DIR / args.system
 RESULTS_DIR = Path(args.results_dir) if args.results_dir else system_dir / "results"
-out_path    = Path(args.out)         if args.out         else system_dir / "plots" / "plot_results.png"
+out_path    = Path(args.out)         if args.out         else BASE_DIR / "plots" / f"plot_results_{args.system}.png"
 
 JSONL_RE = re.compile(r"_w(\d+)_(\d+)of(\d+)\.jsonl$")
 NPZ_RE   = re.compile(r"_w(\d+)_(\d+)of(\d+)\.npz$")
