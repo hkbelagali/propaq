@@ -6,3 +6,8 @@
 
 # SLURM stdout files (*.err is already covered by root .gitignore)
 *.out
+
+# SLURM Scripts 
+*.sh
+
+
