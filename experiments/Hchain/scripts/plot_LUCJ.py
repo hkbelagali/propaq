@@ -6,8 +6,8 @@ Usage (run from anywhere):
     python plot_LUCJ.py [--refined-dir PATH] [--out-energy PATH] [--out-runtime PATH]
 
 Outputs (default: experiments/Hchain/plots/):
-    Hchain_energy_vs_natoms.png
-    Hchain_runtime_vs_natoms.png
+    Hchain_energy_vs_natoms.pdf
+    Hchain_runtime_vs_natoms.pdf
 """
 
 import argparse
@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-plt.rcParams.update({"font.family": "serif", "font.size": 12})
+plt.style.use(Path(__file__).resolve().parent.parent.parent / "presentation.mplstyle")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 BASE_DIR = SCRIPT_DIR.parent
@@ -30,8 +30,8 @@ args = ap.parse_args()
 
 plots_dir   = BASE_DIR / "plots"
 REFINED_DIR = Path(args.refined_dir) if args.refined_dir else BASE_DIR / "refined_data"
-out_energy  = Path(args.out_energy)  if args.out_energy  else plots_dir / "Hchain_energy_vs_natoms.png"
-out_runtime = Path(args.out_runtime) if args.out_runtime else plots_dir / "Hchain_runtime_vs_natoms.png"
+out_energy  = Path(args.out_energy)  if args.out_energy  else plots_dir / "Hchain_energy_vs_natoms.pdf"
+out_runtime = Path(args.out_runtime) if args.out_runtime else plots_dir / "Hchain_runtime_vs_natoms.pdf"
 
 plots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -86,7 +86,7 @@ natoms_all = sorted({n for n, _ in data})
 
 # ── Plot 1: Energy vs natoms ──────────────────────────────────────────────────
 
-fig1, ax1 = plt.subplots(figsize=(8, 5))
+fig1, ax1 = plt.subplots(figsize=(6, 4))
 
 for connectivity in connectivities:
     color, marker, ls = CONNECTIVITY_STYLE.get(connectivity, ("gray", "o", "-"))
@@ -111,7 +111,7 @@ print(f"Saved {out_energy}")
 
 # ── Plot 2: Average runtime per term vs natoms ────────────────────────────────
 
-fig2, ax2 = plt.subplots(figsize=(8, 5))
+fig2, ax2 = plt.subplots(figsize=(6, 4))
 
 for connectivity in connectivities:
     color, marker, ls = CONNECTIVITY_STYLE.get(connectivity, ("gray", "o", "-"))

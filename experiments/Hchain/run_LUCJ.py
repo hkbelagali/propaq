@@ -42,7 +42,8 @@ parser.add_argument("--order",        type=int,   default=None,   help="floor(lo
 parser.add_argument("--task-id",      type=int,   default=0,      help="0-indexed array task id")
 parser.add_argument("--n-tasks",      type=int,   default=1,      help="total number of array tasks")
 parser.add_argument("--cutoff",       type=float, default=1e-7,   help="coefficient truncation cutoff")
-parser.add_argument("--n-threads",    type=int,   default=8,    help="number of threads for MajoranaPropagator")
+parser.add_argument("--n-threads",    type=int,   default=8,      help="number of threads for MajoranaPropagator")
+parser.add_argument("--batch-size",   type=int,   default=1,      help="number of Majorana terms to group into each MajoranaTermSum propagation")
 args = parser.parse_args()
 natoms:       int   = args.natoms
 connectivity: str   = args.connectivity
@@ -93,6 +94,10 @@ for order in orders:
     task_items = all_items[task_id::n_tasks]
     print(f"Task {task_id}/{n_tasks}: {len(task_items)} monomials")
 
+    batch_size = args.batch_size
+    batches = [task_items[i:i + batch_size] for i in range(0, len(task_items), batch_size)]
+    print(f"Batch size: {batch_size} → {len(batches)} propagation(s)")
+
     tag = f"n{natoms}_{connectivity}_o{order}_{task_id:05d}of{n_tasks:05d}"
     logger = Logger(f"results/Hchain_{tag}.jsonl", log_every=100)
     prop = MajoranaPropagator(
@@ -106,11 +111,12 @@ for order in orders:
     values = []
     n_terms = []
     runtimes = []
-    for monomial, coeff in tqdm(task_items, desc=f"H{natoms} order-{order} task {task_id}"):
+    for batch in tqdm(batches, desc=f"H{natoms} order-{order} task {task_id}"):
         t0 = time.perf_counter()
-        single_term = MajoranaTermSum()
-        single_term.add(monomial, coeff)
-        result = prop.expectation_value(single_term, mc, fock_state=0)
+        term_sum = MajoranaTermSum()
+        for monomial, coeff in batch:
+            term_sum.add(monomial, coeff)
+        result = prop.expectation_value(term_sum, mc, fock_state=0)
         values.append(result.expectation_value)
         print(f"Expectation value: {result.expectation_value:.10e}")
         n_terms.append(result.n_terms)
