@@ -1,3 +1,0 @@
-{"event":"gate","gate_idx":0,"layer_idx":0,"map_terms":1,"outbox_terms":1}
-{"event":"truncation","gate_idx":32,"layer_idx":5,"trigger":"threshold","terms_before":60,"terms_after":56,"terms_discarded":4,"discarded_coeff_l1":3.749116e-18,"discarded_coeff_max":1.688028e-18,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
-{"event":"truncation","gate_idx":35,"layer_idx":7,"trigger":"final","terms_before":126,"terms_after":56,"terms_discarded":70,"discarded_coeff_l1":7.653644e-18,"discarded_coeff_max":6.023839e-18,"weight_cutoff":15,"coeff_cutoff":1.000000e-10}
