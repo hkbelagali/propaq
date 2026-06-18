@@ -21,7 +21,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-import matplotlib.pyplot as plt; plt.rcParams.update({"font.family": "serif", "font.size": 12})
+import matplotlib.pyplot as plt
+plt.style.use(Path(__file__).resolve().parent.parent.parent / "presentation.mplstyle")
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -40,7 +41,7 @@ args = ap.parse_args()
 
 system_dir  = BASE_DIR / args.system
 RESULTS_DIR = Path(args.results_dir) if args.results_dir else system_dir / "results"
-out_path    = Path(args.out)         if args.out         else BASE_DIR / "plots" / f"plot_results_{args.system}.png"
+out_path    = Path(args.out)         if args.out         else BASE_DIR / "plots" / f"plot_results_{args.system}.pdf"
 
 JSONL_RE = re.compile(r"_w(\d+)_(\d+)of(\d+)\.jsonl$")
 NPZ_RE   = re.compile(r"_w(\d+)_(\d+)of(\d+)\.npz$")
@@ -148,7 +149,7 @@ def _box_data(d: dict, key: str) -> list[np.ndarray]:
 
 # ── Figure ────────────────────────────────────────────────────────────────────
 
-fig, axes = plt.subplots(2, 3, figsize=(16, 9))
+fig, axes = plt.subplots(2, 3, figsize=(14, 7))
 fig.suptitle(f"FeS LUCJ ({args.system}) — Results summary", fontsize=14, y=0.98)
 
 ax_map, ax_out, ax_l1 = axes[0]
@@ -165,7 +166,7 @@ for ax, key, ylabel in (
         if not files:
             continue
         x, med, lo, hi = _interp_median(files, key)
-        label = f"w{w} (n={len(files)})"
+        label = f"{w} (n={len(files)})"
         ax.plot(x, med, color=colors[w], lw=1.5, label=label)
         ax.fill_between(x, lo, hi, color=colors[w], alpha=0.2)
     ax.set_yscale("log")
@@ -185,7 +186,7 @@ if nonempty:
     for patch, i in zip(bp["boxes"], idxs):
         patch.set_facecolor((*colors[weights[i]][:3], 0.4))
     ax_l1.set_xticks([i + 1 for i in idxs])
-    ax_l1.set_xticklabels([f"w{weights[i]}\n(n={len(l1_box[i])})" for i in idxs], fontsize=8)
+    ax_l1.set_xticklabels([f"{weights[i]}\n(n={len(l1_box[i])})" for i in idxs], fontsize=8)
 ax_l1.set_yscale("log")
 ax_l1.set_xlabel("Pauli weight")
 ax_l1.set_ylabel("Total discarded $\\ell_1$ (per task)")
@@ -202,7 +203,7 @@ if nonempty:
     for patch, i in zip(bp["boxes"], idxs):
         patch.set_facecolor((*colors[weights[i]][:3], 0.4))
     ax_max.set_xticks([i + 1 for i in idxs])
-    ax_max.set_xticklabels([f"w{weights[i]}\n(n={len(max_box[i])})" for i in idxs], fontsize=8)
+    ax_max.set_xticklabels([f"{weights[i]}\n(n={len(max_box[i])})" for i in idxs], fontsize=8)
 ax_max.set_yscale("log")
 ax_max.set_xlabel("Pauli weight")
 ax_max.set_ylabel("Max discarded coeff per event")
@@ -219,7 +220,7 @@ if nonempty:
     for patch, i in zip(bp["boxes"], idxs):
         patch.set_facecolor((*colors[weights[i]][:3], 0.4))
     ax_ev.set_xticks([i + 1 for i in idxs])
-    ax_ev.set_xticklabels([f"w{weights[i]}\n(n={len(ev_box[i])})" for i in idxs], fontsize=8)
+    ax_ev.set_xticklabels([f"{weights[i]}\n(n={len(ev_box[i])})" for i in idxs], fontsize=8)
 ax_ev.axhline(0, color="gray", lw=0.8, ls="--")
 ax_ev.set_xlabel("Pauli weight")
 ax_ev.set_ylabel("Per-monomial EV")
@@ -236,7 +237,7 @@ if nonempty:
     for patch, i in zip(bp["boxes"], idxs):
         patch.set_facecolor((*colors[weights[i]][:3], 0.4))
     ax_rt.set_xticks([i + 1 for i in idxs])
-    ax_rt.set_xticklabels([f"w{weights[i]}\n(n={len(rt_box[i])})" for i in idxs], fontsize=8)
+    ax_rt.set_xticklabels([f"{weights[i]}\n(n={len(rt_box[i])})" for i in idxs], fontsize=8)
 ax_rt.set_yscale("log")
 ax_rt.set_xlabel("Pauli weight")
 ax_rt.set_ylabel("Per-term runtime (s)")

@@ -19,7 +19,8 @@ import argparse
 import re
 from pathlib import Path
 
-import matplotlib.pyplot as plt; plt.rcParams.update({"font.family": "serif", "font.size": 12})
+import matplotlib.pyplot as plt
+plt.style.use(Path(__file__).resolve().parent.parent.parent / "presentation.mplstyle")
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -46,10 +47,10 @@ ham_path    = Path(args.hamiltonian_cache) if args.hamiltonian_cache else BASE_D
 noisy_dir   = Path(args.noisy_dir)         if args.noisy_dir         else BASE_DIR / "full-ansatz" / "refined_data"
 nl_dir      = Path(args.noiseless_dir)     if args.noiseless_dir     else BASE_DIR / "noiseless" / "refined_data"
 coeff_dir   = Path(args.coeff_dir)         if args.coeff_dir         else BASE_DIR / "noiseless-coeff" / "refined_data"
-out_ev      = Path(args.out_ev)            if args.out_ev            else plots_dir / "cumulative_ev.png"
-out_rt      = Path(args.out_rt)            if args.out_rt            else plots_dir / "runtime_boxplot.png"
-out_ev_c    = Path(args.out_ev_coeff)      if args.out_ev_coeff      else plots_dir / "cumulative_ev_coeff.png"
-out_rt_c    = Path(args.out_rt_coeff)      if args.out_rt_coeff      else plots_dir / "runtime_boxplot_coeff.png"
+out_ev      = Path(args.out_ev)            if args.out_ev            else plots_dir / "cumulative_ev.pdf"
+out_rt      = Path(args.out_rt)            if args.out_rt            else plots_dir / "runtime_boxplot.pdf"
+out_ev_c    = Path(args.out_ev_coeff)      if args.out_ev_coeff      else plots_dir / "cumulative_ev_coeff.pdf"
+out_rt_c    = Path(args.out_rt_coeff)      if args.out_rt_coeff      else plots_dir / "runtime_boxplot_coeff.pdf"
 
 plots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -131,29 +132,40 @@ noiseless_x, noiseless_y = cumulative_series(noiseless_data)
 
 # ── Plot 1: Cumulative EV ─────────────────────────────────────────────────────
 
-fig, ax = plt.subplots(figsize=(11, 5))
+fig, ax = plt.subplots(figsize=(8, 4))
 
 ax.plot(noisy_x, noisy_y, marker="o", lw=1.8, color="steelblue",
-        label=f"Noisy (full-ansatz)", zorder=3)
+        label=f"Noisy ($\gamma = 0.001$)", zorder=3)
 ax.plot(noiseless_x, noiseless_y, marker="s", lw=1.8, color="darkorange",
         label="Noiseless", zorder=3)
 
 for xi, yi in zip(noisy_x, noisy_y):
+    offset = (-10, 0) if xi == 1 else (-6, 8)
+    ha     = "right"  if xi == 1 else "center"
     ax.annotate(f"{yi:.1f}", (xi, yi), textcoords="offset points",
-                xytext=(-6, 7), ha="center", fontsize=7, color="steelblue")
+                xytext=offset, ha=ha, fontsize=8.5, color="steelblue")
 for xi, yi in zip(noiseless_x, noiseless_y):
+    if xi == 0:
+        offset = (18, -13)   # ECORE: nudge right
+    elif xi == 1:
+        offset = (6, -13)
+    else:
+        offset = (6, -26)    # weights 2-11: unified with higher-weight level, plus extra down
     ax.annotate(f"{yi:.1f}", (xi, yi), textcoords="offset points",
-                xytext=(6, -13), ha="center", fontsize=7, color="darkorange")
+                xytext=offset, ha="center", fontsize=8.5, color="darkorange")
 
 ax.axhline(IBM_TRUE_VALUE, color="tomato", lw=1.5, ls="--",
-           label=f"IBM true value ({IBM_TRUE_VALUE})")
+           label=f"SQD Value: ({IBM_TRUE_VALUE})")
 
 all_x = sorted(set(noisy_x) | set(noiseless_x))
 ax.set_xticks(all_x)
-ax.set_xticklabels([("ECORE" if x == 0 else f"w{x}") for x in all_x], fontsize=9)
-ax.set_xlabel("Pauli weight included through this point")
+ax.set_xticklabels([("ECORE" if x == 0 else str(x)) for x in all_x], fontsize=9)
+span = all_x[-1] - all_x[0]
+ax.set_xlim(all_x[0] - 0.05 * span, all_x[-1] + 0.05 * span)
+ax.set_xlabel("Pauli weight")
 ax.set_ylabel("Cumulative $\\langle H \\rangle$")
-ax.set_title("FeS LUCJ — Cumulative expectation value by Pauli weight")
+ax.set_title("Cumulative expectation value of FeS LUCJ ansatz by Pauli weight")
+ax.set_ylim(top=-270)
 ax.legend(fontsize=9)
 ax.grid(axis="y", lw=0.5, alpha=0.4)
 
@@ -167,7 +179,7 @@ plt.close(fig)
 all_weights = sorted(set(noisy_data) | set(noiseless_data))
 width = 0.35  # offset for side-by-side boxes
 
-fig, ax = plt.subplots(figsize=(11, 5))
+fig, ax = plt.subplots(figsize=(8, 4))
 
 noisy_positions, noisy_boxes = [], []
 nl_positions,    nl_boxes    = [], []
@@ -205,25 +217,24 @@ bp_nl = ax.boxplot(
 from matplotlib.patches import Patch
 handles = []
 if bp_noisy:
-    handles.append(Patch(facecolor=(*plt.cm.tab10(0)[:3], 0.55), label=f"Noisy (full-ansatz)"))
+    handles.append(Patch(facecolor=(*plt.cm.tab10(0)[:3], 0.55), label=f"Noisy ($\gamma = 0.001$)"))
 if bp_nl:
     handles.append(Patch(facecolor=(*plt.cm.tab10(1)[:3], 0.55), label="Noiseless"))
 ax.legend(handles=handles, fontsize=9)
 
 ax.set_xticks(range(1, len(all_weights) + 1))
-ax.set_xticklabels([f"w{w}" for w in all_weights], fontsize=9)
+ax.set_xticklabels([str(w) for w in all_weights], fontsize=9)
 ax.set_yscale("log")
+ax.margins(y=0.2)
 ax.set_xlabel("Pauli weight")
 ax.set_ylabel("Per-term runtime (s)")
-ax.set_title("FeS LUCJ — Per-term wall-clock runtime by Pauli weight")
+ax.set_title("Per-term wall-clock runtime of FeS LUCJ ansatz propagation by Pauli weight")
 ax.grid(axis="y", lw=0.5, alpha=0.4)
 
 fig.tight_layout()
 fig.savefig(out_rt, dpi=150, bbox_inches="tight")
 print(f"Saved {out_rt}")
 plt.close(fig)
-
-# ── Plot 3: Cumulative EV by coefficient order ────────────────────────────────
 
 sorted_orders = sorted(coeff_data)
 coeff_x, coeff_y = [], []
@@ -238,25 +249,31 @@ for o in sorted_orders:
 
 x_pos_c = list(range(len(coeff_y)))
 x_labels_c = (["ECORE"] if ecore is not None else []) + [
-    f"o{o}\n$[10^{{{o}}},10^{{{o+1}}})$" for o in sorted_orders
+    f"$[10^{{{o}}},10^{{{o+1}}})$" for o in sorted_orders
 ]
 
-fig, ax = plt.subplots(figsize=(9, 5))
+fig, ax = plt.subplots(figsize=(7, 4))
 
 ax.plot(x_pos_c, coeff_y, marker="D", lw=1.8, color="mediumseagreen", zorder=3,
-        label="Noiseless-coeff cumulative EV")
-for xi, yi in zip(x_pos_c, coeff_y):
+        label="Propagation")
+for xi, yi, order in zip(x_pos_c, coeff_y, coeff_x):
+    if order is None:        # ECORE
+        offset = (-8, 8)
+    elif order in (0, 1):    # [10^0, 10^1) and [10^1, 10^2) buckets
+        offset = (10, 8)
+    else:
+        offset = (0, 8)
     ax.annotate(f"{yi:.1f}", (xi, yi), textcoords="offset points",
-                xytext=(0, 8), ha="center", fontsize=7.5, color="mediumseagreen")
+                xytext=offset, ha="center", fontsize=7.5, color="mediumseagreen")
 
 ax.axhline(IBM_TRUE_VALUE, color="tomato", lw=1.5, ls="--",
-           label=f"IBM true value ({IBM_TRUE_VALUE})")
+           label=f"SQD Value: ({IBM_TRUE_VALUE})")
 
 ax.set_xticks(x_pos_c)
 ax.set_xticklabels(x_labels_c, fontsize=9)
-ax.set_xlabel("Coefficient order included through this point")
+ax.set_xlabel("Coefficient order")
 ax.set_ylabel("Cumulative $\\langle H \\rangle$")
-ax.set_title("FeS LUCJ (noiseless-coeff) — Cumulative EV by coefficient order")
+ax.set_title("Cumulative Expectation Value by Coefficient Order for noiseless FeS LUCJ ansatz propagation")
 ax.legend(fontsize=9)
 ax.grid(axis="y", lw=0.5, alpha=0.4)
 
@@ -275,7 +292,7 @@ for o in sorted_orders:
         rt_orders.append(o)
         rt_boxes_c.append(valid)
 
-fig, ax = plt.subplots(figsize=(8, 5))
+fig, ax = plt.subplots(figsize=(6, 4))
 
 if rt_boxes_c:
     x_pos_r = list(range(1, len(rt_orders) + 1))
@@ -287,15 +304,15 @@ if rt_boxes_c:
         patch.set_facecolor((*cmap(i % 10)[:3], 0.55))
     ax.set_xticks(x_pos_r)
     ax.set_xticklabels(
-        [f"o{o}\n$[10^{{{o}}},10^{{{o+1}}})$\n(n={len(b)})"
-         for o, b in zip(rt_orders, rt_boxes_c)],
+        [f"$[10^{{{o}}},10^{{{o+1}}})$" for o in rt_orders],
         fontsize=8,
     )
 
 ax.set_yscale("log")
+ax.margins(y=0.2)
 ax.set_xlabel("Coefficient order")
 ax.set_ylabel("Per-term runtime (s)")
-ax.set_title("FeS LUCJ (noiseless-coeff) — Per-term runtime by coefficient order")
+ax.set_title("Per-term wall-clock runtime of noiseless FeS LUCJ ansatz propagation by coefficient order")
 ax.grid(axis="y", lw=0.5, alpha=0.4)
 
 fig.tight_layout()
