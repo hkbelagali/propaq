@@ -1,6 +1,12 @@
 
 import argparse
 import os
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent
+sys.path.insert(0, str(BASE_DIR.parents[1]))
 
 import numpy as np
 from tqdm import tqdm
@@ -15,12 +21,24 @@ from qiskit import qpy
 
 import matplotlib.pyplot as plt
 from collections import Counter, defaultdict
+from propaq.datatypes import MajoranaTermSum
 
-with open("FeS_LUCJ_circuit.qpy", "rb") as f:
+ap = argparse.ArgumentParser()
+ap.add_argument("--system", choices=["full-ansatz", "noiseless", "noiseless-coeff"], required=True)
+ap.add_argument("--circuit", default=None, help="Path to .qpy circuit file")
+ap.add_argument("--hamiltonian-cache", default=None, help="Path to compiled hamiltonian .npz")
+ap.add_argument("--plots-dir", default=None, help="Output directory for plots")
+args = ap.parse_args()
+
+system_dir   = BASE_DIR / args.system
+circuit_path = Path(args.circuit)            if args.circuit            else system_dir / "FeS_LUCJ_circuit.qpy"
+ham_path     = Path(args.hamiltonian_cache)  if args.hamiltonian_cache  else system_dir / "compiled_hamiltonian_cache.npz"
+plots_dir    = Path(args.plots_dir)          if args.plots_dir          else system_dir / "plots"
+
+with open(circuit_path, "rb") as f:
     compiled = qpy.load(f)[0]
 
-hamiltonian_cache = "compiled_hamiltonian_cache.npz"
-cache = np.load(hamiltonian_cache, allow_pickle=False)
+cache = np.load(ham_path, allow_pickle=False)
 hamiltonian = SparsePauliOp.from_list(
     list(zip(cache["paulis"].astype(str), cache["coeffs"]))
 )
@@ -49,7 +67,7 @@ def plot_pauli_weight_distribution(hamiltonian: SparsePauliOp):
     plt.ylabel("Number of Pauli terms")
     plt.title("Pauli Weight Distribution of Hamiltonian")
     plt.yscale("log")  # optional but VERY useful for large Hamiltonians
-    plt.savefig("plots/weight_distribution.png")
+    plt.savefig(plots_dir / "weight_distribution.png")
     plt.close()
 
     return weight_counts
@@ -99,15 +117,13 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
 
     # 2. Sum of coefficients (signed)
     ax[1].bar(weights, sum_coeffs)
-    # ax[1].set_xlim(0, 36)
-    # ax[1].set_xticks(range(37))
     ax[1].set_title("Absolute Sum of Coefficients per Pauli Weight")
     ax[1].set_xlabel("Pauli weight")
     ax[1].set_yscale("symlog")  # handle positive and negative values
     ax[1].set_ylabel("Sum of coeffs")
 
     plt.tight_layout()
-    plt.savefig("plots/weight_statistics.png")
+    plt.savefig(plots_dir / "weight_statistics.png")
     plt.close()
 
     return {
@@ -116,14 +132,6 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
             w: avg_abs[i] for i, w in enumerate(weights)
         }
     }
-
-from collections import defaultdict
-import matplotlib.pyplot as plt
-import numpy as np
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from propaq.datatypes import MajoranaTermSum
 
 observable = MajoranaTermSum.from_sparse_pauli_op(hamiltonian_physical)
 
@@ -184,7 +192,7 @@ ax.set_title("Term count: NP vs non-NP")
 ax.legend()
 
 plt.tight_layout()
-plt.savefig("plots/np_vs_non_np.png")
+plt.savefig(plots_dir / "np_vs_non_np.png")
 
 
 def plot_coeff_magnitude_distribution(observable: "MajoranaTermSum"):
@@ -237,9 +245,10 @@ def plot_coeff_magnitude_distribution(observable: "MajoranaTermSum"):
     fig.colorbar(sm, ax=ax, label="Pauli weight")
 
     plt.tight_layout()
-    plt.savefig("plots/coeff_magnitude_distribution.png", bbox_inches="tight")
+    out = plots_dir / "coeff_magnitude_distribution.png"
+    plt.savefig(out, bbox_inches="tight")
     plt.close()
-    print(f"Saved plots/coeff_magnitude_distribution.png")
+    print(f"Saved {out}")
 
     # Print table
     header = f"{'Order':>8} | {'Total':>8} | " + " | ".join(f"w={w:>2}" for w in all_weights)
@@ -310,7 +319,7 @@ def worst_case_decay_threshold(cutoff: float = 1e-10):
 
 
 if __name__ == "__main__":
-    os.makedirs("plots", exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
 
     print("Analyzing Hamiltonian statistics...")
     weight_counts = plot_pauli_weight_distribution(hamiltonian_physical)

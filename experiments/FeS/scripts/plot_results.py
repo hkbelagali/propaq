@@ -2,7 +2,9 @@
 plot_results.py — Extract metrics from all JSONL/NPZ files in results/ via LogParser and plot.
 
 Usage:
-    python plot_results.py [--results-dir results] [--out plot_results.png]
+    python plot_results.py --system {full-ansatz,noiseless,noiseless-coeff}
+                           [--results-dir PATH]
+                           [--out PATH]
 
 Panels:
     1. Median map_terms growth through the circuit by weight
@@ -22,18 +24,23 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Allow running from any working directory
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent
+sys.path.insert(0, str(BASE_DIR.parents[1]))
+
 from propaq import LogParser
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--results-dir", default="results")
-ap.add_argument("--out", default="plot_results.png")
+ap.add_argument("--system", choices=["full-ansatz", "noiseless", "noiseless-coeff"], required=True)
+ap.add_argument("--results-dir", default=None, help="Override results directory")
+ap.add_argument("--out", default=None, help="Override output plot path")
 args = ap.parse_args()
 
-RESULTS_DIR = Path(args.results_dir)
+system_dir  = BASE_DIR / args.system
+RESULTS_DIR = Path(args.results_dir) if args.results_dir else system_dir / "results"
+out_path    = Path(args.out)         if args.out         else system_dir / "plots" / "plot_results.png"
 
 JSONL_RE = re.compile(r"_w(\d+)_(\d+)of(\d+)\.jsonl$")
 NPZ_RE   = re.compile(r"_w(\d+)_(\d+)of(\d+)\.npz$")
@@ -142,7 +149,7 @@ def _box_data(d: dict, key: str) -> list[np.ndarray]:
 # ── Figure ────────────────────────────────────────────────────────────────────
 
 fig, axes = plt.subplots(2, 3, figsize=(16, 9))
-fig.suptitle("FeS LUCJ — Results summary", fontsize=14, y=0.98)
+fig.suptitle(f"FeS LUCJ ({args.system}) — Results summary", fontsize=14, y=0.98)
 
 ax_map, ax_out, ax_l1 = axes[0]
 ax_max, ax_ev,  ax_rt  = axes[1]
@@ -237,8 +244,8 @@ ax_rt.set_title("Per-term wall-clock runtime distribution")
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 
+out_path.parent.mkdir(parents=True, exist_ok=True)
 fig.tight_layout()
-out_path = Path(args.out)
 fig.savefig(out_path, dpi=150, bbox_inches="tight")
 print(f"Saved {out_path}")
 
