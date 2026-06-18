@@ -4,3 +4,6 @@
 
 # SLURM stdout files (*.err is already covered by root .gitignore)
 *.out
+
+# Remove the job scripts 
+*.sh
