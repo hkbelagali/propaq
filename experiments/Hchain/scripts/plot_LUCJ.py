@@ -2,13 +2,15 @@
 plot_LUCJ.py — Plot LUCJ order-(-1) expectation values and CCSD reference energies
                vs system size, and average per-term runtime vs system size.
 
-Run from examples/Hchain/ after gather.py has populated refined_data/.
+Usage (run from anywhere):
+    python plot_LUCJ.py [--refined-dir PATH] [--out-energy PATH] [--out-runtime PATH]
 
-Outputs:
-    Hchain_energy_vs_natoms.pdf
-    Hchain_runtime_vs_natoms.pdf
+Outputs (default: experiments/Hchain/plots/):
+    Hchain_energy_vs_natoms.png
+    Hchain_runtime_vs_natoms.png
 """
 
+import argparse
 import re
 from pathlib import Path
 
@@ -17,7 +19,22 @@ import matplotlib.pyplot as plt
 
 plt.rcParams.update({"font.family": "serif", "font.size": 12})
 
-REFINED_DIR = Path("refined_data")
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--refined-dir",  default=None, help="Override refined_data directory")
+ap.add_argument("--out-energy",   default=None, help="Override energy plot output path")
+ap.add_argument("--out-runtime",  default=None, help="Override runtime plot output path")
+args = ap.parse_args()
+
+plots_dir   = BASE_DIR / "plots"
+REFINED_DIR = Path(args.refined_dir) if args.refined_dir else BASE_DIR / "refined_data"
+out_energy  = Path(args.out_energy)  if args.out_energy  else plots_dir / "Hchain_energy_vs_natoms.png"
+out_runtime = Path(args.out_runtime) if args.out_runtime else plots_dir / "Hchain_runtime_vs_natoms.png"
+
+plots_dir.mkdir(parents=True, exist_ok=True)
+
 TARGET_ORDER = -1
 
 # Only match canonical files (no _c6/_c10 suffix variants)
@@ -58,7 +75,7 @@ ccsd = {}  # natoms -> float
 for natoms, connectivity in data:
     if natoms in ccsd:
         continue
-    cache_path = Path(f"n{natoms}/{connectivity}/hamiltonian_cache.npz")
+    cache_path = BASE_DIR / f"n{natoms}" / connectivity / "hamiltonian_cache.npz"
     if cache_path.exists():
         c = np.load(cache_path, allow_pickle=False)
         if "e_ccsd" in c:
@@ -89,8 +106,8 @@ ax1.set_ylabel("Energy (Ha)")
 ax1.set_title(f"H chain: order-{TARGET_ORDER} LUCJ expectation value vs CCSD")
 ax1.legend()
 fig1.tight_layout()
-fig1.savefig("Hchain_energy_vs_natoms.png")
-print("Saved Hchain_energy_vs_natoms.png")
+fig1.savefig(out_energy, dpi=150, bbox_inches="tight")
+print(f"Saved {out_energy}")
 
 # ── Plot 2: Average runtime per term vs natoms ────────────────────────────────
 
@@ -107,7 +124,7 @@ ax2.set_ylabel("Mean runtime per term (s)")
 ax2.set_title("H chain: average propagation runtime per Majorana term")
 ax2.legend()
 fig2.tight_layout()
-fig2.savefig("Hchain_runtime_vs_natoms.png")
-print("Saved Hchain_runtime_vs_natoms.png")
+fig2.savefig(out_runtime, dpi=150, bbox_inches="tight")
+print(f"Saved {out_runtime}")
 
 plt.show()
