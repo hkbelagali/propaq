@@ -3,9 +3,8 @@ plot_cumulative.py — Compare cumulative EV and runtime for noisy vs noiseless 
                      and plot cumulative EV / runtime for noiseless-coeff (by order).
 
 Usage (run from anywhere):
-    python plot_cumulative.py --system {full-ansatz,noiseless,noiseless-coeff}
-                              [--hamiltonian-cache PATH]
-                              [--noisy-dir        PATH]
+    python plot_cumulative.py [--hamiltonian-cache PATH]
+                              [--noisy-dir        PATH]   (default: full-ansatz/refined_data)
                               [--noiseless-dir    PATH]
                               [--coeff-dir        PATH]
                               [--out-ev           PATH]
@@ -13,15 +12,14 @@ Usage (run from anywhere):
                               [--out-ev-coeff     PATH]
                               [--out-rt-coeff     PATH]
 
---system selects which system's refined_data is the primary (noisy) dataset.
-The noiseless and noiseless-coeff dirs default to those sibling directories.
+Output goes to experiments/FeS/plots/.
 """
 
 import argparse
 import re
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt; plt.rcParams.update({"font.family": "serif", "font.size": 12})
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -32,8 +30,6 @@ NPZ_RE_W = re.compile(r"FeS_LUCJ_w(\d+)\.npz$")
 NPZ_RE_O = re.compile(r"FeS_LUCJ_o(-?\d+)\.npz$")
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--system", choices=["full-ansatz", "noiseless", "noiseless-coeff"], required=True,
-                help="Primary (noisy) system; noiseless and noiseless-coeff are always the baselines")
 ap.add_argument("--hamiltonian-cache", default=None)
 ap.add_argument("--noisy-dir",         default=None)
 ap.add_argument("--noiseless-dir",     default=None)
@@ -44,11 +40,10 @@ ap.add_argument("--out-ev-coeff",      default=None)
 ap.add_argument("--out-rt-coeff",      default=None)
 args = ap.parse_args()
 
-system_dir = BASE_DIR / args.system
-plots_dir  = BASE_DIR / "plots"
+plots_dir = BASE_DIR / "plots"
 
 ham_path    = Path(args.hamiltonian_cache) if args.hamiltonian_cache else BASE_DIR / "hamiltonian_cache.npz"
-noisy_dir   = Path(args.noisy_dir)         if args.noisy_dir         else system_dir / "refined_data"
+noisy_dir   = Path(args.noisy_dir)         if args.noisy_dir         else BASE_DIR / "full-ansatz" / "refined_data"
 nl_dir      = Path(args.noiseless_dir)     if args.noiseless_dir     else BASE_DIR / "noiseless" / "refined_data"
 coeff_dir   = Path(args.coeff_dir)         if args.coeff_dir         else BASE_DIR / "noiseless-coeff" / "refined_data"
 out_ev      = Path(args.out_ev)            if args.out_ev            else plots_dir / "cumulative_ev.png"
@@ -112,7 +107,7 @@ def load_refined_coeff(directory: Path) -> dict[int, dict]:
 noisy_data     = load_refined(noisy_dir)
 noiseless_data = load_refined(nl_dir)
 coeff_data     = load_refined_coeff(coeff_dir)
-print(f"Noisy weights ({args.system}): {sorted(noisy_data)}")
+print(f"Noisy weights ({noisy_dir}): {sorted(noisy_data)}")
 print(f"Noiseless weights:             {sorted(noiseless_data)}")
 print(f"Coeff orders:                  {sorted(coeff_data)}")
 
@@ -139,7 +134,7 @@ noiseless_x, noiseless_y = cumulative_series(noiseless_data)
 fig, ax = plt.subplots(figsize=(11, 5))
 
 ax.plot(noisy_x, noisy_y, marker="o", lw=1.8, color="steelblue",
-        label=f"Noisy ({args.system})", zorder=3)
+        label=f"Noisy (full-ansatz)", zorder=3)
 ax.plot(noiseless_x, noiseless_y, marker="s", lw=1.8, color="darkorange",
         label="Noiseless", zorder=3)
 
@@ -210,7 +205,7 @@ bp_nl = ax.boxplot(
 from matplotlib.patches import Patch
 handles = []
 if bp_noisy:
-    handles.append(Patch(facecolor=(*plt.cm.tab10(0)[:3], 0.55), label=f"Noisy ({args.system})"))
+    handles.append(Patch(facecolor=(*plt.cm.tab10(0)[:3], 0.55), label=f"Noisy (full-ansatz)"))
 if bp_nl:
     handles.append(Patch(facecolor=(*plt.cm.tab10(1)[:3], 0.55), label="Noiseless"))
 ax.legend(handles=handles, fontsize=9)
