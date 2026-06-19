@@ -5,7 +5,6 @@ import numpy as np
 import pyscf
 import pyscf.cc
 import pyscf.mcscf
-import pyscf.mp
 
 import os 
 
@@ -63,11 +62,6 @@ eri = pyscf.ao2mo.restore(1, cas.get_h2cas(mo), norb)
 print(f"norb = {norb}")
 print(f"nelec = {nelec}")
 
-# Truncate small integrals before JW mapping to avoid generating Pauli terms that will be chopped anyway
-integral_thresh = 1e-6
-hcore[np.abs(hcore) < integral_thresh] = 0
-eri[np.abs(eri) < integral_thresh] = 0
-
 # Build qubit Hamiltonian from PySCF integrals via Jordan-Wigner mapping
 h2e_phys = np.einsum("prqs->pqrs", eri)  # chemist -> physicist notation
 elec_ints = ElectronicIntegrals.from_raw_integrals(hcore, h2e_phys)
@@ -81,19 +75,12 @@ sorted_indices = np.argsort(-np.abs(hamiltonian.coeffs))
 hamiltonian = hamiltonian[sorted_indices]
 print(f"Hamiltonian has {len(hamiltonian)} Pauli terms after cutoff.")
 
-# Get t1/t2 amplitudes for initializing the ansatz; use MP2 for large systems (CCSD is O(N^6))
-if norb > 40:
-    mp2 = pyscf.mp.MP2(
-        scf, frozen=[i for i in range(mol.nao_nr()) if i not in active_space]
-    ).run()
-    t1 = np.zeros((n_alpha, norb - n_alpha))
-    t2 = mp2.t2
-else:
-    ccsd = pyscf.cc.CCSD(
-        scf, frozen=[i for i in range(mol.nao_nr()) if i not in active_space]
-    ).run()
-    t1 = ccsd.t1
-    t2 = ccsd.t2
+# Get CCSD t2 amplitudes for initializing the ansatz
+ccsd = pyscf.cc.CCSD(
+    scf, frozen=[i for i in range(mol.nao_nr()) if i not in active_space]
+).run()
+t1 = ccsd.t1
+t2 = ccsd.t2
 
 if connectivity == "all-to-all":
     coupling_map = CouplingMap.from_full(2 * norb)
@@ -126,7 +113,7 @@ else:
             norb=norb,
             connectivity=connectivity,
             interaction_pairs=(pairs_aa, pairs_ab),
-            optimization_level=1,
+            optimization_level=3,
         )
     except RuntimeError:
         print("Unable to generate ffsim pass manager")
@@ -151,7 +138,7 @@ circuit.append(ffsim.qiskit.UCJOpSpinBalancedJW(ucj_op), qubits)
 if pass_manager is not None:
     compiled = pass_manager.run(circuit)
 else:
-    compiled = qiskit.transpile(circuit, backend=backend, optimization_level=1)
+    compiled = qiskit.transpile(circuit, backend=backend, optimization_level=3)
 
 print(f"Number of qubits: {compiled.num_qubits}")
 print(f"Gate counts: {compiled.count_ops()}")
