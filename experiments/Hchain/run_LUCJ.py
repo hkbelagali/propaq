@@ -101,7 +101,7 @@ for order in orders:
     tag = f"n{natoms}_{connectivity}_o{order}_{task_id:05d}of{n_tasks:05d}"
     logger = Logger(f"results/Hchain_{tag}.jsonl", log_every=100)
     prop = MajoranaPropagator(
-        UniformNoiseModel(damping=damping),
+        None,
         TruncationPolicy(weight_cutoff=None, coeff_cutoff=cutoff, truncation_range=(None, 10_000_000)),
         n_threads=args.n_threads,
         progress_bar=True,
