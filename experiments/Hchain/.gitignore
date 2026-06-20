@@ -12,5 +12,5 @@
 
 # Hamiltonian cache for n60 heavy-hex exceeds GitHub's 2GB LFS limit
 n60/heavy-hex/hamiltonian_cache.npz
-
+n60/square/hamiltonian_cache.npz
 
