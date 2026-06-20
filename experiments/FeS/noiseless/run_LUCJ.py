@@ -1,12 +1,5 @@
 """
-run_LUCJ.py — Evaluate weight-N observable expectation values using the prebuilt LUCJ circuit.
-
-    python run_LUCJ.py --weight N [--task-id K] [--n-tasks M]
-
-Requires build_LUCJ.py to have been run first:
-    FeS_LUCJ_circuit.qpy           — compiled circuit
-
-Results saved to: results/FeS_LUCJ_w{N}_{K:05d}of{M:05d}.npz
+Evaluate weight-N observable expectation values using the prebuilt LUCJ circuit.
 """
 
 import argparse

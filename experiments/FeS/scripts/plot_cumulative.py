@@ -1,18 +1,5 @@
 """
-plot_cumulative.py — Compare cumulative EV and runtime for noisy vs noiseless runs,
-                     and plot cumulative EV / runtime for noiseless-coeff (by order).
-
-Usage (run from anywhere):
-    python plot_cumulative.py [--hamiltonian-cache PATH]
-                              [--noisy-dir        PATH]   (default: full-ansatz/refined_data)
-                              [--noiseless-dir    PATH]
-                              [--coeff-dir        PATH]
-                              [--out-ev           PATH]
-                              [--out-rt           PATH]
-                              [--out-ev-coeff     PATH]
-                              [--out-rt-coeff     PATH]
-
-Output goes to experiments/FeS/plots/.
+Compare cumulative EV and runtime for noisy vs noiseless runs, and plot cumulative EV / runtime for noiseless-coeff (by order).
 """
 
 import argparse
@@ -32,29 +19,27 @@ NPZ_RE_O = re.compile(r"FeS_LUCJ_o(-?\d+)\.npz$")
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--hamiltonian-cache", default=None)
-ap.add_argument("--noisy-dir",         default=None)
-ap.add_argument("--noiseless-dir",     default=None)
-ap.add_argument("--coeff-dir",         default=None)
-ap.add_argument("--out-ev",            default=None)
-ap.add_argument("--out-rt",            default=None)
-ap.add_argument("--out-ev-coeff",      default=None)
-ap.add_argument("--out-rt-coeff",      default=None)
+ap.add_argument("--noisy-dir",  default=None)
+ap.add_argument("--noiseless-dir", default=None)
+ap.add_argument("--coeff-dir", default=None)
+ap.add_argument("--out-ev", default=None)
+ap.add_argument("--out-rt", default=None)
+ap.add_argument("--out-ev-coeff", default=None)
+ap.add_argument("--out-rt-coeff", default=None)
 args = ap.parse_args()
 
 plots_dir = BASE_DIR / "plots"
 
-ham_path    = Path(args.hamiltonian_cache) if args.hamiltonian_cache else BASE_DIR / "hamiltonian_cache.npz"
-noisy_dir   = Path(args.noisy_dir)         if args.noisy_dir         else BASE_DIR / "full-ansatz" / "refined_data"
-nl_dir      = Path(args.noiseless_dir)     if args.noiseless_dir     else BASE_DIR / "noiseless" / "refined_data"
-coeff_dir   = Path(args.coeff_dir)         if args.coeff_dir         else BASE_DIR / "noiseless-coeff" / "refined_data"
-out_ev      = Path(args.out_ev)            if args.out_ev            else plots_dir / "cumulative_ev.pdf"
-out_rt      = Path(args.out_rt)            if args.out_rt            else plots_dir / "runtime_boxplot.pdf"
-out_ev_c    = Path(args.out_ev_coeff)      if args.out_ev_coeff      else plots_dir / "cumulative_ev_coeff.pdf"
-out_rt_c    = Path(args.out_rt_coeff)      if args.out_rt_coeff      else plots_dir / "runtime_boxplot_coeff.pdf"
+ham_path = Path(args.hamiltonian_cache) if args.hamiltonian_cache else BASE_DIR / "hamiltonian_cache.npz"
+noisy_dir = Path(args.noisy_dir) if args.noisy_dir else BASE_DIR / "full-ansatz" / "refined_data"
+nl_dir = Path(args.noiseless_dir) if args.noiseless_dir else BASE_DIR / "noiseless" / "refined_data"
+coeff_dir = Path(args.coeff_dir) if args.coeff_dir else BASE_DIR / "noiseless-coeff" / "refined_data"
+out_ev = Path(args.out_ev) if args.out_ev else plots_dir / "cumulative_ev.pdf"
+out_rt = Path(args.out_rt) if args.out_rt else plots_dir / "runtime_boxplot.pdf"
+out_ev_c = Path(args.out_ev_coeff) if args.out_ev_coeff else plots_dir / "cumulative_ev_coeff.pdf"
+out_rt_c = Path(args.out_rt_coeff) if args.out_rt_coeff else plots_dir / "runtime_boxplot_coeff.pdf"
 
 plots_dir.mkdir(parents=True, exist_ok=True)
-
-# ── Load ECORE ────────────────────────────────────────────────────────────────
 
 ecore = None
 if ham_path.exists():
@@ -66,8 +51,6 @@ if ham_path.exists():
     print(f"ECORE (weight-0): {ecore:.6f}")
 else:
     print("WARNING: hamiltonian_cache.npz not found — ECORE excluded")
-
-# ── Load refined_data helper ──────────────────────────────────────────────────
 
 EXCLUDE_WEIGHTS = {71, 72}
 
@@ -112,8 +95,6 @@ print(f"Noisy weights ({noisy_dir}): {sorted(noisy_data)}")
 print(f"Noiseless weights:             {sorted(noiseless_data)}")
 print(f"Coeff orders:                  {sorted(coeff_data)}")
 
-# ── Build cumulative EV series ────────────────────────────────────────────────
-
 def cumulative_series(data: dict[int, dict]) -> tuple[list[int | str], list[float]]:
     """Return (weight_labels, cumulative_ev) starting from ECORE if available."""
     xs, ys = [], []
@@ -129,8 +110,6 @@ def cumulative_series(data: dict[int, dict]) -> tuple[list[int | str], list[floa
 
 noisy_x,     noisy_y     = cumulative_series(noisy_data)
 noiseless_x, noiseless_y = cumulative_series(noiseless_data)
-
-# ── Plot 1: Cumulative EV ─────────────────────────────────────────────────────
 
 fig, ax = plt.subplots(figsize=(8, 4))
 
@@ -174,8 +153,6 @@ fig.savefig(out_ev, dpi=150, bbox_inches="tight")
 print(f"Saved {out_ev}")
 plt.close(fig)
 
-# ── Plot 2: Runtime box plot ──────────────────────────────────────────────────
-
 all_weights = sorted(set(noisy_data) | set(noiseless_data))
 width = 0.35  # offset for side-by-side boxes
 
@@ -213,7 +190,6 @@ bp_nl = ax.boxplot(
     boxprops={"facecolor": (*plt.cm.tab10(1)[:3], 0.55)},
 ) if nl_boxes else None
 
-# Legend proxies
 from matplotlib.patches import Patch
 handles = []
 if bp_noisy:
@@ -281,8 +257,6 @@ fig.tight_layout()
 fig.savefig(out_ev_c, dpi=150, bbox_inches="tight")
 print(f"Saved {out_ev_c}")
 plt.close(fig)
-
-# ── Plot 4: Runtime box plot by coefficient order ─────────────────────────────
 
 rt_orders, rt_boxes_c = [], []
 for o in sorted_orders:

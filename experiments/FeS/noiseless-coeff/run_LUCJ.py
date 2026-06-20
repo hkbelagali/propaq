@@ -1,12 +1,5 @@
 """
-run_LUCJ.py — Evaluate observable expectation values grouped by coefficient order of magnitude.
-
-    python run_LUCJ.py --order N [--task-id K] [--n-tasks M]
-
-Requires build_LUCJ.py to have been run first:
-    FeS_LUCJ_circuit.qpy           — compiled circuit
-
-Results saved to: results/FeS_LUCJ_o{N}_{K:05d}of{M:05d}.npz
+Evaluate observable expectation values grouped by coefficient order of magnitude.
 """
 
 import argparse

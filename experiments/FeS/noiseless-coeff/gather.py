@@ -1,14 +1,6 @@
 """
-gather.py — Aggregate per-task npz files into one per-order file in refined_data/.
+Aggregate per-task npz files into one per-order file in refined_data/.
 
-    python gather.py [--results-dir results] [--refined-dir refined_data]
-                     [--hamiltonian-cache ../hamiltonian_cache.npz]
-
-Reads:  results/FeS_LUCJ_o{N}_{K:05d}of{M:05d}.npz  (per-task, from run_LUCJ.py)
-Writes: refined_data/FeS_LUCJ_o{N}.npz               (per-order, aggregated)
-Prints: summary table from the aggregated data.
-
-Fields in each refined_data file:
     ev_sum            — total expectation value contribution for this order
     values            — all per-monomial EVs concatenated (present tasks, by task_id)
     n_tasks           — total expected task count
@@ -39,7 +31,6 @@ REFINED_DIR = Path(args.refined_dir)
 
 NPZ_RE = re.compile(r"FeS_LUCJ_o(-?\d+)_(\d{5})of(\d{5})\.npz$")
 
-
 def _compress_ids(ids: list[int]) -> str:
     """Convert a sorted list of ints to SLURM range notation, e.g. [0,1,2,5] -> '0-2,5'."""
     if not ids:
@@ -55,16 +46,12 @@ def _compress_ids(ids: list[int]) -> str:
     parts.append(f"{start}-{end}" if end > start else str(start))
     return ",".join(parts)
 
-
 def _fmt_time(sec: float) -> str:
     if np.isnan(sec):
         return "—"
     h, rem = divmod(int(sec), 3600)
     m, s   = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-
-
-# ── ECORE from Hamiltonian cache ─────────────────────────────────────────────
 
 ecore = None
 for cache_name in (args.hamiltonian_cache,):
@@ -79,9 +66,6 @@ for cache_name in (args.hamiltonian_cache,):
 else:
     print("WARNING: Hamiltonian cache not found — ECORE (weight-0) not included")
 
-# ── Load per-task npz files ───────────────────────────────────────────────────
-
-# order -> task_id -> {values, runtime, n_tasks, n_oN_pauli_terms, n_qubits, ccsd_energy}
 raw: dict[int, dict[int, dict]] = defaultdict(dict)
 ccsd_energy = None
 
@@ -95,12 +79,12 @@ for path in RESULTS_DIR.glob("FeS_LUCJ_o*.npz"):
         if ccsd_energy is None and "ccsd_energy" in d:
             ccsd_energy = float(d["ccsd_energy"])
         raw[order][tid] = {
-            "values":           np.asarray(d["values"], dtype=float),
-            "runtime":          np.atleast_1d(np.asarray(d["runtime_seconds"], dtype=float)) if "runtime_seconds" in d else np.array([], dtype=float),
-            "n_tasks":          ntasks,
+            "values": np.asarray(d["values"], dtype=float),
+            "runtime": np.atleast_1d(np.asarray(d["runtime_seconds"], dtype=float)) if "runtime_seconds" in d else np.array([], dtype=float),
+            "n_tasks": ntasks,
             "n_oN_pauli_terms": int(d["n_oN_pauli_terms"]) if "n_oN_pauli_terms" in d else -1,
-            "n_qubits":         int(d["n_qubits"])          if "n_qubits"          in d else -1,
-            "ccsd_energy":      float(d["ccsd_energy"])     if "ccsd_energy"       in d else float("nan"),
+            "n_qubits": int(d["n_qubits"])          if "n_qubits"          in d else -1,
+            "ccsd_energy": float(d["ccsd_energy"])     if "ccsd_energy"       in d else float("nan"),
         }
     except Exception as e:
         print(f"WARNING: could not read {path.name}: {e}")
@@ -110,8 +94,6 @@ if not raw:
         f"No npz result files found in {RESULTS_DIR}. "
         "Run run_LUCJ.py jobs first."
     )
-
-# ── Aggregate and save refined_data/ ─────────────────────────────────────────
 
 REFINED_DIR.mkdir(exist_ok=True)
 
@@ -130,8 +112,8 @@ for order in sorted(raw):
         base = (f"sbatch --array={_compress_ids(missing_ids)} "
                 f"--job-name=FeS-LUCJ-o{order} "
                 f"--export=ALL,ORDER={order},N_TASKS={n_tasks}")
-        print(f"         Resubmit (scavenger): {base} run.sh")
-        print(f"         Resubmit (general):   {base} run_general.sh")
+        print(f"Resubmit (scavenger): {base} run.sh")
+        print(f"Resubmit (general):   {base} run_general.sh")
 
     values_all = np.concatenate([task_map[tid]["values"] for tid in present_ids]) \
         if present_ids else np.array([], dtype=float)
@@ -153,17 +135,17 @@ for order in sorted(raw):
     out_path = REFINED_DIR / f"FeS_LUCJ_o{order}.npz"
     np.savez(
         out_path,
-        ev_sum           = np.float64(ev_sum),
-        values           = values_all,
-        n_tasks          = np.int64(n_tasks),
+        ev_sum = np.float64(ev_sum),
+        values = values_all,
+        n_tasks = np.int64(n_tasks),
         present_task_ids = np.array(present_ids, dtype=np.int64),
         missing_task_ids = np.array(missing_ids, dtype=np.int64),
-        ccsd_energy      = np.float64(ce),
-        n_qubits         = np.int64(nq),
+        ccsd_energy = np.float64(ce),
+        n_qubits = np.int64(nq),
         n_oN_pauli_terms = np.int64(n_oN),
-        runtime_seconds  = runtimes,
-        rt_mean          = np.float64(rt_mean),
-        rt_std           = np.float64(rt_std),
+        runtime_seconds = runtimes,
+        rt_mean = np.float64(rt_mean),
+        rt_std = np.float64(rt_std),
     )
 
     present_terms = len(values_all)
@@ -178,9 +160,6 @@ for order in sorted(raw):
                             present_terms, missing_terms_str)
 
 print(f"Saved {len(order_results)} order file(s) to {REFINED_DIR}/")
-
-# ── Print summary ─────────────────────────────────────────────────────────────
-
 print()
 if ccsd_energy is not None:
     print(f"CCSD energy: {ccsd_energy:.6f}")

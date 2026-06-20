@@ -1,9 +1,5 @@
 """
-FeS_HF.py — sanity check: compute ⟨HF|H|HF⟩ per Pauli weight via PROPAQ propagation.
-
-Expected result: cumulative EV converges to the HF energy (~-326.0).
-
-    python FeS_HF.py
+Build and propagate the HF state for FeS
 """
 
 import numpy as np
@@ -37,7 +33,6 @@ print(f"Number of orbitals: {num_orb}")
 print(f"Electrons: {num_elec_a}a / {num_elec_b}b")
 print(f"HF energy: {hf_energy:.10e}")
 
-# HF circuit only — no UCJ ansatz
 qubits = qiskit.QuantumRegister(2 * num_orb, name="q")
 circuit = qiskit.QuantumCircuit(qubits)
 circuit.append(ffsim.qiskit.PrepareHartreeFockJW(num_orb, nelec), qubits)

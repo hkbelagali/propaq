@@ -1,13 +1,5 @@
 """
-plot_LUCJ.py — Plot LUCJ expectation values (all orders) and CCSD reference
-               energies vs system size, and total wall time vs system size.
-
-Usage (run from anywhere):
-    python plot_LUCJ.py [--refined-dir PATH] [--out-energy PATH] [--out-runtime PATH]
-
-Outputs (default: experiments/Hchain/plots/):
-    Hchain_energy_vs_natoms.pdf
-    Hchain_runtime_vs_natoms.pdf
+Plot LUCJ expectation values (all orders) and CCSD reference energies vs system size, and total wall time vs system size.
 """
 
 import argparse
@@ -23,9 +15,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 BASE_DIR = SCRIPT_DIR.parent
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--refined-dir",  default=None, help="Override refined_data directory")
-ap.add_argument("--out-energy",   default=None, help="Override energy plot output path")
-ap.add_argument("--out-runtime",  default=None, help="Override runtime plot output path")
+ap.add_argument("--refined-dir", default=None, help="Override refined_data directory")
+ap.add_argument("--out-energy", default=None, help="Override energy plot output path")
+ap.add_argument("--out-runtime", default=None, help="Override runtime plot output path")
 args = ap.parse_args()
 
 plots_dir   = BASE_DIR / "plots"
@@ -35,13 +27,10 @@ out_runtime = Path(args.out_runtime) if args.out_runtime else plots_dir / "Hchai
 
 plots_dir.mkdir(parents=True, exist_ok=True)
 
-# Only match canonical files (no _c6/_c10 suffix variants)
 FILE_RE = re.compile(r"^Hchain_n(\d+)_([\w-]+)_o(-?\d+)\.npz$")
 
 CONNECTIVITY_COLOR  = {"heavy-hex": "tab:blue", "square": "tab:orange", "all-to-all": "tab:green"}
 CONNECTIVITY_MARKER = {"heavy-hex": "o",        "square": "s",          "all-to-all": "^"}
-
-# ── Load refined_data files ───────────────────────────────────────────────────
 
 data = {}  # (natoms, connectivity, order) -> {"ev_sum": float, "rt_wall": float}
 
@@ -66,7 +55,6 @@ if not data:
         "No refined_data files found. Run gather.py first."
     )
 
-# Sum EV over all orders; wall time is the max across orders (orders run concurrently)
 aggregated = {}  # (natoms, connectivity) -> {"ev_sum": float, "rt_wall": float}
 for (natoms, connectivity, order), vals in data.items():
     key = (natoms, connectivity)
@@ -79,8 +67,6 @@ connectivities = sorted({c for _, c in aggregated})
 connectivities = [c for c in connectivities if c not in ("all-to-all")]
 natoms_all     = sorted({n for n, _ in aggregated})
 
-# ── Load CCSD energies from hamiltonian caches ────────────────────────────────
-
 ccsd = {}  # natoms -> float
 
 for natoms, connectivity in aggregated:
@@ -91,8 +77,6 @@ for natoms, connectivity in aggregated:
         c = np.load(cache_path, allow_pickle=False)
         if "e_ccsd" in c:
             ccsd[natoms] = float(c["e_ccsd"])
-
-# ── Plot 1: Energy vs natoms ──────────────────────────────────────────────────
 
 fig1, ax1 = plt.subplots(figsize=(6, 4))
 
@@ -118,8 +102,6 @@ ax1.legend(loc='best')
 fig1.tight_layout()
 fig1.savefig(out_energy, dpi=150, bbox_inches="tight")
 print(f"Saved {out_energy}")
-
-# ── Plot 2: Total wall time vs natoms ─────────────────────────────────────────
 
 fig2, ax2 = plt.subplots(figsize=(6, 4))
 

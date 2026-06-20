@@ -1,18 +1,5 @@
 """
-plot_results.py — Extract metrics from all JSONL/NPZ files in results/ via LogParser and plot.
-
-Usage:
-    python plot_results.py --system {full-ansatz,noiseless,noiseless-coeff}
-                           [--results-dir PATH]
-                           [--out PATH]
-
-Panels:
-    1. Median map_terms growth through the circuit by weight
-    2. Median outbox_terms growth through the circuit by weight
-    3. Total discarded L1 per task (box by weight)
-    4. Max discarded coeff per truncation event (box by weight)
-    5. Per-monomial EV distribution (box by weight)
-    6. Per-term runtime distribution (box by weight)
+Extract metrics from all JSONL/NPZ files in results/ via LogParser and plot.
 """
 
 import argparse
@@ -31,8 +18,6 @@ sys.path.insert(0, str(BASE_DIR.parents[1]))
 
 from propaq import LogParser
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
-
 ap = argparse.ArgumentParser()
 ap.add_argument("--system", choices=["full-ansatz", "noiseless", "noiseless-coeff"], required=True)
 ap.add_argument("--results-dir", default=None, help="Override results directory")
@@ -46,9 +31,6 @@ out_path    = Path(args.out)         if args.out         else BASE_DIR / "plots"
 JSONL_RE = re.compile(r"_w(\d+)_(\d+)of(\d+)\.jsonl$")
 NPZ_RE   = re.compile(r"_w(\d+)_(\d+)of(\d+)\.npz$")
 
-# ── Load JSONL via LogParser ──────────────────────────────────────────────────
-
-# weight -> list of per-file dicts
 jsonl_data: dict[int, list[dict]] = defaultdict(list)
 
 for path in sorted(RESULTS_DIR.glob("*.jsonl")):
@@ -61,24 +43,22 @@ for path in sorted(RESULTS_DIR.glob("*.jsonl")):
     except (OSError, ValueError):
         continue
 
-    gate_idx   = lp.gate_indices
-    map_terms  = lp.map_terms
-    outbox     = lp.outbox_terms
-    trunc_l1   = lp.discarded_coeff_l1
-    trunc_max  = lp.discarded_coeff_max
+    gate_idx = lp.gate_indices
+    map_terms = lp.map_terms
+    outbox = lp.outbox_terms
+    trunc_l1 = lp.discarded_coeff_l1
+    trunc_max = lp.discarded_coeff_max
 
     if not gate_idx:
         continue
 
     jsonl_data[w].append({
-        "gate_idx":       np.array(gate_idx,  dtype=float),
-        "map_terms":      np.array(map_terms,  dtype=float),
-        "outbox_terms":   np.array(outbox,     dtype=float),
-        "total_l1":       float(sum(trunc_l1)) if trunc_l1 else np.nan,
-        "per_event_max":  np.array(trunc_max,  dtype=float),
+        "gate_idx": np.array(gate_idx,  dtype=float),
+        "map_terms": np.array(map_terms,  dtype=float),
+        "outbox_terms": np.array(outbox,     dtype=float),
+        "total_l1": float(sum(trunc_l1)) if trunc_l1 else np.nan,
+        "per_event_max": np.array(trunc_max,  dtype=float),
     })
-
-# ── Load NPZ files ────────────────────────────────────────────────────────────
 
 npz_data: dict[int, dict] = defaultdict(lambda: {"values": [], "runtimes": []})
 
@@ -98,14 +78,11 @@ for path in sorted(RESULTS_DIR.glob("*.npz")):
         rt = rt[~np.isnan(rt)]
         npz_data[w]["runtimes"].append(rt)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 weights = sorted(set(jsonl_data) | set(npz_data))
 cmap    = plt.cm.tab10
 colors  = {w: cmap(i % 10) for i, w in enumerate(weights)}
 
 N_GRID = 200  # interpolation points for term-count curves
-
 
 def _interp_median(files: list[dict], key: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Interpolate per-file series onto a common [0,1] grid and return (x, median, iqr_lo, iqr_hi)."""
@@ -128,7 +105,6 @@ def _interp_median(files: list[dict], key: str) -> tuple[np.ndarray, np.ndarray,
         np.percentile(mat, 75, axis=0),
     )
 
-
 def _box_data(d: dict, key: str) -> list[np.ndarray]:
     """Collect per-weight arrays for a box plot, in sorted-weight order."""
     out = []
@@ -146,16 +122,11 @@ def _box_data(d: dict, key: str) -> list[np.ndarray]:
             out.append(np.array([]))
     return out
 
-
-# ── Figure ────────────────────────────────────────────────────────────────────
-
 fig, axes = plt.subplots(2, 3, figsize=(14, 7))
 fig.suptitle(f"FeS LUCJ ({args.system}) — Results summary", fontsize=14, y=0.98)
 
 ax_map, ax_out, ax_l1 = axes[0]
 ax_max, ax_ev,  ax_rt  = axes[1]
-
-# ── Panel 1 & 2: term count growth ───────────────────────────────────────────
 
 for ax, key, ylabel in (
     (ax_map, "map_terms",    "Local hashmap terms"),
@@ -175,8 +146,6 @@ for ax, key, ylabel in (
     ax.set_title(ylabel + " vs circuit depth (median ± IQR)")
     ax.legend(fontsize=7, ncol=2)
 
-# ── Panel 3: total discarded L1 per task (box by weight) ─────────────────────
-
 l1_box = _box_data({}, "total_l1")
 nonempty = [(i, d) for i, d in enumerate(l1_box) if len(d) > 0]
 if nonempty:
@@ -191,8 +160,6 @@ ax_l1.set_yscale("log")
 ax_l1.set_xlabel("Pauli weight")
 ax_l1.set_ylabel("Total discarded $\\ell_1$ (per task)")
 ax_l1.set_title("Truncation error — total discarded $\\ell_1$ per task")
-
-# ── Panel 4: per-event discarded max coeff (box by weight) ───────────────────
 
 max_box = _box_data({}, "per_event_max")
 nonempty = [(i, d) for i, d in enumerate(max_box) if len(d) > 0]
@@ -209,8 +176,6 @@ ax_max.set_xlabel("Pauli weight")
 ax_max.set_ylabel("Max discarded coeff per event")
 ax_max.set_title("Truncation error — max discarded coeff per truncation event")
 
-# ── Panel 5: per-monomial EV distribution (box by weight) ────────────────────
-
 ev_box = _box_data(npz_data, "values")
 nonempty = [(i, d) for i, d in enumerate(ev_box) if len(d) > 0]
 if nonempty:
@@ -225,8 +190,6 @@ ax_ev.axhline(0, color="gray", lw=0.8, ls="--")
 ax_ev.set_xlabel("Pauli weight")
 ax_ev.set_ylabel("Per-monomial EV")
 ax_ev.set_title("Per-monomial expectation value distribution")
-
-# ── Panel 6: per-term runtime distribution (box by weight) ───────────────────
 
 rt_box = _box_data(npz_data, "runtimes")
 nonempty = [(i, d) for i, d in enumerate(rt_box) if len(d) > 0]
@@ -243,14 +206,10 @@ ax_rt.set_xlabel("Pauli weight")
 ax_rt.set_ylabel("Per-term runtime (s)")
 ax_rt.set_title("Per-term wall-clock runtime distribution")
 
-# ── Save ──────────────────────────────────────────────────────────────────────
-
 out_path.parent.mkdir(parents=True, exist_ok=True)
 fig.tight_layout()
 fig.savefig(out_path, dpi=150, bbox_inches="tight")
 print(f"Saved {out_path}")
-
-# ── Text summary ──────────────────────────────────────────────────────────────
 
 print(f"\n{'Weight':>8}  {'JSONL files':>12}  {'NPZ tasks':>10}  "
       f"{'EV sum':>12}  {'Median RT (s)':>14}  {'Median trunc L1':>16}")

@@ -1,12 +1,5 @@
 """
-build_LUCJ.py — Build the full-ansatz LUCJ circuit and cache the physical-layout Hamiltonian.
-
-Run once before submitting array jobs:
-    python build_LUCJ.py
-
-Outputs:
-    FeS_LUCJ_circuit.qpy           — compiled LUCJ circuit (QPY format)
-    compiled_hamiltonian_cache.npz — Hamiltonian Pauli strings mapped to physical qubits
+Build the full-ansatz LUCJ circuit and cache the physical-layout Hamiltonian.
 """
 
 import numpy as np
