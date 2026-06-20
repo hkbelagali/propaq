@@ -3,7 +3,7 @@ set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 NATOMS=30
-CONNECTIVITIES=("square" "heavy-hex")
+CONNECTIVITIES=("all-to-all")
 ORBITAL_CUTOFFS=(16 24 32)
 SPACINGS=(4 2 1)
 

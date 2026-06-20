@@ -19,7 +19,7 @@ from qiskit_nature.second_q.mappers import JordanWignerMapper
 import ffsim
 
 NATOMS          = 30
-CONNECTIVITIES  = ["square", "heavy-hex"]
+CONNECTIVITIES  = ["all-to-all"]
 ORBITAL_CUTOFFS = [16, 24, 32]
 SPACINGS        = [4, 2, 1]
 NLAYERS         = 1
@@ -70,7 +70,9 @@ def build(connectivity: str, orbital_cutoff: int, spacing: int) -> None:
 
     pairs_ab = [(p, p) for p in range(0, norb, spacing) if p < orbital_cutoff]
 
-    if connectivity == "heavy-hex":
+    if connectivity == "all-to-all":
+        coupling_map = CouplingMap.from_full(2 * norb)
+    elif connectivity == "heavy-hex":
         distance = 3
         while CouplingMap.from_heavy_hex(distance).size() < 2 * norb:
             distance += 2
@@ -85,17 +87,20 @@ def build(connectivity: str, orbital_cutoff: int, spacing: int) -> None:
         basis_gates=["cp", "xx_plus_yy", "p", "x", "swap"],
     )
 
-    try:
-        pass_manager, pairs_ab = ffsim.qiskit.generate_lucj_pass_manager(
-            backend=backend,
-            norb=norb,
-            connectivity=connectivity,
-            interaction_pairs=(pairs_aa, pairs_ab),
-            optimization_level=3,
-        )
-    except RuntimeError as e:
-        print(f"  [{tag}/{connectivity}] skipped — {e}")
-        return
+    if connectivity == "all-to-all":
+        pass_manager = None
+    else:
+        try:
+            pass_manager, pairs_ab = ffsim.qiskit.generate_lucj_pass_manager(
+                backend=backend,
+                norb=norb,
+                connectivity=connectivity,
+                interaction_pairs=(pairs_aa, pairs_ab),
+                optimization_level=3,
+            )
+        except RuntimeError as e:
+            print(f"  [{tag}/{connectivity}] skipped — {e}")
+            return
 
     ucj_op = ffsim.UCJOpSpinBalanced.from_t_amplitudes(
         t2=t2, t1=t1, n_reps=NLAYERS, interaction_pairs=(pairs_aa, pairs_ab),
@@ -105,7 +110,8 @@ def build(connectivity: str, orbital_cutoff: int, spacing: int) -> None:
     circuit = qiskit.QuantumCircuit(qubits)
     circuit.append(ffsim.qiskit.PrepareHartreeFockJW(norb, nelec), qubits)
     circuit.append(ffsim.qiskit.UCJOpSpinBalancedJW(ucj_op), qubits)
-    compiled = pass_manager.run(circuit)
+    compiled = (pass_manager.run(circuit) if pass_manager is not None
+                else qiskit.transpile(circuit, backend=backend, optimization_level=3))
 
     with open(f"{outdir}/LUCJ_circuit.qpy", "wb") as f:
         qpy.dump(compiled, f)

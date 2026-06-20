@@ -26,17 +26,16 @@ RESULTS_DIR = BASE_DIR / "results"
 PLOTS_DIR   = BASE_DIR / "plots"
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-CONNECTIVITIES  = ["square", "heavy-hex"]
+CONNECTIVITIES  = ["square", "heavy-hex", "all-to-all"]
 ORBITAL_CUTOFFS = [16, 24, 32]
 SPACINGS        = [4, 2, 1]
 NATOMS          = 30
 ORDERS          = [-1, -2]
 
-CONNECTIVITY_COLOR  = {"heavy-hex": "tab:blue", "square": "tab:orange"}
-CONNECTIVITY_LABEL  = {"heavy-hex": "heavy-hex", "square": "square"}
-CUTOFF_STYLE        = {16: "-", 24: "--", 32: ":"}
-CUTOFF_MARKER       = {16: "o",  24: "s",  32: "^"}
-SPACING_LABEL       = {4: "spacing=4", 2: "spacing=2", 1: "spacing=1"}
+CONNECTIVITY_COLOR  = {"heavy-hex": "tab:blue", "square": "tab:orange", "all-to-all": "tab:green"}
+CONNECTIVITY_LABEL  = {"heavy-hex": "heavy-hex", "square": "square", "all-to-all": "all-to-all"}
+SPACING_STYLE       = {4: "-", 2: "--", 1: ":"}
+SPACING_MARKER      = {4: "o",  2: "s",  1: "^"}
 
 FILE_RE = re.compile(
     r"Hchain_n(\d+)_([\w-]+)_c(\d+)_s(\d+)_o(-?\d+)_(\d+)of(\d+)\.npz$"
@@ -105,10 +104,11 @@ ccsd_ref = next(
 
 # ── Plot ──────────────────────────────────────────────────────────────────────
 
-x_ticks   = list(range(len(SPACINGS)))
-x_labels  = [str(s) for s in SPACINGS]
+x_ticks  = list(range(len(ORBITAL_CUTOFFS)))
+x_labels = [str(c) for c in ORBITAL_CUTOFFS]
 
-fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
+ncols = len(CONNECTIVITIES)
+fig, axes = plt.subplots(2, ncols, figsize=(5 * ncols, 7), sharex=True)
 fig.suptitle(f"H{NATOMS} chain — pairs_ab parameter sweep")
 
 for col, connectivity in enumerate(CONNECTIVITIES):
@@ -116,20 +116,20 @@ for col, connectivity in enumerate(CONNECTIVITIES):
     ax_rt = axes[1][col]
     color = CONNECTIVITY_COLOR[connectivity]
 
-    for cutoff in ORBITAL_CUTOFFS:
+    for spacing in SPACINGS:
         ys_ev, ys_rt = [], []
-        for spacing in SPACINGS:
+        for cutoff in ORBITAL_CUTOFFS:
             key = (connectivity, cutoff, spacing)
             ys_ev.append(ev_total.get(key, float("nan")))
             ys_rt.append(rt_total.get(key, float("nan")) / 3600)
 
-        label = f"cutoff={cutoff}"
+        label = f"spacing={spacing}"
         ax_ev.plot(x_ticks, ys_ev,
-                   color=color, linestyle=CUTOFF_STYLE[cutoff],
-                   marker=CUTOFF_MARKER[cutoff], label=label)
+                   color=color, linestyle=SPACING_STYLE[spacing],
+                   marker=SPACING_MARKER[spacing], label=label)
         ax_rt.plot(x_ticks, ys_rt,
-                   color=color, linestyle=CUTOFF_STYLE[cutoff],
-                   marker=CUTOFF_MARKER[cutoff], label=label)
+                   color=color, linestyle=SPACING_STYLE[spacing],
+                   marker=SPACING_MARKER[spacing], label=label)
 
     if ccsd_ref is not None:
         ax_ev.axhline(ccsd_ref, color="black", linestyle=":", linewidth=1, label="CCSD")
@@ -139,7 +139,7 @@ for col, connectivity in enumerate(CONNECTIVITIES):
     ax_ev.legend(loc='best', fontsize=8)
 
     ax_rt.set_ylabel("Runtime (hours)")
-    ax_rt.set_xlabel("pairs_ab spacing")
+    ax_rt.set_xlabel("Orbital cutoff")
     ax_rt.set_xticks(x_ticks)
     ax_rt.set_xticklabels(x_labels)
     ax_rt.legend(loc='best', fontsize=8)
