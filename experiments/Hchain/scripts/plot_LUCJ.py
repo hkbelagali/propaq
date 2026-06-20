@@ -76,7 +76,7 @@ for (natoms, connectivity, order), vals in data.items():
     aggregated[key]["rt_wall"] += vals["rt_wall"]
 
 connectivities = sorted({c for _, c in aggregated})
-connectivities = [c for c in connectivities if c not in ("square", "all-to-all")]
+connectivities = [c for c in connectivities if c not in ("all-to-all")]
 natoms_all     = sorted({n for n, _ in aggregated})
 
 # ── Load CCSD energies from hamiltonian caches ────────────────────────────────
@@ -114,7 +114,7 @@ ax1.set_xlabel("Number of H atoms")
 ax1.set_ylabel("Energy (Ha)")
 ax1.set_title("H chain: LUCJ expectation value vs CCSD")
 ax1.set_xlim(left=0)
-ax1.legend()
+ax1.legend(loc='best')
 fig1.tight_layout()
 fig1.savefig(out_energy, dpi=150, bbox_inches="tight")
 print(f"Saved {out_energy}")
@@ -135,7 +135,7 @@ ax2.set_xlabel("Number of H atoms")
 ax2.set_ylabel("Total wall time (hours)")
 ax2.set_title("H chain: total wall time for full propagation")
 ax2.set_xlim(left=0)
-ax2.legend()
+ax2.legend(loc='best')
 fig2.tight_layout()
 fig2.savefig(out_runtime, dpi=150, bbox_inches="tight")
 print(f"Saved {out_runtime}")
