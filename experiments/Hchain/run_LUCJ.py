@@ -41,7 +41,7 @@ parser.add_argument("--connectivity", type=str,   default="heavy-hex", choices=[
 parser.add_argument("--order",        type=int,   default=None,   help="floor(log10|coeff|) bucket to evaluate, e.g. -3 for |c| in [1e-3, 1e-2). Omit to run all orders in descending order.")
 parser.add_argument("--task-id",      type=int,   default=0,      help="0-indexed array task id")
 parser.add_argument("--n-tasks",      type=int,   default=1,      help="total number of array tasks")
-parser.add_argument("--cutoff",       type=float, default=1e-7,   help="coefficient truncation cutoff")
+parser.add_argument("--cutoff",       type=float, default=1e-10,   help="coefficient truncation cutoff")
 parser.add_argument("--n-threads",    type=int,   default=8,      help="number of threads for MajoranaPropagator")
 parser.add_argument("--batch-size",   type=int,   default=1,      help="number of Majorana terms to group into each MajoranaTermSum propagation")
 args = parser.parse_args()
