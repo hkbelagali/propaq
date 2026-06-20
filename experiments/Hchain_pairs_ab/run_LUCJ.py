@@ -21,14 +21,14 @@ from propaq.noise import UniformNoiseModel, TruncationPolicy
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--natoms", type=int,   required=True)
-parser.add_argument("--connectivity", type=str,   required=True, choices=["square", "heavy-hex"])
+parser.add_argument("--connectivity", type=str,   required=True, choices=["square", "heavy-hex", "all-to-all"])
 parser.add_argument("--orbital-cutoff", type=int,   required=True, help="exclusive orbital upper bound used in build_all.py")
 parser.add_argument("--spacing", type=int,   required=True, help="pairs_ab step used in build_all.py")
 parser.add_argument("--order", type=int,   default=None,  help="floor(log10|coeff|) bucket; omit to run all orders")
 parser.add_argument("--task-id", type=int,   default=0)
 parser.add_argument("--n-tasks", type=int,   default=1)
-parser.add_argument("--cutoff", type=float, default=1e-10,  help="coefficient truncation cutoff")
-parser.add_argument("--n-threads", type=int,   default=128)
+parser.add_argument("--cutoff", type=float, default=1e-8,  help="coefficient truncation cutoff")
+parser.add_argument("--n-threads", type=int,   default=64)
 parser.add_argument("--batch-size", type=int,   default=10000)
 args = parser.parse_args()
 
