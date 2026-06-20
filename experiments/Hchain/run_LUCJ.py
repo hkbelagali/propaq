@@ -1,21 +1,5 @@
 """
-run_LUCJ.py — Evaluate observable expectation values using the prebuilt LUCJ circuit,
-              partitioned by order of magnitude of the Hamiltonian coefficients.
-
-    python run_LUCJ.py --natoms N [--order M] [--connectivity C] [--task-id K] [--n-tasks T]
-
---order M selects all Pauli terms whose coefficient satisfies
-    floor(log10(|coeff|)) == M
-e.g. M=-3 picks terms with |coeff| in [1e-3, 1e-2).
-
-If --order is omitted, all orders present in the Hamiltonian are evaluated in descending order.
-
-Requires build_LUCJ.py to have been run first:
-    n{natoms}/{connectivity}/LUCJ_circuit.qpy        — compiled circuit
-    n{natoms}/{connectivity}/hamiltonian_cache.npz   — Pauli terms
-
-Results saved to: results/Hchain_n{natoms}_{connectivity}_o{M}_{K:05d}of{T:05d}.npz
-Propagation parameters (damping, coeff_cutoff) are stored inside each npz.
+Evaluate observable expectation values using the prebuilt LUCJ circuit, partitioned by order of magnitude of the Hamiltonian coefficients.
 """
 
 import argparse
@@ -36,14 +20,14 @@ from propaq.propagators import MajoranaPropagator
 from propaq.noise import UniformNoiseModel, TruncationPolicy
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--natoms",       type=int,   required=True,  help="Number of hydrogen atoms (must match build_LUCJ.py --natoms)")
-parser.add_argument("--connectivity", type=str,   default="heavy-hex", choices=["square", "heavy-hex", "all-to-all"], help="Connectivity topology (must match build_LUCJ.py --connectivity)")
-parser.add_argument("--order",        type=int,   default=None,   help="floor(log10|coeff|) bucket to evaluate, e.g. -3 for |c| in [1e-3, 1e-2). Omit to run all orders in descending order.")
-parser.add_argument("--task-id",      type=int,   default=0,      help="0-indexed array task id")
-parser.add_argument("--n-tasks",      type=int,   default=1,      help="total number of array tasks")
-parser.add_argument("--cutoff",       type=float, default=1e-10,   help="coefficient truncation cutoff")
-parser.add_argument("--n-threads",    type=int,   default=8,      help="number of threads for MajoranaPropagator")
-parser.add_argument("--batch-size",   type=int,   default=1,      help="number of Majorana terms to group into each MajoranaTermSum propagation")
+parser.add_argument("--natoms", type=int, required=True, help="Number of hydrogen atoms (must match build_LUCJ.py --natoms)")
+parser.add_argument("--connectivity", type=str, default="heavy-hex", choices=["square", "heavy-hex", "all-to-all"], help="Connectivity topology (must match build_LUCJ.py --connectivity)")
+parser.add_argument("--order", type=int, default=None, help="floor(log10|coeff|) bucket to evaluate, e.g. -3 for |c| in [1e-3, 1e-2). Omit to run all orders in descending order.")
+parser.add_argument("--task-id", type=int, default=0, help="0-indexed array task id")
+parser.add_argument("--n-tasks", type=int, default=1, help="total number of array tasks")
+parser.add_argument("--cutoff", type=float, default=1e-10, help="coefficient truncation cutoff")
+parser.add_argument("--n-threads", type=int, default=128, help="number of threads for MajoranaPropagator")
+parser.add_argument("--batch-size", type=int, default=1, help="number of Majorana terms to group into each MajoranaTermSum propagation")
 args = parser.parse_args()
 natoms:       int   = args.natoms
 connectivity: str   = args.connectivity

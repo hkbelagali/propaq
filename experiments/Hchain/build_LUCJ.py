@@ -84,7 +84,6 @@ t1 = ccsd.t1
 t2 = ccsd.t2
 e_ccsd = ccsd.e_tot
 
-# Pass the Hamiltonian as plain arrays so it survives multiprocessing pickling
 ham_labels = hamiltonian.paulis.to_labels()
 ham_coeffs = hamiltonian.coeffs.real.copy()
 

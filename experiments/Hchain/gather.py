@@ -1,12 +1,6 @@
 """
-gather.py — Aggregate per-task npz files into one per-order file in refined_data/.
+Aggregate per-task npz files into one per-order file in refined_data/.
 
-    python gather.py --natoms N [--connectivity C] [--results-dir results] [--refined-dir refined_data]
-
-Reads:  results/Hchain_n{natoms}_{connectivity}_o{order}_{K:05d}of{T:05d}.npz
-Writes: refined_data/Hchain_n{natoms}_{connectivity}_o{order}.npz
-
-Fields in each refined_data file:
     ev_sum            — total expectation value contribution for this order bucket
     values            — all per-monomial EVs concatenated (present tasks, by task_id)
     n_tasks           — total expected task count
@@ -44,7 +38,6 @@ NPZ_RE = re.compile(
     rf"Hchain_n{natoms}_{re.escape(connectivity)}_o(-?\d+)_(\d{{5}})of(\d{{5}})\.npz$"
 )
 
-
 def _compress_ids(ids: list[int]) -> str:
     """Convert a sorted list of ints to SLURM range notation, e.g. [0,1,2,5] -> '0-2,5'."""
     if not ids:
@@ -60,16 +53,12 @@ def _compress_ids(ids: list[int]) -> str:
     parts.append(f"{start}-{end}" if end > start else str(start))
     return ",".join(parts)
 
-
 def _fmt_time(sec: float) -> str:
     if np.isnan(sec):
         return "—"
     h, rem = divmod(int(sec), 3600)
     m, s   = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-
-
-# ── Hamiltonian cache: ECORE and per-order |c| mass ──────────────────────────
 
 ecore: float | None = None
 e_ccsd: float | None = None
@@ -91,9 +80,6 @@ if cache_path.exists():
 else:
     print(f"WARNING: Hamiltonian cache not found at {cache_path} — ECORE not included")
 
-# ── Load per-task npz files ───────────────────────────────────────────────────
-
-# order -> task_id -> {values, runtime, n_tasks, n_oN_pauli_terms, n_qubits, damping, coeff_cutoff}
 raw: dict[int, dict[int, dict]] = defaultdict(dict)
 
 for path in RESULTS_DIR.glob(f"Hchain_n{natoms}_{connectivity}_o*.npz"):
@@ -104,14 +90,14 @@ for path in RESULTS_DIR.glob(f"Hchain_n{natoms}_{connectivity}_o*.npz"):
     try:
         d = np.load(path, allow_pickle=False)
         raw[order][tid] = {
-            "values":           np.asarray(d["values"], dtype=float),
-            "runtime":          np.atleast_1d(np.asarray(d["runtime_seconds"], dtype=float))
+            "values": np.asarray(d["values"], dtype=float),
+            "runtime": np.atleast_1d(np.asarray(d["runtime_seconds"], dtype=float))
                                 if "runtime_seconds" in d else np.array([], dtype=float),
-            "n_tasks":          ntasks,
+            "n_tasks": ntasks,
             "n_oN_pauli_terms": int(d["n_oN_pauli_terms"]) if "n_oN_pauli_terms" in d else -1,
-            "n_qubits":         int(d["n_qubits"])          if "n_qubits"          in d else -1,
-            "damping":          float(d["damping"])          if "damping"          in d else None,
-            "coeff_cutoff":     float(d["coeff_cutoff"])     if "coeff_cutoff"     in d else None,
+            "n_qubits": int(d["n_qubits"])          if "n_qubits"          in d else -1,
+            "damping": float(d["damping"])          if "damping"          in d else None,
+            "coeff_cutoff": float(d["coeff_cutoff"])     if "coeff_cutoff"     in d else None,
         }
     except Exception as e:
         print(f"WARNING: could not read {path.name}: {e}")
@@ -121,8 +107,6 @@ if not raw:
         f"No matching npz files found in {RESULTS_DIR} for "
         f"H{natoms} ({connectivity}). Run run_LUCJ.py jobs first."
     )
-
-# ── Aggregate and save refined_data/ ─────────────────────────────────────────
 
 REFINED_DIR.mkdir(exist_ok=True)
 
@@ -161,16 +145,16 @@ for order in sorted(raw, reverse=True):
     out_path = REFINED_DIR / f"Hchain_n{natoms}_{connectivity}_o{order}.npz"
     np.savez(
         out_path,
-        ev_sum           = np.float64(ev_sum),
-        values           = values_all,
-        n_tasks          = np.int64(n_tasks),
+        ev_sum = np.float64(ev_sum),
+        values = values_all,
+        n_tasks = np.int64(n_tasks),
         present_task_ids = np.array(present_ids, dtype=np.int64),
         missing_task_ids = np.array(missing_ids, dtype=np.int64),
-        n_qubits         = np.int64(nq),
+        n_qubits = np.int64(nq),
         n_oN_pauli_terms = np.int64(n_oN),
-        runtime_seconds  = runtimes,
-        rt_mean          = np.float64(rt_mean),
-        rt_std           = np.float64(rt_std),
+        runtime_seconds = runtimes,
+        rt_mean = np.float64(rt_mean),
+        rt_std = np.float64(rt_std),
         **({} if damping      is None else {"damping":      np.float64(damping)}),
         **({} if coeff_cutoff is None else {"coeff_cutoff": np.float64(coeff_cutoff)}),
     )
@@ -187,8 +171,6 @@ for order in sorted(raw, reverse=True):
                              present_terms, missing_terms_str, damping, coeff_cutoff)
 
 print(f"Saved {len(order_results)} order file(s) to {REFINED_DIR}/")
-
-# ── Print summary ─────────────────────────────────────────────────────────────
 
 print()
 print(f"H{natoms} ({connectivity})")

@@ -32,9 +32,9 @@ ap.add_argument("--plots-dir", default=None, help="Output directory for plots")
 args = ap.parse_args()
 
 system_dir   = BASE_DIR / args.system
-circuit_path = Path(args.circuit)            if args.circuit            else system_dir / "FeS_LUCJ_circuit.qpy"
-ham_path     = Path(args.hamiltonian_cache)  if args.hamiltonian_cache  else system_dir / "compiled_hamiltonian_cache.npz"
-plots_dir    = Path(args.plots_dir)          if args.plots_dir          else BASE_DIR / "plots"
+circuit_path = Path(args.circuit) if args.circuit else system_dir / "FeS_LUCJ_circuit.qpy"
+ham_path     = Path(args.hamiltonian_cache) if args.hamiltonian_cache else system_dir / "compiled_hamiltonian_cache.npz"
+plots_dir    = Path(args.plots_dir) if args.plots_dir else BASE_DIR / "plots"
 
 with open(circuit_path, "rb") as f:
     compiled = qpy.load(f)[0]
@@ -45,17 +45,13 @@ hamiltonian = SparsePauliOp.from_list(
 )
 hamiltonian_physical = hamiltonian
 
-
 def plot_pauli_weight_distribution(hamiltonian: SparsePauliOp):
     paulis = hamiltonian.paulis.to_labels()
 
-    # Compute weight = number of non-'I'
     weights = [sum(1 for p in label if p != "I") for label in paulis]
 
-    # Count occurrences per weight
     weight_counts = Counter(weights)
 
-    # Sort by weight
     max_weight = max(weight_counts.keys())
     x = np.arange(max_weight + 1)
     y = np.array([weight_counts.get(i, 0) for i in x])
@@ -77,12 +73,10 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
     labels = hamiltonian.paulis.to_labels()
     coeffs = np.real(hamiltonian.coeffs)
 
-    # Containers per weight
     sum_per_weight = defaultdict(float)
     abs_sum_per_weight = defaultdict(float)
     count_per_weight = defaultdict(int)
 
-    # Accumulate stats
     for label, coeff in zip(labels, coeffs):
         weight = sum(1 for p in label if p != "I")
 
@@ -90,7 +84,6 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
         abs_sum_per_weight[weight] += abs(coeff)
         count_per_weight[weight] += 1
 
-    # Prepare arrays
     max_w = max(count_per_weight.keys())
     weights = np.arange(max_w + 1)
 
@@ -109,14 +102,12 @@ def plot_weight_statistics(hamiltonian: SparsePauliOp):
     # Plot
     fig, ax = plt.subplots(1, 2, figsize=(10, 4))
 
-    # 1. Average absolute coefficient magnitude
     ax[0].bar(weights, avg_abs)
     ax[0].set_title("Average |Coefficient| per Pauli Weight")
     ax[0].set_xlabel("Pauli weight")
     ax[0].set_ylabel("Average |coeff|")
     ax[0].set_yscale("log")  # useful for chemistry Hamiltonians
 
-    # 2. Sum of coefficients (signed)
     ax[1].bar(weights, sum_coeffs)
     ax[1].set_title("Absolute Sum of Coefficients per Pauli Weight")
     ax[1].set_xlabel("Pauli weight")
@@ -151,7 +142,6 @@ for term, coeff in observable.items():
         non_np_mass[w] += mass
         non_np_count[w] += 1
 
-# --- Plot ---
 all_weights = sorted(set(list(np_mass.keys()) + list(non_np_mass.keys())))
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -260,65 +250,6 @@ def plot_coeff_magnitude_distribution(observable: "MajoranaTermSum"):
         row = f"10^{o:>4} | {total:>8} | " + " | ".join(f"{counts[o][w]:>5}" for w in all_weights)
         print(row)
 
-
-def worst_case_decay_threshold(cutoff: float = 1e-10):
-    """
-    Compute the highest initial coefficient that COULD be decayed below `cutoff`.
-
-    In Heisenberg propagation, each Majorana rotation with angle α multiplies an
-    anticommuting term's coefficient by cos(α).  A term anticommuting with EVERY
-    rotation is the worst case; its coefficient becomes C × ∏ cos(αᵢ).
-
-    For that to fall below the cutoff:  C < cutoff / ∏|cos(αᵢ)|
-
-    Notes
-    -----
-    - SWAP (angles ±π/2) and X (angle π) are Clifford: their cos factors are 0 and
-      -1 respectively, but the is_intermediate flag means truncation is deferred
-      until the full gate completes, so they cannot actually prune terms.  We
-      exclude their contributions here.
-    - The product over all non-Clifford rotations gives the true worst-case decay.
-    """
-    mc = MajoranaCircuit.from_qiskit(compiled.copy(), n_modes=2 * compiled.num_qubits)
-
-    CLIFFORD_THRESHOLD = 1e-6   # |sin(α)| ≈ 0 → rotation is near-trivial or Clifford
-
-    log_decay = 0.0             # accumulate Σ log|cos(α)|
-    n_rotations = 0
-    n_clifford_skipped = 0
-
-    for rot in mc.rotations:
-        a = rot.angle
-        c = abs(np.cos(a))
-        s = abs(np.sin(a))
-        if s < CLIFFORD_THRESHOLD:
-            # Essentially a Z-rotation (no branching): sign flip only, no decay
-            n_clifford_skipped += 1
-            continue
-        if c < CLIFFORD_THRESHOLD:
-            # Clifford (SWAP-type): intermediate step, no actual pruning possible
-            n_clifford_skipped += 1
-            continue
-        log_decay += np.log10(c)
-        n_rotations += 1
-
-    total_decay_log10 = log_decay            # negative number
-    threshold_log10   = np.log10(cutoff) - total_decay_log10
-
-    print(f"\n=== Worst-case decay analysis ===")
-    print(f"  Non-trivial Majorana rotations : {n_rotations}")
-    print(f"  Clifford/trivial (skipped)     : {n_clifford_skipped}")
-    print(f"  Total log10(∏|cos(αᵢ)|)       : {total_decay_log10:.2f}  "
-          f"(∏|cos| ≈ 10^{total_decay_log10:.0f})")
-    print(f"  Cutoff                         : {cutoff:.0e}")
-    print(f"  Threshold = cutoff / ∏|cos|    : 10^{threshold_log10:.1f}")
-    print(f"\n  Any starting coefficient below 10^{threshold_log10:.1f} "
-          f"could in principle be decayed\n  below the {cutoff:.0e} cutoff if it "
-          f"anticommutes with every rotation.")
-
-    return threshold_log10
-
-
 if __name__ == "__main__":
     plots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -326,4 +257,3 @@ if __name__ == "__main__":
     weight_counts = plot_pauli_weight_distribution(hamiltonian_physical)
     weight_stats = plot_weight_statistics(hamiltonian_physical)
     plot_coeff_magnitude_distribution(observable)
-    worst_case_decay_threshold(cutoff=1e-10)
