@@ -1,6 +1,5 @@
 """Circuit representation for circuits in the Majorana representation."""
 
-from typing import List
 
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
@@ -23,32 +22,32 @@ class MajoranaCircuit:
 
     def __init__(
         self,
-        rotations_or_layers: List[MajoranaRotation] | List[List[MajoranaRotation]],
+        rotations_or_layers: list[MajoranaRotation] | list[list[MajoranaRotation]],
         n_modes: int,
     ):
         if rotations_or_layers and isinstance(rotations_or_layers[0], list):
-            self._layers: List[List[MajoranaRotation]] = rotations_or_layers
+            self._layers: list[list[MajoranaRotation]] = rotations_or_layers
         else:
             self._layers = [[r] for r in rotations_or_layers]
         self.n_modes = n_modes
 
     @property
-    def layers(self) -> List[List[MajoranaRotation]]:
+    def layers(self) -> list[list[MajoranaRotation]]:
         """
         The layers of the circuit, where each layer is a list of parameterized gates that can be applied in parallel.
         """
         return self._layers
 
     @property
-    def rotations(self) -> List[MajoranaRotation]:
+    def rotations(self) -> list[MajoranaRotation]:
         """The flat list of all rotations in the circuit, in the order they are applied."""
         return [r for layer in self._layers for r in layer]
 
     @classmethod
     def from_generators_and_angles(
         cls,
-        generators: List[MajoranaMonomial],
-        angles: List[float],
+        generators: list[MajoranaMonomial],
+        angles: list[float],
         n_modes: int,
     ):
         """

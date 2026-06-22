@@ -1,6 +1,5 @@
 """Circuit representation for circuits in the Pauli representation."""
 
-from typing import List
 
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
@@ -21,22 +20,22 @@ class PauliCircuit:
 
     def __init__(
         self,
-        rotations_or_layers: List[PauliRotation] | List[List[PauliRotation]],
+        rotations_or_layers: list[PauliRotation] | list[list[PauliRotation]],
     ):
         if rotations_or_layers and isinstance(rotations_or_layers[0], list):
-            self._layers: List[List[PauliRotation]] = rotations_or_layers
+            self._layers: list[list[PauliRotation]] = rotations_or_layers
         else:
             self._layers = [[r] for r in rotations_or_layers]  # type: ignore[arg-type]
 
     @property
-    def layers(self) -> List[List[PauliRotation]]:
+    def layers(self) -> list[list[PauliRotation]]:
         """
         The layers of the circuit, where each layer is a list of parameterized gates that can be applied in parallel.
         """
         return self._layers
 
     @property
-    def rotations(self) -> List[PauliRotation]:
+    def rotations(self) -> list[PauliRotation]:
         """The flat list of all rotations in the circuit, in the order they are applied."""
         return [r for layer in self._layers for r in layer]
 
