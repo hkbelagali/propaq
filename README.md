@@ -1,5 +1,5 @@
 # propaq
-
+[![Docs](https://img.shields.io/badge/docs-hkbelagali.github.io/propaq-blue)](https://hkbelagali.github.io/propaq)
 [![CI](https://github.com/hkbelagali/propaq/actions/workflows/workflow.yml/badge.svg)](https://github.com/hkbelagali/propaq/actions/workflows/workflow.yml)
 [![PyPI](https://img.shields.io/pypi/v/propaq)](https://pypi.org/project/propaq/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -69,10 +69,6 @@ print("Expectation value:", result.expectation_value)
 ```
 
 For a more detailed introduction, see the example notebooks in the documentation.
-
-## Documentation
-
-Full API reference and example notebooks: https://hkbelagali.github.io/propaq
 
 ## Citation
 
