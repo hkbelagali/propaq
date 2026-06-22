@@ -12,19 +12,28 @@ from propaq.noise import UniformNoiseModel
 @dataclass
 class ZNEResult:
     zero_noise_value: float
+    """Extrapolated expectation value at zero noise."""
+
     noise_values: list[float]
+    """Noise values used in the extrapolation."""
     expectation_values: list[float]
+    """Expected values at each noise level."""
     fit_params: np.ndarray
+    """Fitted parameters."""
     fit_covariance: np.ndarray
+    """Covariance matrix of the fitted parameters."""
 
 
 class ZeroNoiseExtrapolator:
-    """Zero-noise extrapolation via curve fitting.
-
-    Args:
-        fitting_fn: Model function f(x, *params) passed to scipy.optimize.curve_fit.
-        noise_values: Noise (damping) values to evaluate the propagator at.
     """
+    Zero-noise extrapolation via curve fitting.
+    """
+
+    fitting_fn: Callable
+    """Function to fit to the noise vs. expectation value data, passed to scipy.optimize.curve_fit."""
+
+    noise_values: list[float]
+    """Noise values to sweep over for the extrapolation."""
 
     def __init__(self, fitting_fn: Callable, noise_values: list[float]) -> None:
         self.fitting_fn = fitting_fn
@@ -40,12 +49,15 @@ class ZeroNoiseExtrapolator:
     ) -> ZNEResult:
         """Sweep noise levels, fit, and extrapolate to zero noise.
 
-        Args:
+        Arguments:
             propagator: A MajoranaPropagator or PauliPropagator instance.
             observable: The observable to measure.
             circuit: The circuit to propagate.
             fock_state: Initial state index (default 0).
             **curve_fit_kwargs: Forwarded to scipy.optimize.curve_fit (e.g. p0=).
+
+        Returns:
+            A ZNEResult containing the extrapolated zero-noise value and fit details.
         """
         original_noise = propagator.noise
         try:

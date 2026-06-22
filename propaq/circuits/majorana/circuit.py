@@ -1,5 +1,6 @@
-"""Circuit representation for fermionic circuits in the Majorana representation."""
+"""Circuit representation for circuits in the Majorana representation."""
 
+from typing import List
 
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
@@ -10,35 +11,57 @@ from .rotation import MajoranaRotation
 
 
 class MajoranaCircuit:
-    """Class representing a circuit in the Majorana representation."""
+    """
+    Class representing a circuit in the Majorana representation.
+    
+    The circuit is represented as a list of layers, where each layer is a list of 
+    gates that can be applied in parallel.
+    """
+
+    n_modes: int
+    """The number of Majorana modes in the circuit."""
 
     def __init__(
         self,
-        rotations_or_layers: list[MajoranaRotation] | list[list[MajoranaRotation]],
+        rotations_or_layers: List[MajoranaRotation] | List[List[MajoranaRotation]],
         n_modes: int,
     ):
         if rotations_or_layers and isinstance(rotations_or_layers[0], list):
-            self._layers: list[list[MajoranaRotation]] = rotations_or_layers
+            self._layers: List[List[MajoranaRotation]] = rotations_or_layers
         else:
             self._layers = [[r] for r in rotations_or_layers]
         self.n_modes = n_modes
 
     @property
-    def layers(self) -> list[list[MajoranaRotation]]:
+    def layers(self) -> List[List[MajoranaRotation]]:
+        """
+        The layers of the circuit, where each layer is a list of parameterized gates that can be applied in parallel.
+        """
         return self._layers
 
     @property
-    def rotations(self) -> list[MajoranaRotation]:
+    def rotations(self) -> List[MajoranaRotation]:
+        """The flat list of all rotations in the circuit, in the order they are applied."""
         return [r for layer in self._layers for r in layer]
 
     @classmethod
     def from_generators_and_angles(
         cls,
-        generators: list[MajoranaMonomial],
-        angles: list[float],
+        generators: List[MajoranaMonomial],
+        angles: List[float],
         n_modes: int,
     ):
-        """Construct a MajoranaCircuit from lists of generators and angles."""
+        """
+        Construct a MajoranaCircuit from lists of generators and angles.
+        
+        Arguments:
+            generators: A list of MajoranaMonomials.
+            angles: A list of angles.
+            n_modes: The number of Majorana modes in the system.
+
+        Returns:
+            A MajoranaCircuit initialized with the given generators and angles.
+        """
         rotations = [MajoranaRotation(gen, angle) for gen, angle in zip(generators, angles)]
         return cls(rotations, n_modes)
 
@@ -47,21 +70,17 @@ class MajoranaCircuit:
         """
         Construct a MajoranaCircuit from a Qiskit QuantumCircuit.
 
-        For our purposes, we only need xx_plus_yy, p, cp, x, and swap gates.
-        We will raise a ValueError for anything else, since those will require
-        JW transformations carrying high Pauli weight.
-
-        Here, each of the supported gates will be translated into a MajoranaTermSum of
-        MajoranaMonomials, which will then be converted into MajoranaRotations.
-
-        Layers are taken directly from the circuit DAG: gates with no data dependency
-        between them appear in the same layer.  Within each multi-rotation gate
-        decomposition, all rotations except the last carry is_intermediate=True so
-        truncation is deferred until the full gate has been applied.
+        ### TODO: 
+        Currently, only a subset of Qiskit gates are supported. Supported gates 
+        include those that arise in the Local Unitary Cluster Jastrow (LUCJ) ansatz. 
+        However, we hope to extend this to a more general set of gates in the future.
 
         Arguments:
             qc: A Qiskit QuantumCircuit to convert.
             n_modes: The number of Majorana modes in the system.
+
+        Returns:
+            A MajoranaCircuit initialized with the given Qiskit circuit.
         """
         def _mark_intermediate(rots: list[MajoranaRotation]) -> list[MajoranaRotation]:
             for i, rot in enumerate(rots):

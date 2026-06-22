@@ -1,4 +1,3 @@
-from ._logger import Logger as Logger
 from ._majorana_monomial import MajoranaMonomial as MajoranaMonomial
 from ._majorana_propagator import MajoranaPropagator as MajoranaPropagator
 from ._majorana_propagator import PropagationResult as PropagationResult
