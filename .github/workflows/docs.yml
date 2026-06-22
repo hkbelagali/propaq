@@ -24,7 +24,7 @@ jobs:
       - name: Install propaq and docs dependencies
         run: pip install .[dev,docs]
       - name: Build docs
-        run: pdoc --output-dir --math --docformat google _site propaq
+        run: pdoc --math --docformat google --output-dir _site propaq
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
