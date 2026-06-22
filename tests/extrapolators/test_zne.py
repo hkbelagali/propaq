@@ -4,9 +4,9 @@ import pytest
 from propaq.circuits import MajoranaCircuit
 from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
+from propaq.extrapolators import ZeroNoiseExtrapolator, ZNEResult
 from propaq.noise import UniformNoiseModel
 from propaq.propagators.majorana import MajoranaPropagator
-from propaq.extrapolators import ZeroNoiseExtrapolator, ZNEResult
 
 N = 8
 

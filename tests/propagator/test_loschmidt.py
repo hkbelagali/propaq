@@ -1,13 +1,14 @@
 """
 Use a Loschmidt echo to test that the Majorana propagator is correctly implemented. 
 """
-import numpy as np 
+import numpy as np
 
+from propaq.circuits import MajoranaCircuit
 from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
-from propaq.circuits import MajoranaCircuit 
 from propaq.noise import TruncationPolicy
-from propaq.propagators.majorana import MajoranaPropagator 
+from propaq.propagators.majorana import MajoranaPropagator
+
 
 def test_loschmidt_echo(): 
     """Test that applying a circuit and then its inverse returns the original observable."""

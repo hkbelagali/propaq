@@ -1,6 +1,7 @@
 from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, List
 
 import numpy as np
 from scipy.optimize import curve_fit
@@ -11,8 +12,8 @@ from propaq.noise import UniformNoiseModel
 @dataclass
 class ZNEResult:
     zero_noise_value: float
-    noise_values: List[float]
-    expectation_values: List[float]
+    noise_values: list[float]
+    expectation_values: list[float]
     fit_params: np.ndarray
     fit_covariance: np.ndarray
 
@@ -25,7 +26,7 @@ class ZeroNoiseExtrapolator:
         noise_values: Noise (damping) values to evaluate the propagator at.
     """
 
-    def __init__(self, fitting_fn: Callable, noise_values: List[float]) -> None:
+    def __init__(self, fitting_fn: Callable, noise_values: list[float]) -> None:
         self.fitting_fn = fitting_fn
         self.noise_values = list(noise_values)
 

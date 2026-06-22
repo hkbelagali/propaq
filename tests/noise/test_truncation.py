@@ -1,4 +1,3 @@
-import pytest
 
 from propaq.noise.truncation import TruncationPolicy
 

@@ -1,15 +1,15 @@
 """Datatype representing a sum of Pauli terms."""
 
 import math
-from typing import Generic, List, TypeVar
+from typing import Generic, TypeVar
 
 from qiskit.circuit import Instruction
 from qiskit.quantum_info import SparsePauliOp
 
-from .pauli import PauliString
-from .._abstract import BitMask
-
 from propaq._rust_core import PauliTermSum as _RustPauliTermSum
+
+from .._abstract import BitMask
+from .pauli import PauliString
 
 T = TypeVar("T")
 
@@ -19,7 +19,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_xx_plus_yy(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from an XX+YY gate between qubits q_indices[0] and q_indices[1].
@@ -41,7 +41,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_phase(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from a phase gate on qubit q_indices[0].
@@ -70,7 +70,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_rz(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from an RZ gate (delegates to from_phase).
@@ -84,7 +84,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_cp(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from a controlled-phase gate between q_indices[0] and q_indices[1].
@@ -109,7 +109,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_swap(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from a SWAP gate between q_indices[0] and q_indices[1].
@@ -131,7 +131,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_x(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from an X gate on qubit q_indices[0].

@@ -1,5 +1,7 @@
 import pytest
+
 from propaq.datatypes import PauliString
+
 
 def X(qubit=0, n_qubits=1):
     return PauliString(1 << qubit, z=0, n_qubits=n_qubits)

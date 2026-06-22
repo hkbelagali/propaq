@@ -1,14 +1,13 @@
 """Circuit representation for Pauli propagation."""
 
-from typing import List, Union
 
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
 
 from ...datatypes.pauli.pauli import PauliString
 from ...datatypes.pauli.termsum import PauliTermSum
-from .rotation import PauliRotation
 from .._utils import compound_gate_reversed as _compound_gate_reversed
+from .rotation import PauliRotation
 
 
 class PauliCircuit:
@@ -20,26 +19,26 @@ class PauliCircuit:
 
     def __init__(
         self,
-        rotations_or_layers: Union[List[PauliRotation], List[List[PauliRotation]]],
+        rotations_or_layers: list[PauliRotation] | list[list[PauliRotation]],
     ):
         if rotations_or_layers and isinstance(rotations_or_layers[0], list):
-            self._layers: List[List[PauliRotation]] = rotations_or_layers
+            self._layers: list[list[PauliRotation]] = rotations_or_layers
         else:
             self._layers = [[r] for r in rotations_or_layers]  # type: ignore[arg-type]
 
     @property
-    def layers(self) -> List[List[PauliRotation]]:
+    def layers(self) -> list[list[PauliRotation]]:
         return self._layers
 
     @property
-    def rotations(self) -> List[PauliRotation]:
+    def rotations(self) -> list[PauliRotation]:
         return [r for layer in self._layers for r in layer]
 
     @classmethod
     def from_generators_and_angles(
         cls,
-        generators: List[PauliString],
-        angles: List[float],
+        generators: list[PauliString],
+        angles: list[float],
     ) -> "PauliCircuit":
         """Construct a PauliCircuit from lists of Pauli generators and rotation angles."""
         rotations = [PauliRotation(gen, angle) for gen, angle in zip(generators, angles)]
@@ -55,15 +54,15 @@ class PauliCircuit:
         """
         n_qubits = qc.num_qubits
 
-        def _mark_intermediate(rots: List[PauliRotation]) -> List[PauliRotation]:
+        def _mark_intermediate(rots: list[PauliRotation]) -> list[PauliRotation]:
             for i, rot in enumerate(rots):
                 rot.is_intermediate = i < len(rots) - 1
             return rots
 
-        all_layers: List[List[PauliRotation]] = []
+        all_layers: list[list[PauliRotation]] = []
 
         for layer in circuit_to_dag(qc).layers():
-            layer_rots: List[PauliRotation] = []
+            layer_rots: list[PauliRotation] = []
             for node in layer["graph"].topological_op_nodes():
                 instr = node.op
                 qargs = node.qargs
@@ -83,7 +82,7 @@ class PauliCircuit:
                         raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
                     beta = float(instr.params[1]) if len(instr.params) > 1 else 0.0
 
-                    rots: List[PauliRotation] = []
+                    rots: list[PauliRotation] = []
                     if abs(beta) > 1e-14:
                         rz_sum = PauliTermSum[PauliString].from_rz_angle(
                             q_indices[1], -beta, n_qubits

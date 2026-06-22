@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -25,7 +24,7 @@ class TruncationEvent:
     terms_discarded: int
     discarded_coeff_l1: float
     discarded_coeff_max: float
-    weight_cutoff: Optional[int]
+    weight_cutoff: int | None
     coeff_cutoff: float
 
 

@@ -1,11 +1,9 @@
 import pytest
-
 from qiskit.quantum_info import SparsePauliOp
 
-from propaq.datatypes import MajoranaTermSum, MajoranaMonomial
+from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
 from propaq.noise.truncation import TruncationPolicy
 from propaq.noise.uniform import UniformNoiseModel
-
 
 # n_modes=8 gives 4 fermionic sites; enough for all tests below.
 N = 8
