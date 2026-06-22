@@ -8,7 +8,17 @@ use propaq_core::bitset::Bitset;
 use propaq_core::helpers::{pyint_to_bitset, bitset_to_pyint};
 use propaq_core::traits::AbstractTerm;
 
-#[pyclass]
+/// An n-qubit Pauli operator encoded as two integer bitmasks.
+///
+/// `x` and `z` together encode the single-qubit Pauli on each qubit:
+///
+/// 00 -> I, 01 -> X, 10 -> Z, 11 -> Y
+///
+/// Arguments:
+///     x: Integer bitmask where bit k is set if qubit k has an X or Y component.
+///     z: Integer bitmask where bit k is set if qubit k has a Z or Y component.
+///     n_qubits: Total number of qubits in the system.
+#[pyclass(module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct PauliString {
     pub x: Bitset,
@@ -69,6 +79,12 @@ impl PauliString {
 
 #[pymethods]
 impl PauliString {
+    /// Construct a Pauli monomial from X and Z bitmasks.
+    ///
+    /// Arguments:
+    ///     x: Integer bitmask where bit k is set if qubit k has an X or Y component.
+    ///     z: Integer bitmask where bit k is set if qubit k has a Z or Y component.
+    ///     n_qubits: Total number of qubits in the system.
     #[new]
     #[pyo3(signature = (x, z, n_qubits))]
     fn new(x: &Bound<'_, PyAny>, z: &Bound<'_, PyAny>, n_qubits: usize) -> PyResult<Self> {
@@ -78,33 +94,66 @@ impl PauliString {
         Ok(PauliString { x: x_bits, z: z_bits, n_qubits, weight })
     }
 
+    /// X-component bitmask as a Python int.
     #[getter]
     fn x(&self, py: Python<'_>) -> PyResult<PyObject> {
         bitset_to_pyint(py, &self.x)
     }
 
+    /// Z-component bitmask as a Python int.
     #[getter]
     fn z(&self, py: Python<'_>) -> PyResult<PyObject> {
         bitset_to_pyint(py, &self.z)
     }
 
+    /// @private
+    #[getter]
+    fn n_qubits(&self) -> usize { 
+        self.n_qubits
+    }
+
+    /// Number of non-identity single-qubit Pauli operators (popcount of x | z).
     #[getter]
     fn weight(&self) -> u32 {
         self.weight
     }
 
+    /// Return True if this Pauli string commutes with *other*.
+    ///
+    /// Two Pauli strings commute iff the number of positions where they
+    /// anticommute is even.
+    ///
+    /// Arguments:
+    ///     other: Another PauliString to check commutation with.
+    ///
+    /// Returns:
+    ///    True if self and other commute, False otherwise. 
     fn commutes_with(&self, other: &PauliString) -> bool {
         self.commutes_with_impl(other)
     }
 
+    /// Multiply two Pauli strings, returning (phase, product).
+    ///
+    /// The phase factor is in {1, i, -1, -i}. Phase and monomial are returned
+    /// separately so that equal monomials (modulo phase) hash identically.
     fn __matmul__(&self, other: &PauliString) -> PyResult<(Complex64, PauliString)> {
         Ok(self.matmul_impl(other))
     }
 
+    /// Compute $\langle \psi | P | \psi \rangle$ for this Pauli string P.
+    ///
+    /// Returns 0.0 if P has any X or Y components (off-diagonal).
+    /// For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.
+    ///
+    /// Arguments:
+    ///     fock_state: Computational basis state as a bitstring integer.
+    /// Returns:
+    ///     Expectation value of the Pauli string in the given Fock state.
     fn trace_with_fock_state(&self, fock_state: u64) -> f64 {
         self.trace_fock_state_impl(fock_state)
     }
 
+    /// Serialize the monomial as little-endian X bytes concatenated with Z bytes.
     fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         let n_bytes = (self.n_qubits + 7) / 8;
         let mut x_bytes = self.x.to_le_bytes();

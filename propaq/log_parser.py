@@ -8,24 +8,40 @@ from dataclasses import dataclass
 
 @dataclass
 class GateEvent:
+    """Class representing a logged gate application event."""
     gate_idx: int
+    """Index of the gate in the circuit, starting from 0."""
     layer_idx: int
+    """Index of the layer in the circuit, starting from 0."""
     map_terms: int
+    """Number of terms in the hashmaps."""
     outbox_terms: int
+    """Number of terms in the outboxes."""
 
 
 @dataclass
 class TruncationEvent:
+    """Class representing a logged truncation event."""
     gate_idx: int
+    """Index of the gate at which truncation was triggered."""
     layer_idx: int
+    """Index of the layer at which truncation was triggered."""
     trigger: str
+    """Trigger for truncation (e.g. "term_count", "weight_cutoff", "coeff_cutoff")."""
     terms_before: int
+    """Deduplicated term count before truncation."""
     terms_after: int
+    """Term count after truncation."""
     terms_discarded: int
+    """Number of terms discarded."""
     discarded_coeff_l1: float
+    """Sum of |coeff| discarded."""
     discarded_coeff_max: float
+    """Largest |coeff| discarded."""
     weight_cutoff: int | None
+    """Weight cutoff used for truncation, if applicable."""
     coeff_cutoff: float
+    """Coefficient cutoff used for truncation, if applicable."""
 
 
 class LogParser:
@@ -86,6 +102,7 @@ class LogParser:
 
     @property
     def gate_indices(self) -> list[int]:
+        """Indices of gates at which events were logged."""
         return [e.gate_idx for e in self._gate_events]
 
     @property

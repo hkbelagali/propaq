@@ -1,6 +1,10 @@
 use pyo3::prelude::*;
 
-#[pyclass(subclass)]
+/// Exponential damping noise: each term of weight w is scaled by $\exp(-\gamma w)$, where $w$ is the term's Pauli weight.
+///
+/// Arguments:
+///     damping: Damping rate $\gamma$.
+#[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct UniformNoiseModel {
     #[pyo3(get, set)]
@@ -9,44 +13,70 @@ pub struct UniformNoiseModel {
 
 #[pymethods]
 impl UniformNoiseModel {
+    /// Initialize the uniform noise model.
+    ///
+    /// Arguments:
+    ///     damping: Per-weight damping rate $\gamma$. Each term is multiplied by $\exp(-\gamma w)$.
     #[new]
     fn new(damping: f64) -> Self {
         UniformNoiseModel { damping }
     }
 
+    /// Return $\exp(-\gamma w)$: the multiplicative factor applied to a term's coefficient.
+    ///
+    /// Arguments:
+    ///     term_weight: Pauli weight of the term.
+    ///     active_modes: Unused for uniform noise; present for API compatibility.
     fn damping_factor(&self, term_weight: u32, active_modes: u32) -> f64 {
         (-self.damping * term_weight as f64).exp()
     }
 
+    /// Apply uniform damping to all terms in *term_sum* in-place.
+    ///
+    /// Arguments:
+    ///     term_sum: A MajoranaTermSum or PauliTermSum to damp in-place.
     fn apply_noise(&self, py: Python<'_>, term_sum: &Bound<'_, PyAny>) -> PyResult<()> {
         term_sum.call_method1("apply_damping", (self.clone().into_pyobject(py)?, 0u32))?;
         Ok(())
     }
 }
 
-#[pyclass(subclass)]
+/// Noise model that delegates to an inner Python object's damping_factor and apply_noise.
+///
+/// Arguments:
+///     inner: Python object exposing damping_factor(weight, active_modes) -> float
+///            and apply_noise(term_sum) methods.
+#[pyclass(subclass, module = "propaq._rust_core")]
 pub struct GateNoiseModel {
     inner: PyObject,
 }
 
 #[pymethods]
 impl GateNoiseModel {
+    /// Initialize the gate noise model wrapping a custom Python noise object.
+    ///
+    /// Arguments:
+    ///     inner: Python object providing `damping_factor(weight, active_modes) -> float`
+    ///            and `apply_noise(term_sum)` methods.
     #[new]
     fn new(inner: PyObject) -> Self {
         GateNoiseModel { inner }
     }
 
+    /// The wrapped Python noise model object.
     #[getter]
     fn get_inner(&self, py: Python<'_>) -> PyObject {
         self.inner.clone_ref(py)
     }
 
+    /// Delegate to the wrapped model's `damping_factor` method.
     fn damping_factor(&self, py: Python<'_>, term_weight: u32, active_modes: u32) -> PyResult<f64> {
         self.inner
             .call_method1(py, "damping_factor", (term_weight, active_modes))?
             .extract(py)
     }
 
+    /// Delegate to the wrapped model's `apply_noise` method.
     fn apply_noise(&self, py: Python<'_>, term_sum: &Bound<'_, PyAny>) -> PyResult<()> {
         self.inner.call_method1(py, "apply_noise", (term_sum,))?;
         Ok(())

@@ -58,14 +58,6 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         """
         Construct from an XX+YY gate between qubits q_indices[0] and q_indices[1].
 
-        For non-adjacent qubits (|j-i| > 1) the Jordan-Wigner transformation produces
-        a Z-string between the two sites.  The full Majorana generator therefore
-        includes the intermediate mode pairs {2k, 2k+1} for k between lo and hi.
-
-        When the gate qubit order is reversed (i > j) or the gap is even, the
-        rotation angle sign flips because X_lo X_hi + Y_lo Y_hi = i^{2d-1} * G_string
-        where d = hi - lo.
-
         Arguments:
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
@@ -122,9 +114,13 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
 
     @classmethod
     def from_rz_angle(cls, q: int, angle: float, n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
-        """Construct from a raw Rz rotation angle (not an Instruction object).
+        """
+        Construct from a raw Rz rotation angle.
 
-        Equivalent to from_phase with params[0] = angle on qubit q.
+        Arguments:
+            q: The index of the qubit the gate acts on.
+            angle: The rotation angle in radians.
+            n_modes: The total number of Majorana modes in the system.
         """
         term_sum = cls()
         modes_n = BitMask((1 << (2 * q)) | (1 << (2 * q + 1)))
@@ -137,7 +133,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
-        Construct from an RZ gate (delegates to from_phase).
+        Construct from an RZ gate.
 
         Arguments:
             instr: The instruction representing the gate.
@@ -180,14 +176,6 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a SWAP gate between q_indices[0] and q_indices[1].
-
-        SWAP = exp(-i pi/4 XX) · exp(-i pi/4 YY) · exp(-i pi/4 ZZ) (up to global phase).
-        For non-adjacent qubits the XX and YY generators carry a JW string over all
-        intermediate site pairs, just as in from_xx_plus_yy.  The ZZ generator is
-        purely local (no JW string).
-
-        When the gap d = hi - lo is even, i^{2d-1} = -i, so the rotation angles for
-        the hopping generators flip sign relative to the odd-gap case.
 
         Arguments:
             instr: The instruction representing the gate.
@@ -246,22 +234,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a SparsePauliOp via the Jordan-Wigner inverse transform.
-
-        Each qubit either contriutes no Majoranas, one Majorana, or two Majorana modes depending 
-        on its structure. 
-
-        We need to keep track of the Z parity as we iterate through the qubits to ensure 
-        we map Z-strings to the correct Majorana modes and apply the correct phase factors.
-
-        If we are inside a Z-string, then:
-         
-        I maps to Majorana modes 2q and 2q+1.
-        X maps to an unpaired Majorana, whose index depends on the Z parity. (2q if even, 2q+1 if odd)
-        Y maps to an unpaired Majorana, whose index depends on the Z parity, (2q+1 if even, 2q if odd) 
-          and contributes an additional -i phase.
-        Z maps to Majorana modes 2q and 2q+1 and contributes an additional i phase when the Z parity is even.
-        The odd case is handled by string.
-
+        
         Arguments:
             op: The SparsePauliOp to convert.
 

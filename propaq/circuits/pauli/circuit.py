@@ -1,5 +1,6 @@
-"""Circuit representation for Pauli propagation."""
+"""Circuit representation for circuits in the Pauli representation."""
 
+from typing import List
 
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
@@ -11,27 +12,32 @@ from .rotation import PauliRotation
 
 
 class PauliCircuit:
-    """A quantum circuit expressed as a sequence of Pauli-string rotations.
-
-    Unlike MajoranaCircuit, no Jordan-Wigner transform is required — generators
-    are Pauli strings (PauliString) supplied directly by the caller.
+    """
+    Class representing a circuit in the Pauli representation.
+    
+    The circuit is represented as a list of layers, where each layer is a list of 
+    gates that can be applied in parallel.
     """
 
     def __init__(
         self,
-        rotations_or_layers: list[PauliRotation] | list[list[PauliRotation]],
+        rotations_or_layers: List[PauliRotation] | List[List[PauliRotation]],
     ):
         if rotations_or_layers and isinstance(rotations_or_layers[0], list):
-            self._layers: list[list[PauliRotation]] = rotations_or_layers
+            self._layers: List[List[PauliRotation]] = rotations_or_layers
         else:
             self._layers = [[r] for r in rotations_or_layers]  # type: ignore[arg-type]
 
     @property
-    def layers(self) -> list[list[PauliRotation]]:
+    def layers(self) -> List[List[PauliRotation]]:
+        """
+        The layers of the circuit, where each layer is a list of parameterized gates that can be applied in parallel.
+        """
         return self._layers
 
     @property
-    def rotations(self) -> list[PauliRotation]:
+    def rotations(self) -> List[PauliRotation]:
+        """The flat list of all rotations in the circuit, in the order they are applied."""
         return [r for layer in self._layers for r in layer]
 
     @classmethod
@@ -39,8 +45,17 @@ class PauliCircuit:
         cls,
         generators: list[PauliString],
         angles: list[float],
-    ) -> "PauliCircuit":
-        """Construct a PauliCircuit from lists of Pauli generators and rotation angles."""
+    ):
+        """
+        Construct a PauliCircuit from lists of generators and angles.
+        
+        Arguments:
+            generators: A list of PauliStrings.
+            angles: A list of angles.
+
+        Returns:
+            A PauliCircuit initialized with the given generators and angles.
+        """
         rotations = [PauliRotation(gen, angle) for gen, angle in zip(generators, angles)]
         return cls(rotations)
 
@@ -49,8 +64,16 @@ class PauliCircuit:
         """
         Construct a PauliCircuit from a Qiskit QuantumCircuit.
 
+        ### TODO: 
+        Currently, only a subset of Qiskit gates are supported. Supported gates 
+        include those that arise in the Local Unitary Cluster Jastrow (LUCJ) ansatz. 
+        However, we hope to extend this to a more general set of gates in the future.
+
         Arguments:
             qc: A Qiskit QuantumCircuit to convert.
+
+        Returns:
+            A PauliCircuit initialized with the given Qiskit circuit.
         """
         n_qubits = qc.num_qubits
 
@@ -142,7 +165,7 @@ class PauliCircuit:
         return circ
 
     def inverse(self) -> "PauliCircuit":
-        """Return a new PauliCircuit representing the adjoint (U†) of this circuit."""
+        """Return a new PauliCircuit with reversed order and negated angles (U†)."""
         reversed_layers = [_compound_gate_reversed(layer) for layer in reversed(self._layers)]
         circ = PauliCircuit.__new__(PauliCircuit)
         circ._layers = reversed_layers

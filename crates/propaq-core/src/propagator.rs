@@ -26,7 +26,8 @@ impl<T> SendPtr<T> {
     unsafe fn offset(&self, idx: usize) -> *mut T { self.0.add(idx) }
 }
 
-#[pyclass]
+/// Result returned by `expectation_value`: per-gate term counts and the final expectation value.
+#[pyclass(module = "propaq._rust_core")]
 pub struct PropagationResult {
     #[pyo3(get)]
     pub n_terms: Vec<usize>,
