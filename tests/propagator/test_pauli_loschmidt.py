@@ -9,7 +9,6 @@ from propaq.datatypes._abstract import BitMask
 from propaq.noise import TruncationPolicy
 from propaq.propagators.pauli import PauliPropagator
 
-
 N = 4  # n_qubits
 
 

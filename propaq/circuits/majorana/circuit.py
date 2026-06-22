@@ -1,14 +1,12 @@
 """Circuit representation for fermionic circuits in the Majorana representation."""
 
-from typing import List, Union
 
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
 
-from ...datatypes import MajoranaMonomial
-from ...datatypes import MajoranaTermSum
-from .rotation import MajoranaRotation
+from ...datatypes import MajoranaMonomial, MajoranaTermSum
 from .._utils import compound_gate_reversed as _compound_gate_reversed
+from .rotation import MajoranaRotation
 
 
 class MajoranaCircuit:
@@ -16,28 +14,28 @@ class MajoranaCircuit:
 
     def __init__(
         self,
-        rotations_or_layers: Union[List[MajoranaRotation], List[List[MajoranaRotation]]],
+        rotations_or_layers: list[MajoranaRotation] | list[list[MajoranaRotation]],
         n_modes: int,
     ):
         if rotations_or_layers and isinstance(rotations_or_layers[0], list):
-            self._layers: List[List[MajoranaRotation]] = rotations_or_layers
+            self._layers: list[list[MajoranaRotation]] = rotations_or_layers
         else:
             self._layers = [[r] for r in rotations_or_layers]
         self.n_modes = n_modes
 
     @property
-    def layers(self) -> List[List[MajoranaRotation]]:
+    def layers(self) -> list[list[MajoranaRotation]]:
         return self._layers
 
     @property
-    def rotations(self) -> List[MajoranaRotation]:
+    def rotations(self) -> list[MajoranaRotation]:
         return [r for layer in self._layers for r in layer]
 
     @classmethod
     def from_generators_and_angles(
         cls,
-        generators: List[MajoranaMonomial],
-        angles: List[float],
+        generators: list[MajoranaMonomial],
+        angles: list[float],
         n_modes: int,
     ):
         """Construct a MajoranaCircuit from lists of generators and angles."""
@@ -65,15 +63,15 @@ class MajoranaCircuit:
             qc: A Qiskit QuantumCircuit to convert.
             n_modes: The number of Majorana modes in the system.
         """
-        def _mark_intermediate(rots: List[MajoranaRotation]) -> List[MajoranaRotation]:
+        def _mark_intermediate(rots: list[MajoranaRotation]) -> list[MajoranaRotation]:
             for i, rot in enumerate(rots):
                 rot.is_intermediate = i < len(rots) - 1
             return rots
 
-        all_layers: List[List[MajoranaRotation]] = []
+        all_layers: list[list[MajoranaRotation]] = []
 
         for layer in circuit_to_dag(qc).layers():
-            layer_rots: List[MajoranaRotation] = []
+            layer_rots: list[MajoranaRotation] = []
             for node in layer["graph"].topological_op_nodes():
                 instr = node.op
                 qargs = node.qargs
@@ -93,7 +91,7 @@ class MajoranaCircuit:
                         raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
                     beta = float(instr.params[1]) if len(instr.params) > 1 else 0.0
 
-                    rots: List[MajoranaRotation] = []
+                    rots: list[MajoranaRotation] = []
                     if abs(beta) > 1e-14:
                         rz_sum = MajoranaTermSum[MajoranaMonomial].from_rz_angle(
                             q_indices[1], -beta, n_modes

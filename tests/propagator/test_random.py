@@ -1,22 +1,9 @@
 """Create random circuit and use a trivial expectation value to test that the propagator is correctly implemented."""
 
-import numpy as np 
-
+import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.circuit.random import random_circuit 
-from qiskit.circuit.library import (
-    XXPlusYYGate,
-    PhaseGate,
-    RZGate,
-    CPhaseGate,
-    SwapGate,
-    XGate
-) 
-from qiskit.quantum_info import Statevector, SparsePauliOp
-
-from propaq.datatypes._abstract import BitMask
-from propaq.datatypes.majorana.majorana import MajoranaMonomial
-from propaq.propagators.majorana import MajoranaPropagator
+from qiskit.circuit.library import CPhaseGate, PhaseGate, RZGate, SwapGate, XGate, XXPlusYYGate
+from qiskit.quantum_info import SparsePauliOp, Statevector
 
 GATES = [
     (lambda: XXPlusYYGate(
@@ -44,16 +31,14 @@ def test_random_circuit_propagation():
 
     sv_expectation_value = sv.expectation_value(observable)
 
-    from propaq.propagators import MajoranaPropagator
-    from propaq.circuits import MajoranaCircuit 
-    from propaq.noise import TruncationPolicy 
-
+    from propaq.circuits import MajoranaCircuit
     from propaq.datatypes import MajoranaTermSum
+    from propaq.noise import TruncationPolicy
+    from propaq.propagators import MajoranaPropagator
 
     mc = MajoranaCircuit.from_qiskit(qc, n_modes = 8)
     truncator = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0)
     prop = MajoranaPropagator(None, truncator)
-    monomial = MajoranaMonomial(BitMask(0b11111111), n_modes=8, is_number_preserving=False)
     observable = MajoranaTermSum.from_sparse_pauli_op(observable)
     
     mp_expectation_value = prop.expectation_value(observable, mc, fock_state=0).expectation_value

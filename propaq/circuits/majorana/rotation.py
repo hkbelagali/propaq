@@ -2,6 +2,7 @@
 
 from ...datatypes import MajoranaMonomial
 
+
 class MajoranaRotation:
     """Class representing a rotation in the Majorana representation."""
     def __init__(self, generator: MajoranaMonomial, angle: float, is_intermediate: bool = False):

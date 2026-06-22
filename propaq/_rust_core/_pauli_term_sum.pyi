@@ -1,6 +1,5 @@
 from ._pauli_string import PauliString
 
-
 class PauliTermSum:
     def __init__(self, terms: dict[PauliString, complex] | None = None) -> None:
         """
@@ -19,7 +18,7 @@ class PauliTermSum:
         """Multiply every coefficient by *factor* in-place."""
         ...
 
-    def merge(self, other: "PauliTermSum") -> None:
+    def merge(self, other: PauliTermSum) -> None:
         """Add all terms from *other* into this sum."""
         ...
 
@@ -49,7 +48,7 @@ class PauliTermSum:
         """Return all (monomial, coefficient) pairs."""
         ...
 
-    def copy(self) -> "PauliTermSum":
+    def copy(self) -> PauliTermSum:
         """Return a shallow copy of this term sum."""
         ...
 

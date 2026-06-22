@@ -1,23 +1,21 @@
 """Create random circuit and use a known expectation value to test that the PauliPropagator is correctly implemented."""
 
 import numpy as np
-
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import (
-    XXPlusYYGate,
+    CPhaseGate,
     PhaseGate,
     RZGate,
-    CPhaseGate,
     SwapGate,
     XGate,
+    XXPlusYYGate,
 )
-from qiskit.quantum_info import Statevector, SparsePauliOp
+from qiskit.quantum_info import SparsePauliOp, Statevector
 
 from propaq.circuits import PauliCircuit
 from propaq.datatypes import PauliTermSum
 from propaq.noise import TruncationPolicy
 from propaq.propagators.pauli import PauliPropagator
-
 
 GATES = [
     (lambda: XXPlusYYGate(

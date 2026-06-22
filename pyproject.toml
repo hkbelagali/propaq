@@ -4,14 +4,46 @@ build-backend = "maturin"
 
 [project]
 name = "propaq"
-version = "0.1.0"
+dynamic = ["version"]
+description = "Fast Majorana and Pauli propagation for quantum circuit simulation"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Hrishikesh Belagali", email = "belagal1@msu.edu" }
+]
 requires-python = ">=3.10"
+keywords = [
+    "quantum computing",
+    "quantum simulation",
+    "fermionic circuits",
+    "Majorana propagation",
+    "Pauli propagation",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Typing :: Typed",
+]
 dependencies = [
     "numpy>=1.24",
     "qiskit~=2.4.1",
     "ffsim~=0.0.80",
+    "scipy>=1.10",
     "tqdm",
-    ]
+]
+
+[project.urls]
+Homepage = "https://hkbelagali.github.io/propaq"
+Repository = "https://github.com/hkbelagali/propaq"
+"Bug Tracker" = "https://github.com/hkbelagali/propaq/issues"
+Documentation = "https://hkbelagali.github.io/propaq"
 
 [project.optional-dependencies]
 dev = [
@@ -19,7 +51,10 @@ dev = [
     "ruff~=0.9.4",
     "mypy~=1.13.0",
     "maturin>=1.7,<2",
-    "coverage~=7.14.0"
+    "coverage~=7.14.0",
+]
+docs = [
+    "pdoc>=14",
 ]
 
 [tool.maturin]
@@ -30,3 +65,44 @@ features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["benchmarks/", "examples/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/datatypes/test_majorana.py" = ["E741"]
+"tests/datatypes/test_pauli.py" = ["E743"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = [
+    "propaq.datatypes.pauli.pauli",
+    "propaq.datatypes.pauli.termsum",
+    "propaq.datatypes.majorana.termsum",
+    "propaq.circuits.pauli.circuit",
+    "propaq.circuits.majorana.circuit",
+]
+ignore_errors = true
+
+[tool.coverage.run]
+source = ["propaq"]
+omit = [
+    "propaq/_rust_core*",
+    "propaq/datatypes/pauli/pauli.py",
+    "propaq/datatypes/majorana/majorana.py",
+]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true

@@ -12,11 +12,11 @@ except ImportError:
         stacklevel=2,
     )
     # Pure-Python fallback when the Rust extension is not built.
-    from typing import Tuple
     from dataclasses import dataclass
+
     from .._abstract import AbstractTerm, BitMask
 
-    _PHASE_TO_COMPLEX: Tuple[complex, ...] = (1, 1j, -1, -1j)
+    _PHASE_TO_COMPLEX: tuple[complex, ...] = (1, 1j, -1, -1j)
 
     @dataclass(frozen=True, slots=True)
     class PauliString(AbstractTerm):  # type: ignore[no-redef]
@@ -33,7 +33,7 @@ except ImportError:
             overlap = (self.x & other.z) ^ (self.z & other.x)
             return overlap.bit_count() % 2 == 0
 
-        def __matmul__(self, other: "PauliString") -> Tuple[complex, "PauliString"]:
+        def __matmul__(self, other: "PauliString") -> tuple[complex, "PauliString"]:
             new_x = BitMask(self.x ^ other.x)
             new_z = BitMask(self.z ^ other.z)
             p: int = (

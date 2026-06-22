@@ -1,8 +1,13 @@
-from ._pauli_string import PauliString
-from ._pauli_term_sum import PauliTermSum
-from ._majorana_propagator import PropagationResult
-from ._logger import Logger
+from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from ._logger import Logger
+from ._majorana_propagator import PropagationResult
+from ._pauli_term_sum import PauliTermSum
+
+if TYPE_CHECKING:
+    from propaq.circuits import PauliCircuit
 
 class PauliPropagator:
 
@@ -35,7 +40,7 @@ class PauliPropagator:
         """
         ...
 
-    def propagate(self, observable: PauliTermSum, circuit: "PauliCircuit") -> PauliTermSum:
+    def propagate(self, observable: PauliTermSum, circuit: PauliCircuit) -> PauliTermSum:
         """
         Back-propagate *circuit* through *observable* in the Heisenberg picture.
 
@@ -55,7 +60,7 @@ class PauliPropagator:
     def expectation_value(
         self,
         observable: PauliTermSum,
-        circuit: "PauliCircuit",
+        circuit: PauliCircuit,
         fock_state: int = 0,
     ) -> PropagationResult:
         """

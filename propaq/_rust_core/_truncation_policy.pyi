@@ -1,15 +1,14 @@
-from typing import Optional, Tuple
 
 class TruncationPolicy:
-    weight_cutoff: Optional[int]
+    weight_cutoff: int | None
     coeff_cutoff: float
-    truncation_range: Tuple[Optional[int], Optional[int]]
+    truncation_range: tuple[int | None, int | None]
 
     def __init__(
         self,
-        weight_cutoff: Optional[int] = None,
+        weight_cutoff: int | None = None,
         coeff_cutoff: float = 0.0,
-        truncation_range: Optional[Tuple[Optional[int], Optional[int]]] = (None, 10_000_000),
+        truncation_range: tuple[int | None, int | None] | None = (None, 10_000_000),
     ) -> None:
         """
         Initialize the truncation policy.
