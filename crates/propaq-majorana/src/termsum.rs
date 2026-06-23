@@ -6,6 +6,7 @@ use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
 use propaq_core::termsum::AbstractTermSum;
 
 use crate::monomial::MajoranaMonomial;
+use crate::streamer::MajoranaTermStreamer;
 
 /// A mutable, weighted sum of Majorana monomials with complex coefficients.
 ///
@@ -50,6 +51,15 @@ impl MajoranaTermSum {
     /// Add all terms from *other* into this sum.
     fn merge(&mut self, other: &MajoranaTermSum) {
         self.inner.merge(&other.inner);
+    }
+
+    /// Stream terms from a file and merge them into this sum one at a time,
+    /// accumulating coefficients for monomials already present.
+    ///
+    /// Arguments:
+    ///     streamer: A MajoranaTermStreamer opened with MajoranaTermStreamer.from_file().
+    fn merge_from_file(&mut self, streamer: &mut MajoranaTermStreamer) -> PyResult<()> {
+        self.inner.merge_from_streamer(&mut streamer.inner)
     }
 
     /// Deduplicate and remove terms according to *policy*.

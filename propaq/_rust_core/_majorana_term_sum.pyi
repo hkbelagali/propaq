@@ -1,4 +1,5 @@
 from ._majorana_monomial import MajoranaMonomial
+from ._majorana_term_streamer import MajoranaTermStreamer
 
 class MajoranaTermSum:
     def __init__(self, terms: dict[MajoranaMonomial, complex] | None = None) -> None: 
@@ -75,12 +76,41 @@ class MajoranaTermSum:
             A list of tuples mapping Majorana monomials to their coefficients.
         """
         ...
-    def copy(self) -> MajoranaTermSum: 
+    def copy(self) -> MajoranaTermSum:
         """
         Create a copy of the term sum.
 
         Returns:
             A copy of the term sum.
+        """
+        ...
+    @staticmethod
+    def from_file(path: str) -> MajoranaTermSum:
+        """
+        Load a MajoranaTermSum from a gzip-compressed binary file.
+
+        Arguments:
+            path: Path to a file written by save() or the filename parameter.
+        """
+        ...
+    def save(self, path: str) -> None:
+        """
+        Save this term sum to a gzip-compressed binary file.
+
+        Arguments:
+            path: Destination file path.
+        """
+        ...
+    def merge_from_file(self, streamer: MajoranaTermStreamer) -> None:
+        """
+        Stream terms from a file and merge them into this sum one at a time.
+
+        Coefficients are accumulated for monomials already present (same semantics as merge()).
+        Unlike from_file(), this does not allocate a temporary map — terms are inserted
+        directly as they are read.
+
+        Arguments:
+            streamer: A MajoranaTermStreamer opened with MajoranaTermStreamer.from_file().
         """
         ...
     def __len__(self) -> int: 
