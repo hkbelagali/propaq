@@ -252,6 +252,15 @@ impl AbstractTerm for MajoranaMonomial {
         self.modes.as_words().iter().fold(0u64, |acc, &w| acc ^ w)
     }
     fn is_number_preserving(&self) -> bool { self.is_number_preserving }
+    fn system_size(&self) -> u64 { self.n_modes as u64 }
+    fn from_bytes_vec(bytes: &[u8], system_size: u64) -> Self {
+        let n_modes = system_size as usize;
+        let modes = Bitset::from_le_bytes(bytes);
+        let weight = Self::compute_weight_for(&modes, n_modes);
+        let n_fermionic = n_modes / 2;
+        let is_np = (0..n_fermionic).all(|k| modes.bit(2 * k) == modes.bit(2 * k + 1));
+        MajoranaMonomial { modes, n_modes, is_number_preserving: is_np, weight }
+    }
 }
 
 impl PartialEq for MajoranaMonomial {

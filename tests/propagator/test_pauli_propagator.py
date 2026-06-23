@@ -133,3 +133,81 @@ def test_n_threads_does_not_raise():
     prop = PauliPropagator(n_threads=2)
     obs = PauliTermSum({ps(0, 0b0001): 1.0})
     prop.propagate(obs, empty_circuit())
+
+def test_propagate_filename_saves_file(tmp_path):
+    obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0b0001, 0): 0.5j})
+    generator = ps(0b0011, 0)
+    circuit = PauliCircuit([PauliRotation(generator, 0.3)])
+    prop = PauliPropagator()
+    out = tmp_path / "terms.bin.gz"
+    evolved = prop.propagate(obs, circuit, filename=str(out))
+    assert out.exists()
+    loaded = PauliTermSum.from_file(str(out))
+    assert len(loaded) == len(evolved)
+    for term, coeff in evolved.items():
+        assert abs(loaded[term] - coeff) < 1e-15
+
+
+def test_expectation_value_filename_saves_file(tmp_path):
+    obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b0010): 2.0})
+    generator = ps(0b1111, 0)
+    circuit = PauliCircuit([PauliRotation(generator, 0.3)])
+    prop = PauliPropagator()
+    out = tmp_path / "terms.bin.gz"
+    result = prop.expectation_value(obs, circuit, fock_state=0, filename=str(out))
+    assert out.exists()
+    loaded = PauliTermSum.from_file(str(out))
+    # Recompute expectation value from loaded terms to verify coefficients are preserved
+    reloaded_prop = PauliPropagator()
+    reloaded_result = reloaded_prop.expectation_value(loaded, empty_circuit(), fock_state=0)
+    assert abs(reloaded_result.expectation_value - result.expectation_value) < 1e-12
+
+
+def test_roundtrip_preserves_all_terms_and_coefficients(tmp_path):
+    # Build a term sum with multiple terms and complex coefficients.
+    obs = PauliTermSum({
+        ps(0, 0b0001): 1.0 + 0.5j,
+        ps(0, 0b0010): -0.3 + 0.7j,
+        ps(0b0001, 0b0001): 2.0,
+        ps(0b0010, 0b0010): -1.0j,
+    })
+    generator = ps(0b1111, 0)
+    circuit = PauliCircuit([PauliRotation(generator, math.pi / 6)])
+    prop = PauliPropagator()
+    out = tmp_path / "roundtrip.bin.gz"
+    evolved = prop.propagate(obs, circuit, filename=str(out))
+    loaded = PauliTermSum.from_file(str(out))
+
+    assert len(loaded) == len(evolved)
+    for term, coeff in evolved.items():
+        assert abs(loaded[term] - coeff) < 1e-15, (
+            f"Coefficient mismatch for {term}: expected {coeff}, got {loaded[term]}"
+        )
+
+
+def test_from_file_no_information_lost_with_noise(tmp_path):
+    obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b0011): 0.5})
+    generator = ps(0b0011, 0)
+    circuit = PauliCircuit([PauliRotation(generator, 0.4)])
+    noise = UniformNoiseModel(damping=0.2)
+    prop = PauliPropagator(noise=noise)
+    out = tmp_path / "noisy.bin.gz"
+    evolved = prop.propagate(obs, circuit, filename=str(out))
+    loaded = PauliTermSum.from_file(str(out))
+    assert len(loaded) == len(evolved)
+    for term, coeff in evolved.items():
+        assert abs(loaded[term] - coeff) < 1e-15
+
+
+def test_termsum_save_and_from_file_roundtrip(tmp_path):
+    # Test the standalone save/from_file methods without going through propagation.
+    obs = PauliTermSum({
+        ps(0, 0b0001): 3.14 - 2.71j,
+        ps(0b0010, 0b0001): 0.0 + 1.0j,
+    })
+    out = tmp_path / "direct.bin.gz"
+    obs.save(str(out))
+    loaded = PauliTermSum.from_file(str(out))
+    assert len(loaded) == len(obs)
+    for term, coeff in obs.items():
+        assert abs(loaded[term] - coeff) < 1e-15

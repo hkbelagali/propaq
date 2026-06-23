@@ -119,3 +119,79 @@ def test_n_threads_does_not_raise():
     prop = MajoranaPropagator(n_threads=2)
     obs = MajoranaTermSum({mon(0b11): 1.0})
     prop.propagate(obs, empty_circuit())
+
+def test_propagate_filename_saves_file(tmp_path):
+    obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 0.5j})
+    generator = mon(0b1111)
+    circuit = MajoranaCircuit([MajoranaRotation(generator, 0.3)], N)
+    prop = MajoranaPropagator()
+    out = tmp_path / "terms.bin.gz"
+    evolved = prop.propagate(obs, circuit, filename=str(out))
+    assert out.exists()
+    loaded = MajoranaTermSum.from_file(str(out))
+    assert len(loaded) == len(evolved)
+    for term, coeff in evolved.items():
+        assert abs(loaded[term] - coeff) < 1e-15
+
+
+def test_expectation_value_filename_saves_file(tmp_path):
+    obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 2.0})
+    generator = mon(0b1111)
+    circuit = MajoranaCircuit([MajoranaRotation(generator, 0.3)], N)
+    prop = MajoranaPropagator()
+    out = tmp_path / "terms.bin.gz"
+    result = prop.expectation_value(obs, circuit, fock_state=0, filename=str(out))
+    assert out.exists()
+    loaded = MajoranaTermSum.from_file(str(out))
+    # Recompute expectation value from loaded terms via empty circuit
+    reloaded_prop = MajoranaPropagator()
+    reloaded_result = reloaded_prop.expectation_value(loaded, empty_circuit(), fock_state=0)
+    assert abs(reloaded_result.expectation_value - result.expectation_value) < 1e-12
+
+
+def test_roundtrip_preserves_all_terms_and_coefficients(tmp_path):
+    obs = MajoranaTermSum({
+        mon(0b0011): 1.0 + 0.5j,
+        mon(0b1100): -0.3 + 0.7j,
+        mon(0b0110): 2.0,
+        mon(0b1001): -1.0j,
+    })
+    generator = mon(0b1111)
+    circuit = MajoranaCircuit([MajoranaRotation(generator, math.pi / 6)], N)
+    prop = MajoranaPropagator()
+    out = tmp_path / "roundtrip.bin.gz"
+    evolved = prop.propagate(obs, circuit, filename=str(out))
+    loaded = MajoranaTermSum.from_file(str(out))
+
+    assert len(loaded) == len(evolved)
+    for term, coeff in evolved.items():
+        assert abs(loaded[term] - coeff) < 1e-15, (
+            f"Coefficient mismatch for {term}: expected {coeff}, got {loaded[term]}"
+        )
+
+
+def test_from_file_no_information_lost_with_noise(tmp_path):
+    obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 0.5})
+    generator = mon(0b0110)
+    circuit = MajoranaCircuit([MajoranaRotation(generator, 0.4)], N)
+    noise = UniformNoiseModel(damping=0.2)
+    prop = MajoranaPropagator(noise=noise)
+    out = tmp_path / "noisy.bin.gz"
+    evolved = prop.propagate(obs, circuit, filename=str(out))
+    loaded = MajoranaTermSum.from_file(str(out))
+    assert len(loaded) == len(evolved)
+    for term, coeff in evolved.items():
+        assert abs(loaded[term] - coeff) < 1e-15
+
+
+def test_termsum_save_and_from_file_roundtrip(tmp_path):
+    obs = MajoranaTermSum({
+        mon(0b0011): 3.14 - 2.71j,
+        mon(0b1100): 0.0 + 1.0j,
+    })
+    out = tmp_path / "direct.bin.gz"
+    obs.save(str(out))
+    loaded = MajoranaTermSum.from_file(str(out))
+    assert len(loaded) == len(obs)
+    for term, coeff in obs.items():
+        assert abs(loaded[term] - coeff) < 1e-15
