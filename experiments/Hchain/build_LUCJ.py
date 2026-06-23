@@ -1,4 +1,5 @@
 import argparse
+import time
 import ffsim
 import matplotlib.pyplot as plt; plt.rcParams.update({"font.family": "serif", "font.size": 12})
 import numpy as np
@@ -40,30 +41,50 @@ def generate_linear_geometry(atom: str, natoms: int, atomic_distance: float = 1.
     return "; ".join([f"{atom} 0 0 {i * atomic_distance}" for i in range(natoms)])
 
 
+t0 = time.perf_counter()
 mol = pyscf.gto.Mole()
 mol.build(
     atom=generate_linear_geometry(atom, natoms),
     basis="sto-6g",
 )
+print(f"[timing] mol.build: {time.perf_counter() - t0:.2f}s")
 
 n_frozen = 0
 active_space = range(n_frozen, mol.nao_nr())
 
+t0 = time.perf_counter()
 scf = pyscf.scf.RHF(mol).run()
+print(f"[timing] RHF: {time.perf_counter() - t0:.2f}s")
+
 norb = len(active_space)
 n_electrons = int(sum(scf.mo_occ[active_space]))
 n_alpha = (n_electrons + mol.spin) // 2
 n_beta = (n_electrons - mol.spin) // 2
 nelec = (n_alpha, n_beta)
-cas = pyscf.mcscf.CASCI(scf, norb, nelec)
-mo = cas.sort_mo(active_space, base=0)
-hcore, nuclear_repulsion_energy = cas.get_h1cas(mo)
-eri = pyscf.ao2mo.restore(1, cas.get_h2cas(mo), norb)
 
 print(f"norb = {norb}")
 print(f"nelec = {nelec}")
 
+# Get CCSD t2 amplitudes for initializing the ansatz
+t0 = time.perf_counter()
+ccsd = pyscf.cc.CCSD(
+    scf, frozen=[i for i in range(mol.nao_nr()) if i not in active_space]
+).run()
+print(f"[timing] CCSD: {time.perf_counter() - t0:.2f}s")
+t1 = ccsd.t1
+t2 = ccsd.t2
+e_ccsd = ccsd.e_tot
+
+cas = pyscf.mcscf.CASCI(scf, norb, nelec)
+mo = cas.sort_mo(active_space, base=0)
+
+t0 = time.perf_counter()
+hcore, nuclear_repulsion_energy = cas.get_h1cas(mo)
+eri = pyscf.ao2mo.restore(1, cas.get_h2cas(mo), norb)
+print(f"[timing] CAS integrals (h1+h2): {time.perf_counter() - t0:.2f}s")
+
 # Build qubit Hamiltonian from PySCF integrals via Jordan-Wigner mapping
+t0 = time.perf_counter()
 h2e_phys = np.einsum("prqs->pqrs", eri)  # chemist -> physicist notation
 elec_ints = ElectronicIntegrals.from_raw_integrals(hcore, h2e_phys)
 elec_hamiltonian = ElectronicEnergy(elec_ints)
@@ -75,14 +96,7 @@ hamiltonian = hamiltonian.chop(1e-6)
 sorted_indices = np.argsort(-np.abs(hamiltonian.coeffs))
 hamiltonian = hamiltonian[sorted_indices]
 print(f"Hamiltonian has {len(hamiltonian)} Pauli terms after cutoff.")
-
-# Get CCSD t2 amplitudes for initializing the ansatz
-ccsd = pyscf.cc.CCSD(
-    scf, frozen=[i for i in range(mol.nao_nr()) if i not in active_space]
-).run()
-t1 = ccsd.t1
-t2 = ccsd.t2
-e_ccsd = ccsd.e_tot
+print(f"[timing] Jordan-Wigner mapping: {time.perf_counter() - t0:.2f}s")
 
 ham_labels = hamiltonian.paulis.to_labels()
 ham_coeffs = hamiltonian.coeffs.real.copy()
@@ -115,6 +129,7 @@ def build_one_connectivity(connectivity: str, norb: int, nelec: tuple,
         basis_gates=["cp", "xx_plus_yy", "p", "x", "swap"],
     )
 
+    t0 = time.perf_counter()
     if connectivity == "all-to-all":
         pass_manager = None
     else:
@@ -128,23 +143,28 @@ def build_one_connectivity(connectivity: str, norb: int, nelec: tuple,
             )
         except RuntimeError:
             return f"{connectivity}: unable to generate ffsim pass manager"
+    print(f"[timing] {connectivity}: generate_lucj_pass_manager: {time.perf_counter() - t0:.2f}s")
 
+    t0 = time.perf_counter()
     ucj_op = ffsim.UCJOpSpinBalanced.from_t_amplitudes(
         t2=t2,
         t1=t1,
         n_reps=nlayers,
         interaction_pairs=(pairs_aa, pairs_ab),
     )
+    print(f"[timing] {connectivity}: UCJOpSpinBalanced.from_t_amplitudes: {time.perf_counter() - t0:.2f}s")
 
     qubits = qiskit.QuantumRegister(2 * norb, name="q")
     circuit = qiskit.QuantumCircuit(qubits)
     circuit.append(ffsim.qiskit.PrepareHartreeFockJW(norb, nelec), qubits)
     circuit.append(ffsim.qiskit.UCJOpSpinBalancedJW(ucj_op), qubits)
 
+    t0 = time.perf_counter()
     if pass_manager is not None:
         compiled = pass_manager.run(circuit)
     else:
         compiled = qiskit.transpile(circuit, backend=backend, optimization_level=3)
+    print(f"[timing] {connectivity}: transpile/pass_manager.run: {time.perf_counter() - t0:.2f}s")
 
     os.makedirs(f"n{natoms}/{connectivity}", exist_ok=True)
 
@@ -152,7 +172,9 @@ def build_one_connectivity(connectivity: str, norb: int, nelec: tuple,
     with open(circuit_path, "wb") as f:
         qpy.dump(compiled, f)
 
+    t0 = time.perf_counter()
     hamiltonian_mapped = hamiltonian.apply_layout(compiled.layout)
+    print(f"[timing] {connectivity}: apply_layout: {time.perf_counter() - t0:.2f}s")
     hamiltonian_cache = f"n{natoms}/{connectivity}/hamiltonian_cache.npz"
     np.savez(hamiltonian_cache,
              paulis=hamiltonian_mapped.paulis.to_labels(),
