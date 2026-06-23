@@ -65,16 +65,16 @@
                                 <a class="function" href="#PauliString.to_bytes">to_bytes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.weight">weight</a>
+                                <a class="variable" href="#PauliString.x">x</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliString.z">z</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.x">x</a>
+                                <a class="variable" href="#PauliString.n_qubits">n_qubits</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.n_qubits">n_qubits</a>
+                                <a class="variable" href="#PauliString.weight">weight</a>
                         </li>
                 </ul>
 
@@ -128,19 +128,19 @@
                                 <a class="function" href="#MajoranaMonomial.to_bytes">to_bytes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.weight">weight</a>
+                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaMonomial.length">length</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaMonomial.modes">modes</a>
                         </li>
                         <li>
+                                <a class="variable" href="#MajoranaMonomial.weight">weight</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#MajoranaMonomial.length">length</a>
                         </li>
                 </ul>
 
@@ -211,6 +211,24 @@
                 </ul>
 
             </li>
+            <li>
+                    <a class="class" href="#PauliTermStreamer">PauliTermStreamer</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#PauliTermStreamer.from_file">from_file</a>
+                        </li>
+                </ul>
+
+            </li>
+            <li>
+                    <a class="class" href="#MajoranaTermStreamer">MajoranaTermStreamer</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#MajoranaTermStreamer.from_file">from_file</a>
+                        </li>
+                </ul>
+
+            </li>
     </ul>
 
 
@@ -236,20 +254,24 @@
 
                         <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;Datatypes for propaq.&quot;&quot;&quot;</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
-</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._abstract</span><span class="w"> </span><span class="kn">import</span> <span class="n">AbstractTerm</span><span class="p">,</span> <span class="n">AbstractTermSum</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.majorana</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaMonomial</span> <span class="k">as</span> <span class="n">MajoranaMonomial</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.termsum</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaTermSum</span> <span class="k">as</span> <span class="n">MajoranaTermSum</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.pauli</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliString</span> <span class="k">as</span> <span class="n">PauliString</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.termsum</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliTermSum</span> <span class="k">as</span> <span class="n">PauliTermSum</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a>    <span class="s2">&quot;PauliString&quot;</span><span class="p">,</span>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>    <span class="s2">&quot;PauliTermSum&quot;</span><span class="p">,</span>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>    <span class="s2">&quot;MajoranaMonomial&quot;</span><span class="p">,</span>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>    <span class="s2">&quot;MajoranaTermSum&quot;</span><span class="p">,</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;AbstractTerm&quot;</span><span class="p">,</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;AbstractTermSum&quot;</span><span class="p">,</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="p">]</span>
+</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.._rust_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaTermStreamer</span> <span class="k">as</span> <span class="n">MajoranaTermStreamer</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.._rust_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliTermStreamer</span> <span class="k">as</span> <span class="n">PauliTermStreamer</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._abstract</span><span class="w"> </span><span class="kn">import</span> <span class="n">AbstractTerm</span><span class="p">,</span> <span class="n">AbstractTermSum</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.majorana</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaMonomial</span> <span class="k">as</span> <span class="n">MajoranaMonomial</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.termsum</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaTermSum</span> <span class="k">as</span> <span class="n">MajoranaTermSum</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.pauli</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliString</span> <span class="k">as</span> <span class="n">PauliString</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.termsum</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliTermSum</span> <span class="k">as</span> <span class="n">PauliTermSum</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>    <span class="s2">&quot;PauliString&quot;</span><span class="p">,</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>    <span class="s2">&quot;PauliTermSum&quot;</span><span class="p">,</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;MajoranaMonomial&quot;</span><span class="p">,</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;MajoranaTermSum&quot;</span><span class="p">,</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>    <span class="s2">&quot;AbstractTerm&quot;</span><span class="p">,</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="s2">&quot;AbstractTermSum&quot;</span><span class="p">,</span>
+</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>    <span class="s2">&quot;PauliTermStreamer&quot;</span><span class="p">,</span>
+</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>    <span class="s2">&quot;MajoranaTermStreamer&quot;</span>
+</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a><span class="p">]</span>
 </span></pre></div>
 
 
@@ -355,15 +377,15 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
-                            <div id="PauliString.weight" class="classattr">
+                            <div id="PauliString.x" class="classattr">
                                 <div class="attr variable">
-            <span class="name">weight</span>
+            <span class="name">x</span>
 
         
     </div>
-    <a class="headerlink" href="#PauliString.weight"></a>
+    <a class="headerlink" href="#PauliString.x"></a>
     
-            <div class="docstring"><p>Number of non-identity single-qubit Pauli operators (popcount of x | z).</p>
+            <div class="docstring"><p>X-component bitmask as a Python int.</p>
 </div>
 
 
@@ -381,19 +403,6 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
-                            <div id="PauliString.x" class="classattr">
-                                <div class="attr variable">
-            <span class="name">x</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliString.x"></a>
-    
-            <div class="docstring"><p>X-component bitmask as a Python int.</p>
-</div>
-
-
-                            </div>
                             <div id="PauliString.n_qubits" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_qubits</span>
@@ -403,6 +412,19 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
     <a class="headerlink" href="#PauliString.n_qubits"></a>
     
     
+
+                            </div>
+                            <div id="PauliString.weight" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliString.weight"></a>
+    
+            <div class="docstring"><p>Number of non-identity single-qubit Pauli operators (popcount of x | z).</p>
+</div>
+
 
                             </div>
                 </section>
@@ -1153,43 +1175,6 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
-                            <div id="MajoranaMonomial.weight" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.weight"></a>
-    
-            <div class="docstring"><p>Pauli weight of this monomial under the Jordan-Wigner mapping.</p>
-</div>
-
-
-                            </div>
-                            <div id="MajoranaMonomial.modes" class="classattr">
-                                <div class="attr variable">
-            <span class="name">modes</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.modes"></a>
-    
-            <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
-</div>
-
-
-                            </div>
-                            <div id="MajoranaMonomial.n_modes" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_modes</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.n_modes"></a>
-    
-    
-
-                            </div>
                             <div id="MajoranaMonomial.is_number_preserving" class="classattr">
                                 <div class="attr variable">
             <span class="name">is_number_preserving</span>
@@ -1212,6 +1197,43 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
             <div class="docstring"><p>Number of active Majorana modes in the monomial (popcount of the mode bitmask).</p>
 </div>
 
+
+                            </div>
+                            <div id="MajoranaMonomial.modes" class="classattr">
+                                <div class="attr variable">
+            <span class="name">modes</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.modes"></a>
+    
+            <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaMonomial.weight" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.weight"></a>
+    
+            <div class="docstring"><p>Pauli weight of this monomial under the Jordan-Wigner mapping.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaMonomial.n_modes" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_modes</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.n_modes"></a>
+    
+    
 
                             </div>
                 </section>
@@ -2183,6 +2205,74 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
             <div class="docstring"><p>Return a list of (monomial, coefficient) pairs.</p>
+</div>
+
+
+                            </div>
+                </section>
+                <section id="PauliTermStreamer">
+                    <div class="attr class">
+            
+    <span class="def">class</span>
+    <span class="name">PauliTermStreamer</span>:
+
+        
+    </div>
+    <a class="headerlink" href="#PauliTermStreamer"></a>
+    
+    
+
+                            <div id="PauliTermStreamer.from_file" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">from_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliTermStreamer.from_file"></a>
+    
+            <div class="docstring"><p>Open a gzip-compressed binary file for lazy streaming.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>path:</strong>  Path to a file written by <code><a href="#PauliTermSum.save">PauliTermSum.save()</a></code>.</li>
+</ul>
+</div>
+
+
+                            </div>
+                </section>
+                <section id="MajoranaTermStreamer">
+                    <div class="attr class">
+            
+    <span class="def">class</span>
+    <span class="name">MajoranaTermStreamer</span>:
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaTermStreamer"></a>
+    
+    
+
+                            <div id="MajoranaTermStreamer.from_file" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">from_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaTermStreamer.from_file"></a>
+    
+            <div class="docstring"><p>Open a gzip-compressed binary file for lazy streaming.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>path:</strong>  Path to a file written by <code><a href="#MajoranaTermSum.save">MajoranaTermSum.save()</a></code>.</li>
+</ul>
 </div>
 
 
