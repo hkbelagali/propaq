@@ -91,12 +91,12 @@ for order in orders:
     values = []
     n_terms = []
     runtimes = []
-    for batch in tqdm(batches, desc=f"order-{order} task {task_id}"):
+    for batch_idx, batch in enumerate(tqdm(batches, desc=f"order-{order} task {task_id}")):
         t0 = time.perf_counter()
         term_sum = MajoranaTermSum()
         for monomial, coeff in batch:
             term_sum.add(monomial, coeff)
-        result = prop.expectation_value(term_sum, mc, fock_state=0, filename=f"results/FeS_LUCJ_{tag}.gz")
+        result = prop.expectation_value(term_sum, mc, fock_state=0, filename=f"results/FeS_LUCJ_{tag}_b{batch_idx:05d}.gz")
         values.append(result.expectation_value)
         print(f"Expectation value: {result.expectation_value:.10e}")
         n_terms.append(result.n_terms)
