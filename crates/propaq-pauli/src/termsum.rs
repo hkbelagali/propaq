@@ -6,6 +6,7 @@ use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
 use propaq_core::termsum::AbstractTermSum;
 
 use crate::string::PauliString;
+use crate::streamer::PauliTermStreamer;
 
 /// A mutable, weighted sum of Pauli strings with complex coefficients.
 ///
@@ -50,6 +51,15 @@ impl PauliTermSum {
     /// Add all terms from *other* into this sum.
     fn merge(&mut self, other: &PauliTermSum) {
         self.inner.merge(&other.inner);
+    }
+
+    /// Stream terms from a file and merge them into this sum one at a time,
+    /// accumulating coefficients for strings already present.
+    ///
+    /// Arguments:
+    ///     streamer: A PauliTermStreamer opened with PauliTermStreamer.from_file().
+    fn merge_from_file(&mut self, streamer: &mut PauliTermStreamer) -> PyResult<()> {
+        self.inner.merge_from_streamer(&mut streamer.inner)
     }
 
     /// Deduplicate and remove terms according to *policy*.

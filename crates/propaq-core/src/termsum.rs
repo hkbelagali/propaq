@@ -3,6 +3,7 @@ use num_complex::Complex64;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
+use crate::streamer::TermStreamer;
 use crate::truncation::TruncationPolicy;
 use crate::noise::UniformNoiseModel;
 use crate::traits::AbstractTerm;
@@ -82,5 +83,13 @@ impl<M: AbstractTerm> AbstractTermSum<M> {
 
     pub fn norm_squared(&self) -> f64 {
         self.terms.values().map(|c| c.norm_sqr()).sum()
+    }
+
+    pub fn merge_from_streamer(&mut self, streamer: &mut TermStreamer<M>) -> PyResult<()> {
+        for result in streamer.by_ref() {
+            let (term, coeff) = result?;
+            self.add(term, coeff);
+        }
+        Ok(())
     }
 }
