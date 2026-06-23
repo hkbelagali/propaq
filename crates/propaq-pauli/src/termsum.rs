@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use num_complex::Complex64;
 
+use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
 use propaq_core::termsum::AbstractTermSum;
 
 use crate::string::PauliString;
@@ -86,5 +87,24 @@ impl PauliTermSum {
     /// Return a shallow copy of this term sum.
     fn copy(&self) -> PauliTermSum {
         PauliTermSum { inner: self.inner.copy() }
+    }
+
+    /// Load a PauliTermSum from a gzip-compressed binary file saved by `propagate` or
+    /// `expectation_value`.
+    ///
+    /// Arguments:
+    ///     path: Path to the file written by the `filename` parameter.
+    #[staticmethod]
+    fn from_file(path: &str) -> PyResult<PauliTermSum> {
+        let terms = load_terms_from_file::<PauliString>(path)?;
+        Ok(PauliTermSum { inner: AbstractTermSum { terms } })
+    }
+
+    /// Save this term sum to a gzip-compressed binary file.
+    ///
+    /// Arguments:
+    ///     path: Destination file path.
+    fn save(&self, path: &str) -> PyResult<()> {
+        save_terms_to_file(&self.inner.terms, path)
     }
 }

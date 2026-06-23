@@ -3,9 +3,12 @@ use rayon::prelude::*;
 use num_complex::Complex64;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::fs::OpenOptions;
 use rustc_hash::FxHashMap;
+use flate2::write::GzEncoder;
+use flate2::read::GzDecoder;
+use flate2::Compression;
 
 use crate::termsum::AbstractTermSum;
 use crate::noise::UniformNoiseModel;
@@ -44,6 +47,90 @@ impl PropagationResult {
             self.n_terms.len()
         )
     }
+}
+
+/// Serialize `terms` to a gzip-compressed binary file at `path`.
+///
+/// Format (all integers little-endian):
+///   u64  n_terms
+///   u64  key_stride    (bytes per key; 0 when n_terms == 0)
+///   u64  system_size   (n_qubits for Pauli, n_modes for Majorana)
+///   For each term:
+///     [u8; key_stride]  key bytes from AbstractTerm::to_bytes_vec()
+///     f64               coefficient real part
+///     f64               coefficient imaginary part
+pub fn save_terms_to_file<M: AbstractTerm>(
+    terms: &FxHashMap<M, Complex64>,
+    path: &str,
+) -> PyResult<()> {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+    let mut enc = GzEncoder::new(BufWriter::new(file), Compression::default());
+
+    let n_terms = terms.len() as u64;
+    enc.write_all(&n_terms.to_le_bytes())
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+
+    let first = terms.keys().next();
+    let key_stride: u64 = first.map_or(0, |t| t.to_bytes_vec().len() as u64);
+    let system_size: u64 = first.map_or(0, |t| t.system_size());
+    enc.write_all(&key_stride.to_le_bytes())
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+    enc.write_all(&system_size.to_le_bytes())
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+
+    for (term, coeff) in terms.iter() {
+        enc.write_all(&term.to_bytes_vec())
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        enc.write_all(&coeff.re.to_le_bytes())
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        enc.write_all(&coeff.im.to_le_bytes())
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+    }
+
+    enc.finish()
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+    Ok(())
+}
+
+/// Deserialize a term map from a file produced by `save_terms_to_file`.
+pub fn load_terms_from_file<M: AbstractTerm>(path: &str) -> PyResult<FxHashMap<M, Complex64>> {
+    let file = std::fs::File::open(path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+    let mut dec = BufReader::new(GzDecoder::new(file));
+
+    let mut u64_buf = [0u8; 8];
+    let mut f64_buf = [0u8; 8];
+
+    let io_err = |e: std::io::Error| pyo3::exceptions::PyIOError::new_err(e.to_string());
+
+    dec.read_exact(&mut u64_buf).map_err(io_err)?;
+    let n_terms = u64::from_le_bytes(u64_buf) as usize;
+
+    dec.read_exact(&mut u64_buf).map_err(io_err)?;
+    let key_stride = u64::from_le_bytes(u64_buf) as usize;
+
+    dec.read_exact(&mut u64_buf).map_err(io_err)?;
+    let system_size = u64::from_le_bytes(u64_buf);
+
+    let mut terms = FxHashMap::default();
+    terms.reserve(n_terms);
+    let mut key_buf = vec![0u8; key_stride];
+
+    for _ in 0..n_terms {
+        dec.read_exact(&mut key_buf).map_err(io_err)?;
+        dec.read_exact(&mut f64_buf).map_err(io_err)?;
+        let re = f64::from_le_bytes(f64_buf);
+        dec.read_exact(&mut f64_buf).map_err(io_err)?;
+        let im = f64::from_le_bytes(f64_buf);
+        let term = M::from_bytes_vec(&key_buf, system_size);
+        terms.insert(term, Complex64::new(re, im));
+    }
+    Ok(terms)
 }
 
 /// Multiply-shift partition hash: XOR-folds the term's bits, then maps
@@ -538,11 +625,15 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         py: Python<'_>,
         evolved: &mut AbstractTermSum<M>,
         circuit: &Bound<'_, PyAny>,
+        filename: Option<&str>,
     ) -> PyResult<()>
     where
         M: for<'py> FromPyObject<'py>,
     {
         self.run_propagation_inner(py, evolved, circuit, false)?;
+        if let Some(path) = filename {
+            save_terms_to_file(&evolved.terms, path)?;
+        }
         Ok(())
     }
 
@@ -552,6 +643,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         evolved: &mut AbstractTermSum<M>,
         circuit: &Bound<'_, PyAny>,
         fock_state: u64,
+        filename: Option<&str>,
     ) -> PyResult<PropagationResult>
     where
         M: for<'py> FromPyObject<'py>,
@@ -565,6 +657,10 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 .map(|(term, coeff)| *coeff * term.trace_with_fock_state(fock_state))
                 .sum()
         });
+
+        if let Some(path) = filename {
+            save_terms_to_file(&evolved.terms, path)?;
+        }
 
         Ok(PropagationResult { n_terms, expectation_value: total.re })
     }

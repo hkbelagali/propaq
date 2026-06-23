@@ -200,6 +200,15 @@ impl AbstractTerm for PauliString {
         self.x.as_words().iter().chain(self.z.as_words().iter())
             .fold(0u64, |acc, &w| acc ^ w)
     }
+    fn system_size(&self) -> u64 { self.n_qubits as u64 }
+    fn from_bytes_vec(bytes: &[u8], system_size: u64) -> Self {
+        let n_qubits = system_size as usize;
+        let n_bytes = (n_qubits + 7) / 8;
+        let xb = Bitset::from_le_bytes(&bytes[..n_bytes]);
+        let zb = Bitset::from_le_bytes(&bytes[n_bytes..2 * n_bytes]);
+        let weight = (&xb | &zb).count_ones();
+        PauliString { x: xb, z: zb, n_qubits, weight }
+    }
 }
 
 impl PartialEq for PauliString {
