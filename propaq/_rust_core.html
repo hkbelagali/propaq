@@ -74,19 +74,19 @@
                                 <a class="function" href="#MajoranaMonomial.to_bytes">to_bytes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#MajoranaMonomial.weight">weight</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.length">length</a>
+                                <a class="variable" href="#MajoranaMonomial.modes">modes</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.modes">modes</a>
+                                <a class="variable" href="#MajoranaMonomial.length">length</a>
                         </li>
                 </ul>
 
@@ -107,13 +107,13 @@
                                 <a class="variable" href="#PauliString.weight">weight</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.n_qubits">n_qubits</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#PauliString.z">z</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliString.x">x</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#PauliString.n_qubits">n_qubits</a>
                         </li>
                 </ul>
 
@@ -129,6 +129,9 @@
                         </li>
                         <li>
                                 <a class="function" href="#MajoranaTermSum.merge">merge</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#MajoranaTermSum.merge_from_file">merge_from_file</a>
                         </li>
                         <li>
                                 <a class="function" href="#MajoranaTermSum.truncate">truncate</a>
@@ -155,6 +158,15 @@
 
             </li>
             <li>
+                    <a class="class" href="#MajoranaTermStreamer">MajoranaTermStreamer</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#MajoranaTermStreamer.from_file">from_file</a>
+                        </li>
+                </ul>
+
+            </li>
+            <li>
                     <a class="class" href="#PauliTermSum">PauliTermSum</a>
                             <ul class="memberlist">
                         <li>
@@ -165,6 +177,9 @@
                         </li>
                         <li>
                                 <a class="function" href="#PauliTermSum.merge">merge</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#PauliTermSum.merge_from_file">merge_from_file</a>
                         </li>
                         <li>
                                 <a class="function" href="#PauliTermSum.truncate">truncate</a>
@@ -191,16 +206,25 @@
 
             </li>
             <li>
+                    <a class="class" href="#PauliTermStreamer">PauliTermStreamer</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#PauliTermStreamer.from_file">from_file</a>
+                        </li>
+                </ul>
+
+            </li>
+            <li>
                     <a class="class" href="#TruncationPolicy">TruncationPolicy</a>
                             <ul class="memberlist">
                         <li>
                                 <a class="function" href="#TruncationPolicy.should_truncate">should_truncate</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
+                                <a class="variable" href="#TruncationPolicy.coeff_cutoff">coeff_cutoff</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TruncationPolicy.coeff_cutoff">coeff_cutoff</a>
+                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
                         </li>
                         <li>
                                 <a class="variable" href="#TruncationPolicy.truncation_range">truncation_range</a>
@@ -278,10 +302,10 @@
                     <a class="class" href="#PropagationResult">PropagationResult</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="variable" href="#PropagationResult.n_terms">n_terms</a>
+                                <a class="variable" href="#PropagationResult.expectation_value">expectation_value</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PropagationResult.expectation_value">expectation_value</a>
+                                <a class="variable" href="#PropagationResult.n_terms">n_terms</a>
                         </li>
                 </ul>
 
@@ -483,17 +507,6 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
-                            <div id="MajoranaMonomial.n_modes" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_modes</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.n_modes"></a>
-    
-    
-
-                            </div>
                             <div id="MajoranaMonomial.weight" class="classattr">
                                 <div class="attr variable">
             <span class="name">weight</span>
@@ -507,17 +520,28 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
-                            <div id="MajoranaMonomial.length" class="classattr">
+                            <div id="MajoranaMonomial.modes" class="classattr">
                                 <div class="attr variable">
-            <span class="name">length</span>
+            <span class="name">modes</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaMonomial.length"></a>
+    <a class="headerlink" href="#MajoranaMonomial.modes"></a>
     
-            <div class="docstring"><p>Number of active Majorana modes in the monomial (popcount of the mode bitmask).</p>
+            <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
 </div>
 
+
+                            </div>
+                            <div id="MajoranaMonomial.n_modes" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_modes</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.n_modes"></a>
+    
+    
 
                             </div>
                             <div id="MajoranaMonomial.is_number_preserving" class="classattr">
@@ -531,15 +555,15 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
     
 
                             </div>
-                            <div id="MajoranaMonomial.modes" class="classattr">
+                            <div id="MajoranaMonomial.length" class="classattr">
                                 <div class="attr variable">
-            <span class="name">modes</span>
+            <span class="name">length</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaMonomial.modes"></a>
+    <a class="headerlink" href="#MajoranaMonomial.length"></a>
     
-            <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
+            <div class="docstring"><p>Number of active Majorana modes in the monomial (popcount of the mode bitmask).</p>
 </div>
 
 
@@ -659,17 +683,6 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
-                            <div id="PauliString.n_qubits" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_qubits</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliString.n_qubits"></a>
-    
-    
-
-                            </div>
                             <div id="PauliString.z" class="classattr">
                                 <div class="attr variable">
             <span class="name">z</span>
@@ -694,6 +707,17 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
             <div class="docstring"><p>X-component bitmask as a Python int.</p>
 </div>
 
+
+                            </div>
+                            <div id="PauliString.n_qubits" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_qubits</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliString.n_qubits"></a>
+    
+    
 
                             </div>
                 </section>
@@ -758,6 +782,28 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
     <a class="headerlink" href="#MajoranaTermSum.merge"></a>
     
             <div class="docstring"><p>Add all terms from <em>other</em> into this sum.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaTermSum.merge_from_file" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">merge_from_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">streamer</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaTermSum.merge_from_file"></a>
+    
+            <div class="docstring"><p>Stream terms from a file and merge them into this sum one at a time,
+accumulating coefficients for monomials already present.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>streamer:</strong>  A MajoranaTermStreamer opened with <a href="#MajoranaTermStreamer.from_file">MajoranaTermStreamer.from_file()</a>.</li>
+</ul>
 </div>
 
 
@@ -881,6 +927,40 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
                             </div>
                 </section>
+                <section id="MajoranaTermStreamer">
+                    <div class="attr class">
+            
+    <span class="def">class</span>
+    <span class="name">MajoranaTermStreamer</span>:
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaTermStreamer"></a>
+    
+    
+
+                            <div id="MajoranaTermStreamer.from_file" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">from_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaTermStreamer.from_file"></a>
+    
+            <div class="docstring"><p>Open a gzip-compressed binary file for lazy streaming.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>path:</strong>  Path to a file written by <code><a href="#MajoranaTermSum.save">MajoranaTermSum.save()</a></code>.</li>
+</ul>
+</div>
+
+
+                            </div>
+                </section>
                 <section id="PauliTermSum">
                     <div class="attr class">
             
@@ -942,6 +1022,28 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
     <a class="headerlink" href="#PauliTermSum.merge"></a>
     
             <div class="docstring"><p>Add all terms from <em>other</em> into this sum.</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliTermSum.merge_from_file" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">merge_from_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">streamer</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliTermSum.merge_from_file"></a>
+    
+            <div class="docstring"><p>Stream terms from a file and merge them into this sum one at a time,
+accumulating coefficients for strings already present.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>streamer:</strong>  A PauliTermStreamer opened with <a href="#PauliTermStreamer.from_file">PauliTermStreamer.from_file()</a>.</li>
+</ul>
 </div>
 
 
@@ -1065,6 +1167,40 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
                             </div>
                 </section>
+                <section id="PauliTermStreamer">
+                    <div class="attr class">
+            
+    <span class="def">class</span>
+    <span class="name">PauliTermStreamer</span>:
+
+        
+    </div>
+    <a class="headerlink" href="#PauliTermStreamer"></a>
+    
+    
+
+                            <div id="PauliTermStreamer.from_file" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">from_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliTermStreamer.from_file"></a>
+    
+            <div class="docstring"><p>Open a gzip-compressed binary file for lazy streaming.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>path:</strong>  Path to a file written by <code><a href="#PauliTermSum.save">PauliTermSum.save()</a></code>.</li>
+</ul>
+</div>
+
+
+                            </div>
+                </section>
                 <section id="TruncationPolicy">
                     <div class="attr class">
             
@@ -1105,17 +1241,6 @@ Defaults to (None, $10^7$).</li>
 
 
                             </div>
-                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight_cutoff</span>
-
-        
-    </div>
-    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
-    
-    
-
-                            </div>
                             <div id="TruncationPolicy.coeff_cutoff" class="classattr">
                                 <div class="attr variable">
             <span class="name">coeff_cutoff</span>
@@ -1123,6 +1248,17 @@ Defaults to (None, $10^7$).</li>
         
     </div>
     <a class="headerlink" href="#TruncationPolicy.coeff_cutoff"></a>
+    
+    
+
+                            </div>
+                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight_cutoff</span>
+
+        
+    </div>
+    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
     
     
 
@@ -1491,17 +1627,6 @@ and apply_noise(term_sum) methods.</li>
 </div>
 
 
-                            <div id="PropagationResult.n_terms" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_terms</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PropagationResult.n_terms"></a>
-    
-    
-
-                            </div>
                             <div id="PropagationResult.expectation_value" class="classattr">
                                 <div class="attr variable">
             <span class="name">expectation_value</span>
@@ -1509,6 +1634,17 @@ and apply_noise(term_sum) methods.</li>
         
     </div>
     <a class="headerlink" href="#PropagationResult.expectation_value"></a>
+    
+    
+
+                            </div>
+                            <div id="PropagationResult.n_terms" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_terms</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PropagationResult.n_terms"></a>
     
     
 
