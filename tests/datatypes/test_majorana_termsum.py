@@ -1,7 +1,7 @@
 import pytest
 from qiskit.quantum_info import SparsePauliOp
 
-from propaq.datatypes import MajoranaMonomial, MajoranaTermSum, MajoranaTermStreamer
+from propaq.datatypes import MajoranaMonomial, MajoranaTermStreamer, MajoranaTermSum
 from propaq.noise.truncation import TruncationPolicy
 from propaq.noise.uniform import UniformNoiseModel
 
