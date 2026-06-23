@@ -1,21 +1,22 @@
 """
-Aggregate per-task npz files into one per-weight file in refined_data/.
+Aggregate per-task npz files into one per-order file in refined_data/.
 
-    ev_sum            — total expectation value contribution for this weight
+    ev_sum            — total expectation value contribution for this order bucket
     values            — all per-monomial EVs concatenated (present tasks, by task_id)
     n_tasks           — total expected task count
     present_task_ids  — sorted task IDs that have results
     missing_task_ids  — sorted task IDs without results
     ccsd_energy       — CCSD reference energy
     n_qubits          — number of qubits
-    n_wN_pauli_terms  — number of weight-N Pauli terms
-    runtime_seconds   — per-term wall times concatenated across present tasks (NaN if unknown)
+    n_oN_pauli_terms  — number of order-N Pauli terms
+    runtime_seconds   — per-term wall times concatenated across present tasks
     rt_mean, rt_std   — mean and std of per-term runtimes
 """
 
 import argparse
 import re
 from collections import defaultdict
+from math import floor, log10
 from pathlib import Path
 
 import numpy as np
@@ -23,13 +24,13 @@ import numpy as np
 parser = argparse.ArgumentParser()
 parser.add_argument("--results-dir",       default="results")
 parser.add_argument("--refined-dir",       default="refined_data")
-parser.add_argument("--hamiltonian-cache", default="../hamiltonian_cache.npz")
+parser.add_argument("--hamiltonian-cache", default="compiled_hamiltonian_cache.npz")
 args = parser.parse_args()
 
 RESULTS_DIR = Path(args.results_dir)
 REFINED_DIR = Path(args.refined_dir)
 
-NPZ_RE = re.compile(r"FeS_LUCJ_w(\d+)_(\d{5})of(\d{5})\.npz$")
+NPZ_RE = re.compile(r"FeS_LUCJ_o(-?\d+)_(\d{5})of(\d{5})\.npz$")
 
 def _compress_ids(ids: list[int]) -> str:
     """Convert a sorted list of ints to SLURM range notation, e.g. [0,1,2,5] -> '0-2,5'."""
@@ -53,88 +54,93 @@ def _fmt_time(sec: float) -> str:
     m, s   = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
-ecore = None
-weight_coeff_mass: dict[int, float] = {}
-for cache_name in (args.hamiltonian_cache,):
-    p = Path(cache_name)
-    if p.exists():
-        _c     = np.load(p, allow_pickle=False)
-        paulis = _c["paulis"].astype(str)
-        coeffs = _c["coeffs"]
-        pw = np.array([sum(c != "I" for c in s) for s in paulis])
-        ecore = float(coeffs[pw == 0].sum().real)
-        for _w in np.unique(pw):
-            if _w > 0:
-                weight_coeff_mass[int(_w)] = float(np.abs(coeffs[pw == _w]).sum().real)
-        break
+ecore: float | None = None
+order_coeff_mass: dict[int, float] = {}
+
+cache_path = Path(args.hamiltonian_cache)
+if cache_path.exists():
+    _c     = np.load(cache_path, allow_pickle=False)
+    paulis = _c["paulis"].astype(str)
+    coeffs = _c["coeffs"].real
+    pw     = np.array([sum(ch != "I" for ch in s) for s in paulis])
+    ecore  = float(coeffs[pw == 0].sum())
+    for c in coeffs[pw > 0]:
+        if abs(c) > 0:
+            o = floor(log10(abs(c)))
+            order_coeff_mass[o] = order_coeff_mass.get(o, 0.0) + abs(c)
 else:
-    print("WARNING: Hamiltonian cache not found — ECORE (weight-0) not included")
+    print(f"WARNING: Hamiltonian cache not found at {cache_path} — ECORE not included")
 
 raw: dict[int, dict[int, dict]] = defaultdict(dict)
 ccsd_energy = None
 
-for path in RESULTS_DIR.glob("FeS_LUCJ_w*.npz"):
+for path in RESULTS_DIR.glob("FeS_LUCJ_o*.npz"):
     m = NPZ_RE.match(path.name)
     if not m:
         continue
-    w, tid, ntasks = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    order, tid, ntasks = int(m.group(1)), int(m.group(2)), int(m.group(3))
     try:
         d = np.load(path, allow_pickle=False)
         if ccsd_energy is None and "ccsd_energy" in d:
             ccsd_energy = float(d["ccsd_energy"])
-        raw[w][tid] = {
+        raw[order][tid] = {
             "values": np.asarray(d["values"], dtype=float),
-            "runtime": np.atleast_1d(np.asarray(d["runtime_seconds"], dtype=float)) if "runtime_seconds" in d else np.array([], dtype=float),
+            "runtime": np.atleast_1d(np.asarray(d["runtime_seconds"], dtype=float))
+                                if "runtime_seconds" in d else np.array([], dtype=float),
             "n_tasks": ntasks,
-            "n_wN_pauli_terms": int(d["n_wN_pauli_terms"]) if "n_wN_pauli_terms" in d else -1,
-            "n_qubits": int(d["n_qubits"])          if "n_qubits"          in d else -1,
-            "ccsd_energy": float(d["ccsd_energy"])     if "ccsd_energy"       in d else float("nan"),
+            "n_oN_pauli_terms": int(d["n_oN_pauli_terms"]) if "n_oN_pauli_terms" in d else -1,
+            "n_qubits": int(d["n_qubits"])           if "n_qubits"           in d else -1,
+            "ccsd_energy": float(d["ccsd_energy"])   if "ccsd_energy"        in d else float("nan"),
+            "damping": float(d["damping"])            if "damping"            in d else None,
+            "coeff_cutoff": float(d["coeff_cutoff"]) if "coeff_cutoff"       in d else None,
         }
     except Exception as e:
         print(f"WARNING: could not read {path.name}: {e}")
 
 if not raw:
     raise FileNotFoundError(
-        f"No npz result files found in {RESULTS_DIR}. "
-        "Run run_LUCJ.py jobs or backfill_npz.py first."
+        f"No matching npz files found in {RESULTS_DIR}. Run run_LUCJ.py jobs first."
     )
 
 REFINED_DIR.mkdir(exist_ok=True)
 
-weight_results: dict[int, tuple] = {}
+order_results: dict[int, tuple] = {}
 
-for w in sorted(raw):
-    task_map = raw[w]
+for order in sorted(raw, reverse=True):
+    task_map = raw[order]
 
-    n_tasks = next(iter(task_map.values()))["n_tasks"]
-
+    n_tasks     = next(iter(task_map.values()))["n_tasks"]
     present_ids = sorted(tid for tid in range(n_tasks) if tid in task_map)
     missing_ids = sorted(set(range(n_tasks)) - set(present_ids))
 
     if missing_ids:
-        print(f"WARNING: weight {w} — {len(missing_ids)} task(s) missing from results/")
-        print(f"Resubmit: sbatch --array={_compress_ids(missing_ids)} "
-              f"--job-name=FeS-LUCJ-w{w} "
-              f"--export=ALL,WEIGHT={w},N_TASKS={n_tasks} run.sh")
+        print(f"WARNING: order {order} — {len(missing_ids)} task(s) missing")
+        base = (f"sbatch --array={_compress_ids(missing_ids)} "
+                f"--job-name=FeS-LUCJ-o{order} "
+                f"--export=ALL,ORDER={order},N_TASKS={n_tasks}")
+        print(f"         Resubmit (scavenger): {base} run.sh")
+        print(f"         Resubmit (general):   {base} run_general.sh")
 
     values_all = np.concatenate([task_map[tid]["values"] for tid in present_ids]) \
         if present_ids else np.array([], dtype=float)
     ev_sum = float(values_all.sum())
 
-    runtimes = np.concatenate([task_map[tid]["runtime"] for tid in present_ids]) \
+    runtimes  = np.concatenate([task_map[tid]["runtime"] for tid in present_ids]) \
         if present_ids else np.array([], dtype=float)
-    valid_rt = runtimes[~np.isnan(runtimes)]
-    rt_mean  = float(np.mean(valid_rt)) if valid_rt.size else float("nan")
-    rt_std   = float(np.std(valid_rt))  if valid_rt.size else float("nan")
+    valid_rt  = runtimes[~np.isnan(runtimes)]
+    rt_mean   = float(np.mean(valid_rt)) if valid_rt.size else float("nan")
+    rt_std    = float(np.std(valid_rt))  if valid_rt.size else float("nan")
 
-    first = task_map[present_ids[0]] if present_ids else {}
-    n_wN  = first.get("n_wN_pauli_terms", -1)
-    nq    = first.get("n_qubits", -1)
-    ce    = first.get("ccsd_energy", float("nan"))
+    first        = task_map[present_ids[0]] if present_ids else {}
+    n_oN         = first.get("n_oN_pauli_terms", -1)
+    nq           = first.get("n_qubits", -1)
+    ce           = first.get("ccsd_energy", float("nan"))
+    damping      = first.get("damping")
+    coeff_cutoff = first.get("coeff_cutoff")
     if ccsd_energy is None and not np.isnan(ce):
         ccsd_energy = ce
 
-    out_path = REFINED_DIR / f"FeS_LUCJ_w{w}.npz"
+    out_path = REFINED_DIR / f"FeS_LUCJ_o{order}.npz"
     np.savez(
         out_path,
         ev_sum = np.float64(ev_sum),
@@ -144,10 +150,12 @@ for w in sorted(raw):
         missing_task_ids = np.array(missing_ids, dtype=np.int64),
         ccsd_energy = np.float64(ce),
         n_qubits = np.int64(nq),
-        n_wN_pauli_terms = np.int64(n_wN),
+        n_oN_pauli_terms = np.int64(n_oN),
         runtime_seconds = runtimes,
         rt_mean = np.float64(rt_mean),
         rt_std = np.float64(rt_std),
+        **({} if damping      is None else {"damping":      np.float64(damping)}),
+        **({} if coeff_cutoff is None else {"coeff_cutoff": np.float64(coeff_cutoff)}),
     )
 
     present_terms = len(values_all)
@@ -158,14 +166,13 @@ for w in sorted(raw):
     else:
         missing_terms_str = "?"
 
-    weight_results[w] = (ev_sum, n_tasks, present_ids, missing_ids, rt_mean, rt_std,
-                         present_terms, missing_terms_str)
+    order_results[order] = (ev_sum, n_tasks, present_ids, missing_ids, rt_mean, rt_std,
+                             present_terms, missing_terms_str, damping, coeff_cutoff)
 
-print(f"Saved {len(weight_results)} weight file(s) to {REFINED_DIR}/")
+print(f"Saved {len(order_results)} order file(s) to {REFINED_DIR}/")
 
 print()
-if ccsd_energy is not None:
-    print(f"CCSD energy: {ccsd_energy:.6f}")
+print("FeS-symmetry")
 print()
 
 RTW = 10
@@ -173,7 +180,7 @@ TW  = 8
 CMW = 16
 EVW = 16
 header = (
-    f"{'Weight':>7}  {'Pres.T':>{TW}}  {'Miss.T':>{TW}}  "
+    f"{'Order':>7}  {'Pres.T':>{TW}}  {'Miss.T':>{TW}}  "
     f"{'|c| mass':>{CMW}}  {'EV contribution':>{EVW}}  {'Cumulative EV':>{EVW}}  "
     f"{'RT mean':>{RTW}}  {'RT std':>{RTW}}"
 )
@@ -185,23 +192,29 @@ blank = "—"
 if ecore is not None:
     cumulative += ecore
     print(
-        f"{'0':>7}  {blank:>{TW}}  {blank:>{TW}}  "
+        f"{'ECORE':>7}  {blank:>{TW}}  {blank:>{TW}}  "
         f"{blank:>{CMW}}  {ecore:>{EVW}.6f}  {cumulative:>{EVW}.6f}  "
-        f"{blank:>{RTW}}  {blank:>{RTW}}  (ECORE)"
+        f"{blank:>{RTW}}  {blank:>{RTW}}"
     )
-elif 0 not in weight_results:
+else:
     print("WARNING: no Hamiltonian cache found — ECORE not included")
 
-for w in sorted(weight_results):
-    ev_sum, n_tasks, present_ids, missing_ids, rt_mean, rt_std, present_terms, missing_terms_str = weight_results[w]
+for order in sorted(order_results, reverse=True):
+    ev_sum, n_tasks, present_ids, missing_ids, rt_mean, rt_std, present_terms, missing_terms_str, damping, coeff_cutoff = order_results[order]
     cumulative += ev_sum
-    flag = " *" if missing_ids else ""
-    cm = weight_coeff_mass.get(w)
+    flag   = " *" if missing_ids else ""
+    cm     = order_coeff_mass.get(order)
     cm_str = f"{cm:>{CMW}.6f}" if cm is not None else f"{blank:>{CMW}}"
+    params = ""
+    if damping is not None or coeff_cutoff is not None:
+        parts = []
+        if damping      is not None: parts.append(f"damping={damping}")
+        if coeff_cutoff is not None: parts.append(f"cutoff={coeff_cutoff:.0e}")
+        params = f"  [{', '.join(parts)}]"
     print(
-        f"{w:>7}  {present_terms:>{TW}}  {missing_terms_str:>{TW}}  "
+        f"{order:>7}  {present_terms:>{TW}}  {missing_terms_str:>{TW}}  "
         f"{cm_str}  {ev_sum:>{EVW}.6f}  {cumulative:>{EVW}.6f}  "
-        f"{_fmt_time(rt_mean):>{RTW}}  {_fmt_time(rt_std):>{RTW}}{flag}"
+        f"{_fmt_time(rt_mean):>{RTW}}  {_fmt_time(rt_std):>{RTW}}{flag}{params}"
     )
 
 print()
