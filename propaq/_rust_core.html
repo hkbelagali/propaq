@@ -74,7 +74,7 @@
                                 <a class="function" href="#MajoranaMonomial.to_bytes">to_bytes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
+                                <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaMonomial.length">length</a>
@@ -83,10 +83,10 @@
                                 <a class="variable" href="#MajoranaMonomial.weight">weight</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
+                                <a class="variable" href="#MajoranaMonomial.modes">modes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.modes">modes</a>
+                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
                         </li>
                 </ul>
 
@@ -110,10 +110,10 @@
                                 <a class="variable" href="#PauliString.x">x</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.z">z</a>
+                                <a class="variable" href="#PauliString.weight">weight</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.weight">weight</a>
+                                <a class="variable" href="#PauliString.z">z</a>
                         </li>
                 </ul>
 
@@ -188,10 +188,10 @@
                                 <a class="variable" href="#TruncationPolicy.truncation_range">truncation_range</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
+                                <a class="variable" href="#TruncationPolicy.coeff_cutoff">coeff_cutoff</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TruncationPolicy.coeff_cutoff">coeff_cutoff</a>
+                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
                         </li>
                 </ul>
 
@@ -266,10 +266,10 @@
                     <a class="class" href="#PropagationResult">PropagationResult</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="variable" href="#PropagationResult.n_terms">n_terms</a>
+                                <a class="variable" href="#PropagationResult.expectation_value">expectation_value</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PropagationResult.expectation_value">expectation_value</a>
+                                <a class="variable" href="#PropagationResult.n_terms">n_terms</a>
                         </li>
                 </ul>
 
@@ -278,10 +278,10 @@
                     <a class="class" href="#Logger">Logger</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="variable" href="#Logger.filename">filename</a>
+                                <a class="variable" href="#Logger.log_every">log_every</a>
                         </li>
                         <li>
-                                <a class="variable" href="#Logger.log_every">log_every</a>
+                                <a class="variable" href="#Logger.filename">filename</a>
                         </li>
                 </ul>
 
@@ -471,13 +471,13 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
-                            <div id="MajoranaMonomial.is_number_preserving" class="classattr">
+                            <div id="MajoranaMonomial.n_modes" class="classattr">
                                 <div class="attr variable">
-            <span class="name">is_number_preserving</span>
+            <span class="name">n_modes</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaMonomial.is_number_preserving"></a>
+    <a class="headerlink" href="#MajoranaMonomial.n_modes"></a>
     
     
 
@@ -508,17 +508,6 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
-                            <div id="MajoranaMonomial.n_modes" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_modes</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.n_modes"></a>
-    
-    
-
-                            </div>
                             <div id="MajoranaMonomial.modes" class="classattr">
                                 <div class="attr variable">
             <span class="name">modes</span>
@@ -530,6 +519,17 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
             <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
 </div>
 
+
+                            </div>
+                            <div id="MajoranaMonomial.is_number_preserving" class="classattr">
+                                <div class="attr variable">
+            <span class="name">is_number_preserving</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.is_number_preserving"></a>
+    
+    
 
                             </div>
                 </section>
@@ -658,19 +658,6 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
-                            <div id="PauliString.z" class="classattr">
-                                <div class="attr variable">
-            <span class="name">z</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliString.z"></a>
-    
-            <div class="docstring"><p>Z-component bitmask as a Python int.</p>
-</div>
-
-
-                            </div>
                             <div id="PauliString.weight" class="classattr">
                                 <div class="attr variable">
             <span class="name">weight</span>
@@ -680,6 +667,19 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
     <a class="headerlink" href="#PauliString.weight"></a>
     
             <div class="docstring"><p>Number of non-identity single-qubit Pauli operators (popcount of x | z).</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliString.z" class="classattr">
+                                <div class="attr variable">
+            <span class="name">z</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliString.z"></a>
+    
+            <div class="docstring"><p>Z-component bitmask as a Python int.</p>
 </div>
 
 
@@ -1020,17 +1020,6 @@ Defaults to (None, $10^7$).</li>
 
 
                             </div>
-                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight_cutoff</span>
-
-        
-    </div>
-    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
-    
-    
-
-                            </div>
                             <div id="TruncationPolicy.coeff_cutoff" class="classattr">
                                 <div class="attr variable">
             <span class="name">coeff_cutoff</span>
@@ -1038,6 +1027,17 @@ Defaults to (None, $10^7$).</li>
         
     </div>
     <a class="headerlink" href="#TruncationPolicy.coeff_cutoff"></a>
+    
+    
+
+                            </div>
+                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight_cutoff</span>
+
+        
+    </div>
+    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
     
     
 
@@ -1389,17 +1389,6 @@ and apply_noise(term_sum) methods.</li>
 </div>
 
 
-                            <div id="PropagationResult.n_terms" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_terms</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PropagationResult.n_terms"></a>
-    
-    
-
-                            </div>
                             <div id="PropagationResult.expectation_value" class="classattr">
                                 <div class="attr variable">
             <span class="name">expectation_value</span>
@@ -1407,6 +1396,17 @@ and apply_noise(term_sum) methods.</li>
         
     </div>
     <a class="headerlink" href="#PropagationResult.expectation_value"></a>
+    
+    
+
+                            </div>
+                            <div id="PropagationResult.n_terms" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_terms</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PropagationResult.n_terms"></a>
     
     
 
@@ -1433,17 +1433,6 @@ and apply_noise(term_sum) methods.</li>
 </div>
 
 
-                            <div id="Logger.filename" class="classattr">
-                                <div class="attr variable">
-            <span class="name">filename</span>
-
-        
-    </div>
-    <a class="headerlink" href="#Logger.filename"></a>
-    
-    
-
-                            </div>
                             <div id="Logger.log_every" class="classattr">
                                 <div class="attr variable">
             <span class="name">log_every</span>
@@ -1451,6 +1440,17 @@ and apply_noise(term_sum) methods.</li>
         
     </div>
     <a class="headerlink" href="#Logger.log_every"></a>
+    
+    
+
+                            </div>
+                            <div id="Logger.filename" class="classattr">
+                                <div class="attr variable">
+            <span class="name">filename</span>
+
+        
+    </div>
+    <a class="headerlink" href="#Logger.filename"></a>
     
     
 
