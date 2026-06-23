@@ -1,0 +1,16 @@
+# SLURM job logs — thousands of files per run, not for remote
+**/logs/
+
+# Per-task intermediate computation results — derived from logs, not for remote
+**/results/
+
+# SLURM stdout files (*.err is already covered by root .gitignore)
+*.out
+
+# SLURM Scripts
+*.sh
+
+# Hamiltonian cache for n60 heavy-hex exceeds GitHub's 2GB LFS limit
+n60/heavy-hex/hamiltonian_cache.npz
+n60/square/hamiltonian_cache.npz
+
