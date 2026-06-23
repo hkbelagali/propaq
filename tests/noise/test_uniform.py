@@ -2,8 +2,8 @@ import math
 
 import pytest
 
+from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
 from propaq.noise.uniform import UniformNoiseModel
-from propaq.datatypes import MajoranaTermSum, MajoranaMonomial
 
 
 def mon(modes_int: int, n_modes: int = 8) -> MajoranaMonomial:

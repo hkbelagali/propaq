@@ -1,9 +1,10 @@
 import pytest
+from qiskit import QuantumCircuit
+from qiskit.circuit.library import XXPlusYYGate
+
 from propaq.circuits.majorana.circuit import MajoranaCircuit
 from propaq.circuits.majorana.rotation import MajoranaRotation
 
-from qiskit import QuantumCircuit
-from qiskit.circuit.library import XXPlusYYGate
 
 def test_from_generators_and_angles_builds_rotations():
     gens = ["g1", "g2"]

@@ -1,7 +1,7 @@
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from numbers import Number
-from typing import List, NewType, Tuple
+from typing import NewType
 
 # define a new type for bitmasks, which are used
 # to represent the X and Z components of a PauliTerm
@@ -29,7 +29,7 @@ class AbstractTerm(ABC):
         pass
 
     @abstractmethod
-    def __matmul__(self, other) -> Tuple[Number, "AbstractTerm"]:
+    def __matmul__(self, other) -> tuple[Number, "AbstractTerm"]:
         """Multiply two terms; returns (phase, product_term)."""
         pass
 
@@ -71,6 +71,6 @@ class AbstractTermSum(ABC):
         pass
 
     @abstractmethod
-    def items(self) -> List[Tuple]:
+    def items(self) -> list[tuple]:
         """Return a list of (monomial, coefficient) pairs."""
         pass

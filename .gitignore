@@ -8,7 +8,12 @@ Cargo.lock
 *.so
 /**/__pycache__/
 /**/.pytest_cache/
+/**/.ruff_cache/
 .coverage
 
-# Playground files 
+# Docs build output
+_site/
+site/
+
+# Playground files
 scratch.py

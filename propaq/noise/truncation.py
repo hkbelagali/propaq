@@ -4,6 +4,7 @@ from propaq._rust_core import TruncationPolicy as _RustTruncationPolicy
 
 
 class TruncationPolicy(_RustTruncationPolicy):
-    def error_bound(self, noise_rate: float, circuit_depth: int) -> None:
-        """Calculate the error bound for the truncation policy (stub)."""
-        return None
+    """
+    Controls when and how terms are discarded during propagation.
+    """
+    pass

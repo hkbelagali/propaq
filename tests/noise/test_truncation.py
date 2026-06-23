@@ -1,4 +1,3 @@
-import pytest
 
 from propaq.noise.truncation import TruncationPolicy
 
@@ -21,9 +20,3 @@ def test_weight_cutoff_none_still_truncates_on_coeff():
     p = TruncationPolicy(weight_cutoff=None, coeff_cutoff=0.5)
     assert p.should_truncate(100, 0.1) is True
     assert p.should_truncate(100, 0.6) is False
-
-
-def test_error_bound_placeholder():
-    p = TruncationPolicy(1, 0.1)
-    # current implementation is a stub; ensure it doesn't raise
-    assert p.error_bound(0.1, 10) is None

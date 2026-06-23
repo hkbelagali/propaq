@@ -1,25 +1,33 @@
 """Datatype representing a sum of Pauli terms."""
 
 import math
-from typing import Generic, List, TypeVar
+from typing import Generic, TypeVar
 
 from qiskit.circuit import Instruction
 from qiskit.quantum_info import SparsePauliOp
 
-from .pauli import PauliString
-from .._abstract import BitMask
-
 from propaq._rust_core import PauliTermSum as _RustPauliTermSum
+
+from .._abstract import BitMask
+from .pauli import PauliString
 
 T = TypeVar("T")
 
 
 class PauliTermSum(_RustPauliTermSum, Generic[T]):
-    """Rust-backed term sum with Qiskit factory class methods."""
+    r"""
+    Class representing a sum of Pauli terms:
+    $$
+    \sum_i c_i P_i
+    $$
+
+    Backend is implemented in Rust for performance, but this class provides a 
+    Python interface for constructing and manipulating sums of Pauli terms. 
+    """
 
     @classmethod
     def from_xx_plus_yy(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from an XX+YY gate between qubits q_indices[0] and q_indices[1].
@@ -41,7 +49,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_phase(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from a phase gate on qubit q_indices[0].
@@ -60,9 +68,13 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_rz_angle(cls, q: int, angle: float, n_modes: int) -> "PauliTermSum[PauliString]":
-        """Construct from a raw Rz rotation angle (not an Instruction object).
+        """
+        Construct from a raw Rz rotation angle.
 
-        Equivalent to from_phase with params[0] = angle on qubit q.
+        Arguments:
+            q: The index of the qubit the gate acts on.
+            angle: The rotation angle in radians.
+            n_modes: The total number of qubits in the system.
         """
         term_sum = cls()
         term_sum.add(PauliString(BitMask(0), BitMask(1 << q), n_modes), angle)
@@ -70,10 +82,10 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_rz(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
-        Construct from an RZ gate (delegates to from_phase).
+        Construct from an RZ gate.
 
         Arguments:
             instr: The instruction representing the gate.
@@ -84,7 +96,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_cp(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from a controlled-phase gate between q_indices[0] and q_indices[1].
@@ -109,7 +121,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_swap(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from a SWAP gate between q_indices[0] and q_indices[1].
@@ -131,7 +143,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_x(
-        cls, instr: Instruction, q_indices: List[int], n_modes: int
+        cls, instr: Instruction, q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from an X gate on qubit q_indices[0].
@@ -151,7 +163,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
         cls, op: SparsePauliOp
     ) -> "PauliTermSum[PauliString]":
         """
-        Construct directly from a SparsePauliOp (no Jordan-Wigner transform needed).
+        Construct directly from a SparsePauliOp.
 
         Arguments:
             op: The SparsePauliOp to convert.

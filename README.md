@@ -1,9 +1,8 @@
-"""
 # propaq
-
+[![Docs](https://img.shields.io/badge/docs-hkbelagali.github.io/propaq-blue)](https://hkbelagali.github.io/propaq)
 [![CI](https://github.com/hkbelagali/propaq/actions/workflows/workflow.yml/badge.svg)](https://github.com/hkbelagali/propaq/actions/workflows/workflow.yml)
 [![PyPI](https://img.shields.io/pypi/v/propaq)](https://pypi.org/project/propaq/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/hkbelagali/propaq/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Fast Heisenberg-picture propagation for quantum circuit simulation, with a parallel Rust backend!
 
@@ -13,6 +12,8 @@ Implements the algorithms described in:
 
 >  A. Miller et al., "Simulation of Fermionic circuits using Majorana Propagation," Dec. 16, 2025, arXiv: arXiv:2503.18939. doi: 10.48550/arXiv.2503.18939.
 
+propaq also provides the functionality to run noisy simulations with user-defined noise models and truncation policies, and to log propagation events 
+for debugging and analysis. It is designed to parse Qiskit circuits and observables for easy integration with existing quantum computing workflows.
 ## Installation
 
 ```bash
@@ -69,10 +70,6 @@ print("Expectation value:", result.expectation_value)
 
 For a more detailed introduction, see the example notebooks in the documentation.
 
-## Documentation
-
-Full API reference and example notebooks: https://hkbelagali.github.io/propaq
-
 ## Citation
 
 If you use propaq in your research, please cite:
@@ -104,41 +101,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
-"""
-
-from ._rust_core import Logger as Logger
-from .circuits import (
-    MajoranaCircuit as MajoranaCircuit,
-)
-from .circuits import (
-    MajoranaRotation as MajoranaRotation,
-)
-from .circuits import (
-    PauliCircuit as PauliCircuit,
-)
-from .circuits import (
-    PauliRotation as PauliRotation,
-)
-from .datatypes import (
-    MajoranaMonomial as MajoranaMonomial,
-)
-from .datatypes import (
-    MajoranaTermSum as MajoranaTermSum,
-)
-from .datatypes import (
-    PauliString as PauliString,
-)
-from .datatypes import (
-    PauliTermSum as PauliTermSum,
-)
-from .extrapolators import ZeroNoiseExtrapolator as ZeroNoiseExtrapolator
-from .extrapolators import ZNEResult as ZNEResult
-from .log_parser import GateEvent as GateEvent
-from .log_parser import LogParser as LogParser
-from .log_parser import TruncationEvent as TruncationEvent
-from .propagators import (
-    MajoranaPropagator as MajoranaPropagator,
-)
-from .propagators import (
-    PauliPropagator as PauliPropagator,
-)

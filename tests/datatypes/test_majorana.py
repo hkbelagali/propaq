@@ -1,5 +1,7 @@
-import pytest 
-from propaq.datatypes import MajoranaMonomial 
+import pytest
+
+from propaq.datatypes import MajoranaMonomial
+
 
 def monomial(*indices, n_modes=8): 
     modes = 0
