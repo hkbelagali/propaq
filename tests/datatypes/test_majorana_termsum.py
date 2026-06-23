@@ -1,6 +1,7 @@
 import pytest
 from qiskit.quantum_info import SparsePauliOp
 
+from propaq._rust_core import MajoranaTermStreamer
 from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
 from propaq.noise.truncation import TruncationPolicy
 from propaq.noise.uniform import UniformNoiseModel
@@ -252,3 +253,78 @@ def test_from_sparse_pauli_op_linear_combination():
     assert len(ts) == 2
     assert ts[_ref(0b01, 2)] == pytest.approx(0.5)
     assert ts[_ref(0b10, 2)] == pytest.approx(0.5)
+
+def test_streamer_round_trip_single_term(tmp_path):
+    a = mon(0b0001)
+    ts = MajoranaTermSum({a: 3.0 + 1j})
+    path = str(tmp_path / "ts.gz")
+    ts.save(path)
+
+    streamer = MajoranaTermStreamer.from_file(path)
+    pairs = list(streamer)
+    assert len(pairs) == 1
+    term, coeff = pairs[0]
+    assert term == a
+    assert coeff == pytest.approx(3.0 + 1j)
+
+
+def test_streamer_round_trip_multi_term(tmp_path):
+    a, b, c = mon(0b0001), mon(0b0010), mon(0b0100)
+    ts = MajoranaTermSum({a: 1.0, b: 2.0 + 0.5j, c: -1j})
+    path = str(tmp_path / "ts.gz")
+    ts.save(path)
+
+    result = {term: coeff for term, coeff in MajoranaTermStreamer.from_file(path)}
+    assert len(result) == 3
+    assert result[a] == pytest.approx(1.0)
+    assert result[b] == pytest.approx(2.0 + 0.5j)
+    assert result[c] == pytest.approx(-1j)
+
+
+def test_streamer_empty_file(tmp_path):
+    ts = MajoranaTermSum()
+    path = str(tmp_path / "empty.gz")
+    ts.save(path)
+
+    pairs = list(MajoranaTermStreamer.from_file(path))
+    assert pairs == []
+
+
+def test_merge_from_file_matches_from_file(tmp_path):
+    a, b = mon(0b0001), mon(0b0010)
+    ts = MajoranaTermSum({a: 1.5, b: -2.0 + 1j})
+    path = str(tmp_path / "ts.gz")
+    ts.save(path)
+
+    ref = MajoranaTermSum.from_file(path)
+    ts2 = MajoranaTermSum()
+    ts2.merge_from_file(MajoranaTermStreamer.from_file(path))
+
+    assert len(ts2) == len(ref)
+    for term, coeff in ref.items():
+        assert ts2[term] == pytest.approx(coeff)
+
+
+def test_merge_from_file_accumulates_into_existing(tmp_path):
+    a, b = mon(0b0001), mon(0b0010)
+    # existing sum has 'a' with coeff 1.0; file also has 'a' → should sum to 3.0
+    existing = MajoranaTermSum({a: 1.0})
+    saved = MajoranaTermSum({a: 2.0, b: 4.0})
+    path = str(tmp_path / "ts.gz")
+    saved.save(path)
+
+    existing.merge_from_file(MajoranaTermStreamer.from_file(path))
+    assert len(existing) == 2
+    assert existing[a] == pytest.approx(3.0)
+    assert existing[b] == pytest.approx(4.0)
+
+
+def test_merge_from_file_empty_file_leaves_sum_unchanged(tmp_path):
+    a = mon(0b0001)
+    ts = MajoranaTermSum({a: 5.0})
+    empty_path = str(tmp_path / "empty.gz")
+    MajoranaTermSum().save(empty_path)
+
+    ts.merge_from_file(MajoranaTermStreamer.from_file(empty_path))
+    assert len(ts) == 1
+    assert ts[a] == pytest.approx(5.0)
