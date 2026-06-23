@@ -37,7 +37,7 @@ class MajoranaPropagator:
         """
         ...
 
-    def propagate(self, observable: MajoranaTermSum, circuit: MajoranaCircuit) -> MajoranaTermSum:
+    def propagate(self, observable: MajoranaTermSum, circuit: MajoranaCircuit, filename: str | None = None) -> MajoranaTermSum:
         """
         Back-propagate a circuit through an observable in the Heisenberg picture.
 
@@ -59,6 +59,7 @@ class MajoranaPropagator:
         Arguments:
             observable: The observable to propagate, represented in the Majorana term sum format.
             circuit: The quantum circuit to propagate through.
+            filename: Optional filename to write the propagated observable to disk as a compressed gzip file.
 
         Returns:
             The propagated observable, represented in the Majorana term sum format.
@@ -70,6 +71,7 @@ class MajoranaPropagator:
         observable: MajoranaTermSum,
         circuit: MajoranaCircuit,
         fock_state: int = 0,
+        filename: str | None = None,
     ) -> PropagationResult:
         """
         Calculate the expectation value of an observable with respect to a Fock state.
@@ -78,6 +80,7 @@ class MajoranaPropagator:
             observable: The observable to calculate the expectation value for.
             circuit: The quantum circuit to propagate through.
             fock_state: The Fock state to calculate the expectation value with respect to.
+            filename: Optional filename to write the propagated observable to disk as a compressed gzip file.
 
         Returns:
             PropagationResult containing the number of terms in the propagated observable at each step and the final expectation value.
