@@ -74,19 +74,19 @@
                                 <a class="function" href="#MajoranaMonomial.to_bytes">to_bytes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#MajoranaMonomial.length">length</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#MajoranaMonomial.weight">weight</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaMonomial.modes">modes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
+                                <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaMonomial.length">length</a>
                         </li>
                 </ul>
 
@@ -110,10 +110,10 @@
                                 <a class="variable" href="#PauliString.x">x</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.weight">weight</a>
+                                <a class="variable" href="#PauliString.z">z</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.z">z</a>
+                                <a class="variable" href="#PauliString.weight">weight</a>
                         </li>
                 </ul>
 
@@ -145,6 +145,12 @@
                         <li>
                                 <a class="function" href="#MajoranaTermSum.copy">copy</a>
                         </li>
+                        <li>
+                                <a class="function" href="#MajoranaTermSum.from_file">from_file</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#MajoranaTermSum.save">save</a>
+                        </li>
                 </ul>
 
             </li>
@@ -175,6 +181,12 @@
                         <li>
                                 <a class="function" href="#PauliTermSum.copy">copy</a>
                         </li>
+                        <li>
+                                <a class="function" href="#PauliTermSum.from_file">from_file</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#PauliTermSum.save">save</a>
+                        </li>
                 </ul>
 
             </li>
@@ -185,13 +197,13 @@
                                 <a class="function" href="#TruncationPolicy.should_truncate">should_truncate</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TruncationPolicy.truncation_range">truncation_range</a>
+                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
                         </li>
                         <li>
                                 <a class="variable" href="#TruncationPolicy.coeff_cutoff">coeff_cutoff</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
+                                <a class="variable" href="#TruncationPolicy.truncation_range">truncation_range</a>
                         </li>
                 </ul>
 
@@ -266,10 +278,10 @@
                     <a class="class" href="#PropagationResult">PropagationResult</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="variable" href="#PropagationResult.expectation_value">expectation_value</a>
+                                <a class="variable" href="#PropagationResult.n_terms">n_terms</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PropagationResult.n_terms">n_terms</a>
+                                <a class="variable" href="#PropagationResult.expectation_value">expectation_value</a>
                         </li>
                 </ul>
 
@@ -471,6 +483,43 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
+                            <div id="MajoranaMonomial.weight" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.weight"></a>
+    
+            <div class="docstring"><p>Pauli weight of this monomial under the Jordan-Wigner mapping.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaMonomial.is_number_preserving" class="classattr">
+                                <div class="attr variable">
+            <span class="name">is_number_preserving</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.is_number_preserving"></a>
+    
+    
+
+                            </div>
+                            <div id="MajoranaMonomial.modes" class="classattr">
+                                <div class="attr variable">
+            <span class="name">modes</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.modes"></a>
+    
+            <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
+</div>
+
+
+                            </div>
                             <div id="MajoranaMonomial.n_modes" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_modes</span>
@@ -493,43 +542,6 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
             <div class="docstring"><p>Number of active Majorana modes in the monomial (popcount of the mode bitmask).</p>
 </div>
 
-
-                            </div>
-                            <div id="MajoranaMonomial.weight" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.weight"></a>
-    
-            <div class="docstring"><p>Pauli weight of this monomial under the Jordan-Wigner mapping.</p>
-</div>
-
-
-                            </div>
-                            <div id="MajoranaMonomial.modes" class="classattr">
-                                <div class="attr variable">
-            <span class="name">modes</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.modes"></a>
-    
-            <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
-</div>
-
-
-                            </div>
-                            <div id="MajoranaMonomial.is_number_preserving" class="classattr">
-                                <div class="attr variable">
-            <span class="name">is_number_preserving</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.is_number_preserving"></a>
-    
-    
 
                             </div>
                 </section>
@@ -658,19 +670,6 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
-                            <div id="PauliString.weight" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliString.weight"></a>
-    
-            <div class="docstring"><p>Number of non-identity single-qubit Pauli operators (popcount of x | z).</p>
-</div>
-
-
-                            </div>
                             <div id="PauliString.z" class="classattr">
                                 <div class="attr variable">
             <span class="name">z</span>
@@ -680,6 +679,19 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
     <a class="headerlink" href="#PauliString.z"></a>
     
             <div class="docstring"><p>Z-component bitmask as a Python int.</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliString.weight" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliString.weight"></a>
+    
+            <div class="docstring"><p>Number of non-identity single-qubit Pauli operators (popcount of x | z).</p>
 </div>
 
 
@@ -825,6 +837,49 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
+                            <div id="MajoranaTermSum.from_file" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">from_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaTermSum.from_file"></a>
+    
+            <div class="docstring"><p>Load a MajoranaTermSum from a gzip-compressed binary file saved by <code>propagate</code> or
+<code>expectation_value</code>.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>path:</strong>  Path to the file written by the <code>filename</code> parameter.</li>
+</ul>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaTermSum.save" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">save</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">path</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaTermSum.save"></a>
+    
+            <div class="docstring"><p>Save this term sum to a gzip-compressed binary file.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>path:</strong>  Destination file path.</li>
+</ul>
+</div>
+
+
+                            </div>
                 </section>
                 <section id="PauliTermSum">
                     <div class="attr class">
@@ -966,6 +1021,49 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
+                            <div id="PauliTermSum.from_file" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">from_file</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">path</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliTermSum.from_file"></a>
+    
+            <div class="docstring"><p>Load a PauliTermSum from a gzip-compressed binary file saved by <code>propagate</code> or
+<code>expectation_value</code>.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>path:</strong>  Path to the file written by the <code>filename</code> parameter.</li>
+</ul>
+</div>
+
+
+                            </div>
+                            <div id="PauliTermSum.save" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">save</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">path</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliTermSum.save"></a>
+    
+            <div class="docstring"><p>Save this term sum to a gzip-compressed binary file.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>path:</strong>  Destination file path.</li>
+</ul>
+</div>
+
+
+                            </div>
                 </section>
                 <section id="TruncationPolicy">
                     <div class="attr class">
@@ -1007,17 +1105,15 @@ Defaults to (None, $10^7$).</li>
 
 
                             </div>
-                            <div id="TruncationPolicy.truncation_range" class="classattr">
+                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
                                 <div class="attr variable">
-            <span class="name">truncation_range</span>
+            <span class="name">weight_cutoff</span>
 
         
     </div>
-    <a class="headerlink" href="#TruncationPolicy.truncation_range"></a>
+    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
     
-            <div class="docstring"><p>The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.</p>
-</div>
-
+    
 
                             </div>
                             <div id="TruncationPolicy.coeff_cutoff" class="classattr">
@@ -1031,15 +1127,17 @@ Defaults to (None, $10^7$).</li>
     
 
                             </div>
-                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
+                            <div id="TruncationPolicy.truncation_range" class="classattr">
                                 <div class="attr variable">
-            <span class="name">weight_cutoff</span>
+            <span class="name">truncation_range</span>
 
         
     </div>
-    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
+    <a class="headerlink" href="#TruncationPolicy.truncation_range"></a>
     
-    
+            <div class="docstring"><p>The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.</p>
+</div>
+
 
                             </div>
                 </section>
@@ -1211,7 +1309,7 @@ and apply_noise(term_sum) methods.</li>
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span></span><span class="return-annotation">):</span></span>
+        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -1224,6 +1322,7 @@ and apply_noise(term_sum) methods.</li>
 <ul>
 <li><strong>observable:</strong>  The Majorana observable to back-propagate.</li>
 <li><strong>circuit:</strong>  A MajoranaCircuit whose rotations are applied in reverse.</li>
+<li><strong>filename:</strong>  If given, save the final terms to a gzip-compressed binary file at this path.</li>
 </ul>
 </div>
 
@@ -1233,7 +1332,7 @@ and apply_noise(term_sum) methods.</li>
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">fock_state</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
+        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">fock_state</span><span class="o">=</span><span class="mi">0</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -1247,6 +1346,7 @@ and apply_noise(term_sum) methods.</li>
 <li><strong>observable:</strong>  The Majorana observable.</li>
 <li><strong>circuit:</strong>  A MajoranaCircuit applied to the reference state.</li>
 <li><strong>fock_state:</strong>  Computational basis reference state as a bitstring integer.</li>
+<li><strong>filename:</strong>  If given, save the final terms to a gzip-compressed binary file at this path.</li>
 </ul>
 </div>
 
@@ -1305,7 +1405,7 @@ and apply_noise(term_sum) methods.</li>
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span></span><span class="return-annotation">):</span></span>
+        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -1318,6 +1418,7 @@ and apply_noise(term_sum) methods.</li>
 <ul>
 <li><strong>observable:</strong>  The Pauli observable to back-propagate.</li>
 <li><strong>circuit:</strong>  A PauliCircuit whose rotations are applied in reverse.</li>
+<li><strong>filename:</strong>  If given, save the final terms to a gzip-compressed binary file at this path.</li>
 </ul>
 </div>
 
@@ -1327,7 +1428,7 @@ and apply_noise(term_sum) methods.</li>
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">fock_state</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
+        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">fock_state</span><span class="o">=</span><span class="mi">0</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -1341,6 +1442,7 @@ and apply_noise(term_sum) methods.</li>
 <li><strong>observable:</strong>  The Pauli observable.</li>
 <li><strong>circuit:</strong>  A PauliCircuit applied to the reference state.</li>
 <li><strong>fock_state:</strong>  Computational basis reference state as a bitstring integer.</li>
+<li><strong>filename:</strong>  If given, save the final terms to a gzip-compressed binary file at this path.</li>
 </ul>
 </div>
 
@@ -1389,17 +1491,6 @@ and apply_noise(term_sum) methods.</li>
 </div>
 
 
-                            <div id="PropagationResult.expectation_value" class="classattr">
-                                <div class="attr variable">
-            <span class="name">expectation_value</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PropagationResult.expectation_value"></a>
-    
-    
-
-                            </div>
                             <div id="PropagationResult.n_terms" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_terms</span>
@@ -1407,6 +1498,17 @@ and apply_noise(term_sum) methods.</li>
         
     </div>
     <a class="headerlink" href="#PropagationResult.n_terms"></a>
+    
+    
+
+                            </div>
+                            <div id="PropagationResult.expectation_value" class="classattr">
+                                <div class="attr variable">
+            <span class="name">expectation_value</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PropagationResult.expectation_value"></a>
     
     
 

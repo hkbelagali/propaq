@@ -162,7 +162,7 @@
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span></span><span class="return-annotation">):</span></span>
+        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -175,6 +175,7 @@
 <ul>
 <li><strong>observable:</strong>  The Majorana observable to back-propagate.</li>
 <li><strong>circuit:</strong>  A MajoranaCircuit whose rotations are applied in reverse.</li>
+<li><strong>filename:</strong>  If given, save the final terms to a gzip-compressed binary file at this path.</li>
 </ul>
 </div>
 
@@ -184,7 +185,7 @@
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">fock_state</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
+        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">fock_state</span><span class="o">=</span><span class="mi">0</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -198,6 +199,7 @@
 <li><strong>observable:</strong>  The Majorana observable.</li>
 <li><strong>circuit:</strong>  A MajoranaCircuit applied to the reference state.</li>
 <li><strong>fock_state:</strong>  Computational basis reference state as a bitstring integer.</li>
+<li><strong>filename:</strong>  If given, save the final terms to a gzip-compressed binary file at this path.</li>
 </ul>
 </div>
 
@@ -256,7 +258,7 @@
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span></span><span class="return-annotation">):</span></span>
+        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -269,6 +271,7 @@
 <ul>
 <li><strong>observable:</strong>  The Pauli observable to back-propagate.</li>
 <li><strong>circuit:</strong>  A PauliCircuit whose rotations are applied in reverse.</li>
+<li><strong>filename:</strong>  If given, save the final terms to a gzip-compressed binary file at this path.</li>
 </ul>
 </div>
 
@@ -278,7 +281,7 @@
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">fock_state</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
+        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">fock_state</span><span class="o">=</span><span class="mi">0</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
@@ -292,6 +295,7 @@
 <li><strong>observable:</strong>  The Pauli observable.</li>
 <li><strong>circuit:</strong>  A PauliCircuit applied to the reference state.</li>
 <li><strong>fock_state:</strong>  Computational basis reference state as a bitstring integer.</li>
+<li><strong>filename:</strong>  If given, save the final terms to a gzip-compressed binary file at this path.</li>
 </ul>
 </div>
 
@@ -341,14 +345,22 @@
 </span><span id="AbstractPropagator-6"><a href="#AbstractPropagator-6"><span class="linenos"> 6</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Abstract propagator interface.  Concrete examples: MajoranaPropagator, PauliPropagator.&quot;&quot;&quot;</span>
 </span><span id="AbstractPropagator-7"><a href="#AbstractPropagator-7"><span class="linenos"> 7</span></a>
 </span><span id="AbstractPropagator-8"><a href="#AbstractPropagator-8"><span class="linenos"> 8</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator-9"><a href="#AbstractPropagator-9"><span class="linenos"> 9</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">propagate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">):</span>
-</span><span id="AbstractPropagator-10"><a href="#AbstractPropagator-10"><span class="linenos">10</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Back-propagate *circuit* through *observable* in the Heisenberg picture.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator-11"><a href="#AbstractPropagator-11"><span class="linenos">11</span></a>        <span class="k">pass</span>
-</span><span id="AbstractPropagator-12"><a href="#AbstractPropagator-12"><span class="linenos">12</span></a>
-</span><span id="AbstractPropagator-13"><a href="#AbstractPropagator-13"><span class="linenos">13</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator-14"><a href="#AbstractPropagator-14"><span class="linenos">14</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">expectation_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
-</span><span id="AbstractPropagator-15"><a href="#AbstractPropagator-15"><span class="linenos">15</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the expectation value of *observable* after evolving through *circuit*.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator-16"><a href="#AbstractPropagator-16"><span class="linenos">16</span></a>        <span class="k">pass</span>
+</span><span id="AbstractPropagator-9"><a href="#AbstractPropagator-9"><span class="linenos"> 9</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">propagate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+</span><span id="AbstractPropagator-10"><a href="#AbstractPropagator-10"><span class="linenos">10</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Back-propagate *circuit* through *observable* in the Heisenberg picture.</span>
+</span><span id="AbstractPropagator-11"><a href="#AbstractPropagator-11"><span class="linenos">11</span></a>
+</span><span id="AbstractPropagator-12"><a href="#AbstractPropagator-12"><span class="linenos">12</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
+</span><span id="AbstractPropagator-13"><a href="#AbstractPropagator-13"><span class="linenos">13</span></a><span class="sd">        binary file at that path.</span>
+</span><span id="AbstractPropagator-14"><a href="#AbstractPropagator-14"><span class="linenos">14</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator-15"><a href="#AbstractPropagator-15"><span class="linenos">15</span></a>        <span class="k">pass</span>
+</span><span id="AbstractPropagator-16"><a href="#AbstractPropagator-16"><span class="linenos">16</span></a>
+</span><span id="AbstractPropagator-17"><a href="#AbstractPropagator-17"><span class="linenos">17</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator-18"><a href="#AbstractPropagator-18"><span class="linenos">18</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">expectation_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+</span><span id="AbstractPropagator-19"><a href="#AbstractPropagator-19"><span class="linenos">19</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the expectation value of *observable* after evolving through *circuit*.</span>
+</span><span id="AbstractPropagator-20"><a href="#AbstractPropagator-20"><span class="linenos">20</span></a>
+</span><span id="AbstractPropagator-21"><a href="#AbstractPropagator-21"><span class="linenos">21</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
+</span><span id="AbstractPropagator-22"><a href="#AbstractPropagator-22"><span class="linenos">22</span></a><span class="sd">        binary file at that path.</span>
+</span><span id="AbstractPropagator-23"><a href="#AbstractPropagator-23"><span class="linenos">23</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator-24"><a href="#AbstractPropagator-24"><span class="linenos">24</span></a>        <span class="k">pass</span>
 </span></pre></div>
 
 
@@ -362,20 +374,27 @@
                     <div class="decorator decorator-abstractmethod">@abstractmethod</div>
 
         <span class="def">def</span>
-        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span></span><span class="return-annotation">):</span></span>
+        <span class="name">propagate</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
                 <label class="view-source-button" for="AbstractPropagator.propagate-view-source"><span>View Source</span></label>
 
     </div>
     <a class="headerlink" href="#AbstractPropagator.propagate"></a>
             <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.propagate-8"><a href="#AbstractPropagator.propagate-8"><span class="linenos"> 8</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator.propagate-9"><a href="#AbstractPropagator.propagate-9"><span class="linenos"> 9</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">propagate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">):</span>
-</span><span id="AbstractPropagator.propagate-10"><a href="#AbstractPropagator.propagate-10"><span class="linenos">10</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Back-propagate *circuit* through *observable* in the Heisenberg picture.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator.propagate-11"><a href="#AbstractPropagator.propagate-11"><span class="linenos">11</span></a>        <span class="k">pass</span>
+</span><span id="AbstractPropagator.propagate-9"><a href="#AbstractPropagator.propagate-9"><span class="linenos"> 9</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">propagate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+</span><span id="AbstractPropagator.propagate-10"><a href="#AbstractPropagator.propagate-10"><span class="linenos">10</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Back-propagate *circuit* through *observable* in the Heisenberg picture.</span>
+</span><span id="AbstractPropagator.propagate-11"><a href="#AbstractPropagator.propagate-11"><span class="linenos">11</span></a>
+</span><span id="AbstractPropagator.propagate-12"><a href="#AbstractPropagator.propagate-12"><span class="linenos">12</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
+</span><span id="AbstractPropagator.propagate-13"><a href="#AbstractPropagator.propagate-13"><span class="linenos">13</span></a><span class="sd">        binary file at that path.</span>
+</span><span id="AbstractPropagator.propagate-14"><a href="#AbstractPropagator.propagate-14"><span class="linenos">14</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator.propagate-15"><a href="#AbstractPropagator.propagate-15"><span class="linenos">15</span></a>        <span class="k">pass</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Back-propagate <em>circuit</em> through <em>observable</em> in the Heisenberg picture.</p>
+
+<p>If <em>filename</em> is given, the final term sum is saved to a gzip-compressed
+binary file at that path.</p>
 </div>
 
 
@@ -386,20 +405,27 @@
                     <div class="decorator decorator-abstractmethod">@abstractmethod</div>
 
         <span class="def">def</span>
-        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
+        <span class="name">expectation_value</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span>, </span><span class="param"><span class="n">filename</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
 
                 <label class="view-source-button" for="AbstractPropagator.expectation_value-view-source"><span>View Source</span></label>
 
     </div>
     <a class="headerlink" href="#AbstractPropagator.expectation_value"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.expectation_value-13"><a href="#AbstractPropagator.expectation_value-13"><span class="linenos">13</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator.expectation_value-14"><a href="#AbstractPropagator.expectation_value-14"><span class="linenos">14</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">expectation_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
-</span><span id="AbstractPropagator.expectation_value-15"><a href="#AbstractPropagator.expectation_value-15"><span class="linenos">15</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the expectation value of *observable* after evolving through *circuit*.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator.expectation_value-16"><a href="#AbstractPropagator.expectation_value-16"><span class="linenos">16</span></a>        <span class="k">pass</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.expectation_value-17"><a href="#AbstractPropagator.expectation_value-17"><span class="linenos">17</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator.expectation_value-18"><a href="#AbstractPropagator.expectation_value-18"><span class="linenos">18</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">expectation_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+</span><span id="AbstractPropagator.expectation_value-19"><a href="#AbstractPropagator.expectation_value-19"><span class="linenos">19</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the expectation value of *observable* after evolving through *circuit*.</span>
+</span><span id="AbstractPropagator.expectation_value-20"><a href="#AbstractPropagator.expectation_value-20"><span class="linenos">20</span></a>
+</span><span id="AbstractPropagator.expectation_value-21"><a href="#AbstractPropagator.expectation_value-21"><span class="linenos">21</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
+</span><span id="AbstractPropagator.expectation_value-22"><a href="#AbstractPropagator.expectation_value-22"><span class="linenos">22</span></a><span class="sd">        binary file at that path.</span>
+</span><span id="AbstractPropagator.expectation_value-23"><a href="#AbstractPropagator.expectation_value-23"><span class="linenos">23</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator.expectation_value-24"><a href="#AbstractPropagator.expectation_value-24"><span class="linenos">24</span></a>        <span class="k">pass</span>
 </span></pre></div>
 
 
             <div class="docstring"><p>Compute the expectation value of <em>observable</em> after evolving through <em>circuit</em>.</p>
+
+<p>If <em>filename</em> is given, the final term sum is saved to a gzip-compressed
+binary file at that path.</p>
 </div>
 
 
