@@ -2,7 +2,16 @@ use pyo3::prelude::*;
 
 const DEFAULT_MAX_TERMS: usize = 10_000_000;
 
-#[pyclass(subclass)]
+/// Controls when and how terms are discarded during propagation.
+///
+/// Arguments:
+///     weight_cutoff: Discard terms with Pauli weight strictly greater than this value.
+///         None disables weight-based truncation.
+///     coeff_cutoff: Discard terms with |coefficient| strictly less than this value.
+///     truncation_range: (min_terms, max_terms) pair. Truncation fires when the term
+///         count reaches max_terms and will not reduce it below min_terms.
+///         Defaults to (None, $10^7$).
+#[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct TruncationPolicy {
     #[pyo3(get, set)]
@@ -14,6 +23,13 @@ pub struct TruncationPolicy {
 
 #[pymethods]
 impl TruncationPolicy {
+    /// Initialize the truncation policy.
+    ///
+    /// Arguments:
+    ///     weight_cutoff: Discard terms with Pauli weight strictly greater than this value.
+    ///     coeff_cutoff: Discard terms with |coefficient| strictly less than this value.
+    ///     truncation_range: (min_terms, max_terms) pair. Truncation is triggered when the
+    ///         term count reaches max_terms and will not reduce it below min_terms.
     #[new]
     #[pyo3(signature = (weight_cutoff=None, coeff_cutoff=0.0, truncation_range=None))]
     fn new(
@@ -28,6 +44,7 @@ impl TruncationPolicy {
         }
     }
 
+    /// The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.
     #[getter]
     fn truncation_range(&self) -> (Option<usize>, Option<usize>) {
         self.truncation_range
@@ -38,6 +55,7 @@ impl TruncationPolicy {
         self.truncation_range = value;
     }
 
+    /// Return True if a term with *weight* and |coefficient| *abs_coeff* should be discarded.
     fn should_truncate(&self, weight: u32, abs_coeff: f64) -> bool {
         self.weight_cutoff.map_or(false, |wc| weight > wc) || abs_coeff < self.coeff_cutoff
     }

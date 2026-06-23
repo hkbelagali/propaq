@@ -1,4 +1,5 @@
-from abc import ABC, abstractmethod 
+from abc import ABC, abstractmethod
+
 
 class NoiseModel(ABC): 
     """Abstract base class for noise models. Specific noise models should inherit from this class and implement the necessary methods."""

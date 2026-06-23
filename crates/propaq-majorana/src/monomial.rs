@@ -8,7 +8,16 @@ use propaq_core::bitset::Bitset;
 use propaq_core::helpers::{pyint_to_bitset, bitset_to_pyint};
 use propaq_core::traits::AbstractTerm;
 
-#[pyclass]
+/// A Majorana monomial, a product of Majorana operators encoded as a mode bitmask.
+///
+/// Bit 2k is set if $\gamma_{2k}$ (even mode) is active on site k.
+/// Bit 2k+1 is set if $\gamma_{2k+1}$ (odd mode) is active on site k.
+///
+/// Arguments:
+///     modes: Integer bitmask encoding occupied Majorana modes.
+///     n_modes: Total number of Majorana modes (must be even, equal to 2 * n_qubits).
+///     is_number_preserving: Whether the monomial preserves particle number (default True).
+#[pyclass(module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct MajoranaMonomial {
     pub modes: Bitset,
@@ -117,6 +126,12 @@ impl MajoranaMonomial {
 
 #[pymethods]
 impl MajoranaMonomial {
+    /// Construct a Majorana monomial from a mode bitmask.
+    ///
+    /// Arguments:
+    ///     modes: Integer bitmask where bit 2k (2k+1) is set if Majorana mode gamma_{2k} (gamma_{2k+1}) is active.
+    ///     n_modes: Total number of Majorana modes (must be even).
+    ///     is_number_preserving: Whether the monomial preserves particle number.
     #[new]
     #[pyo3(signature = (modes, n_modes, is_number_preserving = true))]
     fn new(modes: &Bound<'_, PyAny>, n_modes: usize, is_number_preserving: bool) -> PyResult<Self> {
@@ -125,42 +140,85 @@ impl MajoranaMonomial {
         Ok(MajoranaMonomial { modes: bitset, n_modes, is_number_preserving, weight })
     }
 
+    /// The active mode indices as a Python integer bitmask.
     #[getter]
     fn modes(&self, py: Python<'_>) -> PyResult<PyObject> {
         bitset_to_pyint(py, &self.modes)
     }
 
+    /// The number of Majorana modes in the system 
+    #[getter]
+    fn n_modes(&self) -> usize {
+        self.n_modes
+    }
+
+    /// Whether or not the monomial preserves particle number (i.e. fully paired).
+    #[getter]
+    fn is_number_preserving(&self) -> bool {
+        self.is_number_preserving
+    }
+    
+    /// Number of active Majorana modes in the monomial (popcount of the mode bitmask).
     #[getter]
     fn length(&self) -> usize {
         self.modes.count_ones() as usize
     }
 
+    /// Pauli weight of this monomial under the Jordan-Wigner mapping.
     #[getter]
     fn weight(&self) -> u32 {
         self.weight
     }
 
+    /// Number of Majorana modes shared with *other* (popcount of modes & other.modes).
+    /// Arguments:
+    ///     other: Another MajoranaMonomial to compare with.
+    /// Returns:
+    ///     The number of Majorana modes that are active in both self and other.
     fn overlap(&self, other: &MajoranaMonomial) -> u32 {
         (&self.modes & &other.modes).count_ones()
     }
 
+    /// Return True if this monomial commutes with *other*.
+    /// Arguments:
+    ///     other: Another MajoranaMonomial to check commutation with.
+    /// Returns:
+    ///     True if self and other commute, False otherwise.
     pub fn commutes_with(&self, other: &MajoranaMonomial) -> bool {
         self.commutes_with_impl(other)
     }
 
+    /// Pauli weight of the product monomial self @ other, without computing the full product.
+    /// Arguments:
+    ///     other: Another MajoranaMonomial to multiply with.
+    /// Returns:
+    ///     The Pauli weight of the resulting monomial from multiplying self and other.
     fn resulting_weight(&self, other: &MajoranaMonomial) -> u32 {
         let result_modes = &self.modes ^ &other.modes;
         Self::compute_weight_for(&result_modes, self.n_modes)
     }
 
+    /// Multiply two Majorana monomials, returning (phase, product).
+    ///
+    /// The phase factor accounts for the anticommutation relations of Majorana operators.
     fn __matmul__(&self, other: &MajoranaMonomial) -> PyResult<(Complex64, MajoranaMonomial)> {
         Ok(self.matmul_internal(other))
     }
 
+    /// Compute $\langle \psi |M| \psi \rangle$ for this Majorana monomial M.
+    ///
+    /// Returns 0.0 if M has any unpaired modes.
+    /// For paired modes, returns the product of $(2n_k - 1)$ values for each occupied pair.
+    ///
+    /// Arguments:
+    ///     fock_state: Computational basis state as a bitstring integer.
+    /// Returns:
+    ///     Expectation value of the Majorana monomial in the given Fock state.
     pub fn trace_with_fock_state(&self, fock_state: u64) -> f64 {
         self.trace_fock_state_impl(fock_state)
     }
 
+    /// Serialize the mode bitmask as a little-endian byte string.
     fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         let byte_length = (self.n_modes + 7) / 8;
         let mut bytes = self.modes.to_le_bytes();

@@ -27,7 +27,7 @@ class PauliString:
         """Number of non-identity single-qubit Pauli operators (popcount of x | z)."""
         ...
 
-    def commutes_with(self, other: "PauliString") -> bool:
+    def commutes_with(self, other: PauliString) -> bool:
         """
         Return True if this Pauli string commutes with *other*.
 
@@ -36,7 +36,7 @@ class PauliString:
         """
         ...
 
-    def __matmul__(self, other: "PauliString") -> tuple[complex, "PauliString"]:
+    def __matmul__(self, other: PauliString) -> tuple[complex, PauliString]:
         """
         Multiply two Pauli strings, returning (phase, product).
 

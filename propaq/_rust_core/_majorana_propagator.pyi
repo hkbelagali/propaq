@@ -1,11 +1,15 @@
-from typing import List
+from __future__ import annotations
 
-from ._majorana_monomial import MajoranaMonomial
-from ._majorana_term_sum import MajoranaTermSum
+from typing import TYPE_CHECKING
+
 from ._logger import Logger
+from ._majorana_term_sum import MajoranaTermSum
+
+if TYPE_CHECKING:
+    from propaq.circuits import MajoranaCircuit
 
 class PropagationResult:
-    n_terms: List[int]
+    n_terms: list[int]
     expectation_value: float
 
 class MajoranaPropagator:
@@ -30,13 +34,10 @@ class MajoranaPropagator:
             logger: Optional Logger instance. When provided, emits JSONL events to the
                 configured file: per-gate state (map_terms, outbox_terms) and truncation
                 events (terms_before, terms_after, discarded_coeff_l1, etc.).
-
-        NOTE: We use multithreading instead of multiprocessing to avoid the overhead of inter-process communication, which can be significant for large term sums
-        that consume a lot of memory. Multithreading allows us to share memory between threads, which can be more efficient for our use case.
         """
         ...
 
-    def propagate(self, observable: MajoranaTermSum, circuit: "MajoranaCircuit") -> MajoranaTermSum:
+    def propagate(self, observable: MajoranaTermSum, circuit: MajoranaCircuit) -> MajoranaTermSum:
         """
         Back-propagate a circuit through an observable in the Heisenberg picture.
 
@@ -67,7 +68,7 @@ class MajoranaPropagator:
     def expectation_value(
         self,
         observable: MajoranaTermSum,
-        circuit: "MajoranaCircuit",
+        circuit: MajoranaCircuit,
         fock_state: int = 0,
     ) -> PropagationResult:
         """

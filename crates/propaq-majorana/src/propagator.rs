@@ -5,13 +5,29 @@ use propaq_core::propagator::{AbstractPropagator, PropagationResult};
 use crate::monomial::MajoranaMonomial;
 use crate::termsum::MajoranaTermSum;
 
-#[pyclass]
+/// Back-propagates Majorana observables through quantum circuits in the Heisenberg picture.
+///
+/// Arguments:
+///     noise: Optional noise model (UniformNoiseModel, GateNoiseModel, or custom).
+///     truncation: Optional TruncationPolicy controlling weight and coefficient cutoffs.
+///     n_threads: Number of worker threads. Defaults to the system thread count.
+///     progress_bar: Display a tqdm progress bar during propagation.
+///     logger: Optional Logger for verbose JSON Lines event logging.
+#[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaPropagator {
     inner: AbstractPropagator<MajoranaMonomial>,
 }
 
 #[pymethods]
 impl MajoranaPropagator {
+    /// Initialize the Majorana propagator.
+    ///
+    /// Arguments:
+    ///     noise: Optional noise model (UniformNoiseModel, GateNoiseModel, or custom).
+    ///     truncation: Optional TruncationPolicy controlling weight and coefficient cutoffs.
+    ///     n_threads: Number of worker threads. Defaults to the system thread count.
+    ///     progress_bar: Display a tqdm progress bar during propagation.
+    ///     logger: Optional Logger for verbose JSON Lines event logging.
     #[new]
     #[pyo3(signature = (noise=None, truncation=None, n_threads=None, progress_bar=false, logger=None))]
     fn new(
@@ -26,6 +42,11 @@ impl MajoranaPropagator {
         })
     }
 
+    /// Back-propagate *circuit* through *observable*, returning the evolved term sum.
+    ///
+    /// Arguments:
+    ///     observable: The Majorana observable to back-propagate.
+    ///     circuit: A MajoranaCircuit whose rotations are applied in reverse.
     fn propagate(
         &mut self,
         py: Python<'_>,
@@ -37,6 +58,12 @@ impl MajoranaPropagator {
         Ok(MajoranaTermSum { inner: evolved })
     }
 
+    /// Compute the expectation value of *observable* in the state prepared by *circuit*.
+    ///
+    /// Arguments:
+    ///     observable: The Majorana observable.
+    ///     circuit: A MajoranaCircuit applied to the reference state.
+    ///     fock_state: Computational basis reference state as a bitstring integer.
     #[pyo3(signature = (observable, circuit, fock_state=0))]
     fn expectation_value(
         &mut self,
