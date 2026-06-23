@@ -1,6 +1,6 @@
 import pytest
 
-from propaq.datatypes import PauliString, PauliTermSum, PauliTermStreamer
+from propaq.datatypes import PauliString, PauliTermStreamer, PauliTermSum
 
 
 def ps(x: int, z: int, n_qubits: int = 4) -> PauliString:
