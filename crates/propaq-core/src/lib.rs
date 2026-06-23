@@ -6,6 +6,7 @@ pub mod helpers;
 pub mod termsum;
 pub mod propagator;
 pub mod logger;
+pub mod streamer;
 
 pub use truncation::TruncationPolicy;
 pub use noise::{UniformNoiseModel, GateNoiseModel};
