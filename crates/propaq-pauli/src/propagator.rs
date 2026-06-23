@@ -47,14 +47,17 @@ impl PauliPropagator {
     /// Arguments:
     ///     observable: The Pauli observable to back-propagate.
     ///     circuit: A PauliCircuit whose rotations are applied in reverse.
+    ///     filename: If given, save the final terms to a gzip-compressed binary file at this path.
+    #[pyo3(signature = (observable, circuit, filename=None))]
     fn propagate(
         &mut self,
         py: Python<'_>,
         observable: &PauliTermSum,
         circuit: &Bound<'_, PyAny>,
+        filename: Option<String>,
     ) -> PyResult<PauliTermSum> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_propagate(py, &mut evolved, circuit)?;
+        self.inner.run_propagate(py, &mut evolved, circuit, filename.as_deref())?;
         Ok(PauliTermSum { inner: evolved })
     }
 
@@ -64,16 +67,18 @@ impl PauliPropagator {
     ///     observable: The Pauli observable.
     ///     circuit: A PauliCircuit applied to the reference state.
     ///     fock_state: Computational basis reference state as a bitstring integer.
-    #[pyo3(signature = (observable, circuit, fock_state=0))]
+    ///     filename: If given, save the final terms to a gzip-compressed binary file at this path.
+    #[pyo3(signature = (observable, circuit, fock_state=0, filename=None))]
     fn expectation_value(
         &mut self,
         py: Python<'_>,
         observable: &PauliTermSum,
         circuit: &Bound<'_, PyAny>,
         fock_state: u64,
+        filename: Option<String>,
     ) -> PyResult<PropagationResult> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_expectation_value(py, &mut evolved, circuit, fock_state)
+        self.inner.run_expectation_value(py, &mut evolved, circuit, fock_state, filename.as_deref())
     }
 
     /// The noise model used during propagation, if any.

@@ -1,3 +1,0 @@
-examples/Hchain/**/hamiltonian_cache.npz filter=lfs diff=lfs merge=lfs -text
-examples/Hchain/*/hamiltonian_cache.npz filter=lfs diff=lfs merge=lfs -text
-*.npz filter=lfs diff=lfs merge=lfs -text

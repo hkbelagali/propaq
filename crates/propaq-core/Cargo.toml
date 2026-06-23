@@ -9,3 +9,4 @@ num-complex = "0.4"
 rayon = "1.10"
 rustc-hash = "2"
 smallvec = { version = "1", features = ["union"] }
+flate2 = "1"
