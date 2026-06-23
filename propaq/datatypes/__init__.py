@@ -1,5 +1,7 @@
 """Datatypes for propaq."""
 
+from .._rust_core import MajoranaTermStreamer as MajoranaTermStreamer
+from .._rust_core import PauliTermStreamer as PauliTermStreamer
 from ._abstract import AbstractTerm, AbstractTermSum
 from .majorana.majorana import MajoranaMonomial as MajoranaMonomial
 from .majorana.termsum import MajoranaTermSum as MajoranaTermSum
@@ -13,4 +15,6 @@ __all__ = [
     "MajoranaTermSum",
     "AbstractTerm",
     "AbstractTermSum",
+    "PauliTermStreamer",
+    "MajoranaTermStreamer"
 ]

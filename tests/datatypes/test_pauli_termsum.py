@@ -1,7 +1,6 @@
 import pytest
 
-from propaq._rust_core import PauliTermStreamer
-from propaq.datatypes import PauliString, PauliTermSum
+from propaq.datatypes import PauliString, PauliTermStreamer, PauliTermSum
 
 
 def ps(x: int, z: int, n_qubits: int = 4) -> PauliString:
