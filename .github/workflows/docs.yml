@@ -22,7 +22,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Install propaq and docs dependencies
-        run: pip install .[dev,docs]
+        run: pip install -e .[dev,docs]
       - name: Build docs
         run: pdoc --math --docformat google --output-dir _site propaq
       - name: Deploy to GitHub Pages
