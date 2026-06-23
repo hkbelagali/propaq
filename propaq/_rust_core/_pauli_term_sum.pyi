@@ -1,4 +1,5 @@
 from ._pauli_string import PauliString
+from ._pauli_term_streamer import PauliTermStreamer
 
 class PauliTermSum:
     def __init__(self, terms: dict[PauliString, complex] | None = None) -> None:
@@ -50,6 +51,25 @@ class PauliTermSum:
 
     def copy(self) -> PauliTermSum:
         """Return a shallow copy of this term sum."""
+        ...
+    @staticmethod
+    def from_file(path: str) -> PauliTermSum:
+        """Load a PauliTermSum from a gzip-compressed binary file."""
+        ...
+    def save(self, path: str) -> None:
+        """Save this term sum to a gzip-compressed binary file."""
+        ...
+    def merge_from_file(self, streamer: PauliTermStreamer) -> None:
+        """
+        Stream terms from a file and merge them into this sum one at a time.
+
+        Coefficients are accumulated for strings already present (same semantics as merge()).
+        Unlike from_file(), this does not allocate a temporary map — terms are inserted
+        directly as they are read.
+
+        Arguments:
+            streamer: A PauliTermStreamer opened with PauliTermStreamer.from_file().
+        """
         ...
 
     def __len__(self) -> int: ...
