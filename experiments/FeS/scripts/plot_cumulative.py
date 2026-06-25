@@ -13,7 +13,10 @@ import numpy as np
 SCRIPT_DIR = Path(__file__).resolve().parent
 BASE_DIR = SCRIPT_DIR.parent
 
-IBM_TRUE_VALUE = -326.7
+LUCJ_PLUS_SQD_ENERGY = -326.7  # From paper.
+HARTREE_FOCK_ENERGY = float(np.loadtxt(f"{BASE_DIR}/energy_hf.txt"))
+CCSD_ENERGY = float(np.loadtxt(f"{BASE_DIR}/energy_ccsd.txt"))
+
 NPZ_RE_W = re.compile(r"FeS_LUCJ_w(\d+)\.npz$")
 NPZ_RE_O = re.compile(r"FeS_LUCJ_o(-?\d+)\.npz$")
 
@@ -111,7 +114,7 @@ def cumulative_series(data: dict[int, dict]) -> tuple[list[int | str], list[floa
 noisy_x,     noisy_y     = cumulative_series(noisy_data)
 noiseless_x, noiseless_y = cumulative_series(noiseless_data)
 
-fig, ax = plt.subplots(figsize=(8, 4))
+fig, ax = plt.subplots()
 
 ax.plot(noisy_x, noisy_y, marker="o", lw=1.8, color="steelblue",
         label=f"Noisy ($\gamma = 0.001$)", zorder=3)
@@ -133,8 +136,12 @@ for xi, yi in zip(noiseless_x, noiseless_y):
     ax.annotate(f"{yi:.1f}", (xi, yi), textcoords="offset points",
                 xytext=offset, ha="center", fontsize=8.5, color="darkorange")
 
-ax.axhline(IBM_TRUE_VALUE, color="tomato", lw=1.5, ls="--",
-           label=f"SQD Value: ({IBM_TRUE_VALUE})")
+ax.axhline(LUCJ_PLUS_SQD_ENERGY, color="black", lw=1.5, ls="--",
+           label=f"LUCJ2 + SQD({LUCJ_PLUS_SQD_ENERGY})")
+ax.axhline(HARTREE_FOCK_ENERGY, color="tab:blue", lw=1.5, ls="--",
+           label=f"Hartree-Fock: ({HARTREE_FOCK_ENERGY})")
+ax.axhline(CCSD_ENERGY, color="tab:green", lw=1.5, ls="--",
+           label=f"CCSD: ({CCSD_ENERGY})")
 
 all_x = sorted(set(noisy_x) | set(noiseless_x))
 ax.set_xticks(all_x)
@@ -156,7 +163,7 @@ plt.close(fig)
 all_weights = sorted(set(noisy_data) | set(noiseless_data))
 width = 0.35  # offset for side-by-side boxes
 
-fig, ax = plt.subplots(figsize=(8, 4))
+fig, ax = plt.subplots()
 
 noisy_positions, noisy_boxes = [], []
 nl_positions,    nl_boxes    = [], []
@@ -228,7 +235,7 @@ x_labels_c = (["ECORE"] if ecore is not None else []) + [
     f"$[10^{{{o}}},10^{{{o+1}}})$" for o in sorted_orders
 ]
 
-fig, ax = plt.subplots(figsize=(7, 4))
+fig, ax = plt.subplots()
 
 ax.plot(x_pos_c, coeff_y, marker="D", lw=1.8, color="mediumseagreen", zorder=3,
         label="Propagation")
@@ -242,8 +249,12 @@ for xi, yi, order in zip(x_pos_c, coeff_y, coeff_x):
     ax.annotate(f"{yi:.1f}", (xi, yi), textcoords="offset points",
                 xytext=offset, ha="center", fontsize=7.5, color="mediumseagreen")
 
-ax.axhline(IBM_TRUE_VALUE, color="tomato", lw=1.5, ls="--",
-           label=f"SQD Value: ({IBM_TRUE_VALUE})")
+ax.axhline(LUCJ_PLUS_SQD_ENERGY, color="black", lw=1.5, ls="--",
+           label=f"LUCJ2 + SQD({LUCJ_PLUS_SQD_ENERGY})")
+ax.axhline(HARTREE_FOCK_ENERGY, color="tab:blue", lw=1.5, ls="--",
+           label=f"Hartree-Fock: ({HARTREE_FOCK_ENERGY})")
+ax.axhline(CCSD_ENERGY, color="tab:green", lw=1.5, ls="--",
+           label=f"CCSD: ({CCSD_ENERGY})")
 
 ax.set_xticks(x_pos_c)
 ax.set_xticklabels(x_labels_c, fontsize=9)
@@ -266,7 +277,7 @@ for o in sorted_orders:
         rt_orders.append(o)
         rt_boxes_c.append(valid)
 
-fig, ax = plt.subplots(figsize=(6, 4))
+fig, ax = plt.subplots()
 
 if rt_boxes_c:
     x_pos_r = list(range(1, len(rt_orders) + 1))
