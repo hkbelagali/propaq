@@ -1,5 +1,5 @@
 import numpy as np
-from pyscf import ao2mo, tools
+from pyscf import ao2mo, tools, cc
 from qiskit.quantum_info import SparsePauliOp
 from qiskit_nature.second_q.hamiltonians import ElectronicEnergy
 from qiskit_nature.second_q.operators import ElectronicIntegrals
@@ -9,6 +9,18 @@ fcidump_filename = "fcidump_Fe4S4_MO.txt"
 hamiltonian_cache = "hamiltonian_cache.npz"
 
 mf_as = tools.fcidump.to_scf(fcidump_filename)
+
+# Run Hartree-Fock
+mf_as.verbose = 4
+hf_energy = mf_as.kernel()
+print("Hartree-Fock energy:", hf_energy)
+
+# Run CCSD
+mycc = cc.CCSD(mf_as)
+eccsd, *_ = mycc.kernel()
+print("CCSD correlation energy:", eccsd)
+print("CCSD total energy:", mycc.e_tot)
+
 h1e = mf_as.get_hcore()
 
 num_orb = h1e.shape[0]
