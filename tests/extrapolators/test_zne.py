@@ -44,7 +44,7 @@ def test_zne_result_fields():
         fitting_fn=lambda x, a, b: a + b * x,
         noise_values=[0.01, 0.02, 0.03],
     )
-    result = extrapolator.run(prop, obs, circuit, fock_state=0)
+    result = extrapolator.run(prop, obs, circuit, initial_state=0)
 
     assert isinstance(result, ZNEResult)
     assert len(result.noise_values) == 3
@@ -58,13 +58,13 @@ def test_zne_linear_extrapolation_close_to_noiseless():
     circuit = one_gate_circuit()
     prop = MajoranaPropagator()
 
-    noiseless = prop.expectation_value(obs, circuit, fock_state=0).expectation_value
+    noiseless = prop.expectation_value(obs, circuit, initial_state=0).expectation_value
 
     extrapolator = ZeroNoiseExtrapolator(
         fitting_fn=lambda x, a, b: a + b * x,
         noise_values=[0.01, 0.02, 0.03, 0.04],
     )
-    result = extrapolator.run(prop, obs, circuit, fock_state=0)
+    result = extrapolator.run(prop, obs, circuit, initial_state=0)
 
     assert result.zero_noise_value == pytest.approx(noiseless, abs=0.05)
 
@@ -74,13 +74,13 @@ def test_zne_exponential_fit_with_p0():
     circuit = one_gate_circuit()
     prop = MajoranaPropagator()
 
-    noiseless = prop.expectation_value(obs, circuit, fock_state=0).expectation_value
+    noiseless = prop.expectation_value(obs, circuit, initial_state=0).expectation_value
 
     extrapolator = ZeroNoiseExtrapolator(
         fitting_fn=lambda x, a, b: a * np.exp(-b * x),
         noise_values=[0.01, 0.02, 0.03, 0.04],
     )
-    result = extrapolator.run(prop, obs, circuit, fock_state=0, p0=[-1.0, 2.0])
+    result = extrapolator.run(prop, obs, circuit, initial_state=0, p0=[-1.0, 2.0])
 
     assert result.zero_noise_value == pytest.approx(noiseless, abs=1e-4)
     

@@ -41,5 +41,5 @@ def test_random_circuit_propagation():
     prop = MajoranaPropagator(None, truncator)
     observable = MajoranaTermSum.from_sparse_pauli_op(observable)
     
-    mp_expectation_value = prop.expectation_value(observable, mc, fock_state=0).expectation_value
+    mp_expectation_value = prop.expectation_value(observable, mc, initial_state=0).expectation_value
     assert np.isclose(sv_expectation_value, mp_expectation_value, atol=1e-6), f"Expectation values do not match: {sv_expectation_value} vs {mp_expectation_value}"

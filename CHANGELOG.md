@@ -6,4 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-26
+
+### Added 
+- `WeightCutoffExtrapolator` and `CoefficientCutoffExtrapolator` classes implementing Zero-Cutoff Extrapolation (ZCE) by sweeping weight and coefficient truncation cutoffs respectively, then fitting with a user-supplied function via `scipy.optimize.curve_fit`.
+- `ZCEResult` dataclass holding the extrapolated zero-cutoff value, the sweep data, and the fit parameters and covariance matrix.
+- `noise` property and `set_noise()` method on `AbstractPropagator`, `MajoranaPropagator`, and `PauliPropagator` to allow dynamic swapping of the noise model between runs.
+- `truncation` property and `set_truncation()` method on `AbstractPropagator`, `MajoranaPropagator`, and `PauliPropagator` to allow dynamic adjustment of truncation policies during propagation.
+- Test cases for `WeightCutoffExtrapolator` and `CoefficientCutoffExtrapolator` classes to validate their functionality and ensure correct extrapolation behavior.
+- Example notebook demonstrating the usage of ZCE on a hydrogen chain.
+
+### Changed 
+- `AbstractPropagator` abstractmethods for consistency with concrete implementations.
+- Register `PauliPropagator` and `MajoranaPropagator` classes as subclasses of `AbstractPropagator` to enforce the implementation of required methods.
+- `noise` and `truncation` constructor parameters in `MajoranaPropagator` and `PauliPropagator` stubs now use concrete types (`UniformNoiseModel | GateNoiseModel | None` and `TruncationPolicy | None`) instead of `object | None`.
+- `GateNoiseModel.apply_noise` stub now accepts `MajoranaTermSum | PauliTermSum` instead of `object`.
+
+### Fixed
+- Renamed `fock_state` parameter to `initial_state` in the `expectation_value` method of both `PauliPropagator` and `MajoranaPropagator` classes for API consistency for use in Zero-Cutoff Extrapolation (ZCE) and Zero-Noise Extrapolation (ZNE) methods.
+- Fix `ZeroNoiseExtrapolator` typing and docstring to match `ZeroCutoffExtrapolator` for consistency.
+
 ## [0.1.0] - 2026-06-22
+
+### Added
+- Started tracking changes in the project. 
+- Added initial implementation of the `propaq` library, including core functionalities and basic features.
