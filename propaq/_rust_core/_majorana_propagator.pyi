@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 from ._logger import Logger
 from ._majorana_term_sum import MajoranaTermSum
+from ._noise import GateNoiseModel, UniformNoiseModel
+from ._truncation_policy import TruncationPolicy
 
 if TYPE_CHECKING:
     from propaq.circuits import MajoranaCircuit
@@ -16,8 +18,8 @@ class MajoranaPropagator:
 
     def __init__(
         self,
-        noise: object | None = None,
-        truncation: object | None = None,
+        noise: UniformNoiseModel | GateNoiseModel | None = None,
+        truncation: TruncationPolicy | None = None,
         n_threads: int | None = None,
         progress_bar: bool = False,
         logger: Logger | None = None,
@@ -26,35 +28,34 @@ class MajoranaPropagator:
         Initialize the Majorana propagator.
 
         Arguments:
-            noise: The noise model to use. This will trigger a callback to Python for custom noise models, which can hurt performance.
-            truncation: The truncation policy to use. This will trigger a callback to Python for custom policies, which can hurt performance.
-                Pass a TruncationPolicy with ``truncation_range=(min, max)`` to control when truncation fires.
-            n_threads: The number of threads to use.
-            progress_bar: If true, display a tqdm progress bar showing the progress through the circuit the total number of terms in the observable.
+            noise: Optional noise model. Use UniformNoiseModel for depolarising noise, or
+                wrap a custom duck-typed model in GateNoiseModel. Custom models trigger a
+                Python callback per layer, which may hurt performance.
+            truncation: Optional truncation policy. Pass a TruncationPolicy with
+                ``truncation_range=(min, max)`` to control when truncation fires.
+            n_threads: Number of worker threads. Defaults to the number of logical CPU cores.
+            progress_bar: If True, display a tqdm progress bar over circuit gates.
             logger: Optional Logger instance. When provided, emits JSONL events to the
                 configured file: per-gate state (map_terms, outbox_terms) and truncation
                 events (terms_before, terms_after, discarded_coeff_l1, etc.).
         """
         ...
 
+    @property
+    def noise(self) -> UniformNoiseModel | GateNoiseModel | None: ...
+    def set_noise(self, noise: UniformNoiseModel | GateNoiseModel | None = None) -> None: ...
+
+    @property
+    def truncation(self) -> TruncationPolicy | None: ...
+    def set_truncation(self, truncation: TruncationPolicy | None = None) -> None: ...
+
     def propagate(self, observable: MajoranaTermSum, circuit: MajoranaCircuit, filename: str | None = None) -> MajoranaTermSum:
         """
-        Back-propagate a circuit through an observable in the Heisenberg picture.
+        Back-propagate *circuit* through *observable* in the Heisenberg picture.
 
-        General workflow:
-
-        __init__ initializes a thread pool and stores the noise model and truncation policy.
-
-        For each parameterized gate in the circuit, we back-propagate the gate through the observable.
-        This is done batch-wise over the terms of the observable to leverage multithreading.
-
-        Then, the noise model and truncation policies are applied to the resulting term sum.
-        We make sure that intermediate parameterizations that do not preserve particle number are
-        not truncated.
-
-        Finally, compute the expectation value of the observable with respect to a Fock state
-        by computing monomial traces and summing them up.
-
+        For each parameterized gate, the observable is evolved batch-wise over its terms
+        using multithreading. Noise and truncation policies are applied after each gate.
+        Intermediate parameterizations that do not preserve particle number are not truncated.
 
         Arguments:
             observable: The observable to propagate, represented in the Majorana term sum format.
@@ -70,7 +71,7 @@ class MajoranaPropagator:
         self,
         observable: MajoranaTermSum,
         circuit: MajoranaCircuit,
-        fock_state: int = 0,
+        initial_state: int = 0,
         filename: str | None = None,
     ) -> PropagationResult:
         """
@@ -79,7 +80,7 @@ class MajoranaPropagator:
         Arguments:
             observable: The observable to calculate the expectation value for.
             circuit: The quantum circuit to propagate through.
-            fock_state: The Fock state to calculate the expectation value with respect to.
+            initial_state: The initial Fock state as a bitstring integer.
             filename: Optional filename to write the propagated observable to disk as a compressed gzip file.
 
         Returns:

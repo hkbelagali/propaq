@@ -66,19 +66,19 @@ impl PauliPropagator {
     /// Arguments:
     ///     observable: The Pauli observable.
     ///     circuit: A PauliCircuit applied to the reference state.
-    ///     fock_state: Computational basis reference state as a bitstring integer.
+    ///     initial_state: Computational basis reference state as a bitstring integer.
     ///     filename: If given, save the final terms to a gzip-compressed binary file at this path.
-    #[pyo3(signature = (observable, circuit, fock_state=0, filename=None))]
+    #[pyo3(signature = (observable, circuit, initial_state=0, filename=None))]
     fn expectation_value(
         &mut self,
         py: Python<'_>,
         observable: &PauliTermSum,
         circuit: &Bound<'_, PyAny>,
-        fock_state: u64,
+        initial_state: u64,
         filename: Option<String>,
     ) -> PyResult<PropagationResult> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_expectation_value(py, &mut evolved, circuit, fock_state, filename.as_deref())
+        self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state, filename.as_deref())
     }
 
     /// The noise model used during propagation, if any.
@@ -91,5 +91,17 @@ impl PauliPropagator {
     #[pyo3(signature = (noise=None))]
     fn set_noise(&mut self, noise: Option<PyObject>) {
         self.inner.noise = noise;
+    }
+
+    /// The truncation policy used during propagation, if any.
+    #[getter]
+    fn truncation(&self, py: Python<'_>) -> Option<PyObject> {
+        self.inner.truncation.as_ref().map(|t| t.clone_ref(py))
+    }
+
+    /// Set the truncation policy for this propagator.
+    #[pyo3(signature = (truncation=None))]
+    fn set_truncation(&mut self, truncation: Option<PyObject>) {
+        self.inner.truncation = truncation;
     }
 }

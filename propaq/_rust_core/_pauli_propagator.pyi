@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING
 
 from ._logger import Logger
 from ._majorana_propagator import PropagationResult
+from ._noise import GateNoiseModel, UniformNoiseModel
 from ._pauli_term_sum import PauliTermSum
+from ._truncation_policy import TruncationPolicy
 
 if TYPE_CHECKING:
     from propaq.circuits import PauliCircuit
@@ -13,8 +15,8 @@ class PauliPropagator:
 
     def __init__(
         self,
-        noise: object | None = None,
-        truncation: object | None = None,
+        noise: UniformNoiseModel | GateNoiseModel | None = None,
+        truncation: TruncationPolicy | None = None,
         n_threads: int | None = None,
         progress_bar: bool = False,
         logger: Logger | None = None,
@@ -23,14 +25,11 @@ class PauliPropagator:
         Initialize the Pauli propagator.
 
         Arguments:
-            noise: Optional noise model (UniformNoiseModel or custom object with
-                ``damping_factor(weight, active_modes)`` and ``apply_noise(term_sum)``).
-                Custom models trigger a Python callback per layer, which may hurt performance.
-            truncation: Optional truncation policy (TruncationPolicy or custom object with
-                ``should_truncate(weight, abs_coeff)``).
-                Pass a TruncationPolicy with ``truncation_range=(min, max)`` to control when
-                truncation fires. Custom policies trigger a Python callback per term, which
-                may hurt performance.
+            noise: Optional noise model. Use UniformNoiseModel for depolarising noise, or
+                wrap a custom duck-typed model in GateNoiseModel. Custom models trigger a
+                Python callback per layer, which may hurt performance.
+            truncation: Optional truncation policy. Pass a TruncationPolicy with
+                ``truncation_range=(min, max)`` to control when truncation fires.
             n_threads: Number of worker threads for parallel gate application.
                 Defaults to the number of logical CPU cores.
             progress_bar: If True, display a tqdm progress bar over circuit gates.
@@ -40,13 +39,21 @@ class PauliPropagator:
         """
         ...
 
+    @property
+    def noise(self) -> UniformNoiseModel | GateNoiseModel | None: ...
+    def set_noise(self, noise: UniformNoiseModel | GateNoiseModel | None = None) -> None: ...
+
+    @property
+    def truncation(self) -> TruncationPolicy | None: ...
+    def set_truncation(self, truncation: TruncationPolicy | None = None) -> None: ...
+
     def propagate(self, observable: PauliTermSum, circuit: PauliCircuit) -> PauliTermSum:
-        """
+        r"""
         Back-propagate *circuit* through *observable* in the Heisenberg picture.
 
-        For each parameterized Pauli rotation exp(-i angle * generator) the observable
+        For each parameterized Pauli rotation $\exp{(-i \theta P)}$ the observable
         is evolved via the BCH formula:
-            O → cos(angle)*O + i*sin(angle)*[generator, O]
+            $$\mathcal{O} -> \cos(\theta)\mathcal{O} + i*\sin(\theta)*[P, \mathcal{O}]$$
 
         Arguments:
             observable: The observable to propagate, as a PauliTermSum.
@@ -61,7 +68,7 @@ class PauliPropagator:
         self,
         observable: PauliTermSum,
         circuit: PauliCircuit,
-        fock_state: int = 0,
+        initial_state: int = 0,
     ) -> PropagationResult:
         """
         Compute the expectation value of *observable* after back-propagating *circuit*.
@@ -69,7 +76,7 @@ class PauliPropagator:
         Arguments:
             observable: The observable to propagate.
             circuit: The quantum circuit to propagate through.
-            fock_state: Computational basis state (bitstring integer) for the trace.
+            initial_state: Computational basis state (bitstring integer) for the trace.
 
         Returns:
             PropagationResult with ``expectation_value`` and per-gate ``n_terms``.

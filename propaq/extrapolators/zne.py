@@ -6,7 +6,11 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import curve_fit
 
+from propaq.circuits.majorana.circuit import MajoranaCircuit
+from propaq.circuits.pauli.circuit import PauliCircuit
+from propaq.datatypes._abstract import AbstractTermSum
 from propaq.noise import UniformNoiseModel
+from propaq.propagators._abstract import AbstractPropagator
 
 
 @dataclass
@@ -41,10 +45,10 @@ class ZeroNoiseExtrapolator:
 
     def run(
         self,
-        propagator,
-        observable,
-        circuit,
-        fock_state: int = 0,
+        propagator : AbstractPropagator,
+        observable : AbstractTermSum,
+        circuit : MajoranaCircuit | PauliCircuit,
+        initial_state: int = 0,
         **curve_fit_kwargs,
     ) -> ZNEResult:
         """Sweep noise levels, fit, and extrapolate to zero noise.
@@ -53,7 +57,7 @@ class ZeroNoiseExtrapolator:
             propagator: A MajoranaPropagator or PauliPropagator instance.
             observable: The observable to measure.
             circuit: The circuit to propagate.
-            fock_state: Initial state index (default 0).
+            initial_state: Initial state index (default 0).
             **curve_fit_kwargs: Forwarded to scipy.optimize.curve_fit (e.g. p0=).
 
         Returns:
@@ -64,7 +68,7 @@ class ZeroNoiseExtrapolator:
             expectation_values = []
             for val in self.noise_values:
                 propagator.set_noise(UniformNoiseModel(val))
-                result = propagator.expectation_value(observable, circuit, fock_state=fock_state)
+                result = propagator.expectation_value(observable, circuit, initial_state=initial_state)
                 expectation_values.append(result.expectation_value)
         finally:
             propagator.set_noise(original_noise)
