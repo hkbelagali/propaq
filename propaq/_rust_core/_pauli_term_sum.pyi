@@ -1,5 +1,7 @@
+from ._noise import GateNoiseModel, UniformNoiseModel
 from ._pauli_string import PauliString
 from ._pauli_term_streamer import PauliTermStreamer
+from ._truncation_policy import TruncationPolicy
 
 class PauliTermSum:
     def __init__(self, terms: dict[PauliString, complex] | None = None) -> None:
@@ -23,7 +25,7 @@ class PauliTermSum:
         """Add all terms from *other* into this sum."""
         ...
 
-    def truncate(self, policy: object) -> None:
+    def truncate(self, policy: TruncationPolicy) -> None:
         """
         Deduplicate and remove terms according to *policy*.
 
@@ -32,7 +34,7 @@ class PauliTermSum:
         """
         ...
 
-    def apply_damping(self, noise: object, active_modes: int) -> None:
+    def apply_damping(self, noise: UniformNoiseModel | GateNoiseModel, active_modes: int) -> None:
         """
         Apply noise damping to every coefficient.
 

@@ -1,5 +1,7 @@
 from ._majorana_monomial import MajoranaMonomial
 from ._majorana_term_streamer import MajoranaTermStreamer
+from ._noise import GateNoiseModel, UniformNoiseModel
+from ._truncation_policy import TruncationPolicy
 
 class MajoranaTermSum:
     def __init__(self, terms: dict[MajoranaMonomial, complex] | None = None) -> None: 
@@ -36,7 +38,7 @@ class MajoranaTermSum:
             other: The other term sum to merge.
         """
         ...
-    def truncate(self, policy: object) -> None: 
+    def truncate(self, policy: TruncationPolicy) -> None:
         """
         Truncate the term sum based on a policy.
 
@@ -48,7 +50,7 @@ class MajoranaTermSum:
             policy: The policy to use for truncation.
         """
         ...
-    def apply_damping(self, noise: object, active_modes: int) -> None: 
+    def apply_damping(self, noise: UniformNoiseModel | GateNoiseModel, active_modes: int) -> None:
         """
         Apply damping to the term sum.
 

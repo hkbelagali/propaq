@@ -24,38 +24,38 @@ def test_expectation_value_vacuum_fock():
     # modes=0b11 (site 0 number operator): trace(vacuum) = -1.0
     obs = MajoranaTermSum({mon(0b11): 1.0})
     prop = MajoranaPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=0).expectation_value
+    val = prop.expectation_value(obs, empty_circuit(), initial_state=0).expectation_value
     assert val == pytest.approx(-1.0)
 
 def test_expectation_value_occupied_fock():
     # modes=0b11 (site 0): trace(site-0-occupied) = 1.0
     obs = MajoranaTermSum({mon(0b11): 1.0})
     prop = MajoranaPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=1).expectation_value
+    val = prop.expectation_value(obs, empty_circuit(), initial_state=1).expectation_value
     assert val == pytest.approx(1.0)
 
 def test_expectation_value_site1_fock():
     # modes=0b1100 (site 1): trace = -1 when site 1 empty, +1 when occupied
     obs = MajoranaTermSum({mon(0b1100): 1.0})
     prop = MajoranaPropagator()
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b00).expectation_value == pytest.approx(-1.0)
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b10).expectation_value == pytest.approx(1.0)
+    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b00).expectation_value == pytest.approx(-1.0)
+    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b10).expectation_value == pytest.approx(1.0)
 
 def test_expectation_value_linear_in_coefficient():
     # scaling the observable scales the expectation value
     obs = MajoranaTermSum({mon(0b11): 3.0})
     prop = MajoranaPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=0).expectation_value
+    val = prop.expectation_value(obs, empty_circuit(), initial_state=0).expectation_value
     assert val == pytest.approx(-3.0)
 
 def test_expectation_value_superposition_of_terms():
     # Two terms that both have definite trace values
     obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 2.0})
     prop = MajoranaPropagator()
-    # fock_state=0: site0=-1, site1=-1 → 1*(-1) + 2*(-1) = -3
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0).expectation_value == pytest.approx(-3.0)
-    # fock_state=0b11: both occupied → 1*(1) + 2*(1) = 3
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b11).expectation_value == pytest.approx(3.0)
+    # initial_state=0: site0=-1, site1=-1 → 1*(-1) + 2*(-1) = -3
+    assert prop.expectation_value(obs, empty_circuit(), initial_state=0).expectation_value == pytest.approx(-3.0)
+    # initial_state=0b11: both occupied → 1*(1) + 2*(1) = 3
+    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b11).expectation_value == pytest.approx(3.0)
 
 def test_noise_damps_commuting_term():
     obs_term = mon(0b11)  # weight = 1
@@ -140,12 +140,12 @@ def test_expectation_value_filename_saves_file(tmp_path):
     circuit = MajoranaCircuit([MajoranaRotation(generator, 0.3)], N)
     prop = MajoranaPropagator()
     out = tmp_path / "terms.bin.gz"
-    result = prop.expectation_value(obs, circuit, fock_state=0, filename=str(out))
+    result = prop.expectation_value(obs, circuit, initial_state=0, filename=str(out))
     assert out.exists()
     loaded = MajoranaTermSum.from_file(str(out))
     # Recompute expectation value from loaded terms via empty circuit
     reloaded_prop = MajoranaPropagator()
-    reloaded_result = reloaded_prop.expectation_value(loaded, empty_circuit(), fock_state=0)
+    reloaded_result = reloaded_prop.expectation_value(loaded, empty_circuit(), initial_state=0)
     assert abs(reloaded_result.expectation_value - result.expectation_value) < 1e-12
 
 

@@ -26,7 +26,7 @@ def test_expectation_value_zeros_state():
     # Z on qubit 0: ⟨0|Z|0⟩ = +1.0
     obs = PauliTermSum({ps(0, 0b0001): 1.0})
     prop = PauliPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=0).expectation_value
+    val = prop.expectation_value(obs, empty_circuit(), initial_state=0).expectation_value
     assert val == pytest.approx(1.0)
 
 
@@ -34,7 +34,7 @@ def test_expectation_value_qubit0_excited():
     # Z on qubit 0: ⟨1|Z|1⟩ = -1.0
     obs = PauliTermSum({ps(0, 0b0001): 1.0})
     prop = PauliPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=1).expectation_value
+    val = prop.expectation_value(obs, empty_circuit(), initial_state=1).expectation_value
     assert val == pytest.approx(-1.0)
 
 
@@ -42,15 +42,15 @@ def test_expectation_value_qubit1():
     # Z on qubit 1: +1 when qubit 1 = |0⟩, -1 when qubit 1 = |1⟩
     obs = PauliTermSum({ps(0, 0b0010): 1.0})
     prop = PauliPropagator()
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b00).expectation_value == pytest.approx(1.0)
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b10).expectation_value == pytest.approx(-1.0)
+    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b00).expectation_value == pytest.approx(1.0)
+    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b10).expectation_value == pytest.approx(-1.0)
 
 
 def test_expectation_value_linear_in_coefficient():
     # Z on qubit 0 with coefficient 3: 3 * ⟨0|Z|0⟩ = 3.0
     obs = PauliTermSum({ps(0, 0b0001): 3.0})
     prop = PauliPropagator()
-    val = prop.expectation_value(obs, empty_circuit(), fock_state=0).expectation_value
+    val = prop.expectation_value(obs, empty_circuit(), initial_state=0).expectation_value
     assert val == pytest.approx(3.0)
 
 
@@ -58,10 +58,10 @@ def test_expectation_value_superposition_of_terms():
     # Z_0 (coeff 1.0) + Z_1 (coeff 2.0)
     obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b0010): 2.0})
     prop = PauliPropagator()
-    # fock_state=0b00: both qubits |0⟩ → 1*(+1) + 2*(+1) = +3
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b00).expectation_value == pytest.approx(3.0)
-    # fock_state=0b11: both qubits |1⟩ → 1*(-1) + 2*(-1) = -3
-    assert prop.expectation_value(obs, empty_circuit(), fock_state=0b11).expectation_value == pytest.approx(-3.0)
+    # initial_state=0b00: both qubits |0⟩ → 1*(+1) + 2*(+1) = +3
+    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b00).expectation_value == pytest.approx(3.0)
+    # initial_state=0b11: both qubits |1⟩ → 1*(-1) + 2*(-1) = -3
+    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b11).expectation_value == pytest.approx(-3.0)
 
 
 def test_noise_damps_commuting_term():
@@ -154,12 +154,12 @@ def test_expectation_value_filename_saves_file(tmp_path):
     circuit = PauliCircuit([PauliRotation(generator, 0.3)])
     prop = PauliPropagator()
     out = tmp_path / "terms.bin.gz"
-    result = prop.expectation_value(obs, circuit, fock_state=0, filename=str(out))
+    result = prop.expectation_value(obs, circuit, initial_state=0, filename=str(out))
     assert out.exists()
     loaded = PauliTermSum.from_file(str(out))
     # Recompute expectation value from loaded terms to verify coefficients are preserved
     reloaded_prop = PauliPropagator()
-    reloaded_result = reloaded_prop.expectation_value(loaded, empty_circuit(), fock_state=0)
+    reloaded_result = reloaded_prop.expectation_value(loaded, empty_circuit(), initial_state=0)
     assert abs(reloaded_result.expectation_value - result.expectation_value) < 1e-12
 
 
