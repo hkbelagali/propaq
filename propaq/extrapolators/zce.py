@@ -119,12 +119,12 @@ class WeightCutoffExtrapolator(ZeroCutoffExtrapolator):
         t = propagator.truncation
         return t.weight_cutoff if t is not None else None
     
-    def _set_cutoff(self, propagator: AbstractPropagator, cutoff: int | None) -> None:
+    def _set_cutoff(self, propagator: AbstractPropagator, cutoff: float | int | None) -> None:
         """Set the weight cutoff value in the propagator.  None removes the weight cutoff."""
         t = propagator.truncation
         if t is None:
             raise ValueError("Propagator has no truncation policy set.")
-        t.weight_cutoff = cutoff
+        t.weight_cutoff = int(cutoff) if cutoff is not None else None
 
 class CoefficientCutoffExtrapolator(ZeroCutoffExtrapolator):
     """
@@ -145,9 +145,9 @@ class CoefficientCutoffExtrapolator(ZeroCutoffExtrapolator):
         t = propagator.truncation
         return t.coeff_cutoff if t is not None else None
     
-    def _set_cutoff(self, propagator: AbstractPropagator, cutoff: float) -> None:
+    def _set_cutoff(self, propagator: AbstractPropagator, cutoff: float | int | None) -> None:
         """Set the coefficient cutoff value in the propagator."""
         t = propagator.truncation
         if t is None:
             raise ValueError("Propagator has no truncation policy set.")
-        t.coeff_cutoff = cutoff
+        t.coeff_cutoff = float(cutoff) if cutoff is not None else 0.0
