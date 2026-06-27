@@ -218,14 +218,31 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
     }
 
     /// Partition `evolved.terms` into per-partition maps at the start of a run.
+
     fn initialize_from(&mut self, evolved: &AbstractTermSum<M>) {
-        for m in &mut self.thread_maps {
-            m.clear();
-        }
+        let n = self.n_partitions;
+        let log2_n = self.log2_n;
+
+        let mut buckets: Vec<Vec<(&M, Complex64)>> = (0..n).map(|_| Vec::new()).collect();
         for (term, coeff) in &evolved.terms {
-            let p = owner_of(term, self.log2_n);
-            self.thread_maps[p].insert(term.clone(), *coeff);
+            buckets[owner_of(term, log2_n)].push((term, *coeff));
         }
+
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &mut self.thread_maps;
+        pool.install(|| {
+            thread_maps
+                .par_iter_mut()
+                .zip(buckets.par_iter())
+                .for_each(|(map, bucket)| {
+                    map.clear();
+                    map.reserve(bucket.len());
+                    for (term, coeff) in bucket {
+                        map.insert((*term).clone(), *coeff);
+                    }
+                });
+        });
+
         self.total_terms = evolved.terms.len();
     }
 
