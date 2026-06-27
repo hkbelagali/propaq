@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-27
+
+### Changed
+- BMI2 PEXT optimization for `compress_to_qubits` in `MajoranaMonomial`, we can use `_pext_u64` via runtime CPU feature detection, extracting qubit bits from mode bitsets in ~2 instructions per 64-qubit word instead of a scalar bit-loop. Falls back to the scalar path on non-BMI2 hardware. 
+- Replaced XOR-fold `partition_key` with FxHash in `MajoranaMonomial` and `PauliString`. The XOR-fold produced high collision rates for large workloads, permanently pinning terms to the same partition regardless of thread count.
+- Parallelized `initialize_from` in `AbstractPropagator`: a sequential pass buckets each term by its owner partition, then each Rayon worker fills its own `FxHashMap` in parallel. Each worker first touches its own map, which helps for NUMA locality.
+
 ## [0.1.0] - 2026-06-26
 
 ### Added 
