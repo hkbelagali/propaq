@@ -24,11 +24,13 @@ import numpy as np
 parser = argparse.ArgumentParser()
 parser.add_argument("--results-dir",       default="results")
 parser.add_argument("--refined-dir",       default="refined_data")
-parser.add_argument("--hamiltonian-cache", default="../compiled_hamiltonian_cache.npz")
+parser.add_argument("--hamiltonian-cache", default="compiled_hamiltonian_cache.npz")
 args = parser.parse_args()
 
 RESULTS_DIR = Path(args.results_dir)
 REFINED_DIR = Path(args.refined_dir)
+_hf_path = Path("../energy_hf.txt")
+hf_energy: float | None = float(_hf_path.read_text().strip()) if _hf_path.exists() else None
 
 NPZ_RE = re.compile(r"FeS_LUCJ_o(-?\d+)_(\d{5})of(\d{5})\.npz$")
 
@@ -149,6 +151,7 @@ for order in sorted(raw, reverse=True):
         rt_std = np.float64(rt_std),
         **({} if damping      is None else {"damping":      np.float64(damping)}),
         **({} if coeff_cutoff is None else {"coeff_cutoff": np.float64(coeff_cutoff)}),
+        **({} if hf_energy    is None else {"hf_energy":    np.float64(hf_energy)}),
     )
 
     monomial_counts = [task_map[tid]["n_input_monomials"] for tid in present_ids
@@ -227,6 +230,8 @@ for order in sorted(order_results, reverse=True):
 
 print()
 print(f"Cumulative expectation value: {cumulative:.6f}")
+if hf_energy is not None:
+    print(f"HF energy:                    {hf_energy:.6f}")
+    print(f"Difference (vs HF):           {cumulative - hf_energy:.6f}")
 if ccsd_energy is not None:
     print(f"CCSD energy:                  {ccsd_energy:.6f}")
-    print(f"Difference:                   {cumulative - ccsd_energy:.6f}")

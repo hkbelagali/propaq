@@ -28,6 +28,8 @@ args = parser.parse_args()
 
 RESULTS_DIR = Path(args.results_dir)
 REFINED_DIR = Path(args.refined_dir)
+_hf_path = Path("../energy_hf.txt")
+hf_energy: float | None = float(_hf_path.read_text().strip()) if _hf_path.exists() else None
 
 NPZ_RE = re.compile(r"FeS_LUCJ_w(\d+)_(\d{5})of(\d{5})\.npz$")
 
@@ -148,6 +150,7 @@ for w in sorted(raw):
         runtime_seconds = runtimes,
         rt_mean = np.float64(rt_mean),
         rt_std = np.float64(rt_std),
+        **({} if hf_energy is None else {"hf_energy": np.float64(hf_energy)}),
     )
 
     present_terms = len(values_all)
@@ -164,6 +167,8 @@ for w in sorted(raw):
 print(f"Saved {len(weight_results)} weight file(s) to {REFINED_DIR}/")
 
 print()
+if hf_energy is not None:
+    print(f"HF energy:   {hf_energy:.6f}")
 if ccsd_energy is not None:
     print(f"CCSD energy: {ccsd_energy:.6f}")
 print()
@@ -206,6 +211,8 @@ for w in sorted(weight_results):
 
 print()
 print(f"Cumulative expectation value: {cumulative:.6f}")
+if hf_energy is not None:
+    print(f"HF energy:                    {hf_energy:.6f}")
+    print(f"Difference (vs HF):           {cumulative - hf_energy:.6f}")
 if ccsd_energy is not None:
     print(f"CCSD energy:                  {ccsd_energy:.6f}")
-    print(f"Difference:                   {cumulative - ccsd_energy:.6f}")
