@@ -249,7 +249,9 @@ impl AbstractTerm for MajoranaMonomial {
         bytes
     }
     fn partition_key(&self) -> u64 {
-        self.modes.as_words().iter().fold(0u64, |acc, &w| acc ^ w)
+        let mut h = FxHasher::default();
+        self.modes.hash(&mut h);
+        h.finish()
     }
     fn is_number_preserving(&self) -> bool { self.is_number_preserving }
     fn system_size(&self) -> u64 { self.n_modes as u64 }
@@ -274,6 +276,33 @@ impl Hash for MajoranaMonomial {
 }
 
 fn compress_to_qubits(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("bmi2") {
+        return unsafe { compress_to_qubits_bmi2(modes, n_qubits, offset) };
+    }
+    compress_to_qubits_scalar(modes, n_qubits, offset)
+}
+
+// Each modes word covers 64 mode bits = 32 qubits.
+// Two consecutive modes words interleave into one qubit word:
+//   qubit_word[q] = pext(modes_word[2q], mask) | (pext(modes_word[2q+1], mask) << 32)
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2")]
+unsafe fn compress_to_qubits_bmi2(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {
+    use std::arch::x86_64::_pext_u64;
+    let mask: u64 = if offset == 0 { 0x5555_5555_5555_5555 } else { 0xAAAA_AAAA_AAAA_AAAA };
+    let n_qubit_words = (n_qubits + 63) / 64;
+    let mut words = vec![0u64; n_qubit_words];
+    let mode_words = modes.as_words();
+    for qw in 0..n_qubit_words {
+        let lo = mode_words.get(2 * qw).copied().unwrap_or(0);
+        let hi = mode_words.get(2 * qw + 1).copied().unwrap_or(0);
+        words[qw] = _pext_u64(lo, mask) | (_pext_u64(hi, mask) << 32);
+    }
+    Bitset::from_words(words)
+}
+
+fn compress_to_qubits_scalar(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {
     let n_words = (n_qubits + 63) / 64;
     let mut words = vec![0u64; n_words];
     for k in 0..n_qubits {
