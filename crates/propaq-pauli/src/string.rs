@@ -197,8 +197,10 @@ impl AbstractTerm for PauliString {
         x_bytes
     }
     fn partition_key(&self) -> u64 {
-        self.x.as_words().iter().chain(self.z.as_words().iter())
-            .fold(0u64, |acc, &w| acc ^ w)
+        let mut h = FxHasher::default();
+        self.x.hash(&mut h);
+        self.z.hash(&mut h);
+        h.finish()
     }
     fn system_size(&self) -> u64 { self.n_qubits as u64 }
     fn from_bytes_vec(bytes: &[u8], system_size: u64) -> Self {
