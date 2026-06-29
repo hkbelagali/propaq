@@ -82,6 +82,7 @@ class PauliCircuit:
             return rots
 
         all_layers: list[list[PauliRotation]] = []
+        qiskit_gate_idx: int = 0
 
         for layer in circuit_to_dag(qc).layers():
             layer_rots: list[PauliRotation] = []
@@ -125,7 +126,15 @@ class PauliCircuit:
                         for gen, ang in rz_neg_sum.items():
                             rots.append(PauliRotation(gen, float(ang.real)))
 
+<<<<<<< HEAD
                     layer_rots.extend(_mark_intermediate(rots))
+=======
+                    _mark_intermediate(rots)
+                    for rot in rots:
+                        rot.qiskit_gate_idx = qiskit_gate_idx
+                    layer_rots.extend(rots)
+                    qiskit_gate_idx += 1
+>>>>>>> origin/main
                     continue
 
                 elif instr.name == "p":
@@ -154,7 +163,15 @@ class PauliCircuit:
 
                 items = list(paulisum.items())
                 rots = [PauliRotation(gen, float(ang.real)) for gen, ang in items]
+<<<<<<< HEAD
                 layer_rots.extend(_mark_intermediate(rots))
+=======
+                _mark_intermediate(rots)
+                for rot in rots:
+                    rot.qiskit_gate_idx = qiskit_gate_idx
+                layer_rots.extend(rots)
+                qiskit_gate_idx += 1
+>>>>>>> origin/main
 
             if layer_rots:
                 all_layers.append(layer_rots)

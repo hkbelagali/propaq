@@ -162,6 +162,10 @@ pub struct AbstractPropagator<M: AbstractTerm> {
     log_every: usize,
     last_log_instant: Option<std::time::Instant>,
     last_log_gate_idx: usize,
+<<<<<<< HEAD
+=======
+    current_qiskit_gate_idx: Option<usize>,
+>>>>>>> origin/main
     _marker: PhantomData<M>,
 }
 
@@ -217,6 +221,10 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             log_every,
             last_log_instant: None,
             last_log_gate_idx: 0,
+<<<<<<< HEAD
+=======
+            current_qiskit_gate_idx: None,
+>>>>>>> origin/main
             _marker: PhantomData,
         })
     }
@@ -488,9 +496,19 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                         .map_or_else(|| "null".to_string(), |w| w.to_string());
                     let cc = tp.coeff_cutoff;
                     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+<<<<<<< HEAD
                     let _ = writeln!(
                         log,
                         r#"{{"event":"truncation","gate_idx":{gate_idx},"layer_idx":{layer_idx},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{actual_discarded},"discarded_coeff_l1":{disc_l1:.6e},"discarded_coeff_max":{disc_max:.6e},"weight_cutoff":{wc_str},"coeff_cutoff":{cc:.6e},"elapsed_ms":{elapsed_ms:.3e}}}"#
+=======
+                    let qki = match self.current_qiskit_gate_idx {
+                        Some(v) => v.to_string(),
+                        None => "null".to_string(),
+                    };
+                    let _ = writeln!(
+                        log,
+                        r#"{{"event":"truncation","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{actual_discarded},"discarded_coeff_l1":{disc_l1:.6e},"discarded_coeff_max":{disc_max:.6e},"weight_cutoff":{wc_str},"coeff_cutoff":{cc:.6e},"elapsed_ms":{elapsed_ms:.3e}}}"#
+>>>>>>> origin/main
                     );
                 }
             }
@@ -556,15 +574,31 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
 
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
 
+<<<<<<< HEAD
         let circuit_data: Vec<Vec<(M, f64, bool)>> = layers
             .iter()
             .map(|layer| {
                 layer.iter().map(|rot_obj| -> PyResult<(M, f64, bool)> {
+=======
+        let circuit_data: Vec<Vec<(M, f64, bool, Option<usize>)>> = layers
+            .iter()
+            .map(|layer| {
+                layer.iter().map(|rot_obj| -> PyResult<(M, f64, bool, Option<usize>)> {
+>>>>>>> origin/main
                     let rot = rot_obj.bind(py);
                     let generator: M = rot.getattr("generator")?.extract()?;
                     let angle: f64 = rot.getattr("angle")?.extract()?;
                     let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
+<<<<<<< HEAD
                     Ok((generator, angle, is_intermediate))
+=======
+                    let qiskit_gate_idx: Option<usize> = rot
+                        .getattr("qiskit_gate_idx")
+                        .ok()
+                        .and_then(|v| v.extract::<Option<usize>>().ok())
+                        .flatten();
+                    Ok((generator, angle, is_intermediate, qiskit_gate_idx))
+>>>>>>> origin/main
                 }).collect::<PyResult<_>>()
             })
             .collect::<PyResult<_>>()?;
@@ -589,10 +623,19 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             self.apply_layer_noise(py, &pool, damping, gate_idx, layer_idx)?;
 
             let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
+<<<<<<< HEAD
             for (idx, (generator, angle, _is_intermediate)) in reversed_layer.iter().enumerate() {
                 let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
                 pending += added;
 
+=======
+            for (idx, (generator, angle, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
+                let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
+                pending += added;
+
+                self.current_qiskit_gate_idx = *qiskit_gate_idx;
+
+>>>>>>> origin/main
                 if self.verbose_log.is_some() && gate_idx % self.log_every == 0 {
                     let now = std::time::Instant::now();
                     let avg_ms_per_gate_str = match self.last_log_instant {
@@ -607,10 +650,21 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                     let outbox_terms: usize = self.outboxes.iter()
                         .flat_map(|r| r.iter()).map(|v| v.len()).sum();
                     let map_terms = self.total_terms;
+<<<<<<< HEAD
                     if let Some(ref mut log) = self.verbose_log {
                         let _ = writeln!(
                             log,
                             r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"map_terms":{map_terms},"outbox_terms":{outbox_terms},"avg_ms_per_gate":{avg_ms_per_gate_str}}}"#
+=======
+                    let qki = match qiskit_gate_idx {
+                        Some(v) => v.to_string(),
+                        None => "null".to_string(),
+                    };
+                    if let Some(ref mut log) = self.verbose_log {
+                        let _ = writeln!(
+                            log,
+                            r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"map_terms":{map_terms},"outbox_terms":{outbox_terms},"avg_ms_per_gate":{avg_ms_per_gate_str}}}"#
+>>>>>>> origin/main
                         );
                     }
                 }
@@ -618,7 +672,11 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 // Only flush at compound-gate boundaries. In the reversed iteration,
                 // a compound gate [R_final, R_inter, ..., R_inter] ends when the next
                 // rotation is not intermediate (or there is no next rotation).
+<<<<<<< HEAD
                 let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni)| *ni);
+=======
+                let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni, _)| *ni);
+>>>>>>> origin/main
                 if !next_is_intermediate && max_terms.map_or(false, |max| self.total_terms + pending >= max) {
                     py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref(), gate_idx, layer_idx, "threshold"));
                     pending = 0;
@@ -710,6 +768,10 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         }
         self.last_log_instant = None;
         self.last_log_gate_idx = 0;
+<<<<<<< HEAD
+=======
+        self.current_qiskit_gate_idx = None;
+>>>>>>> origin/main
         Ok(())
     }
 
