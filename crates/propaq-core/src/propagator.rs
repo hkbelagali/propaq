@@ -160,6 +160,8 @@ pub struct AbstractPropagator<M: AbstractTerm> {
     verbose_log: Option<BufWriter<std::fs::File>>,
     log_filename: Option<String>,
     log_every: usize,
+    last_log_instant: Option<std::time::Instant>,
+    last_log_gate_idx: usize,
     _marker: PhantomData<M>,
 }
 
@@ -213,6 +215,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
             verbose_log: None,
             log_filename,
             log_every,
+            last_log_instant: None,
+            last_log_gate_idx: 0,
             _marker: PhantomData,
         })
     }
@@ -409,6 +413,7 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
         layer_idx: usize,
         trigger: &str,
     ) {
+        let t0 = std::time::Instant::now();
         let n = self.n_partitions;
 
         // Phase 1: parallel transpose — reuse scratch_inboxes to avoid allocation
@@ -482,9 +487,10 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                     let wc_str = tp.weight_cutoff
                         .map_or_else(|| "null".to_string(), |w| w.to_string());
                     let cc = tp.coeff_cutoff;
+                    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
                     let _ = writeln!(
                         log,
-                        r#"{{"event":"truncation","gate_idx":{gate_idx},"layer_idx":{layer_idx},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{actual_discarded},"discarded_coeff_l1":{disc_l1:.6e},"discarded_coeff_max":{disc_max:.6e},"weight_cutoff":{wc_str},"coeff_cutoff":{cc:.6e}}}"#
+                        r#"{{"event":"truncation","gate_idx":{gate_idx},"layer_idx":{layer_idx},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{actual_discarded},"discarded_coeff_l1":{disc_l1:.6e},"discarded_coeff_max":{disc_max:.6e},"weight_cutoff":{wc_str},"coeff_cutoff":{cc:.6e},"elapsed_ms":{elapsed_ms:.3e}}}"#
                     );
                 }
             }
@@ -588,13 +594,23 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 pending += added;
 
                 if self.verbose_log.is_some() && gate_idx % self.log_every == 0 {
+                    let now = std::time::Instant::now();
+                    let avg_ms_per_gate_str = match self.last_log_instant {
+                        Some(last) => {
+                            let gates = (gate_idx - self.last_log_gate_idx).max(1);
+                            format!("{:.6e}", last.elapsed().as_secs_f64() * 1000.0 / gates as f64)
+                        }
+                        None => "null".to_string(),
+                    };
+                    self.last_log_instant = Some(now);
+                    self.last_log_gate_idx = gate_idx;
                     let outbox_terms: usize = self.outboxes.iter()
                         .flat_map(|r| r.iter()).map(|v| v.len()).sum();
                     let map_terms = self.total_terms;
                     if let Some(ref mut log) = self.verbose_log {
                         let _ = writeln!(
                             log,
-                            r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"map_terms":{map_terms},"outbox_terms":{outbox_terms}}}"#
+                            r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"map_terms":{map_terms},"outbox_terms":{outbox_terms},"avg_ms_per_gate":{avg_ms_per_gate_str}}}"#
                         );
                     }
                 }
@@ -692,6 +708,8 @@ impl<M: AbstractTerm> AbstractPropagator<M> {
                 .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
             self.verbose_log = Some(BufWriter::new(f));
         }
+        self.last_log_instant = None;
+        self.last_log_gate_idx = 0;
         Ok(())
     }
 
