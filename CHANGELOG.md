@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-29
+
+### Added 
+- Added timing information to logging output, which prints the average time taken for each gate application and the total time taken for the truncation.
+- Updated README.md with `initial_state` parameter in the `expectation_value` method of `MajoranaPropagator` and `PauliPropagator` classes, replacing the deprecated `fock_state`.
+
 ## [0.1.0] - 2026-06-27
 
 ### Changed
