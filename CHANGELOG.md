@@ -6,19 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-06-29 (2)
-
-### Added
-- `qiskit_gate_idx` field in JSONL log output for both `gate` and `truncation` events. Each event now reports the index of the originating Qiskit gate so log data can be mapped back to specific positions in the source circuit. Multiple propaq rotations that expand from a single parameterized Qiskit gate (e.g. `xx_plus_yy` with a non-zero `beta`, `cp`, `swap`) share the same `qiskit_gate_idx`. Circuits not constructed via `from_qiskit` emit `null` for this field.
-- `qiskit_gate_idx: int | None` field on `PauliRotation` and `MajoranaRotation`, set automatically by `PauliCircuit.from_qiskit()` and `MajoranaCircuit.from_qiskit()`.
-- `qiskit_gate_idx` field on `GateEvent` and `TruncationEvent` dataclasses in `LogParser`, and a `qiskit_gate_indices` convenience property on `LogParser`. Old JSONL files without this field parse without error (`None` is returned).
-- Test suite for logger/log-parser integration under `tests/log/`, covering Qiskit-sourced circuits, truncation events, and directly constructed circuits.
-
 ## [0.1.0] - 2026-06-29
 
 ### Added 
 - Added timing information to logging output, which prints the average time taken for each gate application and the total time taken for the truncation.
 - Updated README.md with `initial_state` parameter in the `expectation_value` method of `MajoranaPropagator` and `PauliPropagator` classes, replacing the deprecated `fock_state`.
+- `qiskit_gate_idx` field in JSONL log output for both `gate` and `truncation` events. Each event now reports the index of the originating Qiskit gate so log data can be mapped back to specific positions in the source circuit. Multiple propaq rotations that expand from a single parameterized Qiskit gate share the same `qiskit_gate_idx`. Circuits not constructed via `from_qiskit` emit `null` for this field.
+- Test suite for logger/log-parser integration under `tests/log/`, covering Qiskit-sourced circuits, truncation events, and directly constructed circuits.
 
 ## [0.1.0] - 2026-06-27
 
