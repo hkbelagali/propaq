@@ -19,6 +19,8 @@ class GateEvent:
     """Number of terms in the outboxes."""
     avg_ms_per_gate: float | None
     """Average wall time per gate (ms) since the previous gate event, or None for the first event."""
+    qiskit_gate_idx: int | None
+    """Index of the originating Qiskit gate, or None for non-Qiskit circuits or old log files."""
 
 
 @dataclass
@@ -46,6 +48,8 @@ class TruncationEvent:
     """Coefficient cutoff used for truncation, if applicable."""
     elapsed_ms: float
     """Wall time (ms) for the full flush+truncation step."""
+    qiskit_gate_idx: int | None
+    """Index of the originating Qiskit gate at time of truncation, or None for non-Qiskit circuits."""
 
 
 class LogParser:
@@ -76,6 +80,7 @@ class LogParser:
                         map_terms=ev["map_terms"],
                         outbox_terms=ev["outbox_terms"],
                         avg_ms_per_gate=ev.get("avg_ms_per_gate"),
+                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
                     ))
                 elif kind == "truncation":
                     self._truncation_events.append(TruncationEvent(
@@ -90,6 +95,7 @@ class LogParser:
                         weight_cutoff=ev["weight_cutoff"],
                         coeff_cutoff=ev["coeff_cutoff"],
                         elapsed_ms=ev["elapsed_ms"],
+                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
                     ))
 
     def reload(self) -> None:
@@ -145,6 +151,11 @@ class LogParser:
     def discarded_coeff_max(self) -> list[float]:
         """Largest |coeff| discarded at each truncation (worst-case information loss)."""
         return [e.discarded_coeff_max for e in self._truncation_events]
+
+    @property
+    def qiskit_gate_indices(self) -> list[int | None]:
+        """Qiskit gate index at each logged gate event, or None for non-Qiskit circuits."""
+        return [e.qiskit_gate_idx for e in self._gate_events]
 
     @property
     def avg_ms_per_gate(self) -> list[float | None]:
