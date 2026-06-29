@@ -17,6 +17,8 @@ class GateEvent:
     """Number of terms in the hashmaps."""
     outbox_terms: int
     """Number of terms in the outboxes."""
+    avg_ms_per_gate: float | None
+    """Average wall time per gate (ms) since the previous gate event, or None for the first event."""
 
 
 @dataclass
@@ -42,6 +44,8 @@ class TruncationEvent:
     """Weight cutoff used for truncation, if applicable."""
     coeff_cutoff: float
     """Coefficient cutoff used for truncation, if applicable."""
+    elapsed_ms: float
+    """Wall time (ms) for the full flush+truncation step."""
 
 
 class LogParser:
@@ -71,6 +75,7 @@ class LogParser:
                         layer_idx=ev["layer_idx"],
                         map_terms=ev["map_terms"],
                         outbox_terms=ev["outbox_terms"],
+                        avg_ms_per_gate=ev.get("avg_ms_per_gate"),
                     ))
                 elif kind == "truncation":
                     self._truncation_events.append(TruncationEvent(
@@ -84,6 +89,7 @@ class LogParser:
                         discarded_coeff_max=ev["discarded_coeff_max"],
                         weight_cutoff=ev["weight_cutoff"],
                         coeff_cutoff=ev["coeff_cutoff"],
+                        elapsed_ms=ev["elapsed_ms"],
                     ))
 
     def reload(self) -> None:
@@ -139,3 +145,13 @@ class LogParser:
     def discarded_coeff_max(self) -> list[float]:
         """Largest |coeff| discarded at each truncation (worst-case information loss)."""
         return [e.discarded_coeff_max for e in self._truncation_events]
+
+    @property
+    def avg_ms_per_gate(self) -> list[float | None]:
+        """Average ms/gate between consecutive gate log events (None for the first event)."""
+        return [e.avg_ms_per_gate for e in self._gate_events]
+
+    @property
+    def elapsed_ms(self) -> list[float]:
+        """Wall time (ms) for each flush+truncation step."""
+        return [e.elapsed_ms for e in self._truncation_events]
