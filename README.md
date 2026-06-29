@@ -64,7 +64,7 @@ prop = MajoranaPropagator(
 )
 
 # Back-propagate and evaluate
-result = prop.expectation_value(mts, mc, fock_state=0)
+result = prop.expectation_value(mts, mc, initial_state=0)
 print("Expectation value:", result.expectation_value)
 ```
 

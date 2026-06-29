@@ -13,7 +13,10 @@ class Logger:
 
         ``"gate"`` — sampled every ``log_every`` gates::
 
-            {"event":"gate","gate_idx":5,"layer_idx":2,"map_terms":1200,"outbox_terms":340}
+            {"event":"gate","gate_idx":5,"layer_idx":2,"map_terms":1200,"outbox_terms":340,"avg_ms_per_gate":0.042}
+
+        ``avg_ms_per_gate`` is the average wall time per gate since the previous gate event,
+        or ``null`` for the first event.
 
         ``"truncation"`` — emitted on every flush that applies a TruncationPolicy,
         regardless of ``log_every``::
@@ -21,7 +24,9 @@ class Logger:
             {"event":"truncation","gate_idx":5,"layer_idx":2,"trigger":"threshold",
              "terms_before":10042,"terms_after":8800,"terms_discarded":1242,
              "discarded_coeff_l1":3.12e-3,"discarded_coeff_max":8.9e-5,
-             "weight_cutoff":10,"coeff_cutoff":1e-6}
+             "weight_cutoff":10,"coeff_cutoff":1e-6,"elapsed_ms":1.234e+01}
+
+        ``elapsed_ms`` is the wall time for the full flush+truncation step.
 
         Arguments:
             filename: Path to the output log file.
