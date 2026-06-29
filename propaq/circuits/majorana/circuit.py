@@ -131,15 +131,11 @@ class MajoranaCircuit:
                         for gen, ang in rz_neg_sum.items():
                             rots.append(MajoranaRotation(gen, float(ang.real)))
 
-<<<<<<< HEAD
-                    layer_rots.extend(_mark_intermediate(rots))
-=======
                     _mark_intermediate(rots)
                     for rot in rots:
                         rot.qiskit_gate_idx = qiskit_gate_idx
                     layer_rots.extend(rots)
                     qiskit_gate_idx += 1
->>>>>>> origin/main
                     continue
 
                 elif instr.name == "p":
@@ -165,15 +161,11 @@ class MajoranaCircuit:
 
                 items = list(majoranasum.items())
                 rots = [MajoranaRotation(gen, float(ang.real)) for gen, ang in items]
-<<<<<<< HEAD
-                layer_rots.extend(_mark_intermediate(rots))
-=======
                 _mark_intermediate(rots)
                 for rot in rots:
                     rot.qiskit_gate_idx = qiskit_gate_idx
                 layer_rots.extend(rots)
                 qiskit_gate_idx += 1
->>>>>>> origin/main
 
             if layer_rots:
                 all_layers.append(layer_rots)
