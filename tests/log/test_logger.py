@@ -2,7 +2,6 @@
 
 import math
 
-import pytest
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import XXPlusYYGate
 
@@ -60,7 +59,7 @@ def test_qiskit_gate_idx_in_truncation_events(tmp_path):
 
     parser = LogParser(str(log_file))
     for ev in parser.truncation_events:
-        assert isinstance(ev.qiskit_gate_idx, (int, type(None)))
+        assert isinstance(ev.qiskit_gate_idx, int | type(None))
 
 
 def test_non_qiskit_circuit_has_null_qiskit_gate_idx(tmp_path):
