@@ -186,3 +186,34 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             term_sum.add(gen, float(coeff.real))
         return term_sum
 
+    def to_sparse_pauli_op(self) -> SparsePauliOp:
+        """
+        Convert this PauliTermSum back to a Qiskit SparsePauliOp.
+
+        Raises:
+            ValueError: If the term sum is empty (n_qubits cannot be inferred).
+
+        Returns:
+            The equivalent SparsePauliOp with simplified (deduplicated) terms.
+        """
+        items = self.items()
+        if not items:
+            raise ValueError("Cannot convert empty PauliTermSum to SparsePauliOp")
+        pairs = []
+        for ps, coeff in items:
+            n_qubits = ps.n_qubits
+            chars = []
+            for q in range(n_qubits - 1, -1, -1):  # big-endian: highest qubit first
+                bx = (ps.x >> q) & 1
+                bz = (ps.z >> q) & 1
+                if bx and bz:
+                    chars.append("Y")
+                elif bx:
+                    chars.append("X")
+                elif bz:
+                    chars.append("Z")
+                else:
+                    chars.append("I")
+            pairs.append(("".join(chars), coeff))
+        return SparsePauliOp.from_list(pairs).simplify()
+

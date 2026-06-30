@@ -191,15 +191,6 @@ def test_from_sparse_pauli_op_z():
     assert len(ts) == 1
     assert ts[_ref(0b11, 2)] == pytest.approx(-1.0)
 
-
-# Two-qubit cases (string ordering: leftmost char = highest qubit index)
-# "XZ"  →  X_1 Z_0  →  γ_2          (mode 0b0100, coeff +1)
-# "YZ"  →  Y_1 Z_0  →  γ_3          (mode 0b1000, coeff +1)
-# "ZX"  →  Z_1 X_0  →  γ_0 γ_2 γ_3  (mode 0b1101, coeff -1)
-# "XX"  →             γ_1 γ_2        (mode 0b0110, coeff -1)
-# "YY"  →             γ_0 γ_3        (mode 0b1001, coeff +1)
-# "ZZ"  →             γ_0 γ_1 γ_2 γ_3 (mode 0b1111, coeff +1)
-
 def test_from_sparse_pauli_op_xz():
     ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp.from_list([("XZ", 1.0)]))
     assert len(ts) == 1
@@ -327,3 +318,42 @@ def test_merge_from_file_empty_file_leaves_sum_unchanged(tmp_path):
     ts.merge_from_file(MajoranaTermStreamer.from_file(empty_path))
     assert len(ts) == 1
     assert ts[a] == pytest.approx(5.0)
+
+def test_to_sparse_pauli_op_x():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("X"))
+    assert ts.to_sparse_pauli_op().equiv(SparsePauliOp("X"))
+
+
+def test_to_sparse_pauli_op_y():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("Y"))
+    assert ts.to_sparse_pauli_op().equiv(SparsePauliOp("Y"))
+
+
+def test_to_sparse_pauli_op_z():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("Z"))
+    assert ts.to_sparse_pauli_op().equiv(SparsePauliOp("Z"))
+
+
+def test_to_sparse_pauli_op_xx():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("XX"))
+    assert ts.to_sparse_pauli_op().equiv(SparsePauliOp("XX"))
+
+
+def test_to_sparse_pauli_op_zz():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("ZZ"))
+    assert ts.to_sparse_pauli_op().equiv(SparsePauliOp("ZZ"))
+
+
+def test_to_sparse_pauli_op_scaled():
+    ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("X", coeffs=[3.5]))
+    assert ts.to_sparse_pauli_op().equiv(SparsePauliOp("X", coeffs=[3.5]))
+
+
+def test_to_sparse_pauli_op_round_trip():
+    op = SparsePauliOp.from_list([("ZZ", 1.0), ("XX", 2.0), ("ZI", -0.5)])
+    assert MajoranaTermSum.from_sparse_pauli_op(op).to_sparse_pauli_op().equiv(op)
+
+
+def test_to_sparse_pauli_op_empty_raises():
+    with pytest.raises(ValueError):
+        MajoranaTermSum().to_sparse_pauli_op()
