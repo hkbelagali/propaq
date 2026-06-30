@@ -14,6 +14,39 @@ from .majorana import MajoranaMonomial
 T = TypeVar("T")
 
 
+def _jw_inverse_transform(modes: int, n_qubits: int) -> tuple[str, complex]:
+    """
+    Invert the Jordan-Wigner transform: recover the Pauli string and forward phase
+    from a Majorana modes bitmask.
+    """
+    fwd_phase: complex = 1 + 0j
+    z_parity = 0
+    chars: list[str] = []
+    for q in range(n_qubits - 1, -1, -1):
+        be = (modes >> (2 * q)) & 1
+        bo = (modes >> (2 * q + 1)) & 1
+        if be == 0 and bo == 0:
+            chars.append("Z" if z_parity else "I")
+        elif be == 1 and bo == 0:
+            if z_parity == 0:
+                chars.append("X")
+            else:
+                chars.append("Y")
+                fwd_phase *= -1j
+            z_parity ^= 1
+        elif be == 0 and bo == 1:
+            if z_parity == 0:
+                chars.append("Y")
+            else:
+                chars.append("X")
+                fwd_phase *= 1j
+            z_parity ^= 1
+        else:
+            chars.append("Z" if z_parity == 0 else "I")
+            fwd_phase *= 1j
+    return "".join(chars), fwd_phase
+
+
 def _jw_transform(pauli_str: str, n_qubits: int) -> tuple[int, complex]:
     """
     Apply the Jordan-Wigner inverse transform to a single Pauli string.
@@ -234,7 +267,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a SparsePauliOp via the Jordan-Wigner inverse transform.
-        
+
         Arguments:
             op: The SparsePauliOp to convert.
 
@@ -259,3 +292,28 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             term_sum.add(m, float(effective_coeff.real))
 
         return term_sum
+
+    def to_sparse_pauli_op(self) -> SparsePauliOp:
+        """
+        Convert this MajoranaTermSum back to a Qiskit SparsePauliOp via the inverse
+        Jordan-Wigner transform.
+
+        Raises:
+            ValueError: If the term sum is empty (n_qubits cannot be inferred).
+
+        Returns:
+            The equivalent SparsePauliOp with simplified (deduplicated) terms.
+        """
+        items = self.items()
+        if not items:
+            raise ValueError("Cannot convert empty MajoranaTermSum to SparsePauliOp")
+        pairs = []
+        for monomial, coeff in items:
+            n_qubits = monomial.n_modes // 2
+            pauli_str, fwd_phase = _jw_inverse_transform(monomial.modes, n_qubits)
+            k = bin(monomial.modes).count("1")
+            e = (k // 2) % 2
+            hermiticity_factor = 1j ** e
+            original_coeff = coeff * hermiticity_factor * fwd_phase
+            pairs.append((pauli_str, original_coeff))
+        return SparsePauliOp.from_list(pairs).simplify()
