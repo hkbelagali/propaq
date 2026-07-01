@@ -23,6 +23,10 @@ pub struct SurrogatePropagator<M: AbstractTerm> {
     last_log_instant: Option<std::time::Instant>,
     last_log_gate_idx: usize,
     current_qiskit_gate_idx: Option<usize>,
+    /// Total monomial count across all live coefficients. Like `total_terms`,
+    /// this is only refreshed at flush points (recomputing it every gate would
+    /// require a full O(total_terms) pass, unlike the O(1) term-count read).
+    total_monomials: usize,
 }
 
 impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
@@ -51,6 +55,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             last_log_instant: None,
             last_log_gate_idx: 0,
             current_qiskit_gate_idx: None,
+            total_monomials: 0,
         })
     }
 
@@ -78,6 +83,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
 
         self.inner.flush_outboxes_to_maps();
         let total_before = self.inner.total_terms();
+        let monomials_before = self.inner.sum_coeffs(|c| c.monomials.len());
 
         let (max_freq, weight_cutoff, min_terms) = match &self.truncation {
             Some(tp) => (tp.max_frequency, tp.weight_cutoff, tp.truncation_range.0.unwrap_or(0)),
@@ -104,6 +110,8 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         });
 
         let total_after = self.inner.total_terms();
+        let monomials_after = self.inner.sum_coeffs(|c| c.monomials.len());
+        self.total_monomials = monomials_after;
 
         if self.verbose_log.is_some() {
             let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -114,10 +122,11 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             let mf_str = max_freq.map_or_else(|| "null".to_string(), |v| v.to_string());
             let wc_str = weight_cutoff.map_or_else(|| "null".to_string(), |v| v.to_string());
             let terms_discarded = total_before - total_after;
+            let monomials_discarded = monomials_before - monomials_after;
             if let Some(ref mut log) = self.verbose_log {
                 let _ = writeln!(
                     log,
-                    r#"{{"event":"surrogate_flush","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{terms_discarded},"max_frequency":{mf_str},"weight_cutoff":{wc_str},"elapsed_ms":{elapsed_ms:.3e}}}"#
+                    r#"{{"event":"surrogate_flush","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{terms_discarded},"monomials_before":{monomials_before},"monomials_after":{monomials_after},"monomials_discarded":{monomials_discarded},"max_frequency":{mf_str},"weight_cutoff":{wc_str},"elapsed_ms":{elapsed_ms:.3e}}}"#
                 );
             }
         }
@@ -199,6 +208,9 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     self.last_log_gate_idx = gate_idx;
                     let outbox_terms = self.inner.n_outbox_terms();
                     let map_terms = self.inner.total_terms();
+                    // Stale between flushes, like map_terms: cheap O(1) read, not
+                    // recomputed every gate (that would require an O(total_terms) pass).
+                    let monomials = self.total_monomials;
                     let qki = match qiskit_gate_idx {
                         Some(v) => v.to_string(),
                         None => "null".to_string(),
@@ -206,7 +218,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     if let Some(ref mut log) = self.verbose_log {
                         let _ = writeln!(
                             log,
-                            r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"map_terms":{map_terms},"outbox_terms":{outbox_terms},"avg_ms_per_gate":{avg_ms_str}}}"#
+                            r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"map_terms":{map_terms},"outbox_terms":{outbox_terms},"monomials":{monomials},"avg_ms_per_gate":{avg_ms_str}}}"#
                         );
                     }
                 }
@@ -219,6 +231,10 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     pending = 0;
                 }
 
+                if let Some(ref pf) = postfix {
+                    // Cached at flush time, like total_terms; cheap O(1) read here.
+                    pf.bind(py).set_item("monomials", self.total_monomials)?;
+                }
                 AbstractPropagator::<M, SymbolicCoeff>::tick_progress_bar(
                     py, &pbar, &postfix, self.inner.total_terms(),
                 )?;

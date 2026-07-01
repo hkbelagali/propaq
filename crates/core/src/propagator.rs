@@ -526,6 +526,19 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         })
     }
 
+    /// Parallel sum of a per-coefficient quantity over all live terms, without
+    /// allocating a result the size of the term count (unlike `collect_terms`).
+    pub fn sum_coeffs<F>(&self, f: F) -> usize
+    where
+        F: Fn(&C) -> usize + Sync,
+    {
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &self.thread_maps;
+        pool.install(|| {
+            thread_maps.par_iter().map(|map| map.values().map(&f).sum::<usize>()).sum()
+        })
+    }
+
     /// Access verbose log writer for writing custom log entries from surrogate propagator.
     pub fn verbose_log_mut(&mut self) -> Option<&mut BufWriter<std::fs::File>> {
         self.verbose_log.as_mut()
