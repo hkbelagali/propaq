@@ -77,27 +77,29 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         let t0 = std::time::Instant::now();
 
         self.inner.flush_outboxes_to_maps();
+        let total_before = self.inner.total_terms();
 
-        let (max_freq, weight_cutoff) = match &self.truncation {
-            Some(tp) => (tp.max_frequency, tp.weight_cutoff),
-            None => (None, None),
+        let (max_freq, weight_cutoff, min_terms) = match &self.truncation {
+            Some(tp) => (tp.max_frequency, tp.weight_cutoff, tp.truncation_range.0.unwrap_or(0)),
+            None => (None, None, 0),
         };
 
-        if max_freq.is_some() {
-            let mf = max_freq.unwrap();
-            self.inner.map_coeffs_inplace(|_, c| {
-                c.trim_high_frequency(mf);
-                c.deduplicate();
-            });
-        } else {
-            // Still deduplicate to avoid unbounded growth in long circuits.
-            self.inner.map_coeffs_inplace(|_, c| {
-                c.deduplicate();
-            });
-        }
+        // Deferred like the numerical propagator's TruncationPolicy: below
+        // min_terms, skip the lossy max_frequency/weight_cutoff filtering and
+        // only run the lossless dedup (merge identical monomials, drop zeros).
+        let apply_lossy = total_before >= min_terms;
+
+        self.inner.map_coeffs_inplace(|_, c| {
+            if apply_lossy {
+                if let Some(mf) = max_freq {
+                    c.trim_high_frequency(mf);
+                }
+            }
+            c.deduplicate();
+        });
 
         self.inner.retain_maps_with(|t, c| {
-            let weight_ok = weight_cutoff.map_or(true, |w| t.weight() <= w);
+            let weight_ok = !apply_lossy || weight_cutoff.map_or(true, |w| t.weight() <= w);
             weight_ok && !c.is_empty()
         });
 
@@ -111,10 +113,11 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             };
             let mf_str = max_freq.map_or_else(|| "null".to_string(), |v| v.to_string());
             let wc_str = weight_cutoff.map_or_else(|| "null".to_string(), |v| v.to_string());
+            let terms_discarded = total_before - total_after;
             if let Some(ref mut log) = self.verbose_log {
                 let _ = writeln!(
                     log,
-                    r#"{{"event":"surrogate_flush","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms_after":{total_after},"max_frequency":{mf_str},"weight_cutoff":{wc_str},"elapsed_ms":{elapsed_ms:.3e}}}"#
+                    r#"{{"event":"surrogate_flush","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{terms_discarded},"max_frequency":{mf_str},"weight_cutoff":{wc_str},"elapsed_ms":{elapsed_ms:.3e}}}"#
                 );
             }
         }
@@ -165,13 +168,10 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
 
         self.inner.initialize_from(evolved);
 
+        let max_terms: Option<usize> = self.truncation.as_ref().and_then(|p| p.truncation_range.1);
+
         let mut gate_idx: usize = 0;
         let mut pending: usize = 0;
-
-        // Flush threshold: flush when pending outbox terms exceed total live terms.
-        // This mirrors the numerical propagator's `max_terms` heuristic but simpler:
-        // flush at most every 1k gates by default, or when outbox grows large.
-        const FLUSH_EVERY: usize = 1024;
 
         for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
             // Apply uniform noise before the layer (mirrors numerical propagator order).
@@ -212,7 +212,9 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 }
 
                 let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni, _)| *ni);
-                if !next_is_intermediate && (pending >= FLUSH_EVERY || pending >= self.inner.total_terms().max(1)) {
+                if !next_is_intermediate
+                    && max_terms.map_or(false, |max| self.inner.total_terms() + pending >= max)
+                {
                     py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, layer_idx, "threshold"));
                     pending = 0;
                 }
