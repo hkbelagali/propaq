@@ -3,6 +3,11 @@ use pyo3::prelude::*;
 use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator, MajoranaTermStreamer};
 use propaq_pauli::{PauliString, PauliTermSum, PauliPropagator, PauliTermStreamer};
+use propaq_surrogate::{
+    FrequencyTruncationPolicy,
+    PauliSurrogateModel, MajoranaSurrogateModel,
+    PauliSurrogatePropagator, MajoranaSurrogatePropagator,
+};
 
 #[pyfunction]
 fn rust_available() -> bool {
@@ -25,5 +30,10 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PauliPropagator>()?;
     m.add_class::<PropagationResult>()?;
     m.add_class::<Logger>()?;
+    m.add_class::<FrequencyTruncationPolicy>()?;
+    m.add_class::<PauliSurrogateModel>()?;
+    m.add_class::<MajoranaSurrogateModel>()?;
+    m.add_class::<PauliSurrogatePropagator>()?;
+    m.add_class::<MajoranaSurrogatePropagator>()?;
     Ok(())
 }

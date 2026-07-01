@@ -1,7 +1,7 @@
 """Datatype representing a sum of Majorana terms."""
 
 import math
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from qiskit.circuit import Instruction
 from qiskit.quantum_info import SparsePauliOp
@@ -12,6 +12,57 @@ from .._abstract import BitMask
 from .majorana import MajoranaMonomial
 
 T = TypeVar("T")
+
+
+def _xx_plus_yy_terms(theta, i: int, j: int, n_modes: int) -> list[tuple[MajoranaMonomial, Any]]:
+    """Raw (generator, coefficient) terms for an XX+YY gate; `theta` may be a float
+    or a Qiskit ParameterExpression."""
+    lo, hi = min(i, j), max(i, j)
+    d = hi - lo
+    factor = theta / 2.0
+
+    jw_string = 0
+    for k in range(lo + 1, hi):
+        jw_string |= (1 << (2 * k)) | (1 << (2 * k + 1))
+
+    sign = 1 if d % 2 == 1 else -1
+
+    if i > j:
+        m1_bits = BitMask((1 << (2 * hi)) | jw_string | (1 << (2 * lo + 1)))
+        m2_bits = BitMask((1 << (2 * hi + 1)) | jw_string | (1 << (2 * lo)))
+        sign1, sign2 = -sign * factor, sign * factor
+    else:
+        m1_bits = BitMask((1 << (2 * lo)) | jw_string | (1 << (2 * hi + 1)))
+        m2_bits = BitMask((1 << (2 * lo + 1)) | jw_string | (1 << (2 * hi)))
+        sign1, sign2 = sign * factor, -sign * factor
+
+    return [
+        (MajoranaMonomial(m1_bits, n_modes, is_number_preserving=False), sign1),
+        (MajoranaMonomial(m2_bits, n_modes, is_number_preserving=False), sign2),
+    ]
+
+
+def _rz_terms(raw_angle, q: int, n_modes: int) -> list[tuple[MajoranaMonomial, Any]]:
+    """Raw (generator, coefficient) terms for a Z rotation; `raw_angle` may be a
+    float or a Qiskit ParameterExpression. Coefficient is `-raw_angle` (JW sign
+    convention), matching both `from_phase` (raw_angle = gate angle) and
+    `from_rz_angle` (raw_angle = the already-signed angle passed in)."""
+    modes_n = BitMask((1 << (2 * q)) | (1 << (2 * q + 1)))
+    m_q = MajoranaMonomial(modes_n, n_modes, is_number_preserving=True)
+    return [(m_q, -raw_angle)]
+
+
+def _cp_terms(phi, i: int, j: int, n_modes: int) -> list[tuple[MajoranaMonomial, Any]]:
+    """Raw (generator, coefficient) terms for a controlled-phase gate; `phi` may be
+    a float or a Qiskit ParameterExpression."""
+    modes_i = BitMask((1 << (2 * i)) | (1 << (2 * i + 1)))
+    modes_j = BitMask((1 << (2 * j)) | (1 << (2 * j + 1)))
+    modes_4 = BitMask(modes_i | modes_j)
+    return [
+        (MajoranaMonomial(modes_i, n_modes), -phi / 2),
+        (MajoranaMonomial(modes_j, n_modes), -phi / 2),
+        (MajoranaMonomial(modes_4, n_modes),  phi / 2),
+    ]
 
 
 def _jw_inverse_transform(modes: int, n_qubits: int) -> tuple[str, complex]:
@@ -97,29 +148,11 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             n_modes: The total number of Majorana modes in the system.
         """
         i, j = q_indices
-        lo, hi = min(i, j), max(i, j)
-        d = hi - lo
         theta = float(instr.params[0])
-        factor = theta / 2.0
-
-        jw_string = 0
-        for k in range(lo + 1, hi):
-            jw_string |= (1 << (2 * k)) | (1 << (2 * k + 1))
-
-        sign = 1 if d % 2 == 1 else -1
-
-        if i > j:
-            m1_bits = BitMask((1 << (2 * hi)) | jw_string | (1 << (2 * lo + 1)))
-            m2_bits = BitMask((1 << (2 * hi + 1)) | jw_string | (1 << (2 * lo)))
-            sign1, sign2 = -sign * factor, sign * factor
-        else:
-            m1_bits = BitMask((1 << (2 * lo)) | jw_string | (1 << (2 * hi + 1)))
-            m2_bits = BitMask((1 << (2 * lo + 1)) | jw_string | (1 << (2 * hi)))
-            sign1, sign2 = sign * factor, -sign * factor
 
         term_sum = cls()
-        term_sum.add(MajoranaMonomial(m1_bits, n_modes, is_number_preserving=False), sign1)
-        term_sum.add(MajoranaMonomial(m2_bits, n_modes, is_number_preserving=False), sign2)
+        for gen, coeff in _xx_plus_yy_terms(theta, i, j, n_modes):
+            term_sum.add(gen, coeff)
         return term_sum
 
     @classmethod
@@ -135,14 +168,11 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             n_modes: The total number of Majorana modes in the system.
         """
         q = q_indices[0]
-        angle = -float(instr.params[0])
+        theta = float(instr.params[0])
 
         term_sum = cls()
-
-        modes_n = BitMask((1 << (2 * q)) | (1 << (2 * q + 1)))
-        m_q = MajoranaMonomial(modes_n, n_modes, is_number_preserving=True)
-        term_sum.add(m_q, angle)
-
+        for gen, coeff in _rz_terms(theta, q, n_modes):
+            term_sum.add(gen, coeff)
         return term_sum
 
     @classmethod
@@ -156,9 +186,8 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             n_modes: The total number of Majorana modes in the system.
         """
         term_sum = cls()
-        modes_n = BitMask((1 << (2 * q)) | (1 << (2 * q + 1)))
-        m_q = MajoranaMonomial(modes_n, n_modes, is_number_preserving=True)
-        term_sum.add(m_q, -angle)
+        for gen, coeff in _rz_terms(angle, q, n_modes):
+            term_sum.add(gen, coeff)
         return term_sum
 
     @classmethod
@@ -191,16 +220,8 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         phi = float(instr.params[0])
 
         term_sum = cls()
-
-        modes_i = BitMask((1 << (2 * i)) | (1 << (2 * i + 1)))
-        term_sum.add(MajoranaMonomial(modes_i, n_modes), -phi / 2)
-
-        modes_j = BitMask((1 << (2 * j)) | (1 << (2 * j + 1)))
-        term_sum.add(MajoranaMonomial(modes_j, n_modes), -phi / 2)
-
-        modes_4 = BitMask(modes_i | modes_j)
-        term_sum.add(MajoranaMonomial(modes_4, n_modes), phi / 2)
-
+        for gen, coeff in _cp_terms(phi, i, j, n_modes):
+            term_sum.add(gen, coeff)
         return term_sum
 
     @classmethod

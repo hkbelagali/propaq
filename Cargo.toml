@@ -1,9 +1,10 @@
 [workspace]
 members = [
-    "crates/propaq-core",
-    "crates/propaq-majorana",
-    "crates/propaq-pauli",
-    "crates/propaq-ext",
+    "crates/core",
+    "crates/majorana",
+    "crates/pauli",
+    "crates/surrogate",
+    "crates/ext",
 ]
 resolver = "2"
 

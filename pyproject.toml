@@ -60,7 +60,7 @@ docs = [
 [tool.maturin]
 python-source = "."
 module-name = "propaq._rust_core"
-manifest-path = "crates/propaq-ext/Cargo.toml"
+manifest-path = "crates/ext/Cargo.toml"
 features = ["pyo3/extension-module"]
 
 [tool.pytest.ini_options]

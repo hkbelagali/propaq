@@ -16,5 +16,10 @@ if TYPE_CHECKING:
     from ._pauli_term_streamer import PauliTermStreamer as PauliTermStreamer
     from ._pauli_term_sum import PauliTermSum as PauliTermSum
     from ._truncation_policy import TruncationPolicy as TruncationPolicy
+    from ._surrogate_truncation_policy import FrequencyTruncationPolicy as FrequencyTruncationPolicy
+    from ._surrogate_pauli import PauliSurrogateModel as PauliSurrogateModel
+    from ._surrogate_pauli import PauliSurrogatePropagator as PauliSurrogatePropagator
+    from ._surrogate_majorana import MajoranaSurrogateModel as MajoranaSurrogateModel
+    from ._surrogate_majorana import MajoranaSurrogatePropagator as MajoranaSurrogatePropagator
 
 def rust_available() -> bool: ...

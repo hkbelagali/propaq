@@ -1,0 +1,1 @@
+from propaq._rust_core import MajoranaSurrogatePropagator as MajoranaSurrogatePropagator

@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 
+use num_complex::Complex64;
 use propaq_core::propagator::{AbstractPropagator, PropagationResult};
 
 use crate::monomial::MajoranaMonomial;
@@ -15,7 +16,7 @@ use crate::termsum::MajoranaTermSum;
 ///     logger: Optional Logger for verbose JSON Lines event logging.
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaPropagator {
-    inner: AbstractPropagator<MajoranaMonomial>,
+    inner: AbstractPropagator<MajoranaMonomial, Complex64>,
 }
 
 #[pymethods]

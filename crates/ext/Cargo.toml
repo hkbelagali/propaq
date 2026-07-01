@@ -8,7 +8,8 @@ name = "_rust_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-propaq-core = { path = "../propaq-core" }
-propaq-majorana = { path = "../propaq-majorana" }
-propaq-pauli = { path = "../propaq-pauli" }
+propaq-core = { path = "../core" }
+propaq-majorana = { path = "../majorana" }
+propaq-pauli = { path = "../pauli" }
+propaq-surrogate = { path = "../surrogate" }
 pyo3 = { version = "0.23", features = ["extension-module", "num-complex"] }

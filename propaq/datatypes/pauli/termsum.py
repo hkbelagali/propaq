@@ -1,7 +1,7 @@
 """Datatype representing a sum of Pauli terms."""
 
 import math
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from qiskit.circuit import Instruction
 from qiskit.quantum_info import SparsePauliOp
@@ -14,6 +14,36 @@ from .pauli import PauliString
 T = TypeVar("T")
 
 
+def _xx_plus_yy_terms(theta, i: int, j: int, n_modes: int) -> list[tuple[PauliString, Any]]:
+    """Raw (generator, coefficient) terms for an XX+YY gate; `theta` may be a float
+    or a Qiskit ParameterExpression."""
+    factor = theta / 2.0
+    xy_bits = BitMask((1 << i) | (1 << j))
+    return [
+        (PauliString(xy_bits, BitMask(0), n_modes), factor),   # XX
+        (PauliString(xy_bits, xy_bits, n_modes), factor),      # YY
+    ]
+
+
+def _rz_terms(angle, q: int, n_modes: int) -> list[tuple[PauliString, Any]]:
+    """Raw (generator, coefficient) terms for a Z rotation; `angle` may be a float
+    or a Qiskit ParameterExpression."""
+    return [(PauliString(BitMask(0), BitMask(1 << q), n_modes), angle)]
+
+
+def _cp_terms(phi, i: int, j: int, n_modes: int) -> list[tuple[PauliString, Any]]:
+    """Raw (generator, coefficient) terms for a controlled-phase gate; `phi` may be
+    a float or a Qiskit ParameterExpression."""
+    z_i = BitMask(1 << i)
+    z_j = BitMask(1 << j)
+    z_ij = BitMask(z_i | z_j)
+    return [
+        (PauliString(BitMask(0), z_i,  n_modes),  phi / 2),
+        (PauliString(BitMask(0), z_j,  n_modes),  phi / 2),
+        (PauliString(BitMask(0), z_ij, n_modes), -phi / 2),
+    ]
+
+
 class PauliTermSum(_RustPauliTermSum, Generic[T]):
     r"""
     Class representing a sum of Pauli terms:
@@ -21,8 +51,8 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
     \sum_i c_i P_i
     $$
 
-    Backend is implemented in Rust for performance, but this class provides a 
-    Python interface for constructing and manipulating sums of Pauli terms. 
+    Backend is implemented in Rust for performance, but this class provides a
+    Python interface for constructing and manipulating sums of Pauli terms.
     """
 
     @classmethod
@@ -39,12 +69,10 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
         """
         i, j = q_indices
         theta = float(instr.params[0])
-        factor = theta / 2.0
 
-        xy_bits = BitMask((1 << i) | (1 << j))
         term_sum = cls()
-        term_sum.add(PauliString(xy_bits, BitMask(0), n_modes), factor)         # XX
-        term_sum.add(PauliString(xy_bits, xy_bits, n_modes), factor)            # YY
+        for gen, coeff in _xx_plus_yy_terms(theta, i, j, n_modes):
+            term_sum.add(gen, coeff)
         return term_sum
 
     @classmethod
@@ -63,7 +91,8 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
         angle = float(instr.params[0])
 
         term_sum = cls()
-        term_sum.add(PauliString(BitMask(0), BitMask(1 << q), n_modes), angle)
+        for gen, coeff in _rz_terms(angle, q, n_modes):
+            term_sum.add(gen, coeff)
         return term_sum
 
     @classmethod
@@ -77,7 +106,8 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             n_modes: The total number of qubits in the system.
         """
         term_sum = cls()
-        term_sum.add(PauliString(BitMask(0), BitMask(1 << q), n_modes), angle)
+        for gen, coeff in _rz_terms(angle, q, n_modes):
+            term_sum.add(gen, coeff)
         return term_sum
 
     @classmethod
@@ -109,14 +139,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
         i, j = q_indices
         phi = float(instr.params[0])
 
-        z_i = BitMask(1 << i)
-        z_j = BitMask(1 << j)
-        z_ij = BitMask(z_i | z_j)
-
         term_sum = cls()
-        term_sum.add(PauliString(BitMask(0), z_i,  n_modes),  phi / 2)
-        term_sum.add(PauliString(BitMask(0), z_j,  n_modes),  phi / 2)
-        term_sum.add(PauliString(BitMask(0), z_ij, n_modes), -phi / 2)
+        for gen, coeff in _cp_terms(phi, i, j, n_modes):
+            term_sum.add(gen, coeff)
         return term_sum
 
     @classmethod
