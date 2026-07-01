@@ -11,4 +11,5 @@ crate-type = ["cdylib"]
 propaq-core = { path = "../propaq-core" }
 propaq-majorana = { path = "../propaq-majorana" }
 propaq-pauli = { path = "../propaq-pauli" }
+propaq-mps = { path = "../propaq-mps" }
 pyo3 = { version = "0.23", features = ["extension-module", "num-complex"] }

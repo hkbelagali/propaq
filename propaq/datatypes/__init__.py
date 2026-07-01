@@ -2,6 +2,7 @@
 
 from .._rust_core import MajoranaTermStreamer as MajoranaTermStreamer
 from .._rust_core import PauliTermStreamer as PauliTermStreamer
+from .._rust_core import mps_pauli_overlap_sum as mps_pauli_overlap_sum
 from ._abstract import AbstractTerm, AbstractTermSum
 from .majorana.majorana import MajoranaMonomial as MajoranaMonomial
 from .majorana.termsum import MajoranaTermSum as MajoranaTermSum
@@ -16,5 +17,6 @@ __all__ = [
     "AbstractTerm",
     "AbstractTermSum",
     "PauliTermStreamer",
-    "MajoranaTermStreamer"
+    "MajoranaTermStreamer",
+    "mps_pauli_overlap_sum",
 ]

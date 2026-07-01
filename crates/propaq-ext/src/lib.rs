@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator, MajoranaTermStreamer};
 use propaq_pauli::{PauliString, PauliTermSum, PauliPropagator, PauliTermStreamer};
+use propaq_mps::mps_pauli_overlap_sum;
 
 #[pyfunction]
 fn rust_available() -> bool {
@@ -12,6 +13,7 @@ fn rust_available() -> bool {
 #[pymodule]
 fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_available, m)?)?;
+    m.add_function(wrap_pyfunction!(mps_pauli_overlap_sum, m)?)?;
     m.add_class::<MajoranaMonomial>()?;
     m.add_class::<PauliString>()?;
     m.add_class::<MajoranaTermSum>()?;
