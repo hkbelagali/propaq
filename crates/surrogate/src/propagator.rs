@@ -249,6 +249,27 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, layer_idx, trigger));
                     pending = 0;
                     pending_monomials = 0;
+
+                    // A threshold-triggered flush exists to bring the live count back
+                    // under it. If it's still at or above the limit that just fired,
+                    // the flush had nothing to trim (max_frequency/weight_cutoff unset
+                    // or too loose) — further gates will only repeat this with no
+                    // progress, heading for a hard allocator abort. Stop cleanly now
+                    // with a catchable, actionable error instead.
+                    let stuck_terms = max_terms.filter(|&max| self.inner.total_terms() >= max);
+                    let stuck_monomials = max_monomials.filter(|&max| self.total_monomials >= max);
+                    if stuck_terms.is_some() || stuck_monomials.is_some() {
+                        return Err(pyo3::exceptions::PyMemoryError::new_err(format!(
+                            "Surrogate propagation stopped at gate {gate_idx}/{total_rotations}: a flush failed \
+                             to reduce live state below its configured limit (terms={} vs max_terms={:?}, \
+                             monomials={} vs max_monomials={:?}). This means the flush had nothing to trim: \
+                             max_frequency and/or weight_cutoff are unset or too loose, so untruncated \
+                             propagation is growing combinatorially with circuit depth. Set max_frequency \
+                             and/or weight_cutoff to bound growth, or raise the limit(s) if this depth \
+                             genuinely needs more memory.",
+                            self.inner.total_terms(), max_terms, self.total_monomials, max_monomials,
+                        )));
+                    }
                 }
 
                 if let Some(ref pf) = postfix {
