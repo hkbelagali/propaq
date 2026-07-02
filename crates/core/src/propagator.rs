@@ -22,6 +22,15 @@ const PARTITION_HASH_MUL: u64 = 0x517cc1b727220a95;
 
 const EXP_LUT_SIZE: usize = 4096;
 
+/// Minimum chunk size before `apply_gate_inplace` splits sub-partition work
+/// further (see its doc comment). Deliberately low relative to `evaluate`'s
+/// analogous threshold: per-term cost here can be arbitrarily large and
+/// arbitrarily skewed (one term's whole symbolic coefficient), unlike
+/// `evaluate`'s near-uniform per-monomial cost, so it's worth being more
+/// willing to split even at modest partition sizes. Not benchmarked — a
+/// starting point, not a tuned value.
+const GATE_PAR_MIN_LEN: usize = 256;
+
 struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
 unsafe impl<T> Sync for SendPtr<T> {}
@@ -256,9 +265,29 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     /// (equal to `count` for scalar coefficients; the total monomial count
     /// added for `SymbolicCoeff`, which is what a surrogate flush trigger
     /// needs to watch instead of raw term count).
+    ///
+    /// This is the hottest loop in the whole system — called once per gate
+    /// for every live term — so it's parallelized down to individual entries
+    /// (not just partitions), both for `local_map` and for each outbox
+    /// bucket. Partition-only parallelism (one rayon task per partition,
+    /// serial inside) is a fine match for `Complex64` coefficients, where
+    /// per-term cost is O(1) and hash-partitioning by term count also
+    /// balances actual work. It's a bad match for `SymbolicCoeff`
+    /// coefficients, where per-term cost is O(that term's own monomial
+    /// count) and a handful of terms can carry the overwhelming majority of
+    /// monomials (see `crates/surrogate`): one partition can land the
+    /// outsized term and stall for the whole gate while every other thread
+    /// finishes instantly and blocks on the final `reduce`. Nested
+    /// `par_iter_mut` lets any idle thread steal from whichever
+    /// partition/bucket is actually slow, every gate, instead of only at
+    /// (much rarer) flush time.
+    ///
+    /// `with_min_len` keeps this from regressing the numeric propagator:
+    /// below `GATE_PAR_MIN_LEN` entries, rayon runs a single sequential
+    /// chunk (no parallel task overhead at all), so small partitions behave
+    /// exactly as before.
     pub fn apply_gate_inplace(&mut self, generator: &M, param: C::GateParam) -> (usize, usize) {
         let log2_n = self.log2_n;
-        let n = self.n_partitions;
         let pool = Arc::clone(&self.pool);
         let thread_maps = &mut self.thread_maps;
         let outboxes = &mut self.outboxes;
@@ -274,31 +303,67 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                 .map(|(((local_map, outbox_row), new_terms), snap)| {
                     new_terms.clear();
 
-                    // Apply gate to thread_map entries.
-                    for (term, coeff) in local_map.iter_mut() {
-                        if !term.commutes_with(generator) {
-                            let (phase, new_term) = generator.matmul_internal(term);
-                            let new_coeff = coeff.apply_rotation(&param, phase);
-                            let dst = owner_of(&new_term, log2_n);
-                            new_terms.push((dst, new_term, new_coeff));
+                    // Apply gate to thread_map entries. `HashMap`'s rayon
+                    // iterator has no indexed splitting (no stable iteration
+                    // order to index by), so unlike the slice-based outbox
+                    // loop below, `with_min_len` isn't available here — and
+                    // more importantly, `par_iter_mut()` on a `HashMap`
+                    // unconditionally materializes every entry into a `Vec`
+                    // first (see rayon's `into_par_vec!`), a real cost that
+                    // plain serial `iter_mut()` doesn't pay. So the size gate
+                    // has to happen a level up: skip the parallel path (and
+                    // its materialization cost) entirely for small
+                    // partitions rather than relying on internal splitting
+                    // to degrade gracefully.
+                    if local_map.len() >= GATE_PAR_MIN_LEN {
+                        new_terms.par_extend(
+                            local_map
+                                .par_iter_mut()
+                                .filter_map(|(term, coeff)| {
+                                    if term.commutes_with(generator) {
+                                        return None;
+                                    }
+                                    let (phase, new_term) = generator.matmul_internal(term);
+                                    let new_coeff = coeff.apply_rotation(&param, phase);
+                                    let dst = owner_of(&new_term, log2_n);
+                                    Some((dst, new_term, new_coeff))
+                                }),
+                        );
+                    } else {
+                        for (term, coeff) in local_map.iter_mut() {
+                            if !term.commutes_with(generator) {
+                                let (phase, new_term) = generator.matmul_internal(term);
+                                let new_coeff = coeff.apply_rotation(&param, phase);
+                                let dst = owner_of(&new_term, log2_n);
+                                new_terms.push((dst, new_term, new_coeff));
+                            }
                         }
                     }
 
                     // Apply gate to existing outbox items. Snapshot lengths first so
-                    // items appended in this same pass are not re-processed.
+                    // items appended in this same pass (the drain below, which only
+                    // happens after both loops complete) are not re-processed.
                     snap.clear();
                     snap.extend(outbox_row.iter().map(|v| v.len()));
-                    for dst in 0..n {
-                        for i in 0..snap[dst] {
-                            let (term, coeff) = &mut outbox_row[dst][i];
-                            if !term.commutes_with(generator) {
-                                let (phase, new_term) = generator.matmul_internal(term);
-                                let new_coeff = coeff.apply_rotation(&param, phase);
-                                let new_dst = owner_of(&new_term, log2_n);
-                                new_terms.push((new_dst, new_term, new_coeff));
-                            }
-                        }
-                    }
+                    new_terms.par_extend(
+                        outbox_row
+                            .par_iter_mut()
+                            .zip(snap.par_iter())
+                            .flat_map(|(bucket, &take)| {
+                                bucket[..take]
+                                    .par_iter_mut()
+                                    .with_min_len(GATE_PAR_MIN_LEN)
+                                    .filter_map(|(term, coeff)| {
+                                        if term.commutes_with(generator) {
+                                            return None;
+                                        }
+                                        let (phase, new_term) = generator.matmul_internal(term);
+                                        let new_coeff = coeff.apply_rotation(&param, phase);
+                                        let new_dst = owner_of(&new_term, log2_n);
+                                        Some((new_dst, new_term, new_coeff))
+                                    })
+                            }),
+                    );
 
                     let count = new_terms.len();
                     let mut size = 0usize;
