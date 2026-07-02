@@ -25,10 +25,14 @@ const DEFAULT_MIN_MONOMIALS: usize = 5_000_000;
 /// `truncation_range`'s term-count trigger alone can fail to fire until
 /// memory has already exploded. A flush's monomial-level (frequency)
 /// truncation isn't triggered until the live monomial count exceeds
-/// `max_monomials`; once triggered, it always removes monomials (highest
-/// frequency first, on top of whatever `max_frequency` alone already
-/// trimmed) until the count is back down to at most `min_monomials` — a
-/// target to actively reach, not just a floor to avoid overshooting.
+/// `max_monomials`; once triggered, it removes monomials (highest frequency
+/// first, on top of whatever `max_frequency` alone already trimmed) down to
+/// `max_monomials` — the target it aims to land on, not `min_monomials`.
+/// `min_monomials` is only a floor: since removal happens in whole
+/// highest-frequency buckets, a bucket bigger than what's needed to reach
+/// `max_monomials` gets a partial removal rather than being discarded
+/// entirely, so in practice truncation lands at or just above
+/// `max_monomials`, not somewhere down near `min_monomials`.
 /// Defaults to `(5_000_000, 10_000_000)`.
 #[pyclass(module = "propaq._rust_core")]
 #[derive(Clone)]
@@ -79,7 +83,9 @@ impl FrequencyTruncationPolicy {
     /// The (min_monomials, max_monomials) pair controlling when a flush's
     /// monomial-level truncation fires (once live count exceeds
     /// `max_monomials`) and how far it reduces the count once it does
-    /// (always down to at most `min_monomials`).
+    /// (down to `max_monomials`; `min_monomials` is only a floor against a
+    /// single oversized top-frequency bucket removal overshooting further
+    /// than necessary).
     #[getter]
     fn monomial_range(&self) -> (Option<usize>, Option<usize>) {
         self.monomial_range

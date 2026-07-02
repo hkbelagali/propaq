@@ -283,16 +283,21 @@ pub struct TruncationOutcome {
 /// 1. Dedup, plus (once term count reaches `truncation_range.0`) an
 ///    optional `max_frequency` trim and `weight_cutoff` term retain.
 /// 2. Independently, if a `monomial_range` is configured and the live
-///    monomial count still exceeds `monomial_range.1` after stage 1,
+///    monomial count still exceeds `monomial_range.1` (`max`) after stage 1,
 ///    remove monomials at the single highest frequency currently present
-///    — never anything lower. If removing that entire top-frequency
-///    bucket would drop the count below `monomial_range.0`, only remove
-///    enough of it to land exactly on that floor, leaving the rest (an
-///    arbitrary subset of the tied top frequency, since frequency alone —
-///    not scalar magnitude — is this crate's existing pruning signal; see
-///    `trim_high_frequency`). Not gated behind stage 1's term-count floor:
-///    monomial count can explode with comparatively few live terms, so it
-///    needs its own trigger.
+///    — never anything lower. The *target* is `max`, not `monomial_range.0`
+///    (`min`): the top-frequency bucket is removed in full only if doing so
+///    doesn't remove more than needed to reach `max`; otherwise only enough
+///    of it is removed (an arbitrary subset of the tied top frequency,
+///    since frequency alone — not scalar magnitude — is this crate's
+///    existing pruning signal; see `trim_high_frequency`) to land exactly
+///    at `max`. `min` is not a target here — see `monomial_removal_budget`
+///    — it's a floor that only matters on a misconfigured policy
+///    (`min > max`). If the whole top-frequency bucket is itself smaller
+///    than what's needed to reach `max`, it's still removed in full
+///    (falling short of `max`, left to a subsequent flush — see below). Not
+///    gated behind stage 1's term-count floor: monomial count can explode
+///    with comparatively few live terms, so it needs its own trigger.
 ///
 ///    This deliberately only ever erodes one frequency level per call
 ///    rather than searching for a cutoff that reaches the floor in one
@@ -307,6 +312,27 @@ pub struct TruncationOutcome {
 /// PyO3-circuit-driven `build()` entrypoint, e.g. `bin/cluster_bench` —
 /// replicates the exact same flush behavior instead of a hand-rolled copy
 /// that could drift out of sync with it.
+///
+/// Maximum number of monomials the monomial-range stage may remove from the
+/// current top-frequency bucket this call, given `monomials_after > max`.
+///
+/// Targets landing at `max` (`monomials_after - max`), not `min`: a
+/// top-frequency bucket bigger than that amount only ever gets a partial,
+/// budgeted removal (see the caller's `budget >= n_top` branch), never
+/// discarded in full, so truncation stops at `max` instead of continuing to
+/// erode down toward `min`. `min` only becomes the binding constraint (via
+/// `want.min(floor)` below) on a misconfigured policy with `min > max`;
+/// under a sane one (`max >= min`), `monomials_after - max` is always `<=
+/// monomials_after - min`, so this always reduces to `monomials_after -
+/// max` and `min` has no effect. Kept as an explicit floor regardless,
+/// rather than relying on callers never passing `min > max`.
+#[inline]
+fn monomial_removal_budget(monomials_after: usize, min: usize, max: usize) -> usize {
+    let want = monomials_after.saturating_sub(max);
+    let floor = monomials_after.saturating_sub(min);
+    want.min(floor)
+}
+
 pub fn apply_truncation_policy<M: AbstractTerm>(
     propagator: &mut AbstractPropagator<M, SymbolicCoeff>,
     policy: Option<&FrequencyTruncationPolicy>,
@@ -356,12 +382,14 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
                 SymbolicCoeff::combine_top_frequency,
             );
 
-            let budget = monomials_after.saturating_sub(min);
+            let budget = monomial_removal_budget(monomials_after, min, max);
 
             if n_top > 0 && budget > 0 {
                 if budget >= n_top {
-                    // The whole top-frequency bucket fits within budget:
-                    // every coefficient can just drop its own hits
+                    // The whole top-frequency bucket fits within budget
+                    // (it's not more than what's needed to reach `max`, or
+                    // `min` is the binding constraint instead): every
+                    // coefficient can just drop its own hits
                     // unconditionally, no cross-coefficient coordination
                     // needed since we already know globally it's safe.
                     monomials_after = propagator.map_and_retain_coeffs_inplace(
@@ -371,9 +399,10 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
                         |_, c: &SymbolicCoeff| !c.is_empty(),
                     );
                 } else {
-                    // Removing the whole bucket would undershoot the
-                    // floor: claim exactly `budget` removals across
-                    // coefficients via a shared atomic counter.
+                    // The whole bucket is more than needed to reach `max`
+                    // (or would breach `min`): claim exactly `budget`
+                    // removals across coefficients via a shared atomic
+                    // counter, landing exactly at the binding target.
                     let remaining = std::sync::atomic::AtomicUsize::new(budget);
                     monomials_after = propagator.map_and_retain_coeffs_inplace(
                         |_, c: &mut SymbolicCoeff| {
@@ -497,5 +526,44 @@ impl MajoranaSurrogatePropagator {
     #[pyo3(signature = (truncation=None))]
     fn set_truncation(&mut self, truncation: Option<FrequencyTruncationPolicy>) {
         self.inner.truncation = truncation;
+    }
+}
+
+#[cfg(test)]
+mod monomial_removal_budget_tests {
+    use super::monomial_removal_budget;
+
+    #[test]
+    fn targets_max_when_bucket_would_be_more_than_enough() {
+        // A bucket of any size > 10 should only ever be allowed to remove
+        // 10 (landing exactly at max=90), never eroded further toward
+        // min=50 just because a bigger bucket happens to be available.
+        assert_eq!(monomial_removal_budget(100, 50, 90), 10);
+    }
+
+    #[test]
+    fn sane_policy_ignores_min_entirely() {
+        // want = after - max is always <= floor = after - min when
+        // max >= min, so min should never change the result.
+        for (after, min, max) in [(100, 50, 90), (100, 0, 99), (1_000_000, 1, 999_999), (11, 10, 10)] {
+            assert_eq!(monomial_removal_budget(after, min, max), after - max);
+        }
+    }
+
+    #[test]
+    fn misconfigured_min_greater_than_max_clamps_to_the_min_floor() {
+        // min > max: the floor (after - min) is tighter than the max-based
+        // want (after - max), so it's the binding constraint.
+        assert_eq!(monomial_removal_budget(100, 90, 50), 10);
+    }
+
+    #[test]
+    fn exactly_one_over_max_wants_a_budget_of_one() {
+        assert_eq!(monomial_removal_budget(91, 50, 90), 1);
+    }
+
+    #[test]
+    fn zero_min_and_max_equal_to_after_minus_one() {
+        assert_eq!(monomial_removal_budget(1000, 0, 999), 1);
     }
 }

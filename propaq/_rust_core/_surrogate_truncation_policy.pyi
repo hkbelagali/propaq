@@ -27,10 +27,14 @@ class FrequencyTruncationPolicy:
     ``truncation_range`` alone can let memory explode well before a flush
     fires. A flush's monomial-level (frequency) truncation isn't triggered
     until the live monomial count exceeds ``max_monomials``; once triggered,
-    it always removes monomials (highest frequency first) until the count is
-    back down to at most ``min_monomials`` -- a target to actively reach, not
-    just a ceiling to avoid overshooting. Defaults to (5_000_000, 10_000_000);
-    set to (None, None) (after construction, via the attribute) to disable.
+    it removes monomials (highest frequency first) down to ``max_monomials``
+    -- the target it aims to land on, not ``min_monomials``. ``min_monomials``
+    is only a floor: removal happens in whole highest-frequency buckets, and
+    a bucket bigger than what's needed to reach ``max_monomials`` gets a
+    partial removal rather than being discarded entirely, so truncation lands
+    at or just above ``max_monomials`` in practice, not down near
+    ``min_monomials``. Defaults to (5_000_000, 10_000_000); set to
+    (None, None) (after construction, via the attribute) to disable.
     """
 
     max_frequency: int | None

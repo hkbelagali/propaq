@@ -28,8 +28,8 @@
 //!                                     FrequencyTruncationPolicy's docs)
 //!   --min-terms <usize|none>  none    defer lossy term-level truncation below this
 //!   --max-terms <usize>       2000000 term-count flush trigger
-//!   --min-monomials <usize>   5000000 monomial-range truncation target
-//!   --max-monomials <usize>   10000000 monomial-range flush trigger
+//!   --min-monomials <usize>   5000000 monomial-range floor (only binds against an oversized bucket)
+//!   --max-monomials <usize>   10000000 monomial-range flush trigger and truncation target
 //!   --report-every <usize>    50      print a gate-level JSON line every N gates
 //!   --rng-seed <u64>          0xC0FFEE
 //!
@@ -176,8 +176,10 @@ fn parse_args() -> Args {
                  \x20                                       monomial blowup in production once)\n\
                  \x20 --min-terms <int|none>      none      defer lossy term-level truncation below this\n\
                  \x20 --max-terms <int|none>      2000000   term-count flush trigger\n\
-                 \x20 --min-monomials <int|none>  5000000   monomial-range truncation target\n\
-                 \x20 --max-monomials <int|none>  10000000  monomial-range flush trigger\n\
+                 \x20 --min-monomials <int|none>  5000000   monomial-range floor (only binds against\n\
+                 \x20                                       an oversized top-frequency bucket)\n\
+                 \x20 --max-monomials <int|none>  10000000  monomial-range flush trigger and\n\
+                 \x20                                       truncation target\n\
                  \x20 --report-every <usize>      50        print a gate-level JSON line every N gates\n\
                  \x20 --rng-seed <u64>            0xC0FFEE (12648430)\n\n\
                  Output is JSON Lines on stdout (event: \"gate\" / \"flush\" / \"summary\"),\n\
