@@ -1,14 +1,15 @@
 use pyo3::prelude::*;
 
-// NOTE: mimalloc was tried here as the global allocator to reduce contention
-// from heavy concurrent small-allocation traffic, but was reverted: on the
-// real long-running surrogate workload it retains freed memory in per-thread
-// arenas for reuse rather than returning it to the OS promptly (a deliberate
-// throughput/latency trade-off for that allocator), which inflated RSS far
-// beyond live data size and lowered the effective memory ceiling badly
-// (observed failing around 250GB where the default allocator ran to ~1TB
-// fine). Do not re-add without confirming retention/purge behavior is tuned
-// for this alloc/free-heavy, memory-ceiling-constrained workload.
+use mimalloc::MiMalloc;
+
+// Re-added for a controlled test isolating whether mimalloc itself was
+// responsible for the earlier 250GB-vs-~1TB memory regression, versus the
+// Monomial inline-capacity bump (8->16 factors) that was reverted separately
+// in the same commit. If this combination (mimalloc + 8-factor capacity)
+// still regresses, mimalloc's retention behavior is confirmed as the cause;
+// if it now runs closer to ~1TB again, the capacity bump was the culprit.
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator, MajoranaTermStreamer};
