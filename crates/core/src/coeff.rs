@@ -39,6 +39,16 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// Returns `0.0` for symbolic representations where the norm is undefined.
     fn l1_norm(&self) -> f64;
 
+    /// Cheap size hint used to decide when to flush: how many indivisible
+    /// units this coefficient represents. `1` for scalar representations
+    /// (the default); `SymbolicCoeff` overrides this with its monomial count,
+    /// since that (not term count) is what actually drives its memory/CPU
+    /// cost.
+    #[inline]
+    fn size_hint(&self) -> usize {
+        1
+    }
+
     /// Extract the gate parameter from a Python rotation object.
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
 }

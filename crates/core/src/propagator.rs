@@ -251,7 +251,12 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         self.total_terms = evolved.terms.len();
     }
 
-    pub fn apply_gate_inplace(&mut self, generator: &M, param: C::GateParam) -> usize {
+    /// Apply a gate in place. Returns `(count, size)`: the number of new
+    /// outbox entries created, and the sum of their `CoeffRepr::size_hint()`
+    /// (equal to `count` for scalar coefficients; the total monomial count
+    /// added for `SymbolicCoeff`, which is what a surrogate flush trigger
+    /// needs to watch instead of raw term count).
+    pub fn apply_gate_inplace(&mut self, generator: &M, param: C::GateParam) -> (usize, usize) {
         let log2_n = self.log2_n;
         let n = self.n_partitions;
         let pool = Arc::clone(&self.pool);
@@ -296,12 +301,14 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                     }
 
                     let count = new_terms.len();
+                    let mut size = 0usize;
                     for (dst, term, coeff) in new_terms.drain(..) {
+                        size += coeff.size_hint();
                         outbox_row[dst].push((term, coeff));
                     }
-                    count
+                    (count, size)
                 })
-                .sum()
+                .reduce(|| (0usize, 0usize), |(ac, asz), (c, sz)| (ac + c, asz + sz))
         })
     }
 
@@ -788,7 +795,7 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
 
             let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
             for (idx, (generator, angle, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
-                let added = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
+                let (added, _) = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
                 pending += added;
 
                 self.current_qiskit_gate_idx = *qiskit_gate_idx;

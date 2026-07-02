@@ -83,7 +83,13 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
 
         self.inner.flush_outboxes_to_maps();
         let total_before = self.inner.total_terms();
-        let monomials_before = self.inner.sum_coeffs(|c| c.monomials.len());
+        // Only needed for the verbose log line below; skip the O(total_terms)
+        // pass entirely when logging is off.
+        let monomials_before = if self.verbose_log.is_some() {
+            self.inner.sum_coeffs(|c| c.monomials.len())
+        } else {
+            0
+        };
 
         let (max_freq, weight_cutoff, min_terms) = match &self.truncation {
             Some(tp) => (tp.max_frequency, tp.weight_cutoff, tp.truncation_range.0.unwrap_or(0)),
@@ -178,9 +184,11 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         self.inner.initialize_from(evolved);
 
         let max_terms: Option<usize> = self.truncation.as_ref().and_then(|p| p.truncation_range.1);
+        let max_monomials: Option<usize> = self.truncation.as_ref().and_then(|p| p.max_monomials);
 
         let mut gate_idx: usize = 0;
         let mut pending: usize = 0;
+        let mut pending_monomials: usize = 0;
 
         for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
             // Apply uniform noise before the layer (mirrors numerical propagator order).
@@ -190,8 +198,9 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
 
             let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
             for (idx, (generator, param_index, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
-                let added = py.allow_threads(|| self.inner.apply_gate_inplace(generator, *param_index));
+                let (added, added_monomials) = py.allow_threads(|| self.inner.apply_gate_inplace(generator, *param_index));
                 pending += added;
+                pending_monomials += added_monomials;
 
                 self.current_qiskit_gate_idx = *qiskit_gate_idx;
 
@@ -224,11 +233,22 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 }
 
                 let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni, _)| *ni);
-                if !next_is_intermediate
-                    && max_terms.map_or(false, |max| self.inner.total_terms() + pending >= max)
-                {
-                    py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, layer_idx, "threshold"));
+                let terms_trigger = max_terms.map_or(false, |max| self.inner.total_terms() + pending >= max);
+                // Term count is a poor proxy for a symbolic coefficient's actual
+                // size: a handful of terms can carry the overwhelming majority
+                // of monomials while term count barely moves. Watch monomial
+                // count directly so a flush still fires in that case.
+                let monomials_trigger = max_monomials
+                    .map_or(false, |max| self.total_monomials + pending_monomials >= max);
+                if !next_is_intermediate && (terms_trigger || monomials_trigger) {
+                    let trigger = if monomials_trigger && !terms_trigger {
+                        "monomial_threshold"
+                    } else {
+                        "threshold"
+                    };
+                    py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, layer_idx, trigger));
                     pending = 0;
+                    pending_monomials = 0;
                 }
 
                 if let Some(ref pf) = postfix {

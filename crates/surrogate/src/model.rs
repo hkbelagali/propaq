@@ -4,7 +4,6 @@ use std::fs::OpenOptions;
 use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
 use flate2::Compression;
-use num_complex::Complex64;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -46,7 +45,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let lut: Vec<(f64, f64)> = params.iter().map(|&t| (t.cos(), t.sin())).collect();
         self.terms
             .par_iter()
-            .map(|t| t.overlap * t.coeff.evaluate(&lut).re)
+            .map(|t| t.overlap * t.coeff.evaluate(&lut))
             .sum()
     }
 
@@ -58,7 +57,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
     ///
     /// Header (little-endian u64): n_params, n_terms, system_size, key_stride.
     /// Per term: key_bytes, overlap (f64le), n_monomials (u64le).
-    /// Per monomial: scalar_re (f64le), scalar_im (f64le), n_factors (u64le), factors (u32le each).
+    /// Per monomial: scalar (f64le), n_factors (u64le), factors (u32le each).
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let file = OpenOptions::new()
             .create(true).write(true).truncate(true)
@@ -80,8 +79,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             let n_mono = st.coeff.monomials.len() as u64;
             enc.write_all(&n_mono.to_le_bytes())?;
             for m in &st.coeff.monomials {
-                enc.write_all(&m.scalar.re.to_le_bytes())?;
-                enc.write_all(&m.scalar.im.to_le_bytes())?;
+                enc.write_all(&m.scalar.to_le_bytes())?;
                 enc.write_all(&(m.factors.len() as u64).to_le_bytes())?;
                 for f in &m.factors {
                     enc.write_all(&f.0.to_le_bytes())?;
@@ -135,9 +133,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             let n_mono = read_u64!() as usize;
             let mut monomials = Vec::with_capacity(n_mono);
             for _ in 0..n_mono {
-                let re = read_f64!();
-                let im = read_f64!();
-                let scalar = Complex64::new(re, im);
+                let scalar = read_f64!();
                 let n_factors = read_u64!() as usize;
                 let mut factors = smallvec::SmallVec::with_capacity(n_factors);
                 for _ in 0..n_factors {
