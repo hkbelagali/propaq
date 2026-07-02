@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 
 const DEFAULT_MAX_TERMS: usize = 10_000_000;
 const DEFAULT_MAX_MONOMIALS: usize = 10_000_000;
+const DEFAULT_MIN_MONOMIALS: usize = 5_000_000;
 
 /// Truncation policy for surrogate propagation.
 ///
@@ -17,12 +18,18 @@ const DEFAULT_MAX_MONOMIALS: usize = 10_000_000;
 /// filtering is skipped (only lossless deduplication runs) while the term
 /// count is below `min_terms`. Defaults to `(None, 10_000_000)`.
 ///
-/// `max_monomials` is a *second*, independent flush trigger: a flush also
-/// fires once the total live monomial count reaches this value. Term count is
-/// a poor proxy for a symbolic coefficient's actual size — a handful of terms
-/// can carry the overwhelming majority of monomials while term count barely
-/// moves, so `truncation_range`'s term-count trigger alone can fail to fire
-/// until memory has already exploded. Defaults to 10_000_000.
+/// `monomial_range` is a *second*, independent `(min_monomials, max_monomials)`
+/// pair, on its own axis: term count is a poor proxy for a symbolic
+/// coefficient's actual size — a handful of terms can carry the overwhelming
+/// majority of monomials while term count barely moves, so
+/// `truncation_range`'s term-count trigger alone can fail to fire until
+/// memory has already exploded. A flush's monomial-level (frequency)
+/// truncation isn't triggered until the live monomial count exceeds
+/// `max_monomials`; once triggered, it always removes monomials (highest
+/// frequency first, on top of whatever `max_frequency` alone already
+/// trimmed) until the count is back down to at most `min_monomials` — a
+/// target to actively reach, not just a floor to avoid overshooting.
+/// Defaults to `(5_000_000, 10_000_000)`.
 #[pyclass(module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct FrequencyTruncationPolicy {
@@ -32,30 +39,29 @@ pub struct FrequencyTruncationPolicy {
     /// Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).
     #[pyo3(get, set)]
     pub weight_cutoff: Option<u32>,
-    /// Second flush trigger: fires once total live monomial count reaches this (None = no limit).
-    #[pyo3(get, set)]
-    pub max_monomials: Option<usize>,
     pub truncation_range: (Option<usize>, Option<usize>),
+    pub monomial_range: (Option<usize>, Option<usize>),
 }
 
 #[pymethods]
 impl FrequencyTruncationPolicy {
-    /// `max_monomials` defaults to `Some(10_000_000)` when omitted (matching
-    /// `truncation_range`'s max-terms default). To disable it entirely, set
-    /// `policy.max_monomials = None` after construction.
+    /// `monomial_range` defaults to `(Some(5_000_000), Some(10_000_000))` when
+    /// omitted. To disable monomial-range-driven truncation entirely, set
+    /// `policy.monomial_range = (None, None)` after construction.
     #[new]
-    #[pyo3(signature = (max_frequency=None, weight_cutoff=None, truncation_range=None, max_monomials=None))]
+    #[pyo3(signature = (max_frequency=None, weight_cutoff=None, truncation_range=None, monomial_range=None))]
     pub fn new(
         max_frequency: Option<usize>,
         weight_cutoff: Option<u32>,
         truncation_range: Option<(Option<usize>, Option<usize>)>,
-        max_monomials: Option<usize>,
+        monomial_range: Option<(Option<usize>, Option<usize>)>,
     ) -> Self {
         FrequencyTruncationPolicy {
             max_frequency,
             weight_cutoff,
             truncation_range: truncation_range.unwrap_or((None, Some(DEFAULT_MAX_TERMS))),
-            max_monomials: max_monomials.or(Some(DEFAULT_MAX_MONOMIALS)),
+            monomial_range: monomial_range
+                .unwrap_or((Some(DEFAULT_MIN_MONOMIALS), Some(DEFAULT_MAX_MONOMIALS))),
         }
     }
 
@@ -70,14 +76,29 @@ impl FrequencyTruncationPolicy {
         self.truncation_range = value;
     }
 
+    /// The (min_monomials, max_monomials) pair controlling when a flush's
+    /// monomial-level truncation fires (once live count exceeds
+    /// `max_monomials`) and how far it reduces the count once it does
+    /// (always down to at most `min_monomials`).
+    #[getter]
+    fn monomial_range(&self) -> (Option<usize>, Option<usize>) {
+        self.monomial_range
+    }
+
+    #[setter]
+    fn set_monomial_range(&mut self, value: (Option<usize>, Option<usize>)) {
+        self.monomial_range = value;
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "FrequencyTruncationPolicy(max_frequency={}, weight_cutoff={}, truncation_range=({}, {}), max_monomials={})",
+            "FrequencyTruncationPolicy(max_frequency={}, weight_cutoff={}, truncation_range=({}, {}), monomial_range=({}, {}))",
             self.max_frequency.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.weight_cutoff.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.truncation_range.0.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.truncation_range.1.map_or_else(|| "None".to_string(), |v| v.to_string()),
-            self.max_monomials.map_or_else(|| "None".to_string(), |v| v.to_string()),
+            self.monomial_range.0.map_or_else(|| "None".to_string(), |v| v.to_string()),
+            self.monomial_range.1.map_or_else(|| "None".to_string(), |v| v.to_string()),
         )
     }
 }

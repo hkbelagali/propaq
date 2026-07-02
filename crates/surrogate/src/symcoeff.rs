@@ -220,6 +220,31 @@ impl SymbolicCoeff {
     }
 }
 
+/// Largest frequency cutoff `F` such that keeping only monomials with
+/// `factors.len() <= F` brings `hist`'s total count to at most `target`.
+/// `hist` maps a factor count to how many live monomials currently have
+/// exactly that many factors (see `FrequencyTruncationPolicy::monomial_range`
+/// and `SurrogatePropagator::flush_and_maybe_truncate`).
+///
+/// Returns `0` as a best-effort floor if even keeping only scalar
+/// monomials (frequency 0) would still exceed `target` — `trim_high_frequency`
+/// can't reduce the count any further than that on its own.
+pub(crate) fn cutoff_for_target(hist: &FxHashMap<usize, usize>, target: usize) -> usize {
+    let mut freqs: Vec<usize> = hist.keys().copied().collect();
+    freqs.sort_unstable();
+    let mut cumulative = 0usize;
+    let mut best = 0usize;
+    for f in freqs {
+        let next = cumulative + hist[&f];
+        if next > target {
+            break;
+        }
+        cumulative = next;
+        best = f;
+    }
+    best
+}
+
 impl CoeffRepr for SymbolicCoeff {
     /// Gate parameter is a parameter index (u32).
     type GateParam = u32;

@@ -641,6 +641,28 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         })
     }
 
+    /// Parallel per-coefficient fold across all partition maps, merged via
+    /// `combine`. More general than `sum_coeffs` for aggregations that
+    /// aren't a single running total — e.g. a histogram keyed by some
+    /// per-coefficient property, which the surrogate propagator's
+    /// monomial-range truncation uses to find the tightest frequency cutoff
+    /// that reaches a target monomial count.
+    pub fn fold_coeffs<T, F, R>(&self, identity: impl Fn() -> T + Sync, fold: F, combine: R) -> T
+    where
+        T: Send,
+        F: Fn(T, &C) -> T + Sync,
+        R: Fn(T, T) -> T + Sync,
+    {
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &self.thread_maps;
+        pool.install(|| {
+            thread_maps
+                .par_iter()
+                .map(|map| map.values().fold(identity(), &fold))
+                .reduce(&identity, &combine)
+        })
+    }
+
     /// Access verbose log writer for writing custom log entries from surrogate propagator.
     pub fn verbose_log_mut(&mut self) -> Option<&mut BufWriter<std::fs::File>> {
         self.verbose_log.as_mut()

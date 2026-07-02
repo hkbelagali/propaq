@@ -2,11 +2,12 @@ use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
 
 use pyo3::prelude::*;
+use rustc_hash::FxHashMap;
 
 use propaq_core::propagator::AbstractPropagator;
 use propaq_core::traits::AbstractTerm;
 
-use crate::symcoeff::SymbolicCoeff;
+use crate::symcoeff::{cutoff_for_target, SymbolicCoeff};
 use crate::truncation::FrequencyTruncationPolicy;
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
 
@@ -95,13 +96,15 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             Some(tp) => (tp.max_frequency, tp.weight_cutoff, tp.truncation_range.0.unwrap_or(0)),
             None => (None, None, 0),
         };
+        let (monomial_min, monomial_max) = self.truncation.as_ref()
+            .map_or((None, None), |tp| tp.monomial_range);
 
         // Deferred like the numerical propagator's TruncationPolicy: below
         // min_terms, skip the lossy max_frequency/weight_cutoff filtering and
         // only run the lossless dedup (merge identical monomials, drop zeros).
         let apply_lossy = total_before >= min_terms;
 
-        let monomials_after = self.inner.map_and_retain_coeffs_inplace(
+        let mut monomials_after = self.inner.map_and_retain_coeffs_inplace(
             |_, c| {
                 if apply_lossy {
                     if let Some(mf) = max_freq {
@@ -115,6 +118,41 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 weight_ok && !c.is_empty()
             },
         );
+
+        // Independent second stage, on its own axis from `apply_lossy`/
+        // min_terms above: monomial count can explode with comparatively
+        // few live terms (a handful of terms can carry the overwhelming
+        // majority of monomials), so it needs its own trigger rather than
+        // being gated behind a term-count floor that may never be reached.
+        // Not triggered until the live count still exceeds `monomial_max`
+        // after the pass above; once triggered, always removes monomials
+        // (highest frequency first, via a histogram-derived cutoff) until
+        // back down to at most `monomial_min` — a target to reach, not
+        // just a ceiling to avoid.
+        if let (Some(min), Some(max)) = (monomial_min, monomial_max) {
+            if monomials_after > max {
+                let hist = self.inner.fold_coeffs(
+                    FxHashMap::default,
+                    |mut hist: FxHashMap<usize, usize>, c: &SymbolicCoeff| {
+                        for m in &c.monomials {
+                            *hist.entry(m.factors.len()).or_insert(0) += 1;
+                        }
+                        hist
+                    },
+                    |mut a, b| {
+                        for (f, n) in b {
+                            *a.entry(f).or_insert(0) += n;
+                        }
+                        a
+                    },
+                );
+                let cutoff = cutoff_for_target(&hist, min);
+                monomials_after = self.inner.map_and_retain_coeffs_inplace(
+                    |_, c| c.trim_high_frequency(cutoff),
+                    |_, c| !c.is_empty(),
+                );
+            }
+        }
 
         let total_after = self.inner.total_terms();
         self.total_monomials = monomials_after;
@@ -184,7 +222,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         self.inner.initialize_from(evolved);
 
         let max_terms: Option<usize> = self.truncation.as_ref().and_then(|p| p.truncation_range.1);
-        let max_monomials: Option<usize> = self.truncation.as_ref().and_then(|p| p.max_monomials);
+        let max_monomials: Option<usize> = self.truncation.as_ref().and_then(|p| p.monomial_range.1);
 
         let mut gate_idx: usize = 0;
         let mut pending: usize = 0;

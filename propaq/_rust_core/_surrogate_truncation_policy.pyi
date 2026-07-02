@@ -20,26 +20,30 @@ class FrequencyTruncationPolicy:
     is below ``min_terms``. Either side may be None (no bound). Defaults to
     (None, 10^7).
 
-    ``max_monomials`` is a second, independent flush trigger: a flush also
-    fires once the total live monomial count reaches this value. Term count is
-    a poor proxy for a symbolic coefficient's actual size -- a handful of terms
-    can carry the overwhelming majority of monomials while term count barely
-    moves, so relying on ``truncation_range`` alone can let memory explode well
-    before a flush fires. Defaults to 10_000_000; set to None (after
-    construction, via the attribute) to disable.
+    ``monomial_range`` is a second, independent ``(min_monomials, max_monomials)``
+    pair, on its own axis: term count is a poor proxy for a symbolic
+    coefficient's actual size -- a handful of terms can carry the overwhelming
+    majority of monomials while term count barely moves, so relying on
+    ``truncation_range`` alone can let memory explode well before a flush
+    fires. A flush's monomial-level (frequency) truncation isn't triggered
+    until the live monomial count exceeds ``max_monomials``; once triggered,
+    it always removes monomials (highest frequency first) until the count is
+    back down to at most ``min_monomials`` -- a target to actively reach, not
+    just a ceiling to avoid overshooting. Defaults to (5_000_000, 10_000_000);
+    set to (None, None) (after construction, via the attribute) to disable.
     """
 
     max_frequency: int | None
     weight_cutoff: int | None
     truncation_range: tuple[int | None, int | None]
-    max_monomials: int | None
+    monomial_range: tuple[int | None, int | None]
 
     def __init__(
         self,
         max_frequency: int | None = None,
         weight_cutoff: int | None = None,
         truncation_range: tuple[int | None, int | None] | None = (None, 10_000_000),
-        max_monomials: int | None = 10_000_000,
+        monomial_range: tuple[int | None, int | None] | None = (5_000_000, 10_000_000),
     ) -> None: ...
 
     def __repr__(self) -> str: ...
