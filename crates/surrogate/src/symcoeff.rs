@@ -1,5 +1,6 @@
 use num_complex::Complex64;
 use pyo3::prelude::*;
+use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
@@ -112,11 +113,23 @@ impl SymbolicCoeff {
     }
 
     /// Clone self, multiply each scalar by `phase`, insert sin(param_idx) preserving order.
+    ///
+    /// Builds the new factor list directly at its final length instead of
+    /// `m.factors.clone()` followed by `insert_sorted_factor`: once a
+    /// monomial's factor count reaches the inline capacity (spills to the
+    /// heap — see `Factors`), clone-then-insert pays for two allocations
+    /// (the clone, then a grow on insert); this runs on every anticommuting
+    /// (generator, term) pair, so at scale that's a lot of avoidable double
+    /// allocation. Sizing up front costs at most one allocation, same as the
+    /// non-spilling case.
     pub fn branch_sin(&self, idx: u32, phase: f64) -> Self {
         let factor = TrigFactor::sin(idx);
         let monomials = self.monomials.iter().map(|m| {
-            let mut factors = m.factors.clone();
-            insert_sorted_factor(&mut factors, factor);
+            let pos = m.factors.binary_search(&factor).unwrap_or_else(|e| e);
+            let mut factors: Factors = SmallVec::with_capacity(m.factors.len() + 1);
+            factors.extend_from_slice(&m.factors[..pos]);
+            factors.push(factor);
+            factors.extend_from_slice(&m.factors[pos..]);
             Monomial { scalar: m.scalar * phase, factors }
         }).collect();
         SymbolicCoeff { monomials }
@@ -184,8 +197,20 @@ impl SymbolicCoeff {
     }
 
     /// Evaluate at the given (cos, sin) lookup table indexed by param_index.
+    ///
+    /// `SurrogateModel::evaluate` already parallelizes across terms, which
+    /// covers the common case; but a handful of terms can carry the
+    /// overwhelming majority of monomials (same skew `deduplicate` accounts
+    /// for), leaving other threads idle while one thread churns through a
+    /// huge single-term monomial list serially. `with_min_len` lets rayon's
+    /// splitter fall back to a single sequential chunk for ordinary
+    /// (small) terms — avoiding per-call parallel overhead there — while
+    /// still splitting (and letting idle threads steal work via the outer
+    /// per-term `par_iter`) once a term's monomial count is large enough
+    /// to be worth it.
     pub fn evaluate(&self, cos_sin: &[(f64, f64)]) -> f64 {
-        self.monomials.iter().map(|m| {
+        const EVALUATE_PAR_MIN_LEN: usize = 4096;
+        self.monomials.par_iter().with_min_len(EVALUATE_PAR_MIN_LEN).map(|m| {
             let prod: f64 = m.factors.iter().map(|&f| {
                 let (c, s) = cos_sin[f.param_index() as usize];
                 if f.is_sin() { s } else { c }

@@ -101,22 +101,22 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         // only run the lossless dedup (merge identical monomials, drop zeros).
         let apply_lossy = total_before >= min_terms;
 
-        self.inner.map_coeffs_inplace(|_, c| {
-            if apply_lossy {
-                if let Some(mf) = max_freq {
-                    c.trim_high_frequency(mf);
+        let monomials_after = self.inner.map_and_retain_coeffs_inplace(
+            |_, c| {
+                if apply_lossy {
+                    if let Some(mf) = max_freq {
+                        c.trim_high_frequency(mf);
+                    }
                 }
-            }
-            c.deduplicate();
-        });
-
-        self.inner.retain_maps_with(|t, c| {
-            let weight_ok = !apply_lossy || weight_cutoff.map_or(true, |w| t.weight() <= w);
-            weight_ok && !c.is_empty()
-        });
+                c.deduplicate();
+            },
+            |t, c| {
+                let weight_ok = !apply_lossy || weight_cutoff.map_or(true, |w| t.weight() <= w);
+                weight_ok && !c.is_empty()
+            },
+        );
 
         let total_after = self.inner.total_terms();
-        let monomials_after = self.inner.sum_coeffs(|c| c.monomials.len());
         self.total_monomials = monomials_after;
 
         if self.verbose_log.is_some() {
@@ -270,13 +270,15 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             let _ = log.flush();
         }
 
-        // Compile: collect terms with nonzero structural overlap.
-        let raw: Vec<SurrogateTerm<M>> = self.inner.collect_terms(|term, coeff| {
+        // Compile: collect terms with nonzero structural overlap. Drains
+        // `self.inner`'s partition maps rather than cloning out of them —
+        // `self.inner` is re-initialized from scratch on the next `build()`
+        // call, so nothing is lost by moving instead of copying here.
+        let raw: Vec<SurrogateTerm<M>> = self.inner.drain_collect_terms(|term, mut coeff| {
             let overlap = term.trace_with_fock_state(initial_state);
             if overlap.abs() > 1e-15 {
-                let mut c = coeff.clone();
-                c.deduplicate();
-                Some(SurrogateTerm { term: term.clone(), overlap, coeff: c })
+                coeff.deduplicate();
+                Some(SurrogateTerm { term, overlap, coeff })
             } else {
                 None
             }

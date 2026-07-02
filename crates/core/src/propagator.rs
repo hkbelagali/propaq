@@ -486,49 +486,79 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         self.current_qiskit_gate_idx = idx;
     }
 
-    /// Retain only terms satisfying `pred` across all partition maps (parallel).
-    pub fn retain_maps_with<F>(&mut self, pred: F)
-    where
-        F: Fn(&M, &C) -> bool + Sync,
-    {
-        let pool = Arc::clone(&self.pool);
-        let thread_maps = &mut self.thread_maps;
-        pool.install(|| {
-            thread_maps.par_iter_mut().for_each(|map| {
-                map.retain(|t, c| pred(t, c));
-            });
-        });
-        self.total_terms = self.thread_maps.iter().map(|m| m.len()).sum();
-    }
-
-    /// Apply a mutation function to every coefficient in all partition maps (parallel).
-    pub fn map_coeffs_inplace<F>(&mut self, f: F)
+    /// Mutate every coefficient across all partition maps with `f`, then drop
+    /// entries for which `keep` returns `false` — in one traversal per
+    /// partition instead of the two separate full passes a `map_coeffs_inplace`
+    /// followed by `retain_maps_with` used to require. Returns the total
+    /// `size_hint()` across all surviving coefficients, computed during the
+    /// same pass (so callers that need a post-mutation size total, like the
+    /// surrogate propagator's live monomial count, don't need a further
+    /// separate `sum_coeffs` traversal just to get it).
+    ///
+    /// The mutate/keep step is parallelized down to individual entries (via
+    /// a nested `par_iter_mut`, not just across partitions): a handful of
+    /// oversized coefficients (e.g. one term whose symbolic coefficient has
+    /// ballooned to far more monomials than the rest) would otherwise stall
+    /// whichever partition owns them while every other thread sits idle.
+    /// Discarded keys are collected during that same parallel pass and
+    /// removed afterward with an O(discarded) sweep, rather than a second
+    /// O(total_terms) `retain` pass.
+    pub fn map_and_retain_coeffs_inplace<F, K>(&mut self, f: F, keep: K) -> usize
     where
         F: Fn(&M, &mut C) + Sync,
+        K: Fn(&M, &C) -> bool + Sync,
+    {
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &mut self.thread_maps;
+        let total_size = pool.install(|| {
+            thread_maps
+                .par_iter_mut()
+                .map(|map| {
+                    let results: Vec<(Option<M>, usize)> = map
+                        .par_iter_mut()
+                        .map(|(t, c)| {
+                            f(t, c);
+                            if keep(t, c) {
+                                (None, c.size_hint())
+                            } else {
+                                (Some(t.clone()), 0)
+                            }
+                        })
+                        .collect();
+                    let mut size = 0usize;
+                    for (maybe_key, sz) in results {
+                        size += sz;
+                        if let Some(k) = maybe_key {
+                            map.remove(&k);
+                        }
+                    }
+                    size
+                })
+                .sum()
+        });
+        self.total_terms = self.thread_maps.iter().map(|m| m.len()).sum();
+        total_size
+    }
+
+    /// Like a parallel flat-map over all partition maps returning `Some(R)`
+    /// items, but drains (moves out of) each map instead of borrowing it.
+    /// Only meaningful once the caller is done with `self` for this round —
+    /// every partition map ends up empty, exactly as if `retain(|_, _| false)`
+    /// had been called on all of them (the surrogate propagator's build step
+    /// is the only caller, and it never reuses `self`'s maps after compiling
+    /// the final model). Avoids cloning every surviving term and its
+    /// coefficient just to hand back an owned copy.
+    pub fn drain_collect_terms<R, F>(&mut self, f: F) -> Vec<R>
+    where
+        R: Send,
+        F: Fn(M, C) -> Option<R> + Sync,
     {
         let pool = Arc::clone(&self.pool);
         let thread_maps = &mut self.thread_maps;
         pool.install(|| {
-            thread_maps.par_iter_mut().for_each(|map| {
-                for (t, c) in map.iter_mut() {
-                    f(t, c);
-                }
-            });
-        });
-    }
-
-    /// Parallel flat-map over all partition maps; returns `Some(R)` items.
-    pub fn collect_terms<R, F>(&self, f: F) -> Vec<R>
-    where
-        R: Send,
-        F: Fn(&M, &C) -> Option<R> + Sync,
-    {
-        let pool = Arc::clone(&self.pool);
-        let thread_maps = &self.thread_maps;
-        pool.install(|| {
             thread_maps
-                .par_iter()
-                .flat_map_iter(|map| map.iter().filter_map(|(t, c)| f(t, c)))
+                .par_iter_mut()
+                .flat_map_iter(|map| map.drain().filter_map(|(t, c)| f(t, c)))
                 .collect()
         })
     }
