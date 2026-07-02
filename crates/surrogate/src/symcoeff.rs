@@ -300,6 +300,74 @@ impl CoeffRepr for SymbolicCoeff {
 }
 
 #[cfg(test)]
+mod cutoff_tests {
+    use super::*;
+
+    fn hist(pairs: &[(usize, usize)]) -> FxHashMap<usize, usize> {
+        pairs.iter().copied().collect()
+    }
+
+    #[test]
+    fn no_trim_needed_returns_highest_frequency() {
+        let h = hist(&[(0, 10), (1, 5), (2, 3)]);
+        // Total is 18; asking for a target >= total should keep everything,
+        // i.e. land on the highest observed frequency.
+        assert_eq!(cutoff_for_target(&h, 100), 2);
+    }
+
+    #[test]
+    fn picks_largest_cutoff_within_target() {
+        let h = hist(&[(0, 10), (1, 5), (2, 3), (3, 1)]);
+        // Cumulative: f=0 -> 10, f=1 -> 15, f=2 -> 18, f=3 -> 19.
+        assert_eq!(cutoff_for_target(&h, 19), 3);
+        assert_eq!(cutoff_for_target(&h, 18), 2);
+        assert_eq!(cutoff_for_target(&h, 17), 1);
+        assert_eq!(cutoff_for_target(&h, 15), 1);
+        assert_eq!(cutoff_for_target(&h, 14), 0);
+    }
+
+    #[test]
+    fn best_effort_floor_when_even_zero_frequency_overshoots() {
+        let h = hist(&[(0, 50), (1, 5)]);
+        assert_eq!(cutoff_for_target(&h, 10), 0);
+    }
+
+    #[test]
+    fn empty_histogram_returns_zero() {
+        let h: FxHashMap<usize, usize> = FxHashMap::default();
+        assert_eq!(cutoff_for_target(&h, 100), 0);
+    }
+
+    #[test]
+    fn applying_cutoff_actually_reaches_target() {
+        // End-to-end: build a SymbolicCoeff whose monomials match a
+        // histogram, compute a cutoff, and check trim_high_frequency using
+        // that cutoff actually brings the count to at most the target.
+        let mut monomials = Vec::new();
+        for freq in 0..6usize {
+            for i in 0..(freq + 1) {
+                let mut fs = Factors::new();
+                for p in 0..freq {
+                    fs.push(TrigFactor::cos((i * 10 + p) as u32));
+                }
+                monomials.push(Monomial { scalar: 1.0, factors: fs });
+            }
+        }
+        let mut coeff = SymbolicCoeff { monomials };
+        let total = coeff.monomials.len();
+        let target = total / 2;
+
+        let mut h: FxHashMap<usize, usize> = FxHashMap::default();
+        for m in &coeff.monomials {
+            *h.entry(m.factors.len()).or_insert(0) += 1;
+        }
+        let cutoff = cutoff_for_target(&h, target);
+        coeff.trim_high_frequency(cutoff);
+        assert!(coeff.monomials.len() <= target);
+    }
+}
+
+#[cfg(test)]
 mod dedup_tests {
     use super::*;
 
