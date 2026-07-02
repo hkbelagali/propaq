@@ -33,7 +33,7 @@ fn insert_sorted_factor(factors: &mut Factors, factor: TrigFactor) {
 /// pathological terms (which dominate wall-clock time, and are more likely to
 /// carry real duplication after surviving many merges) take the hash path,
 /// while the common case keeps the well-tested sort with no regression risk.
-const HASH_MERGE_THRESHOLD: usize = 100_000;
+const HASH_MERGE_THRESHOLD: usize = 10_000_000;
 
 /// Packed trig factor: bit 0 = is_sin, bits 1–31 = param_index.
 /// Supports up to 2^31 ≈ 2 billion distinct parameters.

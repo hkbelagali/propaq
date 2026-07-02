@@ -1,16 +1,5 @@
 use pyo3::prelude::*;
 
-use mimalloc::MiMalloc;
-
-// Re-added for a controlled test isolating whether mimalloc itself was
-// responsible for the earlier 250GB-vs-~1TB memory regression, versus the
-// Monomial inline-capacity bump (8->16 factors) that was reverted separately
-// in the same commit. If this combination (mimalloc + 8-factor capacity)
-// still regresses, mimalloc's retention behavior is confirmed as the cause;
-// if it now runs closer to ~1TB again, the capacity bump was the culprit.
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
-
 use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator, MajoranaTermStreamer};
 use propaq_pauli::{PauliString, PauliTermSum, PauliPropagator, PauliTermStreamer};
