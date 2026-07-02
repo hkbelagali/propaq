@@ -1,3 +1,4 @@
+mod factors;
 pub mod symcoeff;
 pub mod truncation;
 pub mod model;

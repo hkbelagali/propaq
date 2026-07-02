@@ -11,6 +11,7 @@ use propaq_core::traits::AbstractTerm;
 use propaq_pauli::string::PauliString;
 use propaq_majorana::monomial::MajoranaMonomial;
 
+use crate::factors::Factors;
 use crate::symcoeff::{SymbolicCoeff, Monomial, TrigFactor};
 
 /// A single compiled term: a Pauli/Majorana string with its structural overlap and
@@ -81,7 +82,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             for m in &st.coeff.monomials {
                 enc.write_all(&m.scalar.to_le_bytes())?;
                 enc.write_all(&(m.factors.len() as u64).to_le_bytes())?;
-                for f in &m.factors {
+                for f in m.factors.iter() {
                     enc.write_all(&f.0.to_le_bytes())?;
                 }
             }
@@ -135,7 +136,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             for _ in 0..n_mono {
                 let scalar = read_f64!();
                 let n_factors = read_u64!() as usize;
-                let mut factors = smallvec::SmallVec::with_capacity(n_factors);
+                let mut factors = Factors::with_capacity(n_factors);
                 for _ in 0..n_factors {
                     factors.push(TrigFactor(read_u32!()));
                 }

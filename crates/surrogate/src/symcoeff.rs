@@ -2,16 +2,10 @@ use num_complex::Complex64;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
 
 use propaq_core::coeff::CoeffRepr;
 
-/// Inline capacity for a monomial's factor list. Chosen comfortably above
-/// typical `max_frequency` settings (e.g. 11) so factor lists stay inline —
-/// spilling to the heap here means a separate allocation per monomial, which
-/// at scale (hundreds of millions of monomials) turns into heavy concurrent
-/// small-allocation traffic across worker threads.
-type Factors = SmallVec<[TrigFactor; 16]>;
+pub(crate) use crate::factors::Factors;
 
 /// Insert `factor` into `factors`, keeping it sorted. `factors` is
 /// canonicalized this way at every construction site (never appended to
@@ -38,7 +32,7 @@ const HASH_MERGE_THRESHOLD: usize = 100_000;
 
 /// Packed trig factor: bit 0 = is_sin, bits 1–31 = param_index.
 /// Supports up to 2^31 ≈ 2 billion distinct parameters.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct TrigFactor(pub u32);
 
 impl TrigFactor {
@@ -84,7 +78,7 @@ pub struct Monomial {
 
 impl Monomial {
     fn new(scalar: f64) -> Self {
-        Monomial { scalar, factors: SmallVec::new() }
+        Monomial { scalar, factors: Factors::new() }
     }
 }
 
@@ -125,11 +119,12 @@ impl SymbolicCoeff {
     pub fn branch_sin(&self, idx: u32, phase: f64) -> Self {
         let factor = TrigFactor::sin(idx);
         let monomials = self.monomials.iter().map(|m| {
-            let pos = m.factors.binary_search(&factor).unwrap_or_else(|e| e);
-            let mut factors: Factors = SmallVec::with_capacity(m.factors.len() + 1);
-            factors.extend_from_slice(&m.factors[..pos]);
+            let full: &[TrigFactor] = &m.factors;
+            let pos = full.binary_search(&factor).unwrap_or_else(|e| e);
+            let mut factors = Factors::with_capacity(m.factors.len() + 1);
+            factors.extend_from_slice(&full[..pos]);
             factors.push(factor);
-            factors.extend_from_slice(&m.factors[pos..]);
+            factors.extend_from_slice(&full[pos..]);
             Monomial { scalar: m.scalar * phase, factors }
         }).collect();
         SymbolicCoeff { monomials }
@@ -289,7 +284,7 @@ mod dedup_tests {
     /// order-independence invariant instead of relying on `deduplicate` to
     /// paper over an out-of-invariant input.
     fn mono(scalar: f64, factors: &[(u32, bool)]) -> Monomial {
-        let mut fs: Factors = SmallVec::new();
+        let mut fs = Factors::new();
         for &(idx, is_sin) in factors {
             let factor = if is_sin { TrigFactor::sin(idx) } else { TrigFactor::cos(idx) };
             insert_sorted_factor(&mut fs, factor);
