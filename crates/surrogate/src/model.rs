@@ -11,8 +11,7 @@ use propaq_core::traits::AbstractTerm;
 use propaq_pauli::string::PauliString;
 use propaq_majorana::monomial::MajoranaMonomial;
 
-use crate::factors::Factors;
-use crate::symcoeff::{SymbolicCoeff, Monomial, TrigFactor};
+use crate::symcoeff::{SymbolicCoeff, TrigFactor};
 
 /// A single compiled term: a Pauli/Majorana string with its structural overlap and
 /// symbolic coefficient that maps parameter angles to a numerical contribution.
@@ -43,11 +42,26 @@ impl<M: AbstractTerm> SurrogateModel<M> {
     /// `params[i]` is the angle (in radians) for parameter index `i`.
     /// Length must be at least `self.n_params`.
     pub fn evaluate(&self, params: &[f64]) -> f64 {
-        let lut: Vec<(f64, f64)> = params.iter().map(|&t| (t.cos(), t.sin())).collect();
+        let lut = Self::make_lut(params);
         self.terms
             .par_iter()
             .map(|t| t.overlap * t.coeff.evaluate(&lut))
             .sum()
+    }
+
+    /// Evaluate for many parameter assignments at once. Parallelizes across
+    /// assignments (each of which still parallelizes across terms/monomials
+    /// internally — rayon's work stealing handles the nesting), which is the
+    /// natural shape for the build-once/evaluate-many workloads this model
+    /// exists for.
+    pub fn evaluate_batch(&self, param_sets: &[Vec<f64>]) -> Vec<f64> {
+        param_sets.par_iter().map(|p| self.evaluate(p)).collect()
+    }
+
+    /// Flat evaluation LUT indexed directly by the packed `TrigFactor` value:
+    /// `cos(theta_i)` at slot `2i`, `sin(theta_i)` at slot `2i + 1`.
+    fn make_lut(params: &[f64]) -> Vec<f64> {
+        params.iter().flat_map(|&t| [t.cos(), t.sin()]).collect()
     }
 
     pub fn n_terms(&self) -> usize {
@@ -77,12 +91,12 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         for st in &self.terms {
             enc.write_all(&st.term.to_bytes_vec())?;
             enc.write_all(&st.overlap.to_le_bytes())?;
-            let n_mono = st.coeff.monomials.len() as u64;
+            let n_mono = st.coeff.monomial_count() as u64;
             enc.write_all(&n_mono.to_le_bytes())?;
-            for m in &st.coeff.monomials {
-                enc.write_all(&m.scalar.to_le_bytes())?;
-                enc.write_all(&(m.factors.len() as u64).to_le_bytes())?;
-                for f in m.factors.iter() {
+            for (scalar, factors) in st.coeff.iter_monomials() {
+                enc.write_all(&scalar.to_le_bytes())?;
+                enc.write_all(&(factors.len() as u64).to_le_bytes())?;
+                for f in factors {
                     enc.write_all(&f.0.to_le_bytes())?;
                 }
             }
@@ -126,23 +140,27 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 
         let mut key_buf = vec![0u8; key_stride];
         let mut terms = Vec::with_capacity(n_terms);
+        // Reused across monomials: one factor-run staging buffer for the
+        // whole load instead of an allocation per monomial.
+        let mut run: Vec<TrigFactor> = Vec::new();
 
         for _ in 0..n_terms {
             dec.read_exact(&mut key_buf)?;
             let term = M::from_bytes_vec(&key_buf, system_size);
             let overlap = read_f64!();
             let n_mono = read_u64!() as usize;
-            let mut monomials = Vec::with_capacity(n_mono);
+            let mut coeff = SymbolicCoeff::default();
+            coeff.reserve(n_mono, 0);
             for _ in 0..n_mono {
                 let scalar = read_f64!();
                 let n_factors = read_u64!() as usize;
-                let mut factors = Factors::with_capacity(n_factors);
+                run.clear();
                 for _ in 0..n_factors {
-                    factors.push(TrigFactor(read_u32!()));
+                    run.push(TrigFactor(read_u32!()));
                 }
-                monomials.push(Monomial { scalar, factors });
+                coeff.push_monomial(scalar, &run);
             }
-            terms.push(SurrogateTerm { term, overlap, coeff: SymbolicCoeff { monomials } });
+            terms.push(SurrogateTerm { term, overlap, coeff });
         }
 
         Ok(SurrogateModel { terms, n_params })
@@ -162,14 +180,28 @@ pub struct PauliSurrogateModel {
 #[pymethods]
 impl PauliSurrogateModel {
     /// Evaluate the expectation value. `params[i]` is the angle (radians) for parameter `i`.
-    fn evaluate(&self, params: Vec<f64>) -> PyResult<f64> {
+    fn evaluate(&self, py: Python<'_>, params: Vec<f64>) -> PyResult<f64> {
         if params.len() < self.inner.n_params {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "params has {} elements but model requires {}",
                 params.len(), self.inner.n_params
             )));
         }
-        Ok(self.inner.evaluate(&params))
+        Ok(py.allow_threads(|| self.inner.evaluate(&params)))
+    }
+
+    /// Evaluate many parameter assignments at once (parallelized across
+    /// assignments); returns one expectation value per assignment.
+    fn evaluate_batch(&self, py: Python<'_>, param_sets: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
+        for (i, params) in param_sets.iter().enumerate() {
+            if params.len() < self.inner.n_params {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "param_sets[{i}] has {} elements but model requires {}",
+                    params.len(), self.inner.n_params
+                )));
+            }
+        }
+        Ok(py.allow_threads(|| self.inner.evaluate_batch(&param_sets)))
     }
 
     /// Save to a gzip-compressed binary file.
@@ -215,14 +247,28 @@ pub struct MajoranaSurrogateModel {
 #[pymethods]
 impl MajoranaSurrogateModel {
     /// Evaluate the expectation value. `params[i]` is the angle (radians) for parameter `i`.
-    fn evaluate(&self, params: Vec<f64>) -> PyResult<f64> {
+    fn evaluate(&self, py: Python<'_>, params: Vec<f64>) -> PyResult<f64> {
         if params.len() < self.inner.n_params {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "params has {} elements but model requires {}",
                 params.len(), self.inner.n_params
             )));
         }
-        Ok(self.inner.evaluate(&params))
+        Ok(py.allow_threads(|| self.inner.evaluate(&params)))
+    }
+
+    /// Evaluate many parameter assignments at once (parallelized across
+    /// assignments); returns one expectation value per assignment.
+    fn evaluate_batch(&self, py: Python<'_>, param_sets: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
+        for (i, params) in param_sets.iter().enumerate() {
+            if params.len() < self.inner.n_params {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "param_sets[{i}] has {} elements but model requires {}",
+                    params.len(), self.inner.n_params
+                )));
+            }
+        }
+        Ok(py.allow_threads(|| self.inner.evaluate_batch(&param_sets)))
     }
 
     fn save(&self, path: &str) -> PyResult<()> {

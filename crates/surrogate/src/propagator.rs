@@ -2,12 +2,11 @@ use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
 
 use pyo3::prelude::*;
-use rustc_hash::FxHashMap;
 
 use propaq_core::propagator::AbstractPropagator;
 use propaq_core::traits::AbstractTerm;
 
-use crate::symcoeff::{cutoff_for_target, SymbolicCoeff};
+use crate::symcoeff::SymbolicCoeff;
 use crate::truncation::FrequencyTruncationPolicy;
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
 
@@ -86,7 +85,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         // Only needed for the verbose log line below; skip the O(total_terms)
         // pass entirely when logging is off.
         let monomials_before = if self.verbose_log.is_some() {
-            self.inner.sum_coeffs(|c| c.monomials.len())
+            self.inner.sum_coeffs(|c| c.monomial_count())
         } else {
             0
         };
@@ -284,12 +283,23 @@ pub struct TruncationOutcome {
 /// 1. Dedup, plus (once term count reaches `truncation_range.0`) an
 ///    optional `max_frequency` trim and `weight_cutoff` term retain.
 /// 2. Independently, if a `monomial_range` is configured and the live
-///    monomial count still exceeds `monomial_range.1` after stage 1, find
-///    the tightest frequency cutoff (via a histogram of live monomials)
-///    that brings the count down to at most `monomial_range.0`, and apply
-///    it. Not gated behind stage 1's term-count floor: monomial count can
-///    explode with comparatively few live terms, so it needs its own
-///    trigger.
+///    monomial count still exceeds `monomial_range.1` after stage 1,
+///    remove monomials at the single highest frequency currently present
+///    — never anything lower. If removing that entire top-frequency
+///    bucket would drop the count below `monomial_range.0`, only remove
+///    enough of it to land exactly on that floor, leaving the rest (an
+///    arbitrary subset of the tied top frequency, since frequency alone —
+///    not scalar magnitude — is this crate's existing pruning signal; see
+///    `trim_high_frequency`). Not gated behind stage 1's term-count floor:
+///    monomial count can explode with comparatively few live terms, so it
+///    needs its own trigger.
+///
+///    This deliberately only ever erodes one frequency level per call
+///    rather than searching for a cutoff that reaches the floor in one
+///    shot: a fast-growing run may need several consecutive flushes to
+///    fully erode a deep distribution, each cheap and predictable, rather
+///    than one large adaptive cut that might remove a lot of only
+///    moderately-high-frequency data along with the truly extreme end.
 ///
 /// Extracted as a standalone function (rather than inlined in
 /// `SurrogatePropagator::flush_and_maybe_truncate`) so tooling that drives
@@ -331,26 +341,48 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
 
     if let (Some(min), Some(max)) = (monomial_min, monomial_max) {
         if monomials_after > max {
-            let hist = propagator.fold_coeffs(
-                FxHashMap::default,
-                |mut hist: FxHashMap<usize, usize>, c: &SymbolicCoeff| {
-                    for m in &c.monomials {
-                        *hist.entry(m.factors.len()).or_insert(0) += 1;
-                    }
-                    hist
+            // Find the single highest frequency present and how many
+            // monomials sit at exactly that frequency, in one parallel
+            // pass — cheaper than a full histogram (plain int comparisons,
+            // no hashmap) since only the top bucket is ever needed here.
+            // The per-coefficient scan is itself parallel (see
+            // `top_frequency_and_count`), so one giant coefficient doesn't
+            // serialize its partition's whole pass.
+            let (target_freq, n_top): (usize, usize) = propagator.fold_coeffs(
+                || (0usize, 0usize),
+                |acc, c: &SymbolicCoeff| {
+                    SymbolicCoeff::combine_top_frequency(acc, c.top_frequency_and_count())
                 },
-                |mut a, b| {
-                    for (f, n) in b {
-                        *a.entry(f).or_insert(0) += n;
-                    }
-                    a
-                },
+                SymbolicCoeff::combine_top_frequency,
             );
-            let cutoff = cutoff_for_target(&hist, min);
-            monomials_after = propagator.map_and_retain_coeffs_inplace(
-                |_, c: &mut SymbolicCoeff| c.trim_high_frequency(cutoff),
-                |_, c: &SymbolicCoeff| !c.is_empty(),
-            );
+
+            let budget = monomials_after.saturating_sub(min);
+
+            if n_top > 0 && budget > 0 {
+                if budget >= n_top {
+                    // The whole top-frequency bucket fits within budget:
+                    // every coefficient can just drop its own hits
+                    // unconditionally, no cross-coefficient coordination
+                    // needed since we already know globally it's safe.
+                    monomials_after = propagator.map_and_retain_coeffs_inplace(
+                        |_, c: &mut SymbolicCoeff| {
+                            c.remove_at_frequency(target_freq);
+                        },
+                        |_, c: &SymbolicCoeff| !c.is_empty(),
+                    );
+                } else {
+                    // Removing the whole bucket would undershoot the
+                    // floor: claim exactly `budget` removals across
+                    // coefficients via a shared atomic counter.
+                    let remaining = std::sync::atomic::AtomicUsize::new(budget);
+                    monomials_after = propagator.map_and_retain_coeffs_inplace(
+                        |_, c: &mut SymbolicCoeff| {
+                            c.remove_at_frequency_budgeted(target_freq, &remaining);
+                        },
+                        |_, c: &SymbolicCoeff| !c.is_empty(),
+                    );
+                }
+            }
         }
     }
 

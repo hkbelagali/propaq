@@ -284,14 +284,17 @@ fn main() {
             if terms_trigger || monomials_trigger {
                 let t0 = Instant::now();
                 propagator.flush_outboxes_to_maps();
-                let monomials_before = propagator.sum_coeffs(|c| c.monomials.len());
+                let transpose_ms = t0.elapsed().as_secs_f64() * 1000.0;
+                let monomials_before = propagator.sum_coeffs(|c| c.monomial_count());
                 let terms_before = propagator.total_terms();
 
+                let t1 = Instant::now();
                 let outcome = apply_truncation_policy(&mut propagator, Some(&policy));
+                let truncate_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
                 let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
                 println!(
-                    r#"{{"event":"flush","gate_idx":{gate_idx},"layer_idx":{layer},"trigger":"{}","terms_before":{terms_before},"terms_after":{},"terms_discarded":{},"monomials_before":{monomials_before},"monomials_after":{},"monomials_discarded":{},"elapsed_ms":{elapsed_ms:.3e}}}"#,
+                    r#"{{"event":"flush","gate_idx":{gate_idx},"layer_idx":{layer},"trigger":"{}","terms_before":{terms_before},"terms_after":{},"terms_discarded":{},"monomials_before":{monomials_before},"monomials_after":{},"monomials_discarded":{},"elapsed_ms":{elapsed_ms:.3e},"transpose_ms":{transpose_ms:.3e},"truncate_ms":{truncate_ms:.3e}}}"#,
                     if monomials_trigger && !terms_trigger { "monomial_threshold" } else { "term_threshold" },
                     outcome.total_after,
                     terms_before.saturating_sub(outcome.total_after),

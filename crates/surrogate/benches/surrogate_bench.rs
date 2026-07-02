@@ -4,12 +4,12 @@
 //! parallel evaluation, and the fused flush/truncation pass. Run with
 //! `cargo bench -p propaq-surrogate`.
 //!
-//! `Factors`/`Monomial`'s fields are crate-private by design (see
-//! `crates/surrogate/src/factors.rs`), so all coefficient data here is built
-//! through the public `SymbolicCoeff`/`CoeffRepr` API rather than constructed
-//! directly — `apply_rotation` is what real propagation uses to grow
-//! coefficients, so building benchmark inputs the same way keeps them
-//! representative instead of synthetic.
+//! `SymbolicCoeff`'s monomial storage is crate-private by design, so all
+//! coefficient data here is built through the public
+//! `SymbolicCoeff`/`CoeffRepr` API rather than constructed directly —
+//! `apply_rotation` is what real propagation uses to grow coefficients, so
+//! building benchmark inputs the same way keeps them representative instead
+//! of synthetic.
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use num_complex::Complex64;
@@ -234,16 +234,44 @@ fn bench_evaluate_by_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("SymbolicCoeff/evaluate");
     for steps in [8u32, 12, 16, 20] {
         let coeff = grown_coeff(steps);
-        let cos_sin: Vec<(f64, f64)> = (0..steps)
-            .map(|i| {
+        let lut: Vec<f64> = (0..steps)
+            .flat_map(|i| {
                 let t = 0.1 * (i as f64 + 1.0);
-                (t.cos(), t.sin())
+                [t.cos(), t.sin()]
             })
             .collect();
         group.bench_with_input(BenchmarkId::from_parameter(1u64 << steps), &steps, |bench, _| {
-            bench.iter(|| black_box(coeff.evaluate(black_box(&cos_sin))))
+            bench.iter(|| black_box(coeff.evaluate(black_box(&lut))))
         });
     }
+    group.finish();
+}
+
+/// `SurrogateModel::evaluate_batch` parallelizes across parameter sets on top
+/// of the per-set term/monomial parallelism `evaluate` already has; this
+/// tracks that the batch path amortizes rather than regresses.
+fn bench_evaluate_batch(c: &mut Criterion) {
+    use propaq_surrogate::model::{SurrogateModel, SurrogateTerm};
+
+    let mut group = c.benchmark_group("SurrogateModel/evaluate_batch");
+    let n_params = 20usize;
+    let terms: Vec<SurrogateTerm<PauliString>> = (0..64)
+        .map(|i| SurrogateTerm {
+            term: make_pauli(0, 1 << (i % N_QUBITS as u64), N_QUBITS),
+            overlap: 1.0,
+            coeff: grown_coeff(14),
+        })
+        .collect();
+    let model = SurrogateModel::new(terms, n_params);
+
+    let mut rng = Xorshift64(0xFEED);
+    let param_sets: Vec<Vec<f64>> = (0..32)
+        .map(|_| (0..n_params).map(|_| (rng.next() % 1000) as f64 / 159.0).collect())
+        .collect();
+
+    group.bench_function("32_sets", |bench| {
+        bench.iter(|| black_box(model.evaluate_batch(black_box(&param_sets))))
+    });
     group.finish();
 }
 
@@ -294,6 +322,7 @@ criterion_group!(
     bench_apply_rotation_by_size,
     bench_deduplicate,
     bench_evaluate_by_size,
+    bench_evaluate_batch,
     bench_flush_and_retain,
 );
 criterion_main!(benches);

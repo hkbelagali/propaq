@@ -39,6 +39,13 @@ class PauliSurrogateModel:
         """
         ...
 
+    def evaluate_batch(self, param_sets: list[list[float]]) -> list[float]:
+        """
+        Evaluate many parameter assignments at once (parallelized across
+        assignments). Each entry follows the same convention as `evaluate`.
+        """
+        ...
+
     def save(self, path: str) -> None:
         """Save to a gzip-compressed binary file."""
         ...

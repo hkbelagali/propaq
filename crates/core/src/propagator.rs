@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::fs::OpenOptions;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
 use flate2::Compression;
@@ -19,6 +19,13 @@ use crate::logger::Logger;
 
 /// Fibonacci hashing multiplier for multiply-shift uniform partition distribution.
 const PARTITION_HASH_MUL: u64 = 0x517cc1b727220a95;
+
+/// Per-partition term map. `hashbrown` rather than `std::collections::HashMap`
+/// (same table implementation, same Fx hasher) because its `rayon` feature
+/// splits the raw table for parallel iteration directly: rayon's impls for
+/// the std map first materialize every entry into a temporary `Vec` —
+/// serially — which `apply_gate_inplace` would pay per partition per gate.
+type PartitionMap<M, C> = hashbrown::HashMap<M, C, FxBuildHasher>;
 
 const EXP_LUT_SIZE: usize = 4096;
 
@@ -159,13 +166,12 @@ pub struct AbstractPropagator<M: AbstractTerm, C: CoeffRepr> {
     pub progress_bar: bool,
     n_partitions: usize,
     log2_n: u32,
-    thread_maps: Vec<FxHashMap<M, C>>,
+    thread_maps: Vec<PartitionMap<M, C>>,
     // outboxes[src][dst]: terms produced by partition src that belong to partition dst
     outboxes: Vec<Vec<Vec<(M, C)>>>,
     total_terms: usize,
     scratch_new_terms: Vec<Vec<(usize, M, C)>>,
     scratch_snap: Vec<Vec<usize>>,
-    scratch_inboxes: Vec<Vec<(M, C)>>,
     verbose_log: Option<BufWriter<std::fs::File>>,
     log_filename: Option<String>,
     log_every: usize,
@@ -195,13 +201,12 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         let n_threads_actual = pool.current_num_threads();
         let n_partitions = n_threads_actual.next_power_of_two().max(1);
         let log2_n = n_partitions.trailing_zeros();
-        let thread_maps = (0..n_partitions).map(|_| FxHashMap::default()).collect();
+        let thread_maps = (0..n_partitions).map(|_| PartitionMap::default()).collect();
         let outboxes = (0..n_partitions)
             .map(|_| (0..n_partitions).map(|_| Vec::new()).collect())
             .collect();
         let scratch_new_terms = (0..n_partitions).map(|_| Vec::new()).collect();
         let scratch_snap = (0..n_partitions).map(|_| Vec::new()).collect();
-        let scratch_inboxes = (0..n_partitions).map(|_| Vec::new()).collect();
         let (log_filename, log_every) = match logger {
             Some(ref obj) => Python::with_gil(|py| -> PyResult<_> {
                 let lg = obj.bind(py).extract::<pyo3::PyRef<Logger>>()?;
@@ -221,7 +226,6 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
             total_terms: 0,
             scratch_new_terms,
             scratch_snap,
-            scratch_inboxes,
             verbose_log: None,
             log_filename,
             log_every,
@@ -303,18 +307,15 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                 .map(|(((local_map, outbox_row), new_terms), snap)| {
                     new_terms.clear();
 
-                    // Apply gate to thread_map entries. `HashMap`'s rayon
-                    // iterator has no indexed splitting (no stable iteration
-                    // order to index by), so unlike the slice-based outbox
-                    // loop below, `with_min_len` isn't available here — and
-                    // more importantly, `par_iter_mut()` on a `HashMap`
-                    // unconditionally materializes every entry into a `Vec`
-                    // first (see rayon's `into_par_vec!`), a real cost that
-                    // plain serial `iter_mut()` doesn't pay. So the size gate
-                    // has to happen a level up: skip the parallel path (and
-                    // its materialization cost) entirely for small
-                    // partitions rather than relying on internal splitting
-                    // to degrade gracefully.
+                    // Apply gate to thread_map entries. `hashbrown`'s rayon
+                    // support splits the raw table directly (no up-front
+                    // materialization like rayon's std-HashMap impls), but
+                    // it's unindexed splitting, so `with_min_len` isn't
+                    // available here the way it is for the slice-based
+                    // outbox loop below — the small-partition gate has to
+                    // happen a level up: take the plain serial path outright
+                    // rather than relying on internal splitting to degrade
+                    // gracefully to zero task overhead.
                     if local_map.len() >= GATE_PAR_MIN_LEN {
                         new_terms.par_extend(
                             local_map
@@ -377,41 +378,25 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         })
     }
 
-    /// Drain scratch_inboxes into thread_maps in parallel.
-    fn insert_from_inboxes(&mut self) {
+    /// Transpose all outboxes directly into thread_maps and update
+    /// `total_terms`. This is the shared core of every flush; truncation is
+    /// applied on top by the coefficient-specific impl blocks.
+    ///
+    /// Each per-`dst` task drains its column of outbox cells straight into
+    /// its own partition map — no staging buffer in between, so the pending
+    /// data is moved once, not twice, and nothing retains peak-flush
+    /// capacity between flushes.
+    pub fn flush_outboxes_to_maps(&mut self) {
+        let n = self.n_partitions;
         let pool = Arc::clone(&self.pool);
+        let outboxes = &mut self.outboxes;
         let thread_maps = &mut self.thread_maps;
-        let scratch_inboxes = &mut self.scratch_inboxes;
+        let outboxes_ptr = SendPtr(outboxes.as_mut_ptr());
         pool.install(|| {
             thread_maps
                 .par_iter_mut()
-                .zip(scratch_inboxes.par_iter_mut())
-                .for_each(|(map, inbox)| {
-                    for (term, coeff) in inbox.drain(..) {
-                        map.entry(term).or_default().add_assign(coeff);
-                    }
-                });
-        });
-    }
-
-    /// Transpose all outboxes into thread_maps and update `total_terms`.
-    /// This is the shared core of every flush; truncation is applied on top by
-    /// the coefficient-specific impl blocks.
-    pub fn flush_outboxes_to_maps(&mut self) {
-        let n = self.n_partitions;
-
-        for inbox in &mut self.scratch_inboxes {
-            inbox.clear();
-        }
-        let pool = Arc::clone(&self.pool);
-        let outboxes = &mut self.outboxes;
-        let scratch_inboxes = &mut self.scratch_inboxes;
-        let outboxes_ptr = SendPtr(outboxes.as_mut_ptr());
-        pool.install(|| {
-            scratch_inboxes
-                .par_iter_mut()
                 .enumerate()
-                .for_each(|(dst, inbox)| {
+                .for_each(|(dst, map)| {
                     for src in 0..n {
                         // SAFETY: Each parallel task owns a unique `dst`.
                         // Thread `dst` drains outboxes[src][dst] for all src.
@@ -419,12 +404,33 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                         // distinct heap allocations. `outboxes` is not resized
                         // during this block (n is fixed, no push occurs).
                         let cell = unsafe { &mut (&mut *outboxes_ptr.offset(src))[dst] };
-                        inbox.extend(cell.drain(..));
+                        // The merge is memory-latency-bound: each entry
+                        // dereferences its coefficient's heap buffers cold.
+                        // Prefetching a few entries ahead overlaps those
+                        // misses with the current entry's hash + merge work.
+                        const PREFETCH_AHEAD: usize = 4;
+                        let n_cell = cell.len();
+                        // SAFETY: length is zeroed *before* the manual moves
+                        // below, so a panic mid-loop leaks the not-yet-moved
+                        // tail instead of double-dropping the moved head. The
+                        // buffer itself stays allocated and valid.
+                        unsafe { cell.set_len(0) };
+                        let base = cell.as_ptr();
+                        for i in 0..n_cell {
+                            if i + PREFETCH_AHEAD < n_cell {
+                                // SAFETY: in-bounds read of an element we
+                                // exclusively own (only prefetched, not moved).
+                                unsafe { (*base.add(i + PREFETCH_AHEAD)).1.prefetch_read() };
+                            }
+                            // SAFETY: each index in 0..n_cell is read exactly
+                            // once, transferring ownership out of the buffer.
+                            let (term, coeff) = unsafe { std::ptr::read(base.add(i)) };
+                            map.entry(term).or_default().add_assign(coeff);
+                        }
                     }
                 });
         });
 
-        self.insert_from_inboxes();
         self.total_terms = self.thread_maps.iter().map(|m| m.len()).sum();
     }
 
@@ -565,9 +571,11 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     /// oversized coefficients (e.g. one term whose symbolic coefficient has
     /// ballooned to far more monomials than the rest) would otherwise stall
     /// whichever partition owns them while every other thread sits idle.
-    /// Discarded keys are collected during that same parallel pass and
-    /// removed afterward with an O(discarded) sweep, rather than a second
-    /// O(total_terms) `retain` pass.
+    /// Discarded keys are collected during that same parallel pass — via
+    /// per-worker `fold`/`reduce` accumulators, so only discarded keys are
+    /// ever cloned or buffered, not an O(live terms) result per partition —
+    /// and removed afterward with an O(discarded) sweep, rather than a
+    /// second O(total_terms) `retain` pass.
     pub fn map_and_retain_coeffs_inplace<F, K>(&mut self, f: F, keep: K) -> usize
     where
         F: Fn(&M, &mut C) + Sync,
@@ -579,23 +587,32 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
             thread_maps
                 .par_iter_mut()
                 .map(|map| {
-                    let results: Vec<(Option<M>, usize)> = map
+                    let (discarded, size) = map
                         .par_iter_mut()
-                        .map(|(t, c)| {
-                            f(t, c);
-                            if keep(t, c) {
-                                (None, c.size_hint())
-                            } else {
-                                (Some(t.clone()), 0)
-                            }
-                        })
-                        .collect();
-                    let mut size = 0usize;
-                    for (maybe_key, sz) in results {
-                        size += sz;
-                        if let Some(k) = maybe_key {
-                            map.remove(&k);
-                        }
+                        .fold(
+                            || (Vec::new(), 0usize),
+                            |(mut discarded, mut size), (t, c)| {
+                                f(t, c);
+                                if keep(t, c) {
+                                    size += c.size_hint();
+                                } else {
+                                    discarded.push(t.clone());
+                                }
+                                (discarded, size)
+                            },
+                        )
+                        .reduce(
+                            || (Vec::new(), 0usize),
+                            |(mut d1, s1), (mut d2, s2)| {
+                                if d1.len() < d2.len() {
+                                    std::mem::swap(&mut d1, &mut d2);
+                                }
+                                d1.extend(d2);
+                                (d1, s1 + s2)
+                            },
+                        );
+                    for key in &discarded {
+                        map.remove(key);
                     }
                     size
                 })

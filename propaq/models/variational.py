@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 
 from qiskit.circuit import Parameter
 
+from .._rust_core import MajoranaSurrogateModel, PauliSurrogateModel
 from ..circuits._qiskit_symbolic import ParamSource
 
 
@@ -21,7 +22,7 @@ class VariationalSurrogateModel:
 
     def __init__(
         self,
-        model,
+        model: "PauliSurrogateModel | MajoranaSurrogateModel",
         parameter_sources: list[ParamSource],
         qiskit_parameters: tuple[Parameter, ...],
     ):
@@ -34,14 +35,8 @@ class VariationalSurrogateModel:
         """Number of underlying propaq parameter slots (may exceed len(parameters))."""
         return len(self._parameter_sources)
 
-    def evaluate(self, values: "Mapping[Parameter, float] | Sequence[float]") -> float:
-        """
-        Evaluate the expectation value for the given Qiskit Parameter values.
-
-        Arguments:
-            values: Either a mapping from Parameter to its value, or a plain
-                sequence of values aligned with `self.parameters`.
-        """
+    def _bind(self, values: "Mapping[Parameter, float] | Sequence[float]") -> list[float]:
+        """Resolve Qiskit Parameter values into the raw propaq parameter vector."""
         if isinstance(values, Mapping):
             binding = values
         else:
@@ -52,8 +47,30 @@ class VariationalSurrogateModel:
                 )
             binding = dict(zip(self.parameters, values))
 
-        params = [
+        return [
             source.scale * binding[source.parameter] if source.parameter is not None else source.scale
             for source in self._parameter_sources
         ]
-        return self._model.evaluate(params)
+
+    def evaluate(self, values: "Mapping[Parameter, float] | Sequence[float]") -> float:
+        """
+        Evaluate the expectation value for the given Qiskit Parameter values.
+
+        Arguments:
+            values: Either a mapping from Parameter to its value, or a plain
+                sequence of values aligned with `self.parameters`.
+        """
+        return self._model.evaluate(self._bind(values))
+
+    def evaluate_batch(
+        self, values_batch: "Sequence[Mapping[Parameter, float] | Sequence[float]]"
+    ) -> list[float]:
+        """
+        Evaluate many Qiskit Parameter assignments at once (parallelized across
+        assignments in Rust), returning one expectation value per assignment.
+
+        Arguments:
+            values_batch: A sequence of assignments, each accepted in either
+                form `evaluate` takes.
+        """
+        return self._model.evaluate_batch([self._bind(values) for values in values_batch])

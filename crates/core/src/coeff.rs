@@ -49,6 +49,13 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
         1
     }
 
+    /// Prefetch any out-of-line storage this coefficient owns. Called by the
+    /// flush merge loop a few entries ahead of use, so buffer cache misses
+    /// overlap with the current entry's work. No-op by default (scalar
+    /// coefficients have no out-of-line data).
+    #[inline]
+    fn prefetch_read(&self) {}
+
     /// Extract the gate parameter from a Python rotation object.
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
 }
