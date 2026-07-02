@@ -5,6 +5,25 @@ use smallvec::SmallVec;
 
 use propaq_core::coeff::CoeffRepr;
 
+/// Inline capacity for a monomial's factor list. Chosen comfortably above
+/// typical `max_frequency` settings (e.g. 11) so factor lists stay inline —
+/// spilling to the heap here means a separate allocation per monomial, which
+/// at scale (hundreds of millions of monomials) turns into heavy concurrent
+/// small-allocation traffic across worker threads.
+type Factors = SmallVec<[TrigFactor; 16]>;
+
+/// Insert `factor` into `factors`, keeping it sorted. `factors` is
+/// canonicalized this way at every construction site (never appended to
+/// directly), so it's always already sorted by the time `deduplicate` runs —
+/// no separate sort pass is needed there. Duplicate factors (the same
+/// parameter touched more than once) are kept, not merged: `cos(idx)` and
+/// `cos(idx)` appearing twice represents `cos(theta)^2`, a distinct term.
+#[inline]
+fn insert_sorted_factor(factors: &mut Factors, factor: TrigFactor) {
+    let pos = factors.binary_search(&factor).unwrap_or_else(|e| e);
+    factors.insert(pos, factor);
+}
+
 /// Below this monomial count, use the simple sort-based merge. Benchmarking
 /// showed the hash-based merge only reliably wins with substantial exact
 /// factor-pattern duplication (~100x+ repeats); with little/no duplication it
@@ -52,13 +71,14 @@ impl TrigFactor {
 /// leaving a real result at every step. Given a real (Hermitian) seed
 /// observable, every monomial's scalar stays real by induction.
 ///
-/// Uses `SmallVec<[TrigFactor; 8]>` for 8 inline factors (~32 bytes),
-/// keeping the total struct size ~48 bytes and avoiding heap allocation
-/// for circuits with ≤8 non-commuting rotations per term.
+/// `factors` is always kept sorted (see `insert_sorted_factor`) — two
+/// monomials with the same factor content compare/hash equal regardless of
+/// the order gates touched them in, with no separate canonicalization step
+/// needed before merging.
 #[derive(Clone)]
 pub struct Monomial {
     pub scalar: f64,
-    pub factors: SmallVec<[TrigFactor; 8]>,
+    pub factors: Factors,
 }
 
 impl Monomial {
@@ -83,18 +103,20 @@ impl SymbolicCoeff {
         SymbolicCoeff { monomials: vec![Monomial::new(c)] }
     }
 
-    /// Push a cos(param_idx) factor onto every existing monomial.
+    /// Insert a cos(param_idx) factor into every existing monomial, preserving order.
     pub fn multiply_cos(&mut self, idx: u32) {
+        let factor = TrigFactor::cos(idx);
         for m in &mut self.monomials {
-            m.factors.push(TrigFactor::cos(idx));
+            insert_sorted_factor(&mut m.factors, factor);
         }
     }
 
-    /// Clone self, multiply each scalar by `phase`, push sin(param_idx).
+    /// Clone self, multiply each scalar by `phase`, insert sin(param_idx) preserving order.
     pub fn branch_sin(&self, idx: u32, phase: f64) -> Self {
+        let factor = TrigFactor::sin(idx);
         let monomials = self.monomials.iter().map(|m| {
             let mut factors = m.factors.clone();
-            factors.push(TrigFactor::sin(idx));
+            insert_sorted_factor(&mut factors, factor);
             Monomial { scalar: m.scalar * phase, factors }
         }).collect();
         SymbolicCoeff { monomials }
@@ -112,8 +134,10 @@ impl SymbolicCoeff {
         self.monomials.retain(|m| m.factors.len() <= max_freq);
     }
 
-    /// Merge monomials with identical factor patterns (canonicalizing each
-    /// monomial's own factor order first) and drop near-zero results.
+    /// Merge monomials with identical factor patterns and drop near-zero
+    /// results. Each monomial's own `factors` is already canonically sorted
+    /// (an invariant maintained by `insert_sorted_factor` at every
+    /// construction site), so no per-monomial sort is needed here.
     ///
     /// Below `HASH_MERGE_THRESHOLD` monomials, sorts the whole list and merges
     /// adjacent equal entries (`O(k log k)`, cheap for small `k`). Above it,
@@ -123,9 +147,6 @@ impl SymbolicCoeff {
     pub fn deduplicate(&mut self) {
         if self.monomials.len() <= 1 {
             return;
-        }
-        for m in &mut self.monomials {
-            m.factors.sort_unstable();
         }
 
         if self.monomials.len() < HASH_MERGE_THRESHOLD {
@@ -146,7 +167,7 @@ impl SymbolicCoeff {
             return;
         }
 
-        let mut acc: FxHashMap<SmallVec<[TrigFactor; 8]>, f64> = FxHashMap::default();
+        let mut acc: FxHashMap<Factors, f64> = FxHashMap::default();
         acc.reserve(self.monomials.len());
         for m in self.monomials.drain(..) {
             *acc.entry(m.factors).or_insert(0.0) += m.scalar;
@@ -237,10 +258,16 @@ impl CoeffRepr for SymbolicCoeff {
 mod dedup_tests {
     use super::*;
 
+    /// Builds via `insert_sorted_factor`, same as real construction sites, so
+    /// two calls with the same (idx, is_sin) content in different input order
+    /// produce the same canonical `Monomial` — exercising the actual
+    /// order-independence invariant instead of relying on `deduplicate` to
+    /// paper over an out-of-invariant input.
     fn mono(scalar: f64, factors: &[(u32, bool)]) -> Monomial {
-        let mut fs: SmallVec<[TrigFactor; 8]> = SmallVec::new();
+        let mut fs: Factors = SmallVec::new();
         for &(idx, is_sin) in factors {
-            fs.push(if is_sin { TrigFactor::sin(idx) } else { TrigFactor::cos(idx) });
+            let factor = if is_sin { TrigFactor::sin(idx) } else { TrigFactor::cos(idx) };
+            insert_sorted_factor(&mut fs, factor);
         }
         Monomial { scalar, factors: fs }
     }
