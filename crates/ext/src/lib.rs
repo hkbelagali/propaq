@@ -1,5 +1,14 @@
 use pyo3::prelude::*;
 
+use mimalloc::MiMalloc;
+
+// Surrogate propagation does heavy concurrent small-allocation traffic
+// (millions of per-monomial heap spills across worker threads); the default
+// system allocator serializes badly under that pattern. mimalloc is built
+// for concurrent workloads and is a drop-in global allocator swap.
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator, MajoranaTermStreamer};
 use propaq_pauli::{PauliString, PauliTermSum, PauliPropagator, PauliTermStreamer};

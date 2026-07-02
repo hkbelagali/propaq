@@ -5,12 +5,12 @@ use smallvec::SmallVec;
 
 use propaq_core::coeff::CoeffRepr;
 
-/// Inline capacity for a monomial's factor list. Reverted from 16 back to 8
-/// (its original value): the larger capacity increased `Monomial` from 48 to
-/// 80 bytes for every monomial to avoid heap spills above 8 factors, but on
-/// the real workload this made memory pressure worse, not better, so it's
-/// back to the original size pending further isolated testing.
-type Factors = SmallVec<[TrigFactor; 8]>;
+/// Inline capacity for a monomial's factor list. Chosen comfortably above
+/// typical `max_frequency` settings (e.g. 11) so factor lists stay inline —
+/// spilling to the heap here means a separate allocation per monomial, which
+/// at scale (hundreds of millions of monomials) turns into heavy concurrent
+/// small-allocation traffic across worker threads.
+type Factors = SmallVec<[TrigFactor; 16]>;
 
 /// Insert `factor` into `factors`, keeping it sorted. `factors` is
 /// canonicalized this way at every construction site (never appended to
@@ -33,7 +33,7 @@ fn insert_sorted_factor(factors: &mut Factors, factor: TrigFactor) {
 /// pathological terms (which dominate wall-clock time, and are more likely to
 /// carry real duplication after surviving many merges) take the hash path,
 /// while the common case keeps the well-tested sort with no regression risk.
-const HASH_MERGE_THRESHOLD: usize = 10_000_000;
+const HASH_MERGE_THRESHOLD: usize = 100_000;
 
 /// Packed trig factor: bit 0 = is_sin, bits 1–31 = param_index.
 /// Supports up to 2^31 ≈ 2 billion distinct parameters.
