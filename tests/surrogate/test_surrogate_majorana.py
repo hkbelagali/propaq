@@ -19,6 +19,7 @@ from propaq import (
 )
 from propaq.circuits.majorana import MajoranaCircuit
 from propaq.circuits.majorana.rotation import MajoranaRotation
+from propaq.circuits.majorana.surrogate_rotation import SurrogateMajoranaRotation
 
 N_MODES = 4  # 4 Majorana modes = 2 qubits
 
@@ -195,3 +196,88 @@ class TestCircuitConstruction:
         model = MajoranaSurrogatePropagator().build(obs, sc, initial_state=0)
         r = repr(model)
         assert "MajoranaSurrogateModel" in r
+
+class TestNumericAngleRotations:
+    def test_all_numeric_rotations_matches_numerical(self):
+        obs = MajoranaTermSum({mm(0b0011): 1.0})
+        gens = [mm(0b0110), mm(0b1001), mm(0b0101)]
+        angles = [0.4, 0.8, 0.6]
+        circ = MajoranaCircuit(
+            [MajoranaRotation(g, a) for g, a in zip(gens, angles)], n_modes=N_MODES
+        )
+        sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[None, None, None])
+        assert sc.n_params == 0
+        surr = surrogate_ev(obs, sc, [])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
+    def test_mixed_numeric_and_symbolic_matches_numerical(self):
+        obs = MajoranaTermSum({mm(0b0011): 1.0})
+        gens = [mm(0b0110), mm(0b1001), mm(0b0101)]
+        angles = [0.4, 0.8, 0.6]
+        circ = MajoranaCircuit(
+            [MajoranaRotation(g, a) for g, a in zip(gens, angles)], n_modes=N_MODES
+        )
+        # Outer two gates baked numeric, middle gate symbolic.
+        sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[None, 0, None])
+        assert sc.n_params == 1
+        surr = surrogate_ev(obs, sc, [angles[1]])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
+    def test_mixed_numeric_and_symbolic_shared_symbolic_index(self):
+        obs = MajoranaTermSum({mm(0b0011): 1.0})
+        angle = 0.3
+        numeric_angle = 0.9
+        gens = [mm(0b0110), mm(0b1001), mm(0b0101)]
+        circ = MajoranaCircuit(
+            [
+                MajoranaRotation(gens[0], angle),
+                MajoranaRotation(gens[1], angle),
+                MajoranaRotation(gens[2], numeric_angle),
+            ],
+            n_modes=N_MODES,
+        )
+        # Two symbolic gates share param_index=0; the third is numeric.
+        sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[0, 0, None])
+        assert sc.n_params == 1
+        surr = surrogate_ev(obs, sc, [angle])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
+    def test_n_params_skips_numeric_rotations(self):
+        gen = mm(0b0110)
+        layers = [
+            [SurrogateMajoranaRotation(gen, angle=0.1)],
+            [SurrogateMajoranaRotation(gen, param_index=0)],
+            [SurrogateMajoranaRotation(gen, angle=0.2)],
+            [SurrogateMajoranaRotation(gen, param_index=2)],
+        ]
+        sc = SurrogateMajoranaCircuit(layers, N_MODES)
+        assert sc.n_params == 3
+
+        all_numeric_layers = [[SurrogateMajoranaRotation(gen, angle=0.1)]]
+        assert SurrogateMajoranaCircuit(all_numeric_layers, N_MODES).n_params == 0
+
+    def test_from_majorana_circuit_keeps_source_angle_for_none_index(self):
+        gens = [mm(0b0110), mm(0b1001)]
+        angles = [0.3, 0.6]
+        circ = MajoranaCircuit(
+            [MajoranaRotation(g, a) for g, a in zip(gens, angles)], n_modes=N_MODES
+        )
+        sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[None, 0])
+
+        assert sc.rotations[0].param_index is None
+        assert sc.rotations[0].angle == angles[0]
+        assert sc.rotations[1].param_index == 0
+        assert sc.rotations[1].angle is None
+
+    def test_surrogate_rotation_requires_exactly_one_of_param_index_or_angle(self):
+        gen = mm(0b0110)
+        with pytest.raises(ValueError):
+            SurrogateMajoranaRotation(gen)
+        with pytest.raises(ValueError):
+            SurrogateMajoranaRotation(gen, param_index=0, angle=0.5)
+        # Falsy-but-non-None values must still count as "given".
+        with pytest.raises(ValueError):
+            SurrogateMajoranaRotation(gen, param_index=0, angle=0.0)

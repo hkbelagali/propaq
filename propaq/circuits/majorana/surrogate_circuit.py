@@ -46,21 +46,23 @@ class SurrogateMajoranaCircuit:
     @property
     def n_params(self) -> int:
         """Total number of distinct parameter indices (max param_index + 1)."""
-        indices = [r.param_index for r in self.rotations]
+        indices = [r.param_index for r in self.rotations if r.param_index is not None]
         return max(indices) + 1 if indices else 0
 
     @classmethod
     def from_majorana_circuit(
         cls,
         circuit: MajoranaCircuit,
-        param_indices: list[int],
+        param_indices: list[int | None],
     ) -> "SurrogateMajoranaCircuit":
         """
         Construct from a MajoranaCircuit and a matching list of parameter indices.
 
         Arguments:
             circuit: A MajoranaCircuit whose rotations will be given symbolic indices.
-            param_indices: One integer per rotation in `circuit.rotations` order.
+            param_indices: One entry per rotation in `circuit.rotations` order.
+                An integer assigns that rotation a symbolic index; None keeps
+                the rotation's own numeric angle from `circuit` instead.
         """
         rotations = circuit.rotations
         if len(param_indices) != len(rotations):
@@ -73,9 +75,11 @@ class SurrogateMajoranaCircuit:
         for layer in circuit.layers:
             new_layer: list[SurrogateMajoranaRotation] = []
             for rot in layer:
+                idx = param_indices[flat_idx]
                 new_layer.append(SurrogateMajoranaRotation(
                     generator=rot.generator,
-                    param_index=param_indices[flat_idx],
+                    param_index=idx,
+                    angle=None if idx is not None else rot.angle,
                     is_intermediate=rot.is_intermediate,
                     qiskit_gate_idx=rot.qiskit_gate_idx,
                 ))

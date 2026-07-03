@@ -47,7 +47,7 @@ use propaq_core::propagator::AbstractPropagator;
 use propaq_core::termsum::AbstractTermSum;
 use propaq_pauli::string::PauliString;
 use propaq_surrogate::propagator::apply_truncation_policy;
-use propaq_surrogate::symcoeff::SymbolicCoeff;
+use propaq_surrogate::symcoeff::{GateParam, SymbolicCoeff};
 use propaq_surrogate::truncation::FrequencyTruncationPolicy;
 
 struct Xorshift64(u64);
@@ -261,7 +261,7 @@ fn main() {
     for layer in 0..args.n_layers {
         for (q0, q1) in brick_wall_pairs(layer, args.n_qubits) {
             let generator = two_qubit_generator(&mut rng, q0, q1, args.n_qubits);
-            let (added, added_monomials) = propagator.apply_gate_inplace(&generator, gate_idx as u32);
+            let (added, added_monomials) = propagator.apply_gate_inplace(&generator, GateParam::Symbolic(gate_idx as u32));
             pending_terms += added;
             live_monomials += added_monomials;
             peak_monomials = peak_monomials.max(live_monomials);

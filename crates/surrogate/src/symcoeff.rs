@@ -520,38 +520,12 @@ impl SymbolicCoeff {
         });
         removed
     }
-}
 
-impl CoeffRepr for SymbolicCoeff {
-    /// Gate parameter is a parameter index (u32).
-    type GateParam = u32;
-
-    #[inline]
-    fn from_complex(c: Complex64) -> Self {
-        // Seed observables are Hermitian, so their Pauli/Majorana-basis
-        // coefficients are real; see the `MonoHead::scalar` doc comment.
-        debug_assert!(c.im.abs() < 1e-9, "surrogate seed coefficient must be real: {c:?}");
-        SymbolicCoeff::from_scalar(c.re)
-    }
-
-    fn add_assign(&mut self, mut other: Self) {
-        if self.heads.is_empty() {
-            // Common case at a flush: a term newly inserted into the map gets
-            // `or_default().add_assign(coeff)` — take the buffers instead of
-            // copying every monomial into a fresh allocation.
-            *self = other;
-            return;
-        }
-        if other.heads.is_empty() {
-            return;
-        }
-        let base = self.factors.len() as u64;
-        self.factors.append(&mut other.factors);
-        self.heads.reserve(other.heads.len());
-        self.heads.extend(other.heads.iter().map(|h| MonoHead { scalar: h.scalar, end: h.end + base }));
-        self.dirty = true;
-    }
-
+    /// Existing symbolic-parameter rotation: records that this monomial has
+    /// picked up a `cos(param[idx])`/`sin(param[idx])` factor, without
+    /// evaluating any trig numerically (that happens later, in `evaluate`,
+    /// against a LUT). See `CoeffRepr::apply_rotation`'s dispatch.
+    ///
     /// The sin branch is one forward streaming pass over the arena into a
     /// fresh coefficient (two buffer allocations — it's genuinely new data);
     /// the cos branch then mutates `self`'s own arena in place.
@@ -577,7 +551,7 @@ impl CoeffRepr for SymbolicCoeff {
     /// and its capacity across gates (growth is `reserve`-amortized), so the
     /// per-gate cost for an already-touched parameter is one memmove of
     /// already-resident data, and for a hit specifically, no growth at all.
-    fn apply_rotation(&mut self, idx: &u32, phase: Complex64) -> Self {
+    fn apply_rotation_symbolic(&mut self, idx: &u32, phase: Complex64) -> Self {
         // sin branch scalar: * (i * phase). `phase` is always ±i here (this
         // is only called on anticommuting generator/term pairs), so `i *
         // phase` is always real — see the `MonoHead::scalar` doc comment.
@@ -668,6 +642,94 @@ impl CoeffRepr for SymbolicCoeff {
         SymbolicCoeff { heads: sin_heads, factors: sin_factors, dirty: self.dirty }
     }
 
+    /// Numeric-angle rotation: `cos`/`sin` of `angle` are computed
+    /// immediately (mirrors `Complex64::apply_rotation` exactly) and folded
+    /// directly into each monomial's scalar. No `MonomialUnit` is ever
+    /// created or touched here — the factor arena is copied through
+    /// byte-for-byte, so this composes correctly with any symbolic factors a
+    /// monomial already carries from earlier gates in a mixed circuit (they
+    /// pass through unchanged; only the leading scalar is rescaled).
+    fn apply_rotation_numeric(&mut self, angle: f64, phase: Complex64) -> Self {
+        let cos_t = angle.cos();
+        let sin_t = angle.sin();
+        // Mirrors `apply_rotation_symbolic`'s `branch_phase`, scaled by
+        // `sin_t`: `phase` is always ±i here (only called on anticommuting
+        // generator/term pairs), so `sin_t * (i * phase)` is always real.
+        let branch_phase = Complex64::new(0.0, sin_t) * phase;
+        debug_assert!(branch_phase.im.abs() < 1e-9, "expected real branch phase: {branch_phase:?}");
+        let branch_phase = branch_phase.re;
+
+        // Sin branch is computed from `self`'s pre-mutation state, before
+        // the cos branch scales `self` in place below — same ordering as
+        // `apply_rotation_symbolic`.
+        let (mut sin_heads, mut sin_factors) = take_pooled_buffers();
+        sin_heads.reserve(self.heads.len());
+        sin_factors.extend_from_slice(&self.factors);
+        sin_heads.extend(self.heads.iter().map(|h| MonoHead {
+            scalar: h.scalar * branch_phase,
+            end: h.end,
+        }));
+
+        for h in &mut self.heads {
+            h.scalar *= cos_t;
+        }
+
+        SymbolicCoeff { heads: sin_heads, factors: sin_factors, dirty: self.dirty }
+    }
+}
+
+/// Gate parameter for a symbolic rotation: either a symbolic parameter-vector
+/// slot (`Symbolic`, accumulated as a tracked `cos`/`sin` factor and resolved
+/// later by `evaluate` against the LUT) or a concrete numeric angle baked in
+/// immediately (`Numeric`, mirrors `Complex64::apply_rotation`'s math exactly
+/// and never grows the factor arena — no `MonomialUnit` is created for it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GateParam {
+    Symbolic(u32),
+    Numeric(f64),
+}
+
+impl CoeffRepr for SymbolicCoeff {
+    /// Gate parameter is either a symbolic parameter index or a concrete
+    /// numeric angle; see `GateParam`.
+    type GateParam = GateParam;
+
+    #[inline]
+    fn from_complex(c: Complex64) -> Self {
+        // Seed observables are Hermitian, so their Pauli/Majorana-basis
+        // coefficients are real; see the `MonoHead::scalar` doc comment.
+        debug_assert!(c.im.abs() < 1e-9, "surrogate seed coefficient must be real: {c:?}");
+        SymbolicCoeff::from_scalar(c.re)
+    }
+
+    fn add_assign(&mut self, mut other: Self) {
+        if self.heads.is_empty() {
+            // Common case at a flush: a term newly inserted into the map gets
+            // `or_default().add_assign(coeff)` — take the buffers instead of
+            // copying every monomial into a fresh allocation.
+            *self = other;
+            return;
+        }
+        if other.heads.is_empty() {
+            return;
+        }
+        let base = self.factors.len() as u64;
+        self.factors.append(&mut other.factors);
+        self.heads.reserve(other.heads.len());
+        self.heads.extend(other.heads.iter().map(|h| MonoHead { scalar: h.scalar, end: h.end + base }));
+        self.dirty = true;
+    }
+
+    /// Dispatches to `apply_rotation_symbolic` for a symbolic parameter
+    /// index (existing tracked-factor behavior) or `apply_rotation_numeric`
+    /// for a concrete angle (cos/sin folded directly into each scalar).
+    fn apply_rotation(&mut self, param: &GateParam, phase: Complex64) -> Self {
+        match param {
+            GateParam::Symbolic(idx) => self.apply_rotation_symbolic(idx, phase),
+            GateParam::Numeric(angle) => self.apply_rotation_numeric(*angle, phase),
+        }
+    }
+
     #[inline]
     fn scale_real(&mut self, factor: f64) {
         for h in &mut self.heads {
@@ -715,8 +777,16 @@ impl CoeffRepr for SymbolicCoeff {
         }
     }
 
-    fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<u32> {
-        obj.getattr("param_index")?.extract()
+    /// A rotation's `param_index` (`Optional[int]`) takes precedence: if
+    /// present, the gate is symbolic. Otherwise falls back to `angle`
+    /// (`float`), a concrete numeric angle baked in at build time.
+    fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<GateParam> {
+        let param_index: Option<u32> = obj.getattr("param_index")?.extract()?;
+        if let Some(idx) = param_index {
+            return Ok(GateParam::Symbolic(idx));
+        }
+        let angle: f64 = obj.getattr("angle")?.extract()?;
+        Ok(GateParam::Numeric(angle))
     }
 }
 
@@ -812,7 +882,7 @@ mod tests {
         // (hit) path alongside fresh-parameter (miss) inserts.
         for idx in [5u32, 2, 7, 2, 0] {
             let before = naive_evaluate(&c, &lut);
-            let sin_branch = c.apply_rotation(&idx, Complex64::new(0.0, -1.0));
+            let sin_branch = c.apply_rotation(&GateParam::Symbolic(idx), Complex64::new(0.0, -1.0));
             let (cos_t, sin_t) = (lut[(idx << 1) as usize], lut[((idx << 1) | 1) as usize]);
             assert!((naive_evaluate(&c, &lut) - cos_t * before).abs() < 1e-12);
             // branch_phase = (i * -i).re = 1.0
@@ -829,14 +899,14 @@ mod tests {
     #[test]
     fn apply_rotation_stacks_exponents_on_repeated_parameter_without_growing_slots() {
         let mut c = SymbolicCoeff::from_scalar(1.0);
-        let _ = c.apply_rotation(&3u32, Complex64::new(0.0, -1.0));
+        let _ = c.apply_rotation(&GateParam::Symbolic(3), Complex64::new(0.0, -1.0));
         assert_eq!(c.monomial_count(), 1);
         let (_, run) = c.iter_monomials().next().unwrap();
         assert_eq!(run, &[MonomialUnit::new(3, 1, 0)]);
 
         // Touching parameter 3 again must bump the existing unit's cos
         // exponent in place, not add a second slot.
-        let _ = c.apply_rotation(&3u32, Complex64::new(0.0, -1.0));
+        let _ = c.apply_rotation(&GateParam::Symbolic(3), Complex64::new(0.0, -1.0));
         let (_, run) = c.iter_monomials().next().unwrap();
         assert_eq!(run, &[MonomialUnit::new(3, 2, 0)]);
     }
@@ -845,7 +915,7 @@ mod tests {
     fn apply_rotation_can_produce_mixed_cos_and_sin_on_same_parameter() {
         let mut c = SymbolicCoeff::from_scalar(1.0);
         // First touch on param 3 goes to the sin branch (a brand-new term).
-        let mut sin_branch = c.apply_rotation(&3u32, Complex64::new(0.0, -1.0));
+        let mut sin_branch = c.apply_rotation(&GateParam::Symbolic(3), Complex64::new(0.0, -1.0));
         {
             let (_, run) = sin_branch.iter_monomials().next().unwrap();
             assert_eq!(run, &[MonomialUnit::new(3, 0, 1)]);
@@ -856,7 +926,7 @@ mod tests {
         // touch) — structurally impossible under the old tally-mark design,
         // since two different `TrigFactor` tokens (cos(3), sin(3)) would
         // just coexist as separate arena entries instead.
-        let _ = sin_branch.apply_rotation(&3u32, Complex64::new(0.0, -1.0));
+        let _ = sin_branch.apply_rotation(&GateParam::Symbolic(3), Complex64::new(0.0, -1.0));
         let (_, run) = sin_branch.iter_monomials().next().unwrap();
         assert_eq!(run.len(), 1, "same-parameter touches must collapse into one arena slot");
         assert_eq!(run[0].param(), 3);
@@ -881,7 +951,7 @@ mod tests {
             state ^= state << 17;
             let idx = (state % n_params as u64) as u32;
             let before = naive_evaluate(&c, &lut);
-            let sin_branch = c.apply_rotation(&idx, Complex64::new(0.0, -1.0));
+            let sin_branch = c.apply_rotation(&GateParam::Symbolic(idx), Complex64::new(0.0, -1.0));
             let (cos_t, sin_t) = (lut[(2 * idx) as usize], lut[(2 * idx + 1) as usize]);
             let scale = before.abs().max(1.0);
             assert!((naive_evaluate(&c, &lut) - cos_t * before).abs() < 1e-9 * scale);
@@ -890,6 +960,101 @@ mod tests {
                 assert!(run.windows(2).all(|w| w[0].param() < w[1].param()));
             }
         }
+    }
+
+    #[test]
+    fn apply_rotation_numeric_matches_trig_identity() {
+        let c0 = 0.75;
+        let angle = 0.4;
+        let phase = Complex64::new(0.0, -1.0);
+
+        let mut c = SymbolicCoeff::from_scalar(c0);
+        let sin_branch = c.apply_rotation(&GateParam::Numeric(angle), phase);
+
+        let (cos_scalar, cos_run) = c.iter_monomials().next().unwrap();
+        assert!((cos_scalar - c0 * angle.cos()).abs() < 1e-12);
+        assert!(cos_run.is_empty());
+
+        // branch_phase = (i * -i).re = 1.0, same convention as the symbolic
+        // branch's `apply_rotation_matches_trig_identity_and_keeps_runs_sorted`.
+        let (sin_scalar, sin_run) = sin_branch.iter_monomials().next().unwrap();
+        assert!((sin_scalar - c0 * angle.sin()).abs() < 1e-12);
+        assert!(sin_run.is_empty());
+    }
+
+    #[test]
+    fn apply_rotation_numeric_never_grows_factors_arena() {
+        let mut c = SymbolicCoeff::from_scalar(1.0);
+        // Seed some pre-existing symbolic factors first, as in a mixed circuit.
+        let _ = c.apply_rotation(&GateParam::Symbolic(5), Complex64::new(0.0, -1.0));
+        let _ = c.apply_rotation(&GateParam::Symbolic(2), Complex64::new(0.0, -1.0));
+
+        let runs_before: Vec<Vec<MonomialUnit>> =
+            c.iter_monomials().map(|(_, run)| run.to_vec()).collect();
+
+        let sin_branch = c.apply_rotation(&GateParam::Numeric(0.3), Complex64::new(0.0, -1.0));
+
+        let runs_after: Vec<Vec<MonomialUnit>> =
+            c.iter_monomials().map(|(_, run)| run.to_vec()).collect();
+        let sin_runs: Vec<Vec<MonomialUnit>> =
+            sin_branch.iter_monomials().map(|(_, run)| run.to_vec()).collect();
+
+        assert_eq!(runs_before, runs_after, "numeric rotation must not touch the cos branch's factor arena");
+        assert_eq!(runs_before, sin_runs, "numeric rotation must not touch the sin branch's factor arena");
+    }
+
+    #[test]
+    fn apply_rotation_mixed_numeric_then_symbolic_composes_correctly() {
+        let c0: f64 = 1.0;
+        let angle: f64 = 0.6;
+        let idx = 3u32;
+        let phase = Complex64::new(0.0, -1.0);
+        let lut = make_lut(4);
+        let (cos_t_sym, sin_t_sym) = (lut[(2 * idx) as usize], lut[(2 * idx + 1) as usize]);
+        let (cos_num, sin_num) = (angle.cos(), angle.sin());
+
+        // Numeric first, then symbolic on both resulting branches.
+        let mut cos_branch = SymbolicCoeff::from_scalar(c0);
+        let mut sin_branch = cos_branch.apply_rotation(&GateParam::Numeric(angle), phase);
+        let cos_cos = cos_branch.apply_rotation(&GateParam::Symbolic(idx), phase);
+        let sin_cos = sin_branch.apply_rotation(&GateParam::Symbolic(idx), phase);
+
+        assert!((naive_evaluate(&cos_branch, &lut) - c0 * cos_num * cos_t_sym).abs() < 1e-12);
+        assert!((naive_evaluate(&cos_cos, &lut) - c0 * cos_num * sin_t_sym).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_branch, &lut) - c0 * sin_num * cos_t_sym).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_cos, &lut) - c0 * sin_num * sin_t_sym).abs() < 1e-12);
+
+        // Symbolic first, then numeric on both resulting branches -- same
+        // four outcomes, order must not matter.
+        let mut cos_branch2 = SymbolicCoeff::from_scalar(c0);
+        let mut sin_branch2 = cos_branch2.apply_rotation(&GateParam::Symbolic(idx), phase);
+        let cos_num2 = cos_branch2.apply_rotation(&GateParam::Numeric(angle), phase);
+        let sin_num2 = sin_branch2.apply_rotation(&GateParam::Numeric(angle), phase);
+
+        assert!((naive_evaluate(&cos_branch2, &lut) - c0 * cos_t_sym * cos_num).abs() < 1e-12);
+        assert!((naive_evaluate(&cos_num2, &lut) - c0 * cos_t_sym * sin_num).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_branch2, &lut) - c0 * sin_t_sym * cos_num).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_num2, &lut) - c0 * sin_t_sym * sin_num).abs() < 1e-12);
+    }
+
+    #[test]
+    fn apply_rotation_numeric_scalar_matches_complex64_apply_rotation() {
+        let c0 = 0.42;
+        let angle = 1.1;
+        let phase = Complex64::new(0.0, -1.0);
+
+        let mut symbolic = SymbolicCoeff::from_scalar(c0);
+        let symbolic_sin = symbolic.apply_rotation(&GateParam::Numeric(angle), phase);
+
+        let mut complex = Complex64::new(c0, 0.0);
+        let complex_sin = complex.apply_rotation(&angle, phase);
+
+        let (cos_scalar, _) = symbolic.iter_monomials().next().unwrap();
+        let (sin_scalar, _) = symbolic_sin.iter_monomials().next().unwrap();
+
+        assert!(complex_sin.im.abs() < 1e-12);
+        assert!((cos_scalar - complex.re).abs() < 1e-12);
+        assert!((sin_scalar - complex_sin.re).abs() < 1e-12);
     }
 
     #[test]

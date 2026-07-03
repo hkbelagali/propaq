@@ -20,6 +20,7 @@ from propaq import (
 )
 from propaq.circuits.pauli import PauliCircuit
 from propaq.circuits.pauli.rotation import PauliRotation
+from propaq.circuits.pauli.surrogate_rotation import SurrogateRotation
 from propaq.datatypes._abstract import BitMask
 
 N = 4  # n_qubits for all tests
@@ -297,3 +298,79 @@ class TestCircuitConstruction:
         r = repr(model)
         assert "PauliSurrogateModel" in r
         assert "n_terms" in r
+
+class TestNumericAngleRotations:
+    def test_all_numeric_rotations_matches_numerical(self):
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
+        angles = [0.3, 0.7, 1.1]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[None, None, None])
+        assert sc.n_params == 0
+        surr = surrogate_ev(obs, sc, [])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
+    def test_mixed_numeric_and_symbolic_matches_numerical(self):
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
+        angles = [0.3, 0.7, 1.1]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        # Outer two gates baked numeric, middle gate symbolic.
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[None, 0, None])
+        assert sc.n_params == 1
+        surr = surrogate_ev(obs, sc, [angles[1]])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
+    def test_mixed_numeric_and_symbolic_shared_symbolic_index(self):
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        angle = 0.5
+        numeric_angle = 0.9
+        gens = [ps(0b0001, 0), ps(0b0010, 0), ps(0, 0b0011)]
+        circ = PauliCircuit([
+            PauliRotation(gens[0], angle),
+            PauliRotation(gens[1], angle),
+            PauliRotation(gens[2], numeric_angle),
+        ])
+        # Two symbolic gates share param_index=0; the third is numeric.
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 0, None])
+        assert sc.n_params == 1
+        surr = surrogate_ev(obs, sc, [angle])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
+    def test_n_params_skips_numeric_rotations(self):
+        gen = ps(0b0001, 0)
+        layers = [
+            [SurrogateRotation(gen, angle=0.1)],
+            [SurrogateRotation(gen, param_index=0)],
+            [SurrogateRotation(gen, angle=0.2)],
+            [SurrogateRotation(gen, param_index=2)],
+        ]
+        sc = SurrogatePauliCircuit(layers)
+        assert sc.n_params == 3
+
+        all_numeric_layers = [[SurrogateRotation(gen, angle=0.1)]]
+        assert SurrogatePauliCircuit(all_numeric_layers).n_params == 0
+
+    def test_from_pauli_circuit_keeps_source_angle_for_none_index(self):
+        gens = [ps(0b0001, 0), ps(0b0010, 0)]
+        angles = [0.3, 0.6]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[None, 0])
+
+        assert sc.rotations[0].param_index is None
+        assert sc.rotations[0].angle == angles[0]
+        assert sc.rotations[1].param_index == 0
+        assert sc.rotations[1].angle is None
+
+    def test_surrogate_rotation_requires_exactly_one_of_param_index_or_angle(self):
+        gen = ps(0b0001, 0)
+        with pytest.raises(ValueError):
+            SurrogateRotation(gen)
+        with pytest.raises(ValueError):
+            SurrogateRotation(gen, param_index=0, angle=0.5)
+        # Falsy-but-non-None values must still count as "given".
+        with pytest.raises(ValueError):
+            SurrogateRotation(gen, param_index=0, angle=0.0)

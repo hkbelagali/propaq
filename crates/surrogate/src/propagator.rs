@@ -3,10 +3,11 @@ use std::fs::OpenOptions;
 
 use pyo3::prelude::*;
 
+use propaq_core::coeff::CoeffRepr;
 use propaq_core::propagator::AbstractPropagator;
 use propaq_core::traits::AbstractTerm;
 
-use crate::symcoeff::SymbolicCoeff;
+use crate::symcoeff::{GateParam, SymbolicCoeff};
 use crate::truncation::FrequencyTruncationPolicy;
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
 
@@ -130,23 +131,24 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
     ) -> PyResult<SurrogateModel<M>> {
         self.open_log()?;
 
-        // Extract circuit data from Python: read `param_index` (u32) instead of angle.
+        // Extract circuit data from Python: each rotation is either
+        // symbolic (`param_index`) or numeric (`angle`) — see `GateParam`.
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
 
-        let circuit_data: Vec<Vec<(M, u32, bool, Option<usize>)>> = layers
+        let circuit_data: Vec<Vec<(M, GateParam, bool, Option<usize>)>> = layers
             .iter()
             .map(|layer| {
-                layer.iter().map(|rot_obj| -> PyResult<(M, u32, bool, Option<usize>)> {
+                layer.iter().map(|rot_obj| -> PyResult<(M, GateParam, bool, Option<usize>)> {
                     let rot = rot_obj.bind(py);
                     let generator: M = rot.getattr("generator")?.extract()?;
-                    let param_index: u32 = rot.getattr("param_index")?.extract()?;
+                    let param = SymbolicCoeff::extract_gate_param(rot)?;
                     let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
                     let qiskit_gate_idx: Option<usize> = rot
                         .getattr("qiskit_gate_idx")
                         .ok()
                         .and_then(|v| v.extract::<Option<usize>>().ok())
                         .flatten();
-                    Ok((generator, param_index, is_intermediate, qiskit_gate_idx))
+                    Ok((generator, param, is_intermediate, qiskit_gate_idx))
                 }).collect::<PyResult<_>>()
             })
             .collect::<PyResult<_>>()?;
@@ -173,8 +175,8 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             }
 
             let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
-            for (idx, (generator, param_index, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
-                let (added, added_monomials) = py.allow_threads(|| self.inner.apply_gate_inplace(generator, *param_index));
+            for (idx, (generator, param, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
+                let (added, added_monomials) = py.allow_threads(|| self.inner.apply_gate_inplace(generator, *param));
                 pending += added;
                 pending_monomials += added_monomials;
 
