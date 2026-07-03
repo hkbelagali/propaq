@@ -131,6 +131,22 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
     ) -> PyResult<SurrogateModel<M>> {
         self.open_log()?;
 
+        // Look-ahead frequency-pruning cap for symbolic rotations. Skipping a
+        // doomed sin-branch monomial at generation time is exactly equivalent
+        // to trimming it at the next flush only when *every* flush applies
+        // `max_frequency` — i.e. when the truncation range's lower bound
+        // (`min_terms`) is 0/None, so `apply_lossy` in `apply_truncation_policy`
+        // is always true. With a nonzero `min_terms`, trimming is deferred
+        // until the term count is high, so eager pruning could diverge; fall
+        // back to `None` (no look-ahead) there and let the flush path decide.
+        let prune_freq: Option<u32> = self.truncation.as_ref().and_then(|p| {
+            if p.truncation_range.0.unwrap_or(0) == 0 {
+                p.max_frequency.map(|mf| mf as u32)
+            } else {
+                None
+            }
+        });
+
         // Extract circuit data from Python: each rotation is either
         // symbolic (`param_index`) or numeric (`angle`) — see `GateParam`.
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
@@ -141,7 +157,12 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 layer.iter().map(|rot_obj| -> PyResult<(M, GateParam, bool, Option<usize>)> {
                     let rot = rot_obj.bind(py);
                     let generator: M = rot.getattr("generator")?.extract()?;
-                    let param = SymbolicCoeff::extract_gate_param(rot)?;
+                    // Inject the look-ahead cap into symbolic params; numeric
+                    // rotations never change frequency, so they're left as-is.
+                    let param = match SymbolicCoeff::extract_gate_param(rot)? {
+                        GateParam::Symbolic { idx, .. } => GateParam::Symbolic { idx, prune_freq },
+                        numeric => numeric,
+                    };
                     let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
                     let qiskit_gate_idx: Option<usize> = rot
                         .getattr("qiskit_gate_idx")

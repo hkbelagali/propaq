@@ -98,7 +98,7 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
             |(mut prop, mut rng)| {
                 for i in 0..N_GATES_TIMED {
                     let gen = broad_generator(&mut rng, N_QUBITS);
-                    black_box(prop.apply_gate_inplace(black_box(&gen), GateParam::Symbolic(i as u32)));
+                    black_box(prop.apply_gate_inplace(black_box(&gen), GateParam::symbolic(i as u32)));
                 }
                 black_box(prop.total_terms())
             },
@@ -121,14 +121,14 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
                 // subsequent gate exactly like thread_map entries are.
                 for i in 0..8u32 {
                     let gen = banded_generator(&mut rng, N_QUBITS, 4);
-                    prop.apply_gate_inplace(&gen, GateParam::Symbolic(1_000 + i));
+                    prop.apply_gate_inplace(&gen, GateParam::symbolic(1_000 + i));
                 }
                 (prop, rng)
             },
             |(mut prop, mut rng)| {
                 for i in 0..N_GATES_TIMED {
                     let gen = broad_generator(&mut rng, N_QUBITS);
-                    black_box(prop.apply_gate_inplace(black_box(&gen), GateParam::Symbolic(i as u32)));
+                    black_box(prop.apply_gate_inplace(black_box(&gen), GateParam::symbolic(i as u32)));
                 }
                 black_box(prop.total_terms())
             },
@@ -147,7 +147,7 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
 fn grown_coeff(steps: u32) -> SymbolicCoeff {
     let mut c = SymbolicCoeff::from_complex(Complex64::new(1.0, 0.0));
     for i in 0..steps {
-        let branch = c.apply_rotation(&GateParam::Symbolic(i), Complex64::new(0.0, 1.0));
+        let branch = c.apply_rotation(&GateParam::symbolic(i), Complex64::new(0.0, 1.0));
         c.add_assign(branch);
     }
     c
@@ -162,7 +162,7 @@ fn bench_apply_rotation_by_size(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(1u64 << steps), &steps, |bench, &steps| {
             bench.iter_batched(
                 || grown_coeff(steps),
-                |mut coeff| black_box(coeff.apply_rotation(black_box(&GateParam::Symbolic(steps)), Complex64::new(0.0, 1.0))),
+                |mut coeff| black_box(coeff.apply_rotation(black_box(&GateParam::symbolic(steps)), Complex64::new(0.0, 1.0))),
                 BatchSize::LargeInput,
             )
         });
@@ -291,7 +291,7 @@ fn bench_flush_and_retain(c: &mut Criterion) {
                 let mut rng = Xorshift64(0x1234);
                 for i in 0..10u32 {
                     let gen = broad_generator(&mut rng, N_QUBITS);
-                    prop.apply_gate_inplace(&gen, GateParam::Symbolic(i));
+                    prop.apply_gate_inplace(&gen, GateParam::symbolic(i));
                 }
                 prop.flush_outboxes_to_maps();
                 prop

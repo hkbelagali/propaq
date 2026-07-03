@@ -587,32 +587,36 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
             thread_maps
                 .par_iter_mut()
                 .map(|map| {
-                    let (discarded, size) = map
+                    // Apply `f` per entry with nested per-entry parallelism
+                    // (skew-safe: one giant coefficient can't stall its whole
+                    // partition), tallying kept `size_hint` and how many
+                    // entries fail `keep`.
+                    let (size, n_discard) = map
                         .par_iter_mut()
                         .fold(
-                            || (Vec::new(), 0usize),
-                            |(mut discarded, mut size), (t, c)| {
+                            || (0usize, 0usize),
+                            |(mut size, mut n_discard), (t, c)| {
                                 f(t, c);
                                 if keep(t, c) {
                                     size += c.size_hint();
                                 } else {
-                                    discarded.push(t.clone());
+                                    n_discard += 1;
                                 }
-                                (discarded, size)
+                                (size, n_discard)
                             },
                         )
-                        .reduce(
-                            || (Vec::new(), 0usize),
-                            |(mut d1, s1), (mut d2, s2)| {
-                                if d1.len() < d2.len() {
-                                    std::mem::swap(&mut d1, &mut d2);
-                                }
-                                d1.extend(d2);
-                                (d1, s1 + s2)
-                            },
-                        );
-                    for key in &discarded {
-                        map.remove(key);
+                        .reduce(|| (0usize, 0usize), |(s1, d1), (s2, d2)| (s1 + s2, d1 + d2));
+                    // Only restructure the map when something actually failed
+                    // `keep` — the common dedup-only flush discards nothing and
+                    // skips this entirely. A single in-place `retain` re-checks
+                    // the cheap `keep` predicate and compacts, replacing the old
+                    // "clone every discarded key, then `remove` each (a fresh
+                    // hash+probe+erase per key)" with one pass, no key clones.
+                    // The extra O(len) `keep` scan is dominated by the O(len ×
+                    // coeff-size) `f` pass just above, so it costs nothing next
+                    // to it; `keep` itself is O(1) so this introduces no skew.
+                    if n_discard > 0 {
+                        map.retain(|t, c| keep(t, c));
                     }
                     size
                 })
