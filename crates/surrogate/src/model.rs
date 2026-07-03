@@ -11,7 +11,7 @@ use propaq_core::traits::AbstractTerm;
 use propaq_pauli::string::PauliString;
 use propaq_majorana::monomial::MajoranaMonomial;
 
-use crate::symcoeff::{MonomialUnit, SymbolicCoeff};
+use crate::symcoeff::SymbolicCoeff;
 
 /// A single compiled term: a Pauli/Majorana string with its structural overlap and
 /// symbolic coefficient that maps parameter angles to a numerical contribution.
@@ -30,11 +30,17 @@ pub struct SurrogateTerm<M: AbstractTerm> {
 pub struct SurrogateModel<M: AbstractTerm> {
     pub terms: Vec<SurrogateTerm<M>>,
     pub n_params: usize,
+    /// Maps each gate index (a monomial mask's bit-pair position, in
+    /// propagation order) to the parameter index behind that gate. Length is
+    /// the circuit's gate count `m`. Numeric gates hold a sentinel
+    /// (`u32::MAX`) — their positions are never set in any mask, so the
+    /// sentinel is never read.
+    pub gate_to_param: Vec<u32>,
 }
 
 impl<M: AbstractTerm> SurrogateModel<M> {
-    pub fn new(terms: Vec<SurrogateTerm<M>>, n_params: usize) -> Self {
-        SurrogateModel { terms, n_params }
+    pub fn new(terms: Vec<SurrogateTerm<M>>, n_params: usize, gate_to_param: Vec<u32>) -> Self {
+        SurrogateModel { terms, n_params, gate_to_param }
     }
 
     /// Evaluate the expectation value for the given parameter angles.
@@ -45,7 +51,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let lut = Self::make_lut(params);
         self.terms
             .par_iter()
-            .map(|t| t.overlap * t.coeff.evaluate(&lut))
+            .map(|t| t.overlap * t.coeff.evaluate(&lut, &self.gate_to_param))
             .sum()
     }
 
@@ -59,10 +65,9 @@ impl<M: AbstractTerm> SurrogateModel<M> {
     }
 
     /// Flat evaluation LUT indexed by `2 * param_index` (`cos(theta_i)`) /
-    /// `2 * param_index + 1` (`sin(theta_i)`). Unlike the old tally-mark
-    /// `TrigFactor` design (one direct gather per arena slot), a slot can now
-    /// hold `cos^a * sin^b`, so evaluation does up to two gathers plus a
-    /// `powi` per slot -- see `SymbolicCoeff::evaluate`.
+    /// `2 * param_index + 1` (`sin(theta_i)`). `SymbolicCoeff::evaluate` walks
+    /// each monomial's gate-indexed mask, resolves each branched gate to its
+    /// parameter via `gate_to_param`, and gathers the matching `cos`/`sin`.
     fn make_lut(params: &[f64]) -> Vec<f64> {
         params.iter().flat_map(|&t| [t.cos(), t.sin()]).collect()
     }
@@ -73,11 +78,11 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 
     /// Save to a gzip-compressed binary file.
     ///
-    /// Header (little-endian u64): n_params, n_terms, system_size, key_stride.
+    /// Header (little-endian u64): n_params, n_terms, system_size, key_stride,
+    /// n_gates. Then the `gate_to_param` table: `n_gates` u32le entries.
     /// Per term: key_bytes, overlap (f64le), n_monomials (u64le).
-    /// Per monomial: scalar (f64le), n_factors (u64le), factors (u64le each
-    /// -- one packed `MonomialUnit` per *distinct parameter*, not per
-    /// occurrence).
+    /// Per monomial: scalar (f64le), n_words (u64le), mask words (u64le each --
+    /// the gate-indexed branch mask, 2 bits per gate in propagation order).
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let file = OpenOptions::new()
             .create(true).write(true).truncate(true)
@@ -92,17 +97,21 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         enc.write_all(&(self.terms.len() as u64).to_le_bytes())?;
         enc.write_all(&system_size.to_le_bytes())?;
         enc.write_all(&key_stride.to_le_bytes())?;
+        enc.write_all(&(self.gate_to_param.len() as u64).to_le_bytes())?;
+        for &p in &self.gate_to_param {
+            enc.write_all(&p.to_le_bytes())?;
+        }
 
         for st in &self.terms {
             enc.write_all(&st.term.to_bytes_vec())?;
             enc.write_all(&st.overlap.to_le_bytes())?;
             let n_mono = st.coeff.monomial_count() as u64;
             enc.write_all(&n_mono.to_le_bytes())?;
-            for (scalar, factors) in st.coeff.iter_monomials() {
+            for (scalar, mask) in st.coeff.iter_monomials() {
                 enc.write_all(&scalar.to_le_bytes())?;
-                enc.write_all(&(factors.len() as u64).to_le_bytes())?;
-                for f in factors {
-                    enc.write_all(&f.raw().to_le_bytes())?;
+                enc.write_all(&(mask.len() as u64).to_le_bytes())?;
+                for word in mask {
+                    enc.write_all(&word.to_le_bytes())?;
                 }
             }
         }
@@ -117,11 +126,18 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let mut dec = BufReader::new(GzDecoder::new(file));
 
         let mut u64_buf = [0u8; 8];
+        let mut u32_buf = [0u8; 4];
 
         macro_rules! read_u64 {
             () => {{
                 dec.read_exact(&mut u64_buf)?;
                 u64::from_le_bytes(u64_buf)
+            }};
+        }
+        macro_rules! read_u32 {
+            () => {{
+                dec.read_exact(&mut u32_buf)?;
+                u32::from_le_bytes(u32_buf)
             }};
         }
         macro_rules! read_f64 {
@@ -135,12 +151,17 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let n_terms  = read_u64!() as usize;
         let system_size = read_u64!();
         let key_stride  = read_u64!() as usize;
+        let n_gates = read_u64!() as usize;
+        let mut gate_to_param = Vec::with_capacity(n_gates);
+        for _ in 0..n_gates {
+            gate_to_param.push(read_u32!());
+        }
 
         let mut key_buf = vec![0u8; key_stride];
         let mut terms = Vec::with_capacity(n_terms);
-        // Reused across monomials: one factor-run staging buffer for the
-        // whole load instead of an allocation per monomial.
-        let mut run: Vec<MonomialUnit> = Vec::new();
+        // Reused across monomials: one mask-run staging buffer for the whole
+        // load instead of an allocation per monomial.
+        let mut run: Vec<u64> = Vec::new();
 
         for _ in 0..n_terms {
             dec.read_exact(&mut key_buf)?;
@@ -151,17 +172,17 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             coeff.reserve(n_mono, 0);
             for _ in 0..n_mono {
                 let scalar = read_f64!();
-                let n_factors = read_u64!() as usize;
+                let n_words = read_u64!() as usize;
                 run.clear();
-                for _ in 0..n_factors {
-                    run.push(MonomialUnit::from_raw(read_u64!()));
+                for _ in 0..n_words {
+                    run.push(read_u64!());
                 }
                 coeff.push_monomial(scalar, &run);
             }
             terms.push(SurrogateTerm { term, overlap, coeff });
         }
 
-        Ok(SurrogateModel { terms, n_params })
+        Ok(SurrogateModel { terms, n_params, gate_to_param })
     }
 }
 
