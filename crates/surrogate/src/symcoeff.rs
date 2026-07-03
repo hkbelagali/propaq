@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use num_complex::Complex64;
@@ -69,6 +70,47 @@ impl TrigFactor {
 struct MonoHead {
     scalar: f64,
     end: u64,
+}
+
+/// Per-thread free-list of previously-live `(heads, factors)` buffer pairs,
+/// recycled by `apply_rotation`'s sin branch and `deduplicate`'s rebuild
+/// instead of round-tripping through the global allocator — both are the
+/// hottest per-gate/per-flush allocation sites for `SymbolicCoeff`. Scoped
+/// per OS thread (not passed explicitly) so this needs no change to
+/// `CoeffRepr` or any caller: `AbstractPropagator`'s worker threads are
+/// long-lived for a whole `build()` run, so buffers recycle across many
+/// gates/flushes on the same thread.
+///
+/// Only fed by `deduplicate`'s old-buffer replacement (the other natural
+/// source — a whole coefficient being dropped by truncation's `retain` — has
+/// no hook to intercept without a `Drop` impl, which risks the well-known
+/// thread-local-during-shutdown footgun; not worth it for a pool that's
+/// already fed by the common case). Capped so a burst of large coefficients
+/// doesn't pin oversized capacity in idle pooled buffers indefinitely.
+const BUFFER_POOL_CAP: usize = 64;
+
+thread_local! {
+    static COEFF_BUFFER_POOL: RefCell<Vec<(Vec<MonoHead>, Vec<TrigFactor>)>> =
+        RefCell::new(Vec::new());
+}
+
+/// Check out a buffer pair from this thread's pool, or a fresh empty pair if
+/// none is available. Callers must `reserve` as needed before use.
+fn take_pooled_buffers() -> (Vec<MonoHead>, Vec<TrigFactor>) {
+    COEFF_BUFFER_POOL.with(|pool| pool.borrow_mut().pop()).unwrap_or_default()
+}
+
+/// Return a no-longer-needed buffer pair to this thread's pool for reuse, or
+/// drop it normally if the pool is already at capacity.
+fn return_pooled_buffers(mut heads: Vec<MonoHead>, mut factors: Vec<TrigFactor>) {
+    heads.clear();
+    factors.clear();
+    COEFF_BUFFER_POOL.with(|pool| {
+        let mut pool = pool.borrow_mut();
+        if pool.len() < BUFFER_POOL_CAP {
+            pool.push((heads, factors));
+        }
+    });
 }
 
 /// A sum of monomials `scalar * product(trig factors)`: a symbolic
@@ -223,8 +265,9 @@ impl SymbolicCoeff {
             let mut order: Vec<u32> = (0..self.heads.len() as u32).collect();
             order.sort_unstable_by(|&a, &b| self.factor_run(a as usize).cmp(self.factor_run(b as usize)));
 
-            let mut heads: Vec<MonoHead> = Vec::with_capacity(self.heads.len());
-            let mut factors: Vec<TrigFactor> = Vec::with_capacity(self.factors.len());
+            let (mut heads, mut factors) = take_pooled_buffers();
+            heads.reserve(self.heads.len());
+            factors.reserve(self.factors.len());
             let mut i = 0usize;
             while i < order.len() {
                 let run = self.factor_run(order[i] as usize);
@@ -240,8 +283,9 @@ impl SymbolicCoeff {
                 }
                 i = j;
             }
-            self.heads = heads;
-            self.factors = factors;
+            let old_heads = std::mem::replace(&mut self.heads, heads);
+            let old_factors = std::mem::replace(&mut self.factors, factors);
+            return_pooled_buffers(old_heads, old_factors);
             return;
         }
 
@@ -253,16 +297,18 @@ impl SymbolicCoeff {
             *acc.entry(&self.factors[start..end]).or_insert(0.0) += h.scalar;
             start = end;
         }
-        let mut heads: Vec<MonoHead> = Vec::with_capacity(acc.len());
-        let mut factors: Vec<TrigFactor> = Vec::with_capacity(self.factors.len());
+        let (mut heads, mut factors) = take_pooled_buffers();
+        heads.reserve(acc.len());
+        factors.reserve(self.factors.len());
         for (run, scalar) in acc {
             if scalar.abs() > 1e-15 {
                 factors.extend_from_slice(run);
                 heads.push(MonoHead { scalar, end: factors.len() as u64 });
             }
         }
-        self.heads = heads;
-        self.factors = factors;
+        let old_heads = std::mem::replace(&mut self.heads, heads);
+        let old_factors = std::mem::replace(&mut self.factors, factors);
+        return_pooled_buffers(old_heads, old_factors);
     }
 
     /// Evaluate against a flat lookup table indexed by the packed factor
@@ -439,9 +485,12 @@ impl CoeffRepr for SymbolicCoeff {
         let sin_factor = TrigFactor::sin(*idx);
         let n = self.heads.len();
 
-        // Sin branch first, while the arena is still un-shifted.
-        let mut sin_factors: Vec<TrigFactor> = Vec::with_capacity(self.factors.len() + n);
-        let mut sin_heads: Vec<MonoHead> = Vec::with_capacity(n);
+        // Sin branch first, while the arena is still un-shifted. Buffers
+        // come from this thread's pool instead of a fresh allocation — see
+        // `take_pooled_buffers`.
+        let (mut sin_heads, mut sin_factors) = take_pooled_buffers();
+        sin_heads.reserve(n);
+        sin_factors.reserve(self.factors.len() + n);
         let mut start = 0usize;
         for head in &self.heads {
             let end = head.end as usize;
