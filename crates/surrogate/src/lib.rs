@@ -4,6 +4,9 @@ pub mod model;
 pub mod propagator;
 
 pub use symcoeff::{GateParam, SymbolicCoeff};
-pub use truncation::FrequencyTruncationPolicy;
+pub use truncation::{
+    CoefficientTruncator, FlushSchedule, FrequencyTruncationPolicy, FrequencyTruncator,
+    MonomialBudget, Truncator, WeightTruncator,
+};
 pub use model::{SurrogateModel, PauliSurrogateModel, MajoranaSurrogateModel};
 pub use propagator::{PauliSurrogatePropagator, MajoranaSurrogatePropagator};

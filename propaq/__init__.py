@@ -155,6 +155,21 @@ from .models import (
 from .noise import (
     FrequencyTruncationPolicy as FrequencyTruncationPolicy,
 )
+from .noise import (
+    FlushSchedule as FlushSchedule,
+)
+from .noise import (
+    FrequencyTruncator as FrequencyTruncator,
+)
+from .noise import (
+    CoefficientTruncator as CoefficientTruncator,
+)
+from .noise import (
+    WeightTruncator as WeightTruncator,
+)
+from .noise import (
+    MonomialBudget as MonomialBudget,
+)
 from .propagators import (
     MajoranaPropagator as MajoranaPropagator,
 )

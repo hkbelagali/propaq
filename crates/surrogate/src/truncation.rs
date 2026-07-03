@@ -134,3 +134,214 @@ impl FrequencyTruncationPolicy {
         )
     }
 }
+
+impl FrequencyTruncationPolicy {
+    /// Decompose the legacy all-in-one policy into the new `(FlushSchedule,
+    /// [Truncator])` shape: scheduling knobs (term/monomial/merge triggers and
+    /// the lossy `min_terms` gate) go to the schedule, and each configured cutoff
+    /// becomes its own operator. Lets existing `FrequencyTruncationPolicy` calls
+    /// keep working while the propagator runs the composable pipeline internally.
+    pub fn decompose(&self) -> (FlushSchedule, Vec<Truncator>) {
+        let schedule = FlushSchedule {
+            max_terms: self.truncation_range.1,
+            min_terms: self.truncation_range.0,
+            max_monomials: self.monomial_range.1,
+            merge_max_terms: self.merge_max_terms,
+        };
+        let mut ops = Vec::new();
+        if let Some(max_frequency) = self.max_frequency {
+            ops.push(Truncator::Frequency(FrequencyTruncator { max_frequency }));
+        }
+        if let Some(weight_cutoff) = self.weight_cutoff {
+            ops.push(Truncator::Weight(WeightTruncator { weight_cutoff }));
+        }
+        if let (Some(min_monomials), Some(max_monomials)) = self.monomial_range {
+            ops.push(Truncator::MonomialBudget(MonomialBudget { min_monomials, max_monomials }));
+        }
+        (schedule, ops)
+    }
+}
+
+/// When to flush (transpose outboxes → maps and run the truncator pipeline) and
+/// when to do the finer lossless merge — the *scheduling* half of truncation,
+/// orthogonal to *what* gets removed (that is the `[Truncator]` list).
+///
+/// - `max_terms` / `max_monomials`: a flush+truncate fires once the live count
+///   (plus pending) reaches either ceiling. `None` disables that trigger.
+/// - `merge_max_terms`: finer lossless merge cadence (see the legacy policy docs
+///   and `DEFAULT_MERGE_MAX_TERMS`). `None` disables it.
+/// - `min_terms`: below this many live terms, a flush runs only the lossless
+///   dedup and skips the lossy operators (frequency/weight/coefficient). The
+///   monomial-budget operator is *not* gated by it — a monomial explosion with
+///   few terms still needs to be cut.
+#[pyclass(module = "propaq._rust_core")]
+#[derive(Clone)]
+pub struct FlushSchedule {
+    #[pyo3(get, set)]
+    pub max_terms: Option<usize>,
+    #[pyo3(get, set)]
+    pub max_monomials: Option<usize>,
+    #[pyo3(get, set)]
+    pub merge_max_terms: Option<usize>,
+    #[pyo3(get, set)]
+    pub min_terms: Option<usize>,
+}
+
+#[pymethods]
+impl FlushSchedule {
+    #[new]
+    #[pyo3(signature = (max_terms=None, max_monomials=None, merge_max_terms=None, min_terms=None))]
+    pub fn new(
+        max_terms: Option<usize>,
+        max_monomials: Option<usize>,
+        merge_max_terms: Option<usize>,
+        min_terms: Option<usize>,
+    ) -> Self {
+        FlushSchedule {
+            max_terms: max_terms.or(Some(DEFAULT_MAX_TERMS)),
+            max_monomials: max_monomials.or(Some(DEFAULT_MAX_MONOMIALS)),
+            merge_max_terms: merge_max_terms.or(Some(DEFAULT_MERGE_MAX_TERMS)),
+            min_terms,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        let f = |v: Option<usize>| v.map_or_else(|| "None".to_string(), |x| x.to_string());
+        format!(
+            "FlushSchedule(max_terms={}, max_monomials={}, merge_max_terms={}, min_terms={})",
+            f(self.max_terms), f(self.max_monomials), f(self.merge_max_terms), f(self.min_terms),
+        )
+    }
+}
+
+impl FlushSchedule {
+    /// A schedule with every trigger disabled — the "no scheduled flushing"
+    /// baseline used when neither a schedule nor any truncator is supplied
+    /// (propagation then flushes only once, at the end).
+    pub fn none() -> Self {
+        FlushSchedule { max_terms: None, max_monomials: None, merge_max_terms: None, min_terms: None }
+    }
+}
+
+impl Default for FlushSchedule {
+    fn default() -> Self {
+        FlushSchedule::new(None, None, None, None)
+    }
+}
+
+/// Drop monomials whose symbolic branch count (frequency) exceeds
+/// `max_frequency`. A monomial with `l` trig factors has expected squared
+/// magnitude `(1/2)^l` over uniform random angles, so this bounds the
+/// approximation order. Targets the *symbolic* side of the propagation.
+#[pyclass(module = "propaq._rust_core")]
+#[derive(Clone)]
+pub struct FrequencyTruncator {
+    #[pyo3(get, set)]
+    pub max_frequency: usize,
+}
+
+#[pymethods]
+impl FrequencyTruncator {
+    #[new]
+    pub fn new(max_frequency: usize) -> Self {
+        FrequencyTruncator { max_frequency }
+    }
+    fn __repr__(&self) -> String {
+        format!("FrequencyTruncator(max_frequency={})", self.max_frequency)
+    }
+}
+
+/// Drop monomials whose (post-merge) scalar prefactor has magnitude below
+/// `min_abs_scalar`. Because the symbolic trig product is bounded by 1 in
+/// magnitude, `|scalar|` upper-bounds a monomial's contribution for *any*
+/// parameter assignment, so this is a valid small-coefficient truncation.
+/// Targets the *numerical* side — e.g. the shrinking prefactors left by
+/// small-angle numeric-baked gates. Applied after dedup, so it sees merged
+/// (possibly cancelled) scalars.
+#[pyclass(module = "propaq._rust_core")]
+#[derive(Clone)]
+pub struct CoefficientTruncator {
+    #[pyo3(get, set)]
+    pub min_abs_scalar: f64,
+}
+
+#[pymethods]
+impl CoefficientTruncator {
+    #[new]
+    pub fn new(min_abs_scalar: f64) -> Self {
+        CoefficientTruncator { min_abs_scalar }
+    }
+    fn __repr__(&self) -> String {
+        format!("CoefficientTruncator(min_abs_scalar={})", self.min_abs_scalar)
+    }
+}
+
+/// Drop whole Pauli/Majorana terms whose operator weight exceeds
+/// `weight_cutoff` (mirrors the numerical propagator's weight cutoff).
+#[pyclass(module = "propaq._rust_core")]
+#[derive(Clone)]
+pub struct WeightTruncator {
+    #[pyo3(get, set)]
+    pub weight_cutoff: u32,
+}
+
+#[pymethods]
+impl WeightTruncator {
+    #[new]
+    pub fn new(weight_cutoff: u32) -> Self {
+        WeightTruncator { weight_cutoff }
+    }
+    fn __repr__(&self) -> String {
+        format!("WeightTruncator(weight_cutoff={})", self.weight_cutoff)
+    }
+}
+
+/// Importance-ranked monomial budget: once the live monomial count exceeds
+/// `max_monomials`, remove monomials by rank `(frequency desc, |scalar| asc)`
+/// down to `max_monomials`. `min_monomials` is only a floor guarding against a
+/// single oversized top bucket overshooting. This is the surrogate's memory
+/// backstop; unlike the other operators it rebalances globally across terms.
+#[pyclass(module = "propaq._rust_core")]
+#[derive(Clone)]
+pub struct MonomialBudget {
+    #[pyo3(get, set)]
+    pub min_monomials: usize,
+    #[pyo3(get, set)]
+    pub max_monomials: usize,
+}
+
+#[pymethods]
+impl MonomialBudget {
+    #[new]
+    #[pyo3(signature = (max_monomials=DEFAULT_MAX_MONOMIALS, min_monomials=DEFAULT_MIN_MONOMIALS))]
+    pub fn new(max_monomials: usize, min_monomials: usize) -> Self {
+        MonomialBudget { min_monomials, max_monomials }
+    }
+    fn __repr__(&self) -> String {
+        format!("MonomialBudget(min_monomials={}, max_monomials={})", self.min_monomials, self.max_monomials)
+    }
+}
+
+/// One entry in a truncation pipeline. Extracted from a Python list of the
+/// individual truncator objects (`FromPyObject` tries each variant in turn).
+#[derive(Clone, FromPyObject)]
+pub enum Truncator {
+    Frequency(FrequencyTruncator),
+    Coefficient(CoefficientTruncator),
+    Weight(WeightTruncator),
+    MonomialBudget(MonomialBudget),
+}
+
+impl Truncator {
+    /// Re-materialize this operator as its Python truncator object (for the
+    /// propagator's `truncators` getter).
+    pub fn to_object(&self, py: Python<'_>) -> PyResult<PyObject> {
+        use pyo3::IntoPyObjectExt;
+        match self {
+            Truncator::Frequency(t) => t.clone().into_py_any(py),
+            Truncator::Coefficient(t) => t.clone().into_py_any(py),
+            Truncator::Weight(t) => t.clone().into_py_any(py),
+            Truncator::MonomialBudget(t) => t.clone().into_py_any(py),
+        }
+    }
+}

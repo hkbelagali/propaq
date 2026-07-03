@@ -8,8 +8,46 @@ use propaq_core::propagator::AbstractPropagator;
 use propaq_core::traits::AbstractTerm;
 
 use crate::symcoeff::{GateParam, SymbolicCoeff};
-use crate::truncation::FrequencyTruncationPolicy;
+use crate::truncation::{
+    CoefficientTruncator, FlushSchedule, FrequencyTruncationPolicy, FrequencyTruncator,
+    MonomialBudget, Truncator, WeightTruncator,
+};
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
+
+/// Resolve the flexible `truncation` constructor argument (which may be a legacy
+/// `FrequencyTruncationPolicy`, a Python list of individual truncators, a single
+/// truncator, or `None`) together with an optional explicit `schedule` into the
+/// internal `(FlushSchedule, [Truncator])` pair the propagator runs.
+///
+/// - a legacy `FrequencyTruncationPolicy` decomposes into a schedule + operators
+///   (an explicit `schedule` argument, if any, overrides the decomposed one);
+/// - a list/single truncator uses the explicit `schedule` or the standard
+///   defaults;
+/// - `None` truncation with no schedule means "flush only at the end" (all
+///   triggers off), matching the old `truncation=None` behavior.
+fn resolve_truncation(
+    truncation: Option<&Bound<'_, PyAny>>,
+    schedule: Option<FlushSchedule>,
+) -> PyResult<(FlushSchedule, Vec<Truncator>)> {
+    let Some(obj) = truncation else {
+        return Ok((schedule.unwrap_or_else(FlushSchedule::none), Vec::new()));
+    };
+    if let Ok(legacy) = obj.extract::<PyRef<FrequencyTruncationPolicy>>() {
+        let (decomposed, ops) = legacy.decompose();
+        return Ok((schedule.unwrap_or(decomposed), ops));
+    }
+    if let Ok(ops) = obj.extract::<Vec<Truncator>>() {
+        return Ok((schedule.unwrap_or_default(), ops));
+    }
+    if let Ok(one) = obj.extract::<Truncator>() {
+        return Ok((schedule.unwrap_or_default(), vec![one]));
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "truncation must be a FrequencyTruncationPolicy, a truncator \
+         (FrequencyTruncator/CoefficientTruncator/WeightTruncator/MonomialBudget), \
+         a list of truncators, or None",
+    ))
+}
 
 /// Generic surrogate propagator wrapping `AbstractPropagator<M, SymbolicCoeff>`.
 ///
@@ -17,7 +55,11 @@ use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaS
 /// `AbstractPropagator` is a foreign type; instead we wrap and delegate.
 pub struct SurrogatePropagator<M: AbstractTerm> {
     pub inner: AbstractPropagator<M, SymbolicCoeff>,
-    pub truncation: Option<FrequencyTruncationPolicy>,
+    /// Flush/merge cadence (when to truncate), separate from the operators.
+    pub schedule: FlushSchedule,
+    /// The truncation pipeline: operators applied (after the always-on dedup)
+    /// at every flush, in list order.
+    pub truncators: Vec<Truncator>,
     verbose_log: Option<BufWriter<std::fs::File>>,
     log_filename: Option<String>,
     log_every: usize,
@@ -32,7 +74,8 @@ pub struct SurrogatePropagator<M: AbstractTerm> {
 
 impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
     pub fn new(
-        truncation: Option<FrequencyTruncationPolicy>,
+        schedule: FlushSchedule,
+        truncators: Vec<Truncator>,
         n_threads: Option<usize>,
         progress_bar: bool,
         logger: Option<PyObject>,
@@ -49,7 +92,8 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         let inner = AbstractPropagator::new(None, None, n_threads, progress_bar, logger)?;
         Ok(SurrogatePropagator {
             inner,
-            truncation,
+            schedule,
+            truncators,
             verbose_log: None,
             log_filename,
             log_every,
@@ -91,7 +135,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             0
         };
 
-        let outcome = apply_truncation_policy(&mut self.inner, self.truncation.as_ref());
+        let outcome = apply_truncation_policy(&mut self.inner, &self.schedule, &self.truncators);
         self.total_monomials = outcome.monomials_after;
 
         if self.verbose_log.is_some() {
@@ -102,6 +146,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             };
             let mf_str = outcome.max_frequency.map_or_else(|| "null".to_string(), |v| v.to_string());
             let wc_str = outcome.weight_cutoff.map_or_else(|| "null".to_string(), |v| v.to_string());
+            let mas_str = outcome.min_abs_scalar.map_or_else(|| "null".to_string(), |v| format!("{v:.3e}"));
             let terms_discarded = outcome.total_before - outcome.total_after;
             let monomials_discarded = monomials_before - outcome.monomials_after;
             let (total_before, total_after, monomials_after) =
@@ -109,7 +154,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             if let Some(ref mut log) = self.verbose_log {
                 let _ = writeln!(
                     log,
-                    r#"{{"event":"surrogate_flush","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{terms_discarded},"monomials_before":{monomials_before},"monomials_after":{monomials_after},"monomials_discarded":{monomials_discarded},"max_frequency":{mf_str},"weight_cutoff":{wc_str},"elapsed_ms":{elapsed_ms:.3e}}}"#
+                    r#"{{"event":"surrogate_flush","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{terms_discarded},"monomials_before":{monomials_before},"monomials_after":{monomials_after},"monomials_discarded":{monomials_discarded},"max_frequency":{mf_str},"weight_cutoff":{wc_str},"min_abs_scalar":{mas_str},"elapsed_ms":{elapsed_ms:.3e}}}"#
                 );
             }
         }
@@ -134,18 +179,20 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         // Look-ahead frequency-pruning cap for symbolic rotations. Skipping a
         // doomed sin-branch monomial at generation time is exactly equivalent
         // to trimming it at the next flush only when *every* flush applies
-        // `max_frequency` — i.e. when the truncation range's lower bound
-        // (`min_terms`) is 0/None, so `apply_lossy` in `apply_truncation_policy`
-        // is always true. With a nonzero `min_terms`, trimming is deferred
-        // until the term count is high, so eager pruning could diverge; fall
-        // back to `None` (no look-ahead) there and let the flush path decide.
-        let prune_freq: Option<u32> = self.truncation.as_ref().and_then(|p| {
-            if p.truncation_range.0.unwrap_or(0) == 0 {
-                p.max_frequency.map(|mf| mf as u32)
-            } else {
-                None
-            }
-        });
+        // `max_frequency` — i.e. when the schedule's `min_terms` gate is 0/None,
+        // so `apply_lossy` in `apply_truncation_policy` is always true. With a
+        // nonzero `min_terms`, trimming is deferred until the term count is high,
+        // so eager pruning could diverge; fall back to `None` (no look-ahead)
+        // there and let the flush path decide. Requires a `FrequencyTruncator` in
+        // the pipeline to supply the cap.
+        let prune_freq: Option<u32> = if self.schedule.min_terms.unwrap_or(0) == 0 {
+            self.truncators.iter().find_map(|t| match t {
+                Truncator::Frequency(f) => Some(f.max_frequency as u32),
+                _ => None,
+            })
+        } else {
+            None
+        };
 
         // Extract circuit data from Python: each rotation is either
         // symbolic (`param_index`) or numeric (`angle`) — see `GateParam`.
@@ -213,12 +260,12 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
 
         self.inner.initialize_from(evolved);
 
-        let max_terms: Option<usize> = self.truncation.as_ref().and_then(|p| p.truncation_range.1);
-        let max_monomials: Option<usize> = self.truncation.as_ref().and_then(|p| p.monomial_range.1);
+        let max_terms: Option<usize> = self.schedule.max_terms;
+        let max_monomials: Option<usize> = self.schedule.max_monomials;
         // Finer, lossless merge cadence (decoupled from truncation): collapse
         // duplicate Pauli strings out of the outboxes once this many terms
-        // accumulate, without truncating. Default-on.
-        let merge_max_terms: Option<usize> = self.truncation.as_ref().and_then(|p| p.merge_max_terms);
+        // accumulate, without truncating. Default-on via the schedule.
+        let merge_max_terms: Option<usize> = self.schedule.merge_max_terms;
 
         let mut gate_idx: usize = 0;
         let mut pending: usize = 0;
@@ -355,6 +402,41 @@ pub struct TruncationOutcome {
     pub monomials_after: usize,
     pub max_frequency: Option<usize>,
     pub weight_cutoff: Option<u32>,
+    pub min_abs_scalar: Option<f64>,
+}
+
+/// The distinct truncation operations resolved from a pipeline. The list is
+/// collapsed into at-most-one of each kind (last occurrence wins) — the pure
+/// filters commute, so order among them is immaterial, and the monomial budget
+/// is always applied last regardless of position since it must rebalance the
+/// post-filter state.
+#[derive(Default)]
+struct ResolvedOps {
+    max_frequency: Option<usize>,
+    weight_cutoff: Option<u32>,
+    min_abs_scalar: Option<f64>,
+    monomial_budget: Option<(usize, usize)>,
+}
+
+fn resolve_ops(truncators: &[Truncator]) -> ResolvedOps {
+    let mut r = ResolvedOps::default();
+    for t in truncators {
+        match t {
+            Truncator::Frequency(FrequencyTruncator { max_frequency }) => {
+                r.max_frequency = Some(*max_frequency);
+            }
+            Truncator::Coefficient(CoefficientTruncator { min_abs_scalar }) => {
+                r.min_abs_scalar = Some(*min_abs_scalar);
+            }
+            Truncator::Weight(WeightTruncator { weight_cutoff }) => {
+                r.weight_cutoff = Some(*weight_cutoff);
+            }
+            Truncator::MonomialBudget(MonomialBudget { min_monomials, max_monomials }) => {
+                r.monomial_budget = Some((*min_monomials, *max_monomials));
+            }
+        }
+    }
+    r
 }
 
 /// Apply `policy`'s truncation rules to `propagator`'s current live state.
@@ -451,39 +533,57 @@ fn boundary_from_histogram(hist: &[u64], budget: usize) -> (usize, usize) {
     (0, 0)
 }
 
+/// Run the truncation pipeline against `propagator`'s current live state (the
+/// caller must have flushed outboxes into maps first). Order of operations:
+///
+/// 1. A single fused per-coefficient pass: optional `max_frequency` trim, the
+///    always-on lossless dedup (merge identical monomials, drop exact zeros),
+///    then the optional `min_abs_scalar` coefficient trim (run *after* dedup so
+///    it sees merged scalars); plus a per-term `weight_cutoff` retain. These
+///    lossy operators are gated by the schedule's `min_terms` — below it, only
+///    dedup runs.
+/// 2. If a `MonomialBudget` operator is present and the live monomial count
+///    still exceeds its `max`, an importance-ranked removal keyed by
+///    `(frequency desc, |scalar| asc)` down to `max`. Not gated by `min_terms`:
+///    a monomial explosion with few terms still needs cutting.
+///
+/// Standalone (not inlined into `flush_and_maybe_truncate`) so tooling that
+/// drives an `AbstractPropagator` directly (e.g. `bin/cluster_bench`) reuses the
+/// exact same flush behavior instead of a hand-rolled copy that could drift.
 pub fn apply_truncation_policy<M: AbstractTerm>(
     propagator: &mut AbstractPropagator<M, SymbolicCoeff>,
-    policy: Option<&FrequencyTruncationPolicy>,
+    schedule: &FlushSchedule,
+    truncators: &[Truncator],
 ) -> TruncationOutcome {
     let total_before = propagator.total_terms();
-
-    let (max_freq, weight_cutoff, min_terms) = match policy {
-        Some(tp) => (tp.max_frequency, tp.weight_cutoff, tp.truncation_range.0.unwrap_or(0)),
-        None => (None, None, 0),
-    };
-    let (monomial_min, monomial_max) = policy.map_or((None, None), |tp| tp.monomial_range);
+    let ops = resolve_ops(truncators);
+    let min_terms = schedule.min_terms.unwrap_or(0);
 
     // Deferred like the numerical propagator's TruncationPolicy: below
-    // min_terms, skip the lossy max_frequency/weight_cutoff filtering and
-    // only run the lossless dedup (merge identical monomials, drop zeros).
+    // min_terms, skip the lossy filters and only run the lossless dedup.
     let apply_lossy = total_before >= min_terms;
 
     let mut monomials_after = propagator.map_and_retain_coeffs_inplace(
         |_, c: &mut SymbolicCoeff| {
             if apply_lossy {
-                if let Some(mf) = max_freq {
+                if let Some(mf) = ops.max_frequency {
                     c.trim_high_frequency(mf);
                 }
             }
             c.deduplicate();
+            if apply_lossy {
+                if let Some(mas) = ops.min_abs_scalar {
+                    c.trim_small_scalars(mas);
+                }
+            }
         },
         |t: &M, c: &SymbolicCoeff| {
-            let weight_ok = !apply_lossy || weight_cutoff.map_or(true, |w| t.weight() <= w);
+            let weight_ok = !apply_lossy || ops.weight_cutoff.map_or(true, |w| t.weight() <= w);
             weight_ok && !c.is_empty()
         },
     );
 
-    if let (Some(min), Some(max)) = (monomial_min, monomial_max) {
+    if let Some((min, max)) = ops.monomial_budget {
         if monomials_after > max {
             let budget = monomial_removal_budget(monomials_after, min, max);
             if budget > 0 {
@@ -547,7 +647,14 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
     }
 
     let total_after = propagator.total_terms();
-    TruncationOutcome { total_before, total_after, monomials_after, max_frequency: max_freq, weight_cutoff }
+    TruncationOutcome {
+        total_before,
+        total_after,
+        monomials_after,
+        max_frequency: ops.max_frequency,
+        weight_cutoff: ops.weight_cutoff,
+        min_abs_scalar: ops.min_abs_scalar,
+    }
 }
 
 use propaq_pauli::string::PauliString;
@@ -559,7 +666,14 @@ use propaq_majorana::termsum::MajoranaTermSum;
 /// that can be re-evaluated for any parameter assignment.
 ///
 /// Arguments:
-///     truncation: Optional FrequencyTruncationPolicy (frequency + weight cutoffs).
+///     truncation: The truncation pipeline — a list of truncator objects
+///         (FrequencyTruncator, CoefficientTruncator, WeightTruncator,
+///         MonomialBudget) applied at each flush, a single such truncator, a
+///         legacy FrequencyTruncationPolicy (decomposed automatically), or None.
+///     schedule: Optional FlushSchedule controlling flush/merge cadence. Omitted
+///         → sensible defaults when any truncator is given, or "flush only at the
+///         end" when truncation is also None. A legacy policy supplies its own
+///         schedule unless one is passed explicitly here.
 ///     n_threads: Number of worker threads. Defaults to the system thread count.
 ///     progress_bar: Display a tqdm progress bar during propagation.
 ///     logger: Optional Logger for verbose JSON Lines event logging.
@@ -571,15 +685,17 @@ pub struct PauliSurrogatePropagator {
 #[pymethods]
 impl PauliSurrogatePropagator {
     #[new]
-    #[pyo3(signature = (truncation=None, n_threads=None, progress_bar=false, logger=None))]
+    #[pyo3(signature = (truncation=None, schedule=None, n_threads=None, progress_bar=false, logger=None))]
     fn new(
-        truncation: Option<FrequencyTruncationPolicy>,
+        truncation: Option<Bound<'_, PyAny>>,
+        schedule: Option<FlushSchedule>,
         n_threads: Option<usize>,
         progress_bar: bool,
         logger: Option<PyObject>,
     ) -> PyResult<Self> {
+        let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
         Ok(PauliSurrogatePropagator {
-            inner: SurrogatePropagator::new(truncation, n_threads, progress_bar, logger)?,
+            inner: SurrogatePropagator::new(schedule, truncators, n_threads, progress_bar, logger)?,
         })
     }
 
@@ -603,14 +719,32 @@ impl PauliSurrogatePropagator {
         Ok(PauliSurrogateModel { inner: model })
     }
 
+    /// The active truncation pipeline as a list of truncator objects.
     #[getter]
-    fn truncation(&self) -> Option<FrequencyTruncationPolicy> {
-        self.inner.truncation.clone()
+    fn truncators(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        self.inner.truncators.iter().map(|t| t.to_object(py)).collect()
     }
 
+    /// The flush/merge schedule.
+    #[getter]
+    fn schedule(&self) -> FlushSchedule {
+        self.inner.schedule.clone()
+    }
+
+    #[setter]
+    fn set_schedule(&mut self, schedule: FlushSchedule) {
+        self.inner.schedule = schedule;
+    }
+
+    /// Replace the truncation pipeline (accepts the same forms as the
+    /// constructor's `truncation`). The current schedule is preserved.
     #[pyo3(signature = (truncation=None))]
-    fn set_truncation(&mut self, truncation: Option<FrequencyTruncationPolicy>) {
-        self.inner.truncation = truncation;
+    fn set_truncation(&mut self, truncation: Option<Bound<'_, PyAny>>) -> PyResult<()> {
+        let (schedule, truncators) =
+            resolve_truncation(truncation.as_ref(), Some(self.inner.schedule.clone()))?;
+        self.inner.schedule = schedule;
+        self.inner.truncators = truncators;
+        Ok(())
     }
 }
 
@@ -623,15 +757,17 @@ pub struct MajoranaSurrogatePropagator {
 #[pymethods]
 impl MajoranaSurrogatePropagator {
     #[new]
-    #[pyo3(signature = (truncation=None, n_threads=None, progress_bar=false, logger=None))]
+    #[pyo3(signature = (truncation=None, schedule=None, n_threads=None, progress_bar=false, logger=None))]
     fn new(
-        truncation: Option<FrequencyTruncationPolicy>,
+        truncation: Option<Bound<'_, PyAny>>,
+        schedule: Option<FlushSchedule>,
         n_threads: Option<usize>,
         progress_bar: bool,
         logger: Option<PyObject>,
     ) -> PyResult<Self> {
+        let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
         Ok(MajoranaSurrogatePropagator {
-            inner: SurrogatePropagator::new(truncation, n_threads, progress_bar, logger)?,
+            inner: SurrogatePropagator::new(schedule, truncators, n_threads, progress_bar, logger)?,
         })
     }
 
@@ -649,14 +785,32 @@ impl MajoranaSurrogatePropagator {
         Ok(MajoranaSurrogateModel { inner: model })
     }
 
+    /// The active truncation pipeline as a list of truncator objects.
     #[getter]
-    fn truncation(&self) -> Option<FrequencyTruncationPolicy> {
-        self.inner.truncation.clone()
+    fn truncators(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        self.inner.truncators.iter().map(|t| t.to_object(py)).collect()
     }
 
+    /// The flush/merge schedule.
+    #[getter]
+    fn schedule(&self) -> FlushSchedule {
+        self.inner.schedule.clone()
+    }
+
+    #[setter]
+    fn set_schedule(&mut self, schedule: FlushSchedule) {
+        self.inner.schedule = schedule;
+    }
+
+    /// Replace the truncation pipeline (accepts the same forms as the
+    /// constructor's `truncation`). The current schedule is preserved.
     #[pyo3(signature = (truncation=None))]
-    fn set_truncation(&mut self, truncation: Option<FrequencyTruncationPolicy>) {
-        self.inner.truncation = truncation;
+    fn set_truncation(&mut self, truncation: Option<Bound<'_, PyAny>>) -> PyResult<()> {
+        let (schedule, truncators) =
+            resolve_truncation(truncation.as_ref(), Some(self.inner.schedule.clone()))?;
+        self.inner.schedule = schedule;
+        self.inner.truncators = truncators;
+        Ok(())
     }
 }
 

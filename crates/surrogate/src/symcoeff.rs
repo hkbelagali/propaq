@@ -341,6 +341,14 @@ impl SymbolicCoeff {
         self.compact(|freq_i, _| freq_i != freq);
     }
 
+    /// Drop monomials whose scalar prefactor is smaller in magnitude than
+    /// `min_abs`, compacting in place. Valid as a contribution bound because the
+    /// symbolic trig product is `<= 1` in magnitude (see `CoefficientTruncator`);
+    /// intended to run *after* `deduplicate` so it sees merged scalars.
+    pub fn trim_small_scalars(&mut self, min_abs: f64) {
+        self.compact(|_, scalar| scalar.abs() >= min_abs);
+    }
+
     /// In-place compaction keeping monomials for which `keep(frequency,
     /// scalar)` holds. Writes never overtake reads (removal only shrinks), so
     /// both buffers are rewritten in one forward pass with zero allocation.

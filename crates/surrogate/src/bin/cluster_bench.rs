@@ -48,7 +48,10 @@ use propaq_core::termsum::AbstractTermSum;
 use propaq_pauli::string::PauliString;
 use propaq_surrogate::propagator::apply_truncation_policy;
 use propaq_surrogate::symcoeff::{GateParam, SymbolicCoeff};
-use propaq_surrogate::truncation::FrequencyTruncationPolicy;
+use propaq_surrogate::truncation::{
+    CoefficientTruncator, FlushSchedule, FrequencyTruncator, MonomialBudget, Truncator,
+    WeightTruncator,
+};
 
 struct Xorshift64(u64);
 impl Xorshift64 {
@@ -129,6 +132,7 @@ struct Args {
     min_monomials: Option<usize>,
     max_monomials: Option<usize>,
     merge_max_terms: Option<usize>,
+    min_abs_scalar: Option<f64>,
     report_every: usize,
     rng_seed: u64,
 }
@@ -147,6 +151,7 @@ impl Default for Args {
             min_monomials: Some(5_000_000),
             max_monomials: Some(10_000_000),
             merge_max_terms: Some(2_000_000),
+            min_abs_scalar: None,
             report_every: 50,
             rng_seed: 0xC0FFEE,
         }
@@ -210,6 +215,13 @@ fn parse_args() -> Args {
             "--min-monomials" => args.min_monomials = parse_opt_usize(val),
             "--max-monomials" => args.max_monomials = parse_opt_usize(val),
             "--merge-max-terms" => args.merge_max_terms = parse_opt_usize(val),
+            "--min-abs-scalar" => {
+                args.min_abs_scalar = if val.eq_ignore_ascii_case("none") {
+                    None
+                } else {
+                    Some(val.parse().expect("--min-abs-scalar expects a float or 'none'"))
+                }
+            }
             "--report-every" => args.report_every = val.parse().expect("--report-every expects an integer"),
             "--rng-seed" => args.rng_seed = val.parse().expect("--rng-seed expects an integer"),
             other => panic!("unknown flag: {other} (see --help)"),
@@ -223,19 +235,32 @@ fn parse_args() -> Args {
 fn main() {
     let args = parse_args();
 
-    let policy = FrequencyTruncationPolicy {
-        max_frequency: args.max_frequency,
-        weight_cutoff: args.weight_cutoff,
-        truncation_range: (args.min_terms, args.max_terms),
-        monomial_range: (args.min_monomials, args.max_monomials),
+    let schedule = FlushSchedule {
+        max_terms: args.max_terms,
+        max_monomials: args.max_monomials,
         merge_max_terms: args.merge_max_terms,
+        min_terms: args.min_terms,
     };
+    let mut truncators: Vec<Truncator> = Vec::new();
+    if let Some(max_frequency) = args.max_frequency {
+        truncators.push(Truncator::Frequency(FrequencyTruncator { max_frequency }));
+    }
+    if let Some(weight_cutoff) = args.weight_cutoff {
+        truncators.push(Truncator::Weight(WeightTruncator { weight_cutoff }));
+    }
+    if let Some(min_abs_scalar) = args.min_abs_scalar {
+        truncators.push(Truncator::Coefficient(CoefficientTruncator { min_abs_scalar }));
+    }
+    if let (Some(min_monomials), Some(max_monomials)) = (args.min_monomials, args.max_monomials) {
+        truncators.push(Truncator::MonomialBudget(MonomialBudget { min_monomials, max_monomials }));
+    }
 
     eprintln!(
         "cluster_bench: qubits={} layers={} seed_terms={} threads={:?} max_frequency={:?} weight_cutoff={:?} \
-         truncation_range={:?} monomial_range={:?}",
+         min_abs_scalar={:?} truncation=({:?}, {:?}) monomial=({:?}, {:?}) merge_max_terms={:?}",
         args.n_qubits, args.n_layers, args.n_seed_terms, args.n_threads,
-        args.max_frequency, args.weight_cutoff, policy.truncation_range, policy.monomial_range,
+        args.max_frequency, args.weight_cutoff, args.min_abs_scalar,
+        args.min_terms, args.max_terms, args.min_monomials, args.max_monomials, args.merge_max_terms,
     );
 
     let mut propagator: AbstractPropagator<PauliString, SymbolicCoeff> =
@@ -297,7 +322,7 @@ fn main() {
                 let terms_before = propagator.total_terms();
 
                 let t1 = Instant::now();
-                let outcome = apply_truncation_policy(&mut propagator, Some(&policy));
+                let outcome = apply_truncation_policy(&mut propagator, &schedule, &truncators);
                 let truncate_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
                 let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -337,7 +362,7 @@ fn main() {
 
     // Final flush, mirroring the real propagator's end-of-run behavior.
     propagator.flush_outboxes_to_maps();
-    let outcome = apply_truncation_policy(&mut propagator, Some(&policy));
+    let outcome = apply_truncation_policy(&mut propagator, &schedule, &truncators);
     n_flushes += 1;
     peak_monomials = peak_monomials.max(outcome.monomials_after);
     if let Some(rss) = current_rss_kb() {
