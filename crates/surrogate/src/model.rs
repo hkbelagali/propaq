@@ -11,7 +11,7 @@ use propaq_core::traits::AbstractTerm;
 use propaq_pauli::string::PauliString;
 use propaq_majorana::monomial::MajoranaMonomial;
 
-use crate::symcoeff::{SymbolicCoeff, TrigFactor};
+use crate::symcoeff::{MonomialUnit, SymbolicCoeff};
 
 /// A single compiled term: a Pauli/Majorana string with its structural overlap and
 /// symbolic coefficient that maps parameter angles to a numerical contribution.
@@ -58,8 +58,11 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         param_sets.par_iter().map(|p| self.evaluate(p)).collect()
     }
 
-    /// Flat evaluation LUT indexed directly by the packed `TrigFactor` value:
-    /// `cos(theta_i)` at slot `2i`, `sin(theta_i)` at slot `2i + 1`.
+    /// Flat evaluation LUT indexed by `2 * param_index` (`cos(theta_i)`) /
+    /// `2 * param_index + 1` (`sin(theta_i)`). Unlike the old tally-mark
+    /// `TrigFactor` design (one direct gather per arena slot), a slot can now
+    /// hold `cos^a * sin^b`, so evaluation does up to two gathers plus a
+    /// `powi` per slot -- see `SymbolicCoeff::evaluate`.
     fn make_lut(params: &[f64]) -> Vec<f64> {
         params.iter().flat_map(|&t| [t.cos(), t.sin()]).collect()
     }
@@ -72,7 +75,9 @@ impl<M: AbstractTerm> SurrogateModel<M> {
     ///
     /// Header (little-endian u64): n_params, n_terms, system_size, key_stride.
     /// Per term: key_bytes, overlap (f64le), n_monomials (u64le).
-    /// Per monomial: scalar (f64le), n_factors (u64le), factors (u32le each).
+    /// Per monomial: scalar (f64le), n_factors (u64le), factors (u64le each
+    /// -- one packed `MonomialUnit` per *distinct parameter*, not per
+    /// occurrence).
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let file = OpenOptions::new()
             .create(true).write(true).truncate(true)
@@ -97,7 +102,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
                 enc.write_all(&scalar.to_le_bytes())?;
                 enc.write_all(&(factors.len() as u64).to_le_bytes())?;
                 for f in factors {
-                    enc.write_all(&f.0.to_le_bytes())?;
+                    enc.write_all(&f.raw().to_le_bytes())?;
                 }
             }
         }
@@ -112,7 +117,6 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let mut dec = BufReader::new(GzDecoder::new(file));
 
         let mut u64_buf = [0u8; 8];
-        let mut u32_buf = [0u8; 4];
 
         macro_rules! read_u64 {
             () => {{
@@ -126,12 +130,6 @@ impl<M: AbstractTerm> SurrogateModel<M> {
                 f64::from_le_bytes(u64_buf)
             }};
         }
-        macro_rules! read_u32 {
-            () => {{
-                dec.read_exact(&mut u32_buf)?;
-                u32::from_le_bytes(u32_buf)
-            }};
-        }
 
         let n_params = read_u64!() as usize;
         let n_terms  = read_u64!() as usize;
@@ -142,7 +140,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let mut terms = Vec::with_capacity(n_terms);
         // Reused across monomials: one factor-run staging buffer for the
         // whole load instead of an allocation per monomial.
-        let mut run: Vec<TrigFactor> = Vec::new();
+        let mut run: Vec<MonomialUnit> = Vec::new();
 
         for _ in 0..n_terms {
             dec.read_exact(&mut key_buf)?;
@@ -156,7 +154,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
                 let n_factors = read_u64!() as usize;
                 run.clear();
                 for _ in 0..n_factors {
-                    run.push(TrigFactor(read_u32!()));
+                    run.push(MonomialUnit::from_raw(read_u64!()));
                 }
                 coeff.push_monomial(scalar, &run);
             }
