@@ -128,6 +128,7 @@ struct Args {
     max_terms: Option<usize>,
     min_monomials: Option<usize>,
     max_monomials: Option<usize>,
+    merge_max_terms: Option<usize>,
     report_every: usize,
     rng_seed: u64,
 }
@@ -145,6 +146,7 @@ impl Default for Args {
             max_terms: Some(2_000_000),
             min_monomials: Some(5_000_000),
             max_monomials: Some(10_000_000),
+            merge_max_terms: Some(2_000_000),
             report_every: 50,
             rng_seed: 0xC0FFEE,
         }
@@ -180,6 +182,8 @@ fn parse_args() -> Args {
                  \x20                                       an oversized top-frequency bucket)\n\
                  \x20 --max-monomials <int|none>  10000000  monomial-range flush trigger and\n\
                  \x20                                       truncation target\n\
+                 \x20 --merge-max-terms <int|none> 2000000   finer lossless merge cadence (dedup\n\
+                 \x20                                       outboxes into maps; 'none' disables)\n\
                  \x20 --report-every <usize>      50        print a gate-level JSON line every N gates\n\
                  \x20 --rng-seed <u64>            0xC0FFEE (12648430)\n\n\
                  Output is JSON Lines on stdout (event: \"gate\" / \"flush\" / \"summary\"),\n\
@@ -205,6 +209,7 @@ fn parse_args() -> Args {
             "--max-terms" => args.max_terms = parse_opt_usize(val),
             "--min-monomials" => args.min_monomials = parse_opt_usize(val),
             "--max-monomials" => args.max_monomials = parse_opt_usize(val),
+            "--merge-max-terms" => args.merge_max_terms = parse_opt_usize(val),
             "--report-every" => args.report_every = val.parse().expect("--report-every expects an integer"),
             "--rng-seed" => args.rng_seed = val.parse().expect("--rng-seed expects an integer"),
             other => panic!("unknown flag: {other} (see --help)"),
@@ -223,6 +228,7 @@ fn main() {
         weight_cutoff: args.weight_cutoff,
         truncation_range: (args.min_terms, args.max_terms),
         monomial_range: (args.min_monomials, args.max_monomials),
+        merge_max_terms: args.merge_max_terms,
     };
 
     eprintln!(
@@ -308,6 +314,21 @@ fn main() {
                 pending_terms = 0;
                 n_flushes += 1;
                 peak_monomials = peak_monomials.max(live_monomials);
+            } else if args.merge_max_terms.map_or(false, |m| pending_terms >= m) {
+                // Finer lossless merge cadence (mirrors SurrogatePropagator):
+                // collapse duplicate Pauli strings out of the outboxes without
+                // truncating, so within-window peak tracks the unique-term count
+                // rather than the path count. `live_monomials` is unchanged (a
+                // merge is lossless); only `pending_terms` resets.
+                let t0 = Instant::now();
+                let terms_before = propagator.total_terms() + pending_terms;
+                propagator.flush_outboxes_to_maps();
+                let merge_ms = t0.elapsed().as_secs_f64() * 1000.0;
+                println!(
+                    r#"{{"event":"merge","gate_idx":{gate_idx},"layer_idx":{layer},"terms_before":{terms_before},"terms_after":{},"merge_ms":{merge_ms:.3e}}}"#,
+                    propagator.total_terms(),
+                );
+                pending_terms = 0;
             }
 
             gate_idx += 1;

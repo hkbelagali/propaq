@@ -168,6 +168,68 @@ class TestFrequencyTruncation:
         numerical = numerical_ev(obs, circ)
         assert model.evaluate(angles) == pytest.approx(numerical, rel=1e-9)
 
+
+class TestMonomialRangeTruncation:
+    """Exercise the importance-ranking (frequency desc, |scalar| asc) path."""
+
+    def _circuit_and_obs(self):
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
+        angles = [0.3, 0.7, 1.1]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
+        return obs, sc, circ, angles
+
+    def test_generous_monomial_range_is_exact(self):
+        """A monomial_range far above the live count never truncates -> exact."""
+        obs, sc, circ, angles = self._circuit_and_obs()
+        policy = FrequencyTruncationPolicy()
+        policy.monomial_range = (1_000, 1_000_000)
+        model = PauliSurrogatePropagator(truncation=policy).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_tight_monomial_range_runs_and_stays_finite(self):
+        """A tiny monomial_range forces the importance-ranking removal path."""
+        obs, sc, circ, angles = self._circuit_and_obs()
+        policy = FrequencyTruncationPolicy()
+        policy.monomial_range = (1, 2)
+        model = PauliSurrogatePropagator(truncation=policy).build(obs, sc, initial_state=0)
+        val = model.evaluate(angles)
+        assert math.isfinite(val)
+        assert model.n_terms >= 0
+
+
+class TestMergeCadence:
+    """The finer lossless merge cadence must not change results."""
+
+    def _circuit_and_obs(self):
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
+        angles = [0.3, 0.7, 1.1]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
+        return obs, sc, circ, angles
+
+    def test_frequent_merges_match_exact_and_merge_disabled(self):
+        obs, sc, circ, angles = self._circuit_and_obs()
+        exact = numerical_ev(obs, circ)
+
+        # Force a merge after essentially every branching gate.
+        eager = FrequencyTruncationPolicy()
+        eager.merge_max_terms = 1
+        m_eager = PauliSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
+
+        # Disable the finer cadence entirely (merge only at truncation flushes).
+        off = FrequencyTruncationPolicy()
+        off.merge_max_terms = None
+        m_off = PauliSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
+
+        assert m_eager.evaluate(angles) == pytest.approx(exact, rel=1e-9)
+        assert m_eager.evaluate(angles) == pytest.approx(m_off.evaluate(angles), rel=1e-12)
+
+    def test_default_policy_has_merge_cadence_on(self):
+        assert FrequencyTruncationPolicy().merge_max_terms is not None
+
 class TestLoschmidtEcho:
     def test_echo_recovers_initial(self):
         """U†U should be identity: surrogate evaluated at [θ, -θ] reproduces initial EV.
@@ -223,6 +285,40 @@ class TestSaveLoad:
             assert loaded.evaluate([angle]) == pytest.approx(original_val, rel=1e-14)
             assert loaded.n_terms == model.n_terms
             assert loaded.n_params == model.n_params
+        finally:
+            os.unlink(path)
+
+    def test_round_trip_many_terms_multi_shard(self):
+        """Many surviving terms exercise the multi-shard save/load path.
+
+        A sum of distinct all-Z strings under an empty circuit keeps every term
+        (each overlaps |0..0>), so n_terms is large enough to span several
+        parallel shards rather than the single-shard small-model cases above.
+        """
+        obs = PauliTermSum({ps(0, z): 1.0 + 0.1 * z for z in range(1, 16)})
+        circ = PauliCircuit([])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[])
+        model = PauliSurrogatePropagator().build(obs, sc, initial_state=0)
+        assert model.n_terms == 15
+
+        with tempfile.NamedTemporaryFile(suffix=".surrogate.gz", delete=False) as f:
+            path = f.name
+        try:
+            model.save(path)
+            loaded = PauliSurrogateModel.load(path)
+            assert loaded.n_terms == model.n_terms
+            assert loaded.evaluate([]) == pytest.approx(model.evaluate([]), rel=1e-14)
+        finally:
+            os.unlink(path)
+
+    def test_load_rejects_unrecognized_format(self):
+        """A non-surrogate/old-format file is rejected, not silently misread."""
+        with tempfile.NamedTemporaryFile(suffix=".surrogate.gz", delete=False) as f:
+            path = f.name
+            f.write(b"not a surrogate model file")
+        try:
+            with pytest.raises(Exception):
+                PauliSurrogateModel.load(path)
         finally:
             os.unlink(path)
 

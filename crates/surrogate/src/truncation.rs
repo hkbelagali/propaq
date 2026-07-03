@@ -3,6 +3,19 @@ use pyo3::prelude::*;
 const DEFAULT_MAX_TERMS: usize = 10_000_000;
 const DEFAULT_MAX_MONOMIALS: usize = 10_000_000;
 const DEFAULT_MIN_MONOMIALS: usize = 5_000_000;
+/// Default finer merge cadence: once this many terms accumulate in the outboxes
+/// since the last flush, do a lossless merge (dedup duplicate Pauli strings into
+/// the maps) without truncating. Smaller than the truncation window (default
+/// `DEFAULT_MAX_TERMS` = 10M) so several merges happen per truncation, keeping
+/// within-window peak near the unique-term count instead of the path count.
+///
+/// The mechanism was validated in `cluster_bench` (28-thread Xeon, 22 qubits,
+/// monomial-only truncation): enabling the finer cadence cut peak RSS ~3×
+/// (≈1.54 GB → ≈0.53 GB) and wall time ~30% at identical monomial count, since
+/// the collapsed duplicate Pauli strings never blow up into the path count.
+/// 2M is calibrated for the design-scale 10M window; assign
+/// `policy.merge_max_terms = None` to disable.
+const DEFAULT_MERGE_MAX_TERMS: usize = 2_000_000;
 
 /// Truncation policy for surrogate propagation.
 ///
@@ -45,6 +58,14 @@ pub struct FrequencyTruncationPolicy {
     pub weight_cutoff: Option<u32>,
     pub truncation_range: (Option<usize>, Option<usize>),
     pub monomial_range: (Option<usize>, Option<usize>),
+    /// Finer lossless merge cadence: when this many terms accumulate in the
+    /// outboxes since the last flush, collapse duplicate Pauli strings into the
+    /// partition maps (no truncation). Decoupled from — and finer than — the
+    /// truncation window so path-count blowup within a window is curbed early.
+    /// `None` disables the finer cadence (merging then happens only at
+    /// truncation flushes, the pre-decoupling behavior).
+    #[pyo3(get, set)]
+    pub merge_max_terms: Option<usize>,
 }
 
 #[pymethods]
@@ -53,12 +74,13 @@ impl FrequencyTruncationPolicy {
     /// omitted. To disable monomial-range-driven truncation entirely, set
     /// `policy.monomial_range = (None, None)` after construction.
     #[new]
-    #[pyo3(signature = (max_frequency=None, weight_cutoff=None, truncation_range=None, monomial_range=None))]
+    #[pyo3(signature = (max_frequency=None, weight_cutoff=None, truncation_range=None, monomial_range=None, merge_max_terms=None))]
     pub fn new(
         max_frequency: Option<usize>,
         weight_cutoff: Option<u32>,
         truncation_range: Option<(Option<usize>, Option<usize>)>,
         monomial_range: Option<(Option<usize>, Option<usize>)>,
+        merge_max_terms: Option<usize>,
     ) -> Self {
         FrequencyTruncationPolicy {
             max_frequency,
@@ -66,6 +88,9 @@ impl FrequencyTruncationPolicy {
             truncation_range: truncation_range.unwrap_or((None, Some(DEFAULT_MAX_TERMS))),
             monomial_range: monomial_range
                 .unwrap_or((Some(DEFAULT_MIN_MONOMIALS), Some(DEFAULT_MAX_MONOMIALS))),
+            // Default-on. Assign `policy.merge_max_terms = None` after
+            // construction to disable the finer cadence.
+            merge_max_terms: merge_max_terms.or(Some(DEFAULT_MERGE_MAX_TERMS)),
         }
     }
 
@@ -98,13 +123,14 @@ impl FrequencyTruncationPolicy {
 
     fn __repr__(&self) -> String {
         format!(
-            "FrequencyTruncationPolicy(max_frequency={}, weight_cutoff={}, truncation_range=({}, {}), monomial_range=({}, {}))",
+            "FrequencyTruncationPolicy(max_frequency={}, weight_cutoff={}, truncation_range=({}, {}), monomial_range=({}, {}), merge_max_terms={})",
             self.max_frequency.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.weight_cutoff.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.truncation_range.0.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.truncation_range.1.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.monomial_range.0.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.monomial_range.1.map_or_else(|| "None".to_string(), |v| v.to_string()),
+            self.merge_max_terms.map_or_else(|| "None".to_string(), |v| v.to_string()),
         )
     }
 }

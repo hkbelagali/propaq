@@ -10,6 +10,17 @@
 //! `apply_rotation` is what real propagation uses to grow coefficients, so
 //! building benchmark inputs the same way keeps them representative instead
 //! of synthetic.
+//!
+//! Threshold sweeps: the parallel-split thresholds are read once from the
+//! environment (cached in a `LazyLock`), so sweep a value by running a fresh
+//! process per setting, e.g.
+//!   `PROPAQ_EVALUATE_PAR_MIN_LEN=8192 cargo bench -p propaq-surrogate -- \
+//!      "SymbolicCoeff/evaluate"`
+//! and compare the boundary-size rows (`.../4096`, `.../65536`). The
+//! `apply_gate_inplace` gate threshold (`PROPAQ_GATE_PAR_MIN_LEN`) and the
+//! finer merge cadence (`--merge-max-terms` in `bin/cluster_bench`) are swept
+//! the same way; the current defaults record the machine/workload they were
+//! chosen on in their respective doc comments.
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use num_complex::Complex64;

@@ -215,6 +215,10 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
 
         let max_terms: Option<usize> = self.truncation.as_ref().and_then(|p| p.truncation_range.1);
         let max_monomials: Option<usize> = self.truncation.as_ref().and_then(|p| p.monomial_range.1);
+        // Finer, lossless merge cadence (decoupled from truncation): collapse
+        // duplicate Pauli strings out of the outboxes once this many terms
+        // accumulate, without truncating. Default-on.
+        let merge_max_terms: Option<usize> = self.truncation.as_ref().and_then(|p| p.merge_max_terms);
 
         let mut gate_idx: usize = 0;
         let mut pending: usize = 0;
@@ -279,6 +283,32 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, layer_idx, trigger));
                     pending = 0;
                     pending_monomials = 0;
+                } else if !next_is_intermediate
+                    && merge_max_terms.map_or(false, |m| pending >= m)
+                {
+                    // Finer lossless merge: transpose outboxes into the maps,
+                    // collapsing duplicate Pauli strings, without the lossy
+                    // truncation pass. This refreshes `total_terms` (so the
+                    // truncation trigger sees the unique-term count, not the
+                    // path count) and resets `pending`. `pending_monomials` is
+                    // intentionally NOT reset: a merge is lossless, so those
+                    // monomials stay live and uncounted in `total_monomials`
+                    // (which only a truncation flush refreshes) until then.
+                    let terms_before = self.inner.total_terms() + pending;
+                    py.allow_threads(|| self.inner.flush_outboxes_to_maps());
+                    pending = 0;
+                    if self.verbose_log.is_some() {
+                        let terms_after = self.inner.total_terms();
+                        let qki = self
+                            .current_qiskit_gate_idx
+                            .map_or_else(|| "null".to_string(), |v| v.to_string());
+                        if let Some(ref mut log) = self.verbose_log {
+                            let _ = writeln!(
+                                log,
+                                r#"{{"event":"surrogate_merge","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"terms_before":{terms_before},"terms_after":{terms_after}}}"#
+                            );
+                        }
+                    }
                 }
 
                 if let Some(ref pf) = postfix {
@@ -387,6 +417,40 @@ fn monomial_removal_budget(monomials_after: usize, min: usize, max: usize) -> us
     want.min(floor)
 }
 
+/// Elementwise-add two frequency histograms, reconciling lengths. Combine step
+/// for the parallel `fold_coeffs` that builds the global histogram.
+fn combine_histograms(mut a: Vec<u64>, b: Vec<u64>) -> Vec<u64> {
+    if a.len() < b.len() {
+        a.resize(b.len(), 0);
+    }
+    for (slot, v) in a.iter_mut().zip(b.iter()) {
+        *slot += *v;
+    }
+    a
+}
+
+/// Walking a frequency histogram from the highest frequency down, find the
+/// boundary frequency `f*` at which a cumulative removal of `budget` monomials
+/// lands, and how many must be removed from within `f*` (the remainder after
+/// fully removing every higher-frequency bucket). `remove_in_boundary` is always
+/// `<= hist[f*]`; it equals `hist[f*]` exactly when the whole boundary bucket is
+/// consumed. Returns `(0, 0)` only when `budget` meets or exceeds every monomial
+/// present (caller then removes everything at/above frequency 0).
+fn boundary_from_histogram(hist: &[u64], budget: usize) -> (usize, usize) {
+    let mut remaining = budget as u64;
+    for f in (0..hist.len()).rev() {
+        let cnt = hist[f];
+        if cnt == 0 {
+            continue;
+        }
+        if remaining <= cnt {
+            return (f, remaining as usize);
+        }
+        remaining -= cnt;
+    }
+    (0, 0)
+}
+
 pub fn apply_truncation_policy<M: AbstractTerm>(
     propagator: &mut AbstractPropagator<M, SymbolicCoeff>,
     policy: Option<&FrequencyTruncationPolicy>,
@@ -421,50 +485,63 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
 
     if let (Some(min), Some(max)) = (monomial_min, monomial_max) {
         if monomials_after > max {
-            // Find the single highest frequency present and how many
-            // monomials sit at exactly that frequency, in one parallel
-            // pass — cheaper than a full histogram (plain int comparisons,
-            // no hashmap) since only the top bucket is ever needed here.
-            // The per-coefficient scan is itself parallel (see
-            // `top_frequency_and_count`), so one giant coefficient doesn't
-            // serialize its partition's whole pass.
-            let (target_freq, n_top): (usize, usize) = propagator.fold_coeffs(
-                || (0usize, 0usize),
-                |acc, c: &SymbolicCoeff| {
-                    SymbolicCoeff::combine_top_frequency(acc, c.top_frequency_and_count())
-                },
-                SymbolicCoeff::combine_top_frequency,
-            );
-
             let budget = monomial_removal_budget(monomials_after, min, max);
+            if budget > 0 {
+                // 1. Global frequency histogram in one parallel fold. Frequency
+                //    is a small bounded int, so a per-worker `Vec<u64>` keyed by
+                //    frequency is cheap and exact; the per-coefficient scan is
+                //    serial per coeff but the fold spreads coeffs across workers.
+                let hist: Vec<u64> = propagator.fold_coeffs(
+                    Vec::new,
+                    |mut h, c: &SymbolicCoeff| {
+                        c.add_freq_histogram(&mut h);
+                        h
+                    },
+                    combine_histograms,
+                );
 
-            if n_top > 0 && budget > 0 {
-                if budget >= n_top {
-                    // The whole top-frequency bucket fits within budget
-                    // (it's not more than what's needed to reach `max`, or
-                    // `min` is the binding constraint instead): every
-                    // coefficient can just drop its own hits
-                    // unconditionally, no cross-coefficient coordination
-                    // needed since we already know globally it's safe.
-                    monomials_after = propagator.map_and_retain_coeffs_inplace(
-                        |_, c: &mut SymbolicCoeff| {
-                            c.remove_at_frequency(target_freq);
-                        },
-                        |_, c: &SymbolicCoeff| !c.is_empty(),
-                    );
+                // 2. Boundary frequency f* (importance = frequency desc) and how
+                //    many monomials must come out of it after every higher bucket
+                //    is removed in full.
+                let (f_star, remove_in_boundary) = boundary_from_histogram(&hist, budget);
+
+                // 3. Secondary key |scalar| asc, applied only within the boundary
+                //    bucket. If the whole bucket is consumed, s* = INFINITY drops
+                //    all of it; otherwise a single `select_nth` over the boundary
+                //    bucket's |scalar| picks the cutoff, and the exact-s* ties are
+                //    budget-limited so the cut lands precisely at `max`.
+                let full_bucket = f_star < hist.len() && remove_in_boundary as u64 >= hist[f_star];
+                let (s_star, tie_budget) = if remove_in_boundary == 0 || full_bucket {
+                    (f64::INFINITY, 0usize)
                 } else {
-                    // The whole bucket is more than needed to reach `max`
-                    // (or would breach `min`): claim exactly `budget`
-                    // removals across coefficients via a shared atomic
-                    // counter, landing exactly at the binding target.
-                    let remaining = std::sync::atomic::AtomicUsize::new(budget);
-                    monomials_after = propagator.map_and_retain_coeffs_inplace(
-                        |_, c: &mut SymbolicCoeff| {
-                            c.remove_at_frequency_budgeted(target_freq, &remaining);
+                    let mut scalars: Vec<f64> = propagator.fold_coeffs(
+                        Vec::new,
+                        |mut v, c: &SymbolicCoeff| {
+                            c.collect_boundary_scalars(f_star, &mut v);
+                            v
                         },
-                        |_, c: &SymbolicCoeff| !c.is_empty(),
+                        |mut a, mut b| {
+                            a.append(&mut b);
+                            a
+                        },
                     );
-                }
+                    let k = remove_in_boundary.min(scalars.len());
+                    scalars.select_nth_unstable_by(k - 1, |a, b| a.total_cmp(b));
+                    let s = scalars[k - 1];
+                    let n_below = scalars.iter().filter(|&&x| x < s).count();
+                    (s, k.saturating_sub(n_below))
+                };
+
+                // 4. One importance-ranked removal pass. Per-entry parallelism in
+                //    `map_and_retain_coeffs_inplace` keeps a giant coefficient
+                //    from stalling its partition.
+                let tie_remaining = std::sync::atomic::AtomicUsize::new(tie_budget);
+                monomials_after = propagator.map_and_retain_coeffs_inplace(
+                    |_, c: &mut SymbolicCoeff| {
+                        c.remove_by_rank_budgeted(f_star, s_star, &tie_remaining);
+                    },
+                    |_, c: &SymbolicCoeff| !c.is_empty(),
+                );
             }
         }
     }
@@ -585,7 +662,46 @@ impl MajoranaSurrogatePropagator {
 
 #[cfg(test)]
 mod monomial_removal_budget_tests {
-    use super::monomial_removal_budget;
+    use super::{boundary_from_histogram, combine_histograms, monomial_removal_budget};
+
+    #[test]
+    fn boundary_removes_higher_buckets_first_then_partial() {
+        // freq0=5, freq1=3, freq2=2. Budget 4 = all of freq2 (2) + 2 of freq1.
+        let hist = vec![5, 3, 2];
+        assert_eq!(boundary_from_histogram(&hist, 4), (1, 2));
+    }
+
+    #[test]
+    fn boundary_consuming_exactly_one_bucket_reports_full_bucket() {
+        let hist = vec![5, 3, 2];
+        // remove_in_boundary == hist[f*] signals a full-bucket removal to caller.
+        assert_eq!(boundary_from_histogram(&hist, 2), (2, 2));
+    }
+
+    #[test]
+    fn boundary_within_top_bucket() {
+        let hist = vec![5, 3, 2];
+        assert_eq!(boundary_from_histogram(&hist, 1), (2, 1));
+    }
+
+    #[test]
+    fn boundary_skips_empty_buckets() {
+        // freq3=2 removed in full, then 1 of freq0 (freq1/freq2 empty).
+        let hist = vec![5, 0, 0, 2];
+        assert_eq!(boundary_from_histogram(&hist, 3), (0, 1));
+    }
+
+    #[test]
+    fn boundary_budget_exceeds_all_returns_zero_zero() {
+        assert_eq!(boundary_from_histogram(&[2, 2], 10), (0, 0));
+        assert_eq!(boundary_from_histogram(&[], 5), (0, 0));
+    }
+
+    #[test]
+    fn combine_histograms_reconciles_lengths() {
+        assert_eq!(combine_histograms(vec![1, 2], vec![10, 20, 30]), vec![11, 22, 30]);
+        assert_eq!(combine_histograms(vec![1, 2, 3], vec![10]), vec![11, 2, 3]);
+    }
 
     #[test]
     fn targets_max_when_bucket_would_be_more_than_enough() {

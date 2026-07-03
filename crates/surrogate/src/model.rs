@@ -76,114 +76,191 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         self.terms.len()
     }
 
-    /// Save to a gzip-compressed binary file.
+    /// Save to a sharded, parallel-friendly binary file (see the module-level
+    /// format notes on `MAGIC`/`FORMAT_VERSION`).
     ///
-    /// Header (little-endian u64): n_params, n_terms, system_size, key_stride,
-    /// n_gates. Then the `gate_to_param` table: `n_gates` u32le entries.
-    /// Per term: key_bytes, overlap (f64le), n_monomials (u64le).
-    /// Per monomial: scalar (f64le), n_words (u64le), mask words (u64le each --
-    /// the gate-indexed branch mask, 2 bits per gate in propagation order).
+    /// Terms are split into ~`current_num_threads()` contiguous shards; each is
+    /// serialized and gzip-compressed **independently and in parallel**, then
+    /// the header, a shard-length index, and the compressed blobs are written
+    /// sequentially. This makes `save` scale with cores instead of walking every
+    /// monomial single-threaded. The format is **not** backward compatible with
+    /// pre-sharding files — `load` rejects them and the model must be rebuilt.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
-        let file = OpenOptions::new()
-            .create(true).write(true).truncate(true)
-            .open(path)?;
-        let mut enc = GzEncoder::new(BufWriter::new(file), Compression::default());
-
         let first = self.terms.first();
         let key_stride: u64 = first.map_or(0, |t| t.term.to_bytes_vec().len() as u64);
         let system_size: u64 = first.map_or(0, |t| t.term.system_size());
 
-        enc.write_all(&(self.n_params as u64).to_le_bytes())?;
-        enc.write_all(&(self.terms.len() as u64).to_le_bytes())?;
-        enc.write_all(&system_size.to_le_bytes())?;
-        enc.write_all(&key_stride.to_le_bytes())?;
-        enc.write_all(&(self.gate_to_param.len() as u64).to_le_bytes())?;
-        for &p in &self.gate_to_param {
-            enc.write_all(&p.to_le_bytes())?;
-        }
-
-        for st in &self.terms {
-            enc.write_all(&st.term.to_bytes_vec())?;
-            enc.write_all(&st.overlap.to_le_bytes())?;
-            let n_mono = st.coeff.monomial_count() as u64;
-            enc.write_all(&n_mono.to_le_bytes())?;
-            for (scalar, mask) in st.coeff.iter_monomials() {
-                enc.write_all(&scalar.to_le_bytes())?;
-                enc.write_all(&(mask.len() as u64).to_le_bytes())?;
-                for word in mask {
-                    enc.write_all(&word.to_le_bytes())?;
+        // Contiguous shards, one per worker (at least one term each). Each shard
+        // is serialized + compressed on its own thread; blobs come back in term
+        // order because `par_chunks` preserves order.
+        let n_terms = self.terms.len();
+        let target_shards = rayon::current_num_threads().max(1);
+        let chunk = n_terms.div_ceil(target_shards).max(1);
+        let blobs: Vec<Vec<u8>> = self
+            .terms
+            .par_chunks(chunk)
+            .map(|shard| {
+                let mut raw = Vec::new();
+                for st in shard {
+                    write_term_into(&mut raw, st);
                 }
-            }
-        }
+                gzip_block(&raw)
+            })
+            .collect::<std::io::Result<_>>()?;
 
-        enc.finish()?;
+        let file = OpenOptions::new().create(true).write(true).truncate(true).open(path)?;
+        let mut w = BufWriter::new(file);
+        w.write_all(&MAGIC.to_le_bytes())?;
+        w.write_all(&FORMAT_VERSION.to_le_bytes())?;
+        w.write_all(&(self.n_params as u64).to_le_bytes())?;
+        w.write_all(&system_size.to_le_bytes())?;
+        w.write_all(&key_stride.to_le_bytes())?;
+        w.write_all(&(self.gate_to_param.len() as u64).to_le_bytes())?;
+        for &p in &self.gate_to_param {
+            w.write_all(&p.to_le_bytes())?;
+        }
+        w.write_all(&(blobs.len() as u64).to_le_bytes())?;
+        for b in &blobs {
+            w.write_all(&(b.len() as u64).to_le_bytes())?;
+        }
+        for b in &blobs {
+            w.write_all(b)?;
+        }
+        w.flush()?;
         Ok(())
     }
 
-    /// Load from a file produced by `save`.
+    /// Load from a file produced by `save`. The header + compressed blobs are
+    /// read sequentially, then the shards are decompressed and parsed in
+    /// parallel and concatenated (in shard/term order). Rejects files that don't
+    /// carry the current `MAGIC`/`FORMAT_VERSION` — those predate the sharded
+    /// format and their models must be rebuilt.
     pub fn load(path: &str) -> std::io::Result<Self> {
-        let file = std::fs::File::open(path)?;
-        let mut dec = BufReader::new(GzDecoder::new(file));
+        let mut r = BufReader::new(std::fs::File::open(path)?);
 
         let mut u64_buf = [0u8; 8];
         let mut u32_buf = [0u8; 4];
-
         macro_rules! read_u64 {
-            () => {{
-                dec.read_exact(&mut u64_buf)?;
-                u64::from_le_bytes(u64_buf)
-            }};
+            () => {{ r.read_exact(&mut u64_buf)?; u64::from_le_bytes(u64_buf) }};
         }
         macro_rules! read_u32 {
-            () => {{
-                dec.read_exact(&mut u32_buf)?;
-                u32::from_le_bytes(u32_buf)
-            }};
+            () => {{ r.read_exact(&mut u32_buf)?; u32::from_le_bytes(u32_buf) }};
         }
-        macro_rules! read_f64 {
-            () => {{
-                dec.read_exact(&mut u64_buf)?;
-                f64::from_le_bytes(u64_buf)
-            }};
+
+        let magic = read_u32!();
+        let version = read_u32!();
+        if magic != MAGIC || version != FORMAT_VERSION {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unrecognized or outdated surrogate model file (format changed); rebuild the model",
+            ));
         }
 
         let n_params = read_u64!() as usize;
-        let n_terms  = read_u64!() as usize;
         let system_size = read_u64!();
-        let key_stride  = read_u64!() as usize;
+        let key_stride = read_u64!() as usize;
         let n_gates = read_u64!() as usize;
         let mut gate_to_param = Vec::with_capacity(n_gates);
         for _ in 0..n_gates {
             gate_to_param.push(read_u32!());
         }
 
-        let mut key_buf = vec![0u8; key_stride];
-        let mut terms = Vec::with_capacity(n_terms);
-        // Reused across monomials: one mask-run staging buffer for the whole
-        // load instead of an allocation per monomial.
-        let mut run: Vec<u64> = Vec::new();
+        let n_shards = read_u64!() as usize;
+        let mut shard_lens = Vec::with_capacity(n_shards);
+        for _ in 0..n_shards {
+            shard_lens.push(read_u64!() as usize);
+        }
+        // Read each compressed blob sequentially (I/O is serial), then decode +
+        // parse them in parallel.
+        let mut blobs: Vec<Vec<u8>> = Vec::with_capacity(n_shards);
+        for len in shard_lens {
+            let mut blob = vec![0u8; len];
+            r.read_exact(&mut blob)?;
+            blobs.push(blob);
+        }
 
-        for _ in 0..n_terms {
-            dec.read_exact(&mut key_buf)?;
-            let term = M::from_bytes_vec(&key_buf, system_size);
-            let overlap = read_f64!();
-            let n_mono = read_u64!() as usize;
-            let mut coeff = SymbolicCoeff::default();
-            coeff.reserve(n_mono, 0);
-            for _ in 0..n_mono {
-                let scalar = read_f64!();
-                let n_words = read_u64!() as usize;
-                run.clear();
-                for _ in 0..n_words {
-                    run.push(read_u64!());
-                }
-                coeff.push_monomial(scalar, &run);
-            }
-            terms.push(SurrogateTerm { term, overlap, coeff });
+        let per_shard: Vec<Vec<SurrogateTerm<M>>> = blobs
+            .par_iter()
+            .map(|blob| parse_shard::<M>(blob, key_stride, system_size))
+            .collect::<std::io::Result<_>>()?;
+
+        let mut terms = Vec::with_capacity(per_shard.iter().map(|s| s.len()).sum());
+        for shard in per_shard {
+            terms.extend(shard);
         }
 
         Ok(SurrogateModel { terms, n_params, gate_to_param })
     }
+}
+
+/// Magic bytes and format version stamped at the head of every saved model.
+/// A mismatch on load is a hard error — the sharded format deliberately breaks
+/// compatibility with pre-sharding files.
+const MAGIC: u32 = u32::from_le_bytes(*b"PQSM");
+const FORMAT_VERSION: u32 = 2;
+
+/// Serialize one term into `buf` (uncompressed): key bytes, overlap (f64le),
+/// monomial count (u64le), then per monomial `scalar` (f64le), byte length
+/// (u64le), and the raw delta-varint run verbatim from the coefficient arena.
+fn write_term_into<M: AbstractTerm>(buf: &mut Vec<u8>, st: &SurrogateTerm<M>) {
+    buf.extend_from_slice(&st.term.to_bytes_vec());
+    buf.extend_from_slice(&st.overlap.to_le_bytes());
+    buf.extend_from_slice(&(st.coeff.monomial_count() as u64).to_le_bytes());
+    for (scalar, mask) in st.coeff.iter_monomials() {
+        buf.extend_from_slice(&scalar.to_le_bytes());
+        buf.extend_from_slice(&(mask.len() as u64).to_le_bytes());
+        buf.extend_from_slice(mask);
+    }
+}
+
+/// gzip a shard's raw bytes into a self-contained compressed blob.
+fn gzip_block(data: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut enc = GzEncoder::new(Vec::new(), Compression::default());
+    enc.write_all(data)?;
+    enc.finish()
+}
+
+/// Decompress and parse one shard blob into its terms (the inverse of
+/// `write_term_into`), consuming the whole decompressed buffer.
+fn parse_shard<M: AbstractTerm>(
+    compressed: &[u8],
+    key_stride: usize,
+    system_size: u64,
+) -> std::io::Result<Vec<SurrogateTerm<M>>> {
+    let mut raw = Vec::new();
+    GzDecoder::new(compressed).read_to_end(&mut raw)?;
+
+    #[inline]
+    fn rd_u64(b: &[u8], pos: &mut usize) -> u64 {
+        let v = u64::from_le_bytes(b[*pos..*pos + 8].try_into().unwrap());
+        *pos += 8;
+        v
+    }
+    #[inline]
+    fn rd_f64(b: &[u8], pos: &mut usize) -> f64 {
+        let v = f64::from_le_bytes(b[*pos..*pos + 8].try_into().unwrap());
+        *pos += 8;
+        v
+    }
+
+    let mut terms = Vec::new();
+    let mut pos = 0usize;
+    while pos < raw.len() {
+        let term = M::from_bytes_vec(&raw[pos..pos + key_stride], system_size);
+        pos += key_stride;
+        let overlap = rd_f64(&raw, &mut pos);
+        let n_mono = rd_u64(&raw, &mut pos) as usize;
+        let mut coeff = SymbolicCoeff::default();
+        coeff.reserve(n_mono, 0);
+        for _ in 0..n_mono {
+            let scalar = rd_f64(&raw, &mut pos);
+            let n_bytes = rd_u64(&raw, &mut pos) as usize;
+            coeff.push_monomial(scalar, &raw[pos..pos + n_bytes]);
+            pos += n_bytes;
+        }
+        terms.push(SurrogateTerm { term, overlap, coeff });
+    }
+    Ok(terms)
 }
 
 /// Compiled surrogate model for Pauli observables.

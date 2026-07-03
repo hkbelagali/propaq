@@ -34,9 +34,30 @@ const EXP_LUT_SIZE: usize = 4096;
 /// analogous threshold: per-term cost here can be arbitrarily large and
 /// arbitrarily skewed (one term's whole symbolic coefficient), unlike
 /// `evaluate`'s near-uniform per-monomial cost, so it's worth being more
-/// willing to split even at modest partition sizes. Not benchmarked — a
-/// starting point, not a tuned value.
-const GATE_PAR_MIN_LEN: usize = 256;
+/// willing to split even at modest partition sizes.
+///
+/// Overridable once at process start via the `PROPAQ_GATE_PAR_MIN_LEN`
+/// environment variable so it can be swept without recompiling (see the sweep
+/// notes in `crates/surrogate/benches/surrogate_bench.rs`); the read is cached
+/// in a `LazyLock`, so it costs one relaxed load per `apply_gate_inplace` call
+/// (once per partition per gate), never per element.
+///
+/// Kept at 256 after a `cluster_bench` sweep (28-thread Xeon): 64 was clearly
+/// worse (over-splitting overhead) while 256/1024/4096 were within run-to-run
+/// noise, so the low value is retained for its skew-balancing benefit on
+/// many-core cluster nodes where a fat coefficient must be stealable.
+const GATE_PAR_MIN_LEN_DEFAULT: usize = 256;
+
+#[inline]
+fn gate_par_min_len() -> usize {
+    static V: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+        std::env::var("PROPAQ_GATE_PAR_MIN_LEN")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(GATE_PAR_MIN_LEN_DEFAULT)
+    });
+    *V
+}
 
 struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
@@ -316,7 +337,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                     // happen a level up: take the plain serial path outright
                     // rather than relying on internal splitting to degrade
                     // gracefully to zero task overhead.
-                    if local_map.len() >= GATE_PAR_MIN_LEN {
+                    if local_map.len() >= gate_par_min_len() {
                         new_terms.par_extend(
                             local_map
                                 .par_iter_mut()
@@ -353,7 +374,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                             .flat_map(|(bucket, &take)| {
                                 bucket[..take]
                                     .par_iter_mut()
-                                    .with_min_len(GATE_PAR_MIN_LEN)
+                                    .with_min_len(gate_par_min_len())
                                     .filter_map(|(term, coeff)| {
                                         if term.commutes_with(generator) {
                                             return None;
