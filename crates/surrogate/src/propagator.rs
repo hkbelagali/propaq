@@ -291,9 +291,11 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     self.last_log_gate_idx = gate_idx;
                     let outbox_terms = self.inner.n_outbox_terms();
                     let map_terms = self.inner.total_terms();
-                    // Stale between flushes, like map_terms: cheap O(1) read, not
-                    // recomputed every gate (that would require an O(total_terms) pass).
-                    let monomials = self.total_monomials;
+                    // Live count: the last-flush total plus monomials added since
+                    // (both O(1) reads, no O(total_terms) pass). `pending_monomials`
+                    // survives a lossless merge, so this stays accurate between
+                    // truncation flushes too.
+                    let monomials = self.total_monomials + pending_monomials;
                     let qki = match qiskit_gate_idx {
                         Some(v) => v.to_string(),
                         None => "null".to_string(),
@@ -352,8 +354,8 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 }
 
                 if let Some(ref pf) = postfix {
-                    // Cached at flush time, like total_terms; cheap O(1) read here.
-                    pf.bind(py).set_item("monomials", self.total_monomials)?;
+                    // Live count: last-flush total plus monomials added since (O(1) reads).
+                    pf.bind(py).set_item("monomials", self.total_monomials + pending_monomials)?;
                 }
                 AbstractPropagator::<M, SymbolicCoeff>::tick_progress_bar(
                     py, &pbar, &postfix, self.inner.total_terms(),
