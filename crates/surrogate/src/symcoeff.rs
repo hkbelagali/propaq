@@ -1261,6 +1261,43 @@ mod tests {
         assert!(!a.dirty);
     }
 
+    /// Reproduces the pattern that motivated `CoeffRepr::post_merge`: a term
+    /// receives several outbox entries whose lineage is purely numeric (every
+    /// monomial has the same empty mask, `dirty == false`, exactly like the
+    /// output of `apply_rotation_numeric`). Mirrors `flush_outboxes_to_maps`'s
+    /// `entry.add_assign(coeff); entry.post_merge();` sequence one push at a
+    /// time. Without `post_merge` these would pile up as separate (but
+    /// identical) monomials until the next truncation flush; with it, the
+    /// coefficient collapses back to a single monomial after every merge that
+    /// actually combined something.
+    #[test]
+    fn post_merge_collapses_repeated_numeric_history_pushes() {
+        let fresh_numeric_push = |scalar: f64| {
+            let mut c = SymbolicCoeff::from_scalar(scalar);
+            c.dirty = false;
+            c
+        };
+
+        // First push into an "empty map slot": `*self = other`, nothing to merge yet.
+        let mut entry = SymbolicCoeff::default();
+        entry.add_assign(fresh_numeric_push(1.0));
+        entry.post_merge();
+        assert_eq!(entry.monomial_count(), 1);
+
+        // Second push for the same term: a real merge, so post_merge must fire.
+        entry.add_assign(fresh_numeric_push(2.0));
+        entry.post_merge();
+        assert_eq!(entry.monomial_count(), 1, "identical empty-mask monomials must collapse immediately, not linger until a truncation flush");
+        let (scalar, run) = entry.iter_monomials().next().unwrap();
+        assert!((scalar - 3.0).abs() < 1e-12);
+        assert!(run.is_empty());
+
+        // A third push keeps it collapsed rather than accumulating further.
+        entry.add_assign(fresh_numeric_push(-3.0));
+        entry.post_merge();
+        assert!(entry.is_empty(), "a merge summing to (near) zero must still be pruned, not left as a live monomial");
+    }
+
     #[test]
     fn hash_path_matches_naive_evaluation() {
         let n_params = 400;
