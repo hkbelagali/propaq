@@ -1,11 +1,14 @@
 use pyo3::prelude::*;
 
 use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
+use propaq_core::truncators::{
+    CoefficientTruncator, FlushSchedule, FrequencyTruncator, MonomialBudget, TermBudget,
+    WeightTruncator,
+};
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator, MajoranaTermStreamer};
 use propaq_pauli::{PauliString, PauliTermSum, PauliPropagator, PauliTermStreamer};
 use propaq_surrogate::{
-    FrequencyTruncationPolicy, FlushSchedule, FrequencyTruncator, CoefficientTruncator,
-    WeightTruncator, MonomialBudget,
+    FrequencyTruncationPolicy,
     PauliSurrogateModel, MajoranaSurrogateModel,
     PauliSurrogatePropagator, MajoranaSurrogatePropagator,
 };
@@ -36,6 +39,7 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FrequencyTruncator>()?;
     m.add_class::<CoefficientTruncator>()?;
     m.add_class::<WeightTruncator>()?;
+    m.add_class::<TermBudget>()?;
     m.add_class::<MonomialBudget>()?;
     m.add_class::<PauliSurrogateModel>()?;
     m.add_class::<MajoranaSurrogateModel>()?;

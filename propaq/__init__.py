@@ -155,19 +155,25 @@ from .models import (
 from .noise import (
     FrequencyTruncationPolicy as FrequencyTruncationPolicy,
 )
-from .noise import (
+from .truncation import (
+    Truncator as Truncator,
+)
+from .truncation import (
     FlushSchedule as FlushSchedule,
 )
-from .noise import (
+from .truncation import (
     FrequencyTruncator as FrequencyTruncator,
 )
-from .noise import (
+from .truncation import (
     CoefficientTruncator as CoefficientTruncator,
 )
-from .noise import (
+from .truncation import (
     WeightTruncator as WeightTruncator,
 )
-from .noise import (
+from .truncation import (
+    TermBudget as TermBudget,
+)
+from .truncation import (
     MonomialBudget as MonomialBudget,
 )
 from .propagators import (

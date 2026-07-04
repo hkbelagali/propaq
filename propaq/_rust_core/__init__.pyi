@@ -17,6 +17,12 @@ if TYPE_CHECKING:
     from ._pauli_term_sum import PauliTermSum as PauliTermSum
     from ._truncation_policy import TruncationPolicy as TruncationPolicy
     from ._surrogate_truncation_policy import FrequencyTruncationPolicy as FrequencyTruncationPolicy
+    from ._truncators import FlushSchedule as FlushSchedule
+    from ._truncators import FrequencyTruncator as FrequencyTruncator
+    from ._truncators import CoefficientTruncator as CoefficientTruncator
+    from ._truncators import WeightTruncator as WeightTruncator
+    from ._truncators import TermBudget as TermBudget
+    from ._truncators import MonomialBudget as MonomialBudget
     from ._surrogate_pauli import PauliSurrogateModel as PauliSurrogateModel
     from ._surrogate_pauli import PauliSurrogatePropagator as PauliSurrogatePropagator
     from ._surrogate_majorana import MajoranaSurrogateModel as MajoranaSurrogateModel

@@ -12,7 +12,7 @@ use flate2::Compression;
 
 use crate::termsum::AbstractTermSum;
 use crate::noise::UniformNoiseModel;
-use crate::truncation::TruncationPolicy;
+use crate::truncators::{resolve_config, FlushSchedule, ResolvedConfig, Truncator};
 use crate::traits::AbstractTerm;
 use crate::coeff::CoeffRepr;
 use crate::logger::Logger;
@@ -182,7 +182,11 @@ pub fn owner_of<M: AbstractTerm>(term: &M, log2_n: u32) -> usize {
 
 pub struct AbstractPropagator<M: AbstractTerm, C: CoeffRepr> {
     pub noise: Option<PyObject>,
-    pub truncation: Option<PyObject>,
+    /// Flush/merge cadence (the scheduling half of truncation).
+    pub schedule: FlushSchedule,
+    /// The truncation pipeline (operators). Read by the numerical `Complex64`
+    /// impl and by the surrogate wrapper; both resolve it via `resolve_config`.
+    pub truncators: Vec<Truncator>,
     pub pool: Arc<rayon::ThreadPool>,
     pub progress_bar: bool,
     n_partitions: usize,
@@ -205,7 +209,8 @@ pub struct AbstractPropagator<M: AbstractTerm, C: CoeffRepr> {
 impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     pub fn new(
         noise: Option<PyObject>,
-        truncation: Option<PyObject>,
+        schedule: FlushSchedule,
+        truncators: Vec<Truncator>,
         n_threads: Option<usize>,
         progress_bar: bool,
         logger: Option<PyObject>,
@@ -237,7 +242,8 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         };
         Ok(AbstractPropagator {
             noise,
-            truncation,
+            schedule,
+            truncators,
             pool,
             progress_bar,
             n_partitions,
@@ -734,10 +740,11 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
 }
 
 impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
-    /// Remove terms from thread_maps that fail the truncation policy cutoffs.
-    fn retain_by_policy(&mut self, tp: &TruncationPolicy) {
-        let wc = tp.weight_cutoff;
-        let cc = tp.coeff_cutoff;
+    /// Remove terms from thread_maps that fail the resolved weight/coefficient
+    /// cutoffs (`weight` → keep `weight <= wc`; `coefficient` → keep `|c| >= cc`).
+    fn retain_by_policy(&mut self, cfg: &ResolvedConfig) {
+        let wc = cfg.weight;
+        let cc = cfg.coefficient.unwrap_or(0.0);
         let pool = Arc::clone(&self.pool);
         let thread_maps = &mut self.thread_maps;
         pool.install(|| {
@@ -749,10 +756,10 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
         });
     }
 
-    /// Apply the truncation policy only to threads where `mask[i]` is true.
-    fn retain_by_policy_masked(&mut self, tp: &TruncationPolicy, mask: &[bool]) {
-        let wc = tp.weight_cutoff;
-        let cc = tp.coeff_cutoff;
+    /// Apply the resolved cutoffs only to threads where `mask[i]` is true.
+    fn retain_by_policy_masked(&mut self, cfg: &ResolvedConfig, mask: &[bool]) {
+        let wc = cfg.weight;
+        let cc = cfg.coefficient.unwrap_or(0.0);
         let pool = Arc::clone(&self.pool);
         let thread_maps = &mut self.thread_maps;
         pool.install(|| {
@@ -769,9 +776,9 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
 
     /// Single parallel pass returning per-thread surviving counts and aggregate discard
     /// statistics (discarded_coeff_l1, discarded_coeff_max).
-    fn collect_stats_and_count_surviving(&self, tp: &TruncationPolicy) -> ((f64, f64), Vec<usize>) {
-        let wc = tp.weight_cutoff;
-        let cc = tp.coeff_cutoff;
+    fn collect_stats_and_count_surviving(&self, cfg: &ResolvedConfig) -> ((f64, f64), Vec<usize>) {
+        let wc = cfg.weight;
+        let cc = cfg.coefficient.unwrap_or(0.0);
         let pool = Arc::clone(&self.pool);
         let thread_maps = &self.thread_maps;
         let per_thread: Vec<((f64, f64), usize)> = pool.install(|| {
@@ -801,7 +808,7 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
 
     fn flush_and_maybe_truncate(
         &mut self,
-        tp: Option<&TruncationPolicy>,
+        cfg: Option<&ResolvedConfig>,
         gate_idx: usize,
         layer_idx: usize,
         trigger: &str,
@@ -811,14 +818,17 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
         self.flush_outboxes_to_maps();
         let total_before = self.total_terms;
 
-        if let Some(tp) = tp {
-            let min_terms = tp.truncation_range.0.unwrap_or(0);
+        // A weight or coefficient cutoff is the only lossy term-level filter for
+        // the numerical propagator; `None` cfg (a noise pre-flush) or a cfg with
+        // neither filter means "flush only".
+        if let Some(cfg) = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some()) {
+            let min_terms = cfg.min_terms.unwrap_or(0);
             if total_before >= min_terms {
                 let need_surviving = min_terms > 0;
                 let need_stats = self.verbose_log.is_some();
 
                 let (disc_l1, disc_max, surviving) = if need_surviving || need_stats {
-                    let ((dl1, dmax), surv) = self.collect_stats_and_count_surviving(tp);
+                    let ((dl1, dmax), surv) = self.collect_stats_and_count_surviving(cfg);
                     let (dl1, dmax) = if need_stats { (dl1, dmax) } else { (0.0, 0.0) };
                     (dl1, dmax, surv)
                 } else {
@@ -832,12 +842,12 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
                             .zip(self.thread_maps.iter())
                             .map(|(&surv, map)| surv >= map.len() * min_terms / total_before)
                             .collect();
-                        self.retain_by_policy_masked(tp, &mask);
+                        self.retain_by_policy_masked(cfg, &mask);
                     } else {
-                        self.retain_by_policy(tp);
+                        self.retain_by_policy(cfg);
                     }
                 } else {
-                    self.retain_by_policy(tp);
+                    self.retain_by_policy(cfg);
                 }
 
                 let total_after: usize = self.thread_maps.iter().map(|m| m.len()).sum();
@@ -845,9 +855,9 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
 
                 if let Some(ref mut log) = self.verbose_log {
                     let actual_discarded = total_before - total_after;
-                    let wc_str = tp.weight_cutoff
+                    let wc_str = cfg.weight
                         .map_or_else(|| "null".to_string(), |w| w.to_string());
-                    let cc = tp.coeff_cutoff;
+                    let cc = cfg.coefficient.unwrap_or(0.0);
                     let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
                     let qki = match self.current_qiskit_gate_idx {
                         Some(v) => v.to_string(),
@@ -935,10 +945,13 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
             })
             .collect::<PyResult<_>>()?;
 
-        let tp: Option<TruncationPolicy> = self.truncation.as_ref().and_then(|t| {
-            t.bind(py).extract::<PyRef<TruncationPolicy>>().ok().map(|p| p.clone())
-        });
-        let max_terms: Option<usize> = tp.as_ref().and_then(|p| p.truncation_range.1);
+        // Resolve the truncation pipeline once (Copy config: the flush trigger
+        // and the weight/coefficient/min-terms cutoffs the numerical propagator
+        // honors). Symbolic-only operators are rejected at construction, so any
+        // present here are numerical-applicable.
+        let cfg = resolve_config(&self.truncators);
+        let max_terms: Option<usize> = cfg.max_terms;
+        let merge_max_terms: Option<usize> = self.schedule.merge_max_terms;
 
         let mut n_terms: Vec<usize> = Vec::new();
         let damping = self.uniform_damping(py);
@@ -987,7 +1000,13 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
 
                 let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni, _)| *ni);
                 if !next_is_intermediate && max_terms.map_or(false, |max| self.total_terms + pending >= max) {
-                    py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref(), gate_idx, layer_idx, "threshold"));
+                    py.allow_threads(|| self.flush_and_maybe_truncate(Some(&cfg), gate_idx, layer_idx, "threshold"));
+                    pending = 0;
+                } else if !next_is_intermediate && merge_max_terms.map_or(false, |m| pending >= m) {
+                    // Finer lossless merge cadence (shared with the surrogate):
+                    // collapse duplicate strings out of the outboxes without
+                    // truncating, curbing within-window path-count growth.
+                    py.allow_threads(|| self.flush_outboxes_to_maps());
                     pending = 0;
                 }
 
@@ -1001,16 +1020,9 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
 
         Self::close_progress_bar(py, &pbar)?;
 
-        py.allow_threads(|| self.flush_and_maybe_truncate(tp.as_ref(), gate_idx, circuit_data.len(), "final"));
+        py.allow_threads(|| self.flush_and_maybe_truncate(Some(&cfg), gate_idx, circuit_data.len(), "final"));
 
         self.finalize_to(evolved);
-
-        // Generic Python policy: apply truncation to the finalized map.
-        if tp.is_none() {
-            if let Some(ref t) = self.truncation {
-                evolved.truncate(t.bind(py))?;
-            }
-        }
 
         if let Some(ref mut log) = self.verbose_log {
             let _ = log.flush();

@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 
 use num_complex::Complex64;
 use propaq_core::propagator::{AbstractPropagator, PropagationResult};
+use propaq_core::truncators::{reject_surrogate_only, resolve_truncation, FlushSchedule};
 
 use crate::monomial::MajoranaMonomial;
 use crate::termsum::MajoranaTermSum;
@@ -10,7 +11,11 @@ use crate::termsum::MajoranaTermSum;
 ///
 /// Arguments:
 ///     noise: Optional noise model (UniformNoiseModel, GateNoiseModel, or custom).
-///     truncation: Optional TruncationPolicy controlling weight and coefficient cutoffs.
+///     truncation: The truncation pipeline — a list of truncators
+///         (WeightTruncator, CoefficientTruncator, TermBudget), a single such
+///         truncator, a legacy TruncationPolicy (decomposed), or None. The
+///         symbolic-only FrequencyTruncator/MonomialBudget are rejected.
+///     schedule: Optional FlushSchedule controlling the lossless merge cadence.
 ///     n_threads: Number of worker threads. Defaults to the system thread count.
 ///     progress_bar: Display a tqdm progress bar during propagation.
 ///     logger: Optional Logger for verbose JSON Lines event logging.
@@ -21,25 +26,21 @@ pub struct MajoranaPropagator {
 
 #[pymethods]
 impl MajoranaPropagator {
-    /// Initialize the Majorana propagator.
-    ///
-    /// Arguments:
-    ///     noise: Optional noise model (UniformNoiseModel, GateNoiseModel, or custom).
-    ///     truncation: Optional TruncationPolicy controlling weight and coefficient cutoffs.
-    ///     n_threads: Number of worker threads. Defaults to the system thread count.
-    ///     progress_bar: Display a tqdm progress bar during propagation.
-    ///     logger: Optional Logger for verbose JSON Lines event logging.
+    /// Initialize the Majorana propagator. See the class docstring for arguments.
     #[new]
-    #[pyo3(signature = (noise=None, truncation=None, n_threads=None, progress_bar=false, logger=None))]
+    #[pyo3(signature = (noise=None, truncation=None, schedule=None, n_threads=None, progress_bar=false, logger=None))]
     fn new(
         noise: Option<PyObject>,
-        truncation: Option<PyObject>,
+        truncation: Option<Bound<'_, PyAny>>,
+        schedule: Option<FlushSchedule>,
         n_threads: Option<usize>,
         progress_bar: bool,
         logger: Option<PyObject>,
     ) -> PyResult<Self> {
+        let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
+        reject_surrogate_only(&truncators)?;
         Ok(MajoranaPropagator {
-            inner: AbstractPropagator::new(noise, truncation, n_threads, progress_bar, logger)?,
+            inner: AbstractPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
         })
     }
 
@@ -92,13 +93,32 @@ impl MajoranaPropagator {
         self.inner.noise = noise;
     }
 
+    /// The active truncation pipeline as a list of truncator objects.
     #[getter]
-    fn truncation(&self, py: Python<'_>) -> Option<PyObject> {
-        self.inner.truncation.as_ref().map(|t| t.clone_ref(py))
+    fn truncators(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        self.inner.truncators.iter().map(|t| t.to_object(py)).collect()
     }
 
+    /// The flush/merge schedule.
+    #[getter]
+    fn schedule(&self) -> FlushSchedule {
+        self.inner.schedule.clone()
+    }
+
+    #[setter]
+    fn set_schedule(&mut self, schedule: FlushSchedule) {
+        self.inner.schedule = schedule;
+    }
+
+    /// Replace the truncation pipeline (accepts the same forms as the
+    /// constructor's `truncation`); the current schedule is preserved.
     #[pyo3(signature = (truncation=None))]
-    fn set_truncation(&mut self, truncation: Option<PyObject>) {
-        self.inner.truncation = truncation;
+    fn set_truncation(&mut self, truncation: Option<Bound<'_, PyAny>>) -> PyResult<()> {
+        let (schedule, truncators) =
+            resolve_truncation(truncation.as_ref(), Some(self.inner.schedule.clone()))?;
+        reject_surrogate_only(&truncators)?;
+        self.inner.schedule = schedule;
+        self.inner.truncators = truncators;
+        Ok(())
     }
 }

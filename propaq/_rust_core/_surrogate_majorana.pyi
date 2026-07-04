@@ -5,9 +5,28 @@ from typing import TYPE_CHECKING
 from ._logger import Logger
 from ._majorana_term_sum import MajoranaTermSum
 from ._surrogate_truncation_policy import FrequencyTruncationPolicy
+from ._truncation_policy import TruncationPolicy
+from ._truncators import (
+    CoefficientTruncator,
+    FlushSchedule,
+    FrequencyTruncator,
+    MonomialBudget,
+    TermBudget,
+    WeightTruncator,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from propaq.circuits.majorana.surrogate_circuit import SurrogateMajoranaCircuit
+
+# The surrogate honors every truncator, plus the legacy policies.
+_Truncator = (
+    FrequencyTruncator | CoefficientTruncator | WeightTruncator | TermBudget | MonomialBudget
+)
+_Truncation = (
+    _Truncator | Sequence[_Truncator] | FrequencyTruncationPolicy | TruncationPolicy | None
+)
 
 
 class MajoranaSurrogateModel:
@@ -64,7 +83,10 @@ class MajoranaSurrogatePropagator:
     that can be re-evaluated cheaply for any parameter assignment.
 
     Arguments:
-        truncation: Optional FrequencyTruncationPolicy (frequency + weight cutoffs).
+        truncation: A list of truncators (FrequencyTruncator/CoefficientTruncator/
+            WeightTruncator/TermBudget/MonomialBudget), a single truncator, a legacy
+            FrequencyTruncationPolicy or TruncationPolicy (decomposed), or None.
+        schedule: Optional FlushSchedule controlling the lossless merge cadence.
         n_threads: Number of worker threads. Defaults to the system thread count.
         progress_bar: Display a tqdm progress bar during propagation.
         logger: Optional Logger for verbose JSON Lines event logging.
@@ -72,15 +94,19 @@ class MajoranaSurrogatePropagator:
 
     def __init__(
         self,
-        truncation: FrequencyTruncationPolicy | None = None,
+        truncation: _Truncation = None,
+        schedule: FlushSchedule | None = None,
         n_threads: int | None = None,
         progress_bar: bool = False,
         logger: Logger | None = None,
     ) -> None: ...
 
     @property
-    def truncation(self) -> FrequencyTruncationPolicy | None: ...
-    def set_truncation(self, truncation: FrequencyTruncationPolicy | None = None) -> None: ...
+    def truncators(self) -> list[_Truncator]: ...
+    @property
+    def schedule(self) -> FlushSchedule: ...
+    def set_schedule(self, schedule: FlushSchedule) -> None: ...
+    def set_truncation(self, truncation: _Truncation = None) -> None: ...
 
     def build(
         self,

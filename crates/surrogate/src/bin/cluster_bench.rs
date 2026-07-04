@@ -48,9 +48,9 @@ use propaq_core::termsum::AbstractTermSum;
 use propaq_pauli::string::PauliString;
 use propaq_surrogate::propagator::apply_truncation_policy;
 use propaq_surrogate::symcoeff::{GateParam, SymbolicCoeff};
-use propaq_surrogate::truncation::{
-    CoefficientTruncator, FlushSchedule, FrequencyTruncator, MonomialBudget, Truncator,
-    WeightTruncator,
+use propaq_core::truncators::{
+    resolve_config, CoefficientTruncator, FlushSchedule, FrequencyTruncator, MonomialBudget,
+    TermBudget, Truncator, WeightTruncator,
 };
 
 struct Xorshift64(u64);
@@ -235,25 +235,31 @@ fn parse_args() -> Args {
 fn main() {
     let args = parse_args();
 
-    let schedule = FlushSchedule {
-        max_terms: args.max_terms,
-        max_monomials: args.max_monomials,
-        merge_max_terms: args.merge_max_terms,
-        min_terms: args.min_terms,
-    };
+    // Budgets own the count limits; the schedule holds only the merge cadence.
     let mut truncators: Vec<Truncator> = Vec::new();
-    if let Some(max_frequency) = args.max_frequency {
-        truncators.push(Truncator::Frequency(FrequencyTruncator { max_frequency }));
+    if let Some(frequency) = args.max_frequency {
+        truncators.push(Truncator::Frequency(FrequencyTruncator { frequency: Some(frequency) }));
     }
-    if let Some(weight_cutoff) = args.weight_cutoff {
-        truncators.push(Truncator::Weight(WeightTruncator { weight_cutoff }));
+    if let Some(weight) = args.weight_cutoff {
+        truncators.push(Truncator::Weight(WeightTruncator { weight: Some(weight) }));
     }
-    if let Some(min_abs_scalar) = args.min_abs_scalar {
-        truncators.push(Truncator::Coefficient(CoefficientTruncator { min_abs_scalar }));
+    if let Some(coefficient) = args.min_abs_scalar {
+        truncators.push(Truncator::Coefficient(CoefficientTruncator { coefficient: Some(coefficient) }));
     }
-    if let (Some(min_monomials), Some(max_monomials)) = (args.min_monomials, args.max_monomials) {
-        truncators.push(Truncator::MonomialBudget(MonomialBudget { min_monomials, max_monomials }));
+    if args.min_terms.is_some() || args.max_terms.is_some() {
+        truncators.push(Truncator::TermBudget(TermBudget {
+            min_terms: args.min_terms,
+            max_terms: args.max_terms,
+        }));
     }
+    if args.min_monomials.is_some() || args.max_monomials.is_some() {
+        truncators.push(Truncator::MonomialBudget(MonomialBudget {
+            min_monomials: args.min_monomials,
+            max_monomials: args.max_monomials,
+        }));
+    }
+    // Resolved once for the explicit `apply_truncation_policy` calls below.
+    let cfg = resolve_config(&truncators);
 
     eprintln!(
         "cluster_bench: qubits={} layers={} seed_terms={} threads={:?} max_frequency={:?} weight_cutoff={:?} \
@@ -263,8 +269,11 @@ fn main() {
         args.min_terms, args.max_terms, args.min_monomials, args.max_monomials, args.merge_max_terms,
     );
 
+    // This bin drives its own flush loop and calls `apply_truncation_policy`
+    // explicitly, so the propagator's stored schedule/truncators are left empty.
     let mut propagator: AbstractPropagator<PauliString, SymbolicCoeff> =
-        AbstractPropagator::new(None, None, args.n_threads, false, None).expect("propagator construction");
+        AbstractPropagator::new(None, FlushSchedule::none(), Vec::new(), args.n_threads, false, None)
+            .expect("propagator construction");
 
     // Seed observable: `n_seed_terms` weight-1 Z operators spread across the
     // register (a single Z on qubit 0 when n_seed_terms == 1, the default —
@@ -322,7 +331,7 @@ fn main() {
                 let terms_before = propagator.total_terms();
 
                 let t1 = Instant::now();
-                let outcome = apply_truncation_policy(&mut propagator, &schedule, &truncators);
+                let outcome = apply_truncation_policy(&mut propagator, &cfg);
                 let truncate_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
                 let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -362,7 +371,7 @@ fn main() {
 
     // Final flush, mirroring the real propagator's end-of-run behavior.
     propagator.flush_outboxes_to_maps();
-    let outcome = apply_truncation_policy(&mut propagator, &schedule, &truncators);
+    let outcome = apply_truncation_policy(&mut propagator, &cfg);
     n_flushes += 1;
     peak_monomials = peak_monomials.max(outcome.monomials_after);
     if let Some(rss) = current_rss_kb() {

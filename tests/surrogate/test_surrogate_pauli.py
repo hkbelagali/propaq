@@ -16,6 +16,13 @@ from propaq import (
     PauliSurrogatePropagator,
     PauliSurrogateModel,
     FrequencyTruncationPolicy,
+    FlushSchedule,
+    Truncator,
+    FrequencyTruncator,
+    CoefficientTruncator,
+    WeightTruncator,
+    TermBudget,
+    MonomialBudget,
     SurrogatePauliCircuit,
 )
 from propaq.circuits.pauli import PauliCircuit
@@ -229,6 +236,110 @@ class TestMergeCadence:
 
     def test_default_policy_has_merge_cadence_on(self):
         assert FrequencyTruncationPolicy().merge_max_terms is not None
+
+
+class TestComposableTruncation:
+    """The `truncation` field accepts a list of individual truncator operators."""
+
+    def _circ(self):
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
+        angles = [0.3, 0.7, 1.1]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
+        return obs, sc, circ, angles
+
+    def test_list_of_truncators_frequency_exact(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(
+            truncation=[FrequencyTruncator(3), CoefficientTruncator(1e-15)]
+        ).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_single_truncator_accepted(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(truncation=FrequencyTruncator(3)).build(
+            obs, sc, initial_state=0
+        )
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_coefficient_truncator_tiny_threshold_is_exact(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(
+            truncation=[CoefficientTruncator(1e-15)]
+        ).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_coefficient_truncator_huge_threshold_prunes_everything(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(
+            truncation=[CoefficientTruncator(1e9)]
+        ).build(obs, sc, initial_state=0)
+        # |scalar| < 1e9 for every real monomial, so all get pruned at the flush.
+        assert model.evaluate(angles) == pytest.approx(0.0, abs=1e-12)
+
+    def test_weight_truncator_matches_legacy_weight_cutoff(self):
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        gens = [ps(0b0001, 0), ps(0b0011, 0)]
+        angles = [0.5, 0.8]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1])
+        m_list = PauliSurrogatePropagator(truncation=[WeightTruncator(1)]).build(
+            obs, sc, initial_state=0
+        )
+        m_legacy = PauliSurrogatePropagator(
+            truncation=FrequencyTruncationPolicy(weight_cutoff=1)
+        ).build(obs, sc, initial_state=0)
+        assert m_list.n_terms == m_legacy.n_terms
+
+    def test_explicit_schedule_plus_operators(self):
+        obs, sc, circ, angles = self._circ()
+        sched = FlushSchedule(merge_max_terms=500_000)
+        model = PauliSurrogatePropagator(
+            schedule=sched, truncation=[FrequencyTruncator(3), TermBudget(max_terms=1_000_000)]
+        ).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_monomial_budget_operator_runs(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(
+            truncation=[MonomialBudget(min_monomials=1, max_monomials=2)]
+        ).build(obs, sc, initial_state=0)
+        assert math.isfinite(model.evaluate(angles))
+
+    def test_schedule_and_truncators_getters(self):
+        prop = PauliSurrogatePropagator(
+            truncation=[FrequencyTruncator(3), WeightTruncator(2)]
+        )
+        trs = prop.truncators
+        assert len(trs) == 2
+        assert isinstance(prop.schedule, FlushSchedule)
+        assert prop.schedule.merge_max_terms is not None  # default-on cadence
+        # set_truncation preserves the schedule and replaces operators
+        prop.set_truncation([CoefficientTruncator(1e-8)])
+        assert len(prop.truncators) == 1
+
+    def test_none_truncation_is_lossless_exact(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(truncation=None).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_all_truncators_are_truncator_instances(self):
+        for op in [
+            FrequencyTruncator(None),
+            CoefficientTruncator(None),
+            WeightTruncator(None),
+            TermBudget(),
+            MonomialBudget(),
+        ]:
+            assert isinstance(op, Truncator)
+
+    def test_none_valued_truncators_are_noop_exact(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(
+            truncation=[FrequencyTruncator(None), CoefficientTruncator(None), WeightTruncator(None)]
+        ).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
 class TestLoschmidtEcho:
     def test_echo_recovers_initial(self):

@@ -61,6 +61,36 @@ impl TruncationPolicy {
     }
 }
 
+impl TruncationPolicy {
+    /// Decompose the legacy single-policy form into the composable
+    /// `(FlushSchedule, [Truncator])` shape the propagators run internally.
+    /// Preserves exact legacy behavior: no finer merge cadence (the policy has
+    /// no merge field), `weight_cutoff` → `WeightTruncator`, a positive
+    /// `coeff_cutoff` → `CoefficientTruncator`, and `truncation_range` →
+    /// `TermBudget`.
+    pub fn decompose(&self) -> (crate::truncators::FlushSchedule, Vec<crate::truncators::Truncator>) {
+        use crate::truncators::{
+            CoefficientTruncator, FlushSchedule, TermBudget, Truncator, WeightTruncator,
+        };
+        let mut ops = Vec::new();
+        if let Some(weight) = self.weight_cutoff {
+            ops.push(Truncator::Weight(WeightTruncator { weight: Some(weight) }));
+        }
+        if self.coeff_cutoff > 0.0 {
+            ops.push(Truncator::Coefficient(CoefficientTruncator {
+                coefficient: Some(self.coeff_cutoff),
+            }));
+        }
+        if self.truncation_range.0.is_some() || self.truncation_range.1.is_some() {
+            ops.push(Truncator::TermBudget(TermBudget {
+                min_terms: self.truncation_range.0,
+                max_terms: self.truncation_range.1,
+            }));
+        }
+        (FlushSchedule::none(), ops)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
