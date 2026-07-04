@@ -329,25 +329,40 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     && merge_max_terms.map_or(false, |m| pending >= m)
                 {
                     // Finer lossless merge: transpose outboxes into the maps,
-                    // collapsing duplicate Pauli strings, without the lossy
-                    // truncation pass. This refreshes `total_terms` (so the
-                    // truncation trigger sees the unique-term count, not the
-                    // path count) and resets `pending`. `pending_monomials` is
-                    // intentionally NOT reset: a merge is lossless, so those
-                    // monomials stay live and uncounted in `total_monomials`
-                    // (which only a truncation flush refreshes) until then.
+                    // collapsing duplicate Pauli strings *and* — via
+                    // `CoeffRepr::post_merge` -> `deduplicate` — the identical
+                    // monomials `add_assign` just juxtaposed inside each
+                    // coefficient, without the lossy truncation pass. This
+                    // refreshes `total_terms` (so the truncation trigger sees
+                    // the unique-term count, not the path count) and resets
+                    // `pending`.
+                    //
+                    // The merge is lossless in *value* but reduces the monomial
+                    // *count* (dedup collapses coincident masks — every monomial
+                    // from a purely-numeric gate stretch shares the empty mask),
+                    // so `total_monomials` is refreshed from the now-deduplicated
+                    // maps and `pending_monomials` (a pre-dedup count of every
+                    // monomial produced since the last flush) is reset. Both the
+                    // progress display and the `monomials_trigger` therefore read
+                    // the true live count right after each merge, drifting only
+                    // conservatively upward until the next one. `sum_coeffs` is a
+                    // parallel O(live terms) pass (`monomial_count` is O(1)).
                     let terms_before = self.inner.total_terms() + pending;
                     py.allow_threads(|| self.inner.flush_outboxes_to_maps());
                     pending = 0;
+                    self.total_monomials =
+                        py.allow_threads(|| self.inner.sum_coeffs(|c| c.monomial_count()));
+                    pending_monomials = 0;
                     if self.verbose_log.is_some() {
                         let terms_after = self.inner.total_terms();
+                        let monomials_after = self.total_monomials;
                         let qki = self
                             .current_qiskit_gate_idx
                             .map_or_else(|| "null".to_string(), |v| v.to_string());
                         if let Some(ref mut log) = self.verbose_log {
                             let _ = writeln!(
                                 log,
-                                r#"{{"event":"surrogate_merge","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"terms_before":{terms_before},"terms_after":{terms_after}}}"#
+                                r#"{{"event":"surrogate_merge","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"terms_before":{terms_before},"terms_after":{terms_after},"monomials_after":{monomials_after}}}"#
                             );
                         }
                     }
@@ -849,5 +864,73 @@ mod monomial_removal_budget_tests {
     #[test]
     fn zero_min_and_max_equal_to_after_minus_one() {
         assert_eq!(monomial_removal_budget(1000, 0, 999), 1);
+    }
+}
+
+#[cfg(test)]
+mod numeric_history_dedup_tests {
+    use super::*;
+    use num_complex::Complex64;
+    use propaq_core::bitset::Bitset;
+    use propaq_core::termsum::AbstractTermSum;
+
+    fn pauli(x: u64, z: u64, n_qubits: usize) -> PauliString {
+        let xb = Bitset::from_le_bytes(&x.to_le_bytes());
+        let zb = Bitset::from_le_bytes(&z.to_le_bytes());
+        let weight = (&xb | &zb).count_ones();
+        PauliString { x: xb, z: zb, n_qubits, weight }
+    }
+
+    /// A purely-numeric gate history produces only empty-mask monomials, so the
+    /// live monomial count must never exceed the live term count once a merge
+    /// has run (each term collapses to a single monomial). This is the regime
+    /// the user reported: dozens of terms but the monomial count exploding into
+    /// the millions because the lossless merge only deduped term keys, never the
+    /// identical monomials `add_assign` piled up inside each coefficient. With
+    /// `CoeffRepr::post_merge` calling `deduplicate` at the merge, live
+    /// monomials track live terms exactly.
+    #[test]
+    fn numeric_gates_keep_live_monomials_bounded_by_term_count() {
+        const N_QUBITS: usize = 8;
+        let mut prop: AbstractPropagator<PauliString, SymbolicCoeff> =
+            AbstractPropagator::new(None, FlushSchedule::none(), Vec::new(), Some(4), false, None)
+                .expect("propagator construction");
+
+        // Seed a single weight-1 Z on qubit 0.
+        let mut seed = AbstractTermSum::new();
+        seed.add(pauli(0, 1, N_QUBITS), Complex64::new(1.0, 0.0));
+        prop.initialize_from(&seed);
+
+        // Brick-wall of two-qubit generators, all with *numeric* angles, with a
+        // lossless merge every few gates (mirrors `merge_max_terms` firing).
+        let mut gate_idx = 0u32;
+        let mut peak_live_monomials = 0usize;
+        for round in 0..24 {
+            let offset = round % 2;
+            for q in (offset..N_QUBITS - 1).step_by(2) {
+                // A weight-2 generator that anticommutes with Z-type terms on
+                // these qubits (X components), so branches are actually created.
+                let generator = pauli((1 << q) | (1 << (q + 1)), 0, N_QUBITS);
+                let angle = 0.3 + 0.1 * gate_idx as f64;
+                prop.apply_gate_inplace(&generator, GateParam::Numeric { gate_idx, angle });
+                gate_idx += 1;
+            }
+            prop.flush_outboxes_to_maps();
+
+            // After a merge, every coefficient is deduplicated; with only empty
+            // masks in play, that is at most one monomial per live term.
+            let live_terms = prop.total_terms();
+            let live_monomials = prop.sum_coeffs(|c| c.monomial_count());
+            peak_live_monomials = peak_live_monomials.max(live_monomials);
+            assert!(
+                live_monomials <= live_terms,
+                "round {round}: live monomials {live_monomials} exceeded live terms {live_terms} \
+                 — numeric-history monomials were not deduplicated at the merge",
+            );
+        }
+
+        // Sanity floor: the run actually exercised real branching (non-trivial
+        // term count), so the bound above wasn't vacuously true on an empty map.
+        assert!(peak_live_monomials > 1, "test did not exercise any branching");
     }
 }
