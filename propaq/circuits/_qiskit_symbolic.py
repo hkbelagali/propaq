@@ -115,16 +115,31 @@ def expand_affine_rotation(
     if not terms and offset == 0.0:
         return []
 
-    indices = [pool.index_for(parameter, slope) for parameter, slope in terms]
-    if offset != 0.0 or not indices:
-        indices.append(pool.index_for(None, offset))
+    # One (param_index, angle) spec per rotation in the chain. Each free-Parameter
+    # component becomes a *symbolic* rotation (its value is resolved at evaluate
+    # time); the constant residual becomes a *numeric* rotation baked in now.
+    specs: list[tuple[int | None, float | None]] = [
+        (pool.index_for(parameter, slope), None) for parameter, slope in terms
+    ]
+    # The constant residual must be numeric, NOT a symbolic parameter slot. A
+    # symbolic factor is written into every monomial's mask and counts toward its
+    # frequency; a numeric angle is folded straight into the scalar, leaving the
+    # mask untouched. Turning constants (and therefore whole purely-numeric gates,
+    # which are offset-only) into symbolic slots makes every fixed rotation branch
+    # combinatorially with distinct masks that never deduplicate — memory explodes
+    # even though nothing about the term is actually parameterized. Emit it when
+    # nonzero, or when there is no symbolic component at all (a pure numeric gate
+    # must still act).
+    if offset != 0.0 or not specs:
+        specs.append((None, offset))
 
     return [
         rotation_cls(
             generator=generator,
-            param_index=idx,
-            is_intermediate=i < len(indices) - 1,
+            param_index=param_index,
+            angle=angle,
+            is_intermediate=i < len(specs) - 1,
             qiskit_gate_idx=qiskit_gate_idx,
         )
-        for i, idx in enumerate(indices)
+        for i, (param_index, angle) in enumerate(specs)
     ]
