@@ -251,11 +251,8 @@ fn bench_evaluate_by_size(c: &mut Criterion) {
                 [t.cos(), t.sin()]
             })
             .collect();
-        // Identity gate->param table: gate index == parameter here, matching
-        // how `grown_coeff` branches (gate `i` uses `GateParam::symbolic(i)`).
-        let g2p: Vec<u32> = (0..steps).collect();
         group.bench_with_input(BenchmarkId::from_parameter(1u64 << steps), &steps, |bench, _| {
-            bench.iter(|| black_box(coeff.evaluate(black_box(&lut), black_box(&g2p))))
+            bench.iter(|| black_box(coeff.evaluate(black_box(&lut))))
         });
     }
     group.finish();
@@ -276,10 +273,7 @@ fn bench_evaluate_batch(c: &mut Criterion) {
             coeff: grown_coeff(14),
         })
         .collect();
-    // Identity gate->param table covering every gate the coeffs branch at
-    // (grown_coeff(14) uses gates 0..14; n_params=20 covers them all).
-    let gate_to_param: Vec<u32> = (0..n_params as u32).collect();
-    let model = SurrogateModel::new(terms, n_params, gate_to_param);
+    let model = SurrogateModel::new(terms, n_params);
 
     let mut rng = Xorshift64(0xFEED);
     let param_sets: Vec<Vec<f64>> = (0..32)

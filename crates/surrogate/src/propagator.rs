@@ -193,7 +193,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         // symbolic (`param_index`) or numeric (`angle`) — see `GateParam`.
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
 
-        let mut circuit_data: Vec<Vec<(M, GateParam, bool, Option<usize>)>> = layers
+        let circuit_data: Vec<Vec<(M, GateParam, bool, Option<usize>)>> = layers
             .iter()
             .map(|layer| {
                 layer.iter().map(|rot_obj| -> PyResult<(M, GateParam, bool, Option<usize>)> {
@@ -201,11 +201,9 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     let generator: M = rot.getattr("generator")?.extract()?;
                     // Inject the look-ahead cap into symbolic params; numeric
                     // rotations never change frequency, so they're left as-is.
-                    // `gate_idx` is a placeholder here — assigned in propagation
-                    // order in the pass below.
                     let param = match SymbolicCoeff::extract_gate_param(rot)? {
-                        GateParam::Symbolic { gate_idx, param, .. } => {
-                            GateParam::Symbolic { gate_idx, param, prune_freq }
+                        GateParam::Symbolic { param, .. } => {
+                            GateParam::Symbolic { param, prune_freq }
                         }
                         numeric => numeric,
                     };
@@ -220,33 +218,11 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             })
             .collect::<PyResult<_>>()?;
 
-        // Assign each gate its propagation-order index — the bit-pair position
-        // it writes into every branching monomial's mask — and build the
-        // circuit-wide `gate -> param` table `evaluate` resolves masks against.
-        // Propagation applies layers in reverse, and gates within a layer in
-        // reverse (see the gate loop below), so gates are numbered in exactly
-        // that order: gate 0 is the first one applied. Numbering in propagation
-        // order keeps a monomial's gate indices monotonic, so masks only grow
-        // at the tail and early gates cost few mask words. Numeric gates get an
-        // index too (they still occupy a propagation slot), but a `u32::MAX`
-        // param sentinel — their positions are never written into any mask.
+        // Each symbolic rotation carries its parameter index directly, written
+        // into every branching monomial's factor run — no gate numbering or
+        // `gate -> param` table is needed (a parameter reused across gates
+        // accumulates into a trig power at build time; see `SymbolicCoeff`).
         let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
-        let mut gate_to_param: Vec<u32> = vec![u32::MAX; total_rotations];
-        let mut next_gate_idx: u32 = 0;
-        for layer in circuit_data.iter_mut().rev() {
-            for gate in layer.iter_mut().rev() {
-                match &mut gate.1 {
-                    GateParam::Symbolic { gate_idx, param, .. } => {
-                        *gate_idx = next_gate_idx;
-                        gate_to_param[next_gate_idx as usize] = *param;
-                    }
-                    GateParam::Numeric { gate_idx, .. } => {
-                        *gate_idx = next_gate_idx;
-                    }
-                }
-                next_gate_idx += 1;
-            }
-        }
 
         // Uniform noise support only (symbolic coefficients can carry damping as scalar).
         let damping = self.inner.uniform_damping(py);
@@ -425,7 +401,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             }
         });
 
-        Ok(SurrogateModel::new(raw, n_params, gate_to_param))
+        Ok(SurrogateModel::new(raw, n_params))
     }
 }
 
@@ -936,7 +912,7 @@ mod numeric_history_dedup_tests {
                 // these qubits (X components), so branches are actually created.
                 let generator = pauli((1 << q) | (1 << (q + 1)), 0, N_QUBITS);
                 let angle = 0.3 + 0.1 * gate_idx as f64;
-                prop.apply_gate_inplace(&generator, GateParam::Numeric { gate_idx, angle });
+                prop.apply_gate_inplace(&generator, GateParam::Numeric { angle });
                 gate_idx += 1;
             }
             prop.flush_outboxes_to_maps();

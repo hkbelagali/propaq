@@ -30,17 +30,11 @@ pub struct SurrogateTerm<M: AbstractTerm> {
 pub struct SurrogateModel<M: AbstractTerm> {
     pub terms: Vec<SurrogateTerm<M>>,
     pub n_params: usize,
-    /// Maps each gate index (a monomial mask's bit-pair position, in
-    /// propagation order) to the parameter index behind that gate. Length is
-    /// the circuit's gate count `m`. Numeric gates hold a sentinel
-    /// (`u32::MAX`) — their positions are never set in any mask, so the
-    /// sentinel is never read.
-    pub gate_to_param: Vec<u32>,
 }
 
 impl<M: AbstractTerm> SurrogateModel<M> {
-    pub fn new(terms: Vec<SurrogateTerm<M>>, n_params: usize, gate_to_param: Vec<u32>) -> Self {
-        SurrogateModel { terms, n_params, gate_to_param }
+    pub fn new(terms: Vec<SurrogateTerm<M>>, n_params: usize) -> Self {
+        SurrogateModel { terms, n_params }
     }
 
     /// Evaluate the expectation value for the given parameter angles.
@@ -51,7 +45,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let lut = Self::make_lut(params);
         self.terms
             .par_iter()
-            .map(|t| t.overlap * t.coeff.evaluate(&lut, &self.gate_to_param))
+            .map(|t| t.overlap * t.coeff.evaluate(&lut))
             .sum()
     }
 
@@ -66,8 +60,8 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 
     /// Flat evaluation LUT indexed by `2 * param_index` (`cos(theta_i)`) /
     /// `2 * param_index + 1` (`sin(theta_i)`). `SymbolicCoeff::evaluate` walks
-    /// each monomial's gate-indexed mask, resolves each branched gate to its
-    /// parameter via `gate_to_param`, and gathers the matching `cos`/`sin`.
+    /// each monomial's factor run, reads each parameter index directly from the
+    /// factor, and raises the matching `cos`/`sin` to the recorded powers.
     fn make_lut(params: &[f64]) -> Vec<f64> {
         params.iter().flat_map(|&t| [t.cos(), t.sin()]).collect()
     }
@@ -115,10 +109,6 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         w.write_all(&(self.n_params as u64).to_le_bytes())?;
         w.write_all(&system_size.to_le_bytes())?;
         w.write_all(&key_stride.to_le_bytes())?;
-        w.write_all(&(self.gate_to_param.len() as u64).to_le_bytes())?;
-        for &p in &self.gate_to_param {
-            w.write_all(&p.to_le_bytes())?;
-        }
         w.write_all(&(blobs.len() as u64).to_le_bytes())?;
         for b in &blobs {
             w.write_all(&(b.len() as u64).to_le_bytes())?;
@@ -159,11 +149,6 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let n_params = read_u64!() as usize;
         let system_size = read_u64!();
         let key_stride = read_u64!() as usize;
-        let n_gates = read_u64!() as usize;
-        let mut gate_to_param = Vec::with_capacity(n_gates);
-        for _ in 0..n_gates {
-            gate_to_param.push(read_u32!());
-        }
 
         let n_shards = read_u64!() as usize;
         let mut shard_lens = Vec::with_capacity(n_shards);
@@ -189,7 +174,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             terms.extend(shard);
         }
 
-        Ok(SurrogateModel { terms, n_params, gate_to_param })
+        Ok(SurrogateModel { terms, n_params })
     }
 }
 
@@ -197,19 +182,22 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 /// A mismatch on load is a hard error — the sharded format deliberately breaks
 /// compatibility with pre-sharding files.
 const MAGIC: u32 = u32::from_le_bytes(*b"PQSM");
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 
 /// Serialize one term into `buf` (uncompressed): key bytes, overlap (f64le),
-/// monomial count (u64le), then per monomial `scalar` (f64le), byte length
-/// (u64le), and the raw delta-varint run verbatim from the coefficient arena.
+/// monomial count (u64le), then per monomial `scalar` (f64le), factor count
+/// (u64le), and that many packed `u32le` parameter-space factors from the
+/// coefficient arena.
 fn write_term_into<M: AbstractTerm>(buf: &mut Vec<u8>, st: &SurrogateTerm<M>) {
     buf.extend_from_slice(&st.term.to_bytes_vec());
     buf.extend_from_slice(&st.overlap.to_le_bytes());
     buf.extend_from_slice(&(st.coeff.monomial_count() as u64).to_le_bytes());
-    for (scalar, mask) in st.coeff.iter_monomials() {
+    for (scalar, run) in st.coeff.iter_monomials() {
         buf.extend_from_slice(&scalar.to_le_bytes());
-        buf.extend_from_slice(&(mask.len() as u64).to_le_bytes());
-        buf.extend_from_slice(mask);
+        buf.extend_from_slice(&(run.len() as u64).to_le_bytes());
+        for &f in run {
+            buf.extend_from_slice(&f.to_le_bytes());
+        }
     }
 }
 
@@ -242,8 +230,15 @@ fn parse_shard<M: AbstractTerm>(
         *pos += 8;
         v
     }
+    #[inline]
+    fn rd_u32(b: &[u8], pos: &mut usize) -> u32 {
+        let v = u32::from_le_bytes(b[*pos..*pos + 4].try_into().unwrap());
+        *pos += 4;
+        v
+    }
 
     let mut terms = Vec::new();
+    let mut factors: Vec<u32> = Vec::new();
     let mut pos = 0usize;
     while pos < raw.len() {
         let term = M::from_bytes_vec(&raw[pos..pos + key_stride], system_size);
@@ -254,9 +249,13 @@ fn parse_shard<M: AbstractTerm>(
         coeff.reserve(n_mono, 0);
         for _ in 0..n_mono {
             let scalar = rd_f64(&raw, &mut pos);
-            let n_bytes = rd_u64(&raw, &mut pos) as usize;
-            coeff.push_monomial(scalar, &raw[pos..pos + n_bytes]);
-            pos += n_bytes;
+            let n_factors = rd_u64(&raw, &mut pos) as usize;
+            factors.clear();
+            factors.reserve(n_factors);
+            for _ in 0..n_factors {
+                factors.push(rd_u32(&raw, &mut pos));
+            }
+            coeff.push_monomial(scalar, &factors);
         }
         terms.push(SurrogateTerm { term, overlap, coeff });
     }

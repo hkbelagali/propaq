@@ -11,7 +11,7 @@ use propaq_core::coeff::CoeffRepr;
 
 /// Below this monomial count, use the simple sort-based merge. Benchmarking
 /// showed the hash-based merge only reliably wins with substantial exact
-/// mask-pattern duplication (~100x+ repeats); with little/no duplication it
+/// factor-pattern duplication (~100x+ repeats); with little/no duplication it
 /// is comparable or slower at every scale tested, and gets relatively worse
 /// as the count grows (larger hashtables mean more cache misses, while sort's
 /// O(log k) term grows very slowly). Set conservatively high so only the rare
@@ -20,10 +20,34 @@ use propaq_core::coeff::CoeffRepr;
 /// while the common case keeps the well-tested sort with no regression risk.
 const HASH_MERGE_THRESHOLD: usize = 100_000;
 
-/// Low bit of a factor's varint value: `1` = `sin(theta_j)`, `0` = `cos(theta_j)`.
-/// A factor value is `(gate_delta << 1) | this_bit`.
-const SIN_BIT: u32 = 1;
-const COS_BIT: u32 = 0;
+/// A trig factor is packed into a single `u32`:
+/// `[param:16 | cos_pow:8 | sin_pow:8]`. The **parameter index** lives in the
+/// high 16 bits, so a plain ascending `u32` sort orders factors by parameter —
+/// which is what makes a monomial's factor run canonical (see `SymbolicCoeff`).
+const PARAM_SHIFT: u32 = 16;
+const COS_SHIFT: u32 = 8;
+const POW_MASK: u32 = 0xff;
+
+/// Pack `(param, cos_pow, sin_pow)` into a factor word.
+#[inline]
+fn make_factor(param: u32, cos_pow: u32, sin_pow: u32) -> u32 {
+    (param << PARAM_SHIFT) | (cos_pow << COS_SHIFT) | sin_pow
+}
+
+#[inline]
+fn factor_param(f: u32) -> u32 {
+    f >> PARAM_SHIFT
+}
+
+#[inline]
+fn factor_cos(f: u32) -> u32 {
+    (f >> COS_SHIFT) & POW_MASK
+}
+
+#[inline]
+fn factor_sin(f: u32) -> u32 {
+    f & POW_MASK
+}
 
 /// Minimum monomials before `evaluate` splits a single term's monomial list
 /// across threads. Higher than `apply_gate_inplace`'s gate threshold because
@@ -62,116 +86,86 @@ fn coeff_sharing_enabled() -> bool {
     *V
 }
 
-/// LEB128-encode `v` (unsigned), appending to `buf`. Little-endian base-128:
-/// each byte carries 7 payload bits with the high bit set on all but the last.
+/// A monomial's "frequency" (symbolic branch degree): the total trig power it
+/// carries, `Σ (cos_pow + sin_pow)` over its factors. This is the number of
+/// symbolic gates that branched the path (multiplicities included), matching the
+/// `(1/2)^ℓ` average-magnitude physics that drives frequency truncation.
 #[inline]
-fn write_varint(buf: &mut Vec<u8>, mut v: u32) {
-    loop {
-        let byte = (v & 0x7f) as u8;
-        v >>= 7;
-        if v == 0 {
-            buf.push(byte);
-            return;
-        }
-        buf.push(byte | 0x80);
-    }
+fn run_frequency(factors: &[u32]) -> usize {
+    factors.iter().map(|&f| (factor_cos(f) + factor_sin(f)) as usize).sum()
 }
 
-/// Decode one LEB128 varint from `bytes` starting at `pos`; returns
-/// `(value, next_pos)`. Debug builds panic on a truncated varint (a bug — runs
-/// are always self-delimiting and end on a monomial boundary).
+/// The highest parameter index recorded in a run (`0` for an empty run). Runs
+/// are sorted ascending by parameter, so this is just the last factor's param.
 #[inline]
-fn read_varint(bytes: &[u8], mut pos: usize) -> (u32, usize) {
-    let mut result: u32 = 0;
-    let mut shift: u32 = 0;
-    loop {
-        let byte = bytes[pos];
-        pos += 1;
-        result |= ((byte & 0x7f) as u32) << shift;
-        if byte & 0x80 == 0 {
-            return (result, pos);
-        }
-        shift += 7;
-    }
+#[cfg(test)]
+fn run_last_param(factors: &[u32]) -> u32 {
+    factors.last().map_or(0, |&f| factor_param(f))
 }
 
-/// Iterate `(gate, is_sin)` factors of a varint-encoded run, reconstructing
-/// absolute gate indices from the stored deltas (`prev` starts at 0, so the
-/// first factor's delta is its absolute gate index).
-struct RunIter<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-    prev_gate: u32,
-}
-
-impl Iterator for RunIter<'_> {
-    type Item = (u32, bool);
-    #[inline]
-    fn next(&mut self) -> Option<(u32, bool)> {
-        if self.pos >= self.bytes.len() {
-            return None;
-        }
-        let (v, next) = read_varint(self.bytes, self.pos);
-        self.pos = next;
-        let gate = self.prev_gate + (v >> 1);
-        self.prev_gate = gate;
-        Some((gate, (v & 1) == SIN_BIT))
-    }
-}
-
-#[inline]
-fn decode_run(bytes: &[u8]) -> RunIter<'_> {
-    RunIter { bytes, pos: 0, prev_gate: 0 }
-}
-
-/// Symbolic-branch degree (a monomial's "frequency"): the number of trig
-/// factors in its run, i.e. the number of varints. Each varint terminates on a
-/// byte with the high bit clear, so counting those bytes counts factors without
-/// any delta arithmetic.
-#[inline]
-fn mask_frequency(bytes: &[u8]) -> usize {
-    bytes.iter().filter(|&&b| b & 0x80 == 0).count()
-}
-
-/// The highest gate index recorded in a run (`0` for an empty run). Because
-/// gates are stored as ascending deltas, this is just the last decoded gate.
-/// Used by `apply_rotation_symbolic` to compute the delta for the appended
-/// factor; `0` for an empty run is correct because the first factor's delta is
-/// then its absolute gate index.
-#[inline]
-fn run_last_gate(bytes: &[u8]) -> u32 {
-    let mut prev = 0u32;
-    let mut pos = 0usize;
-    while pos < bytes.len() {
-        let (v, next) = read_varint(bytes, pos);
-        pos = next;
-        prev += v >> 1;
-    }
-    prev
-}
-
-/// Whether a run is canonical: gates strictly ascending and the byte slice
-/// decodes exactly (no trailing partial varint). Two monomials with the same
-/// set of `(gate, cos/sin)` factors therefore produce identical byte runs, so
-/// bit-for-bit slice equality is semantic equality. Referenced by the
-/// `debug_assert!` in `push_monomial` (evaluated only in debug builds) and by
-/// tests, so it stays compiled in release without being a runtime cost there.
-fn run_is_canonical(bytes: &[u8]) -> bool {
+/// Whether a run is canonical: parameters strictly ascending and every factor
+/// carries a nonzero total power. Two monomials with the same `(param -> cos/sin
+/// powers)` map therefore produce identical `u32` slices, so bit-for-bit slice
+/// equality is semantic equality. Referenced by the `debug_assert!` in
+/// `push_monomial` (evaluated only in debug builds) and by tests, so it stays
+/// compiled in release without being a runtime cost there.
+fn run_is_canonical(factors: &[u32]) -> bool {
     let mut prev: Option<u32> = None;
-    for (gate, _) in decode_run(bytes) {
-        if let Some(p) = prev {
-            if gate <= p {
+    for &f in factors {
+        let p = factor_param(f);
+        if let Some(pp) = prev {
+            if p <= pp {
                 return false;
             }
         }
-        prev = Some(gate);
+        if factor_cos(f) + factor_sin(f) == 0 {
+            return false;
+        }
+        prev = Some(p);
     }
     true
 }
 
+/// Copy `run` into `dst`, folding one more `cos`/`sin` branch on parameter
+/// `param` into it. `run` is sorted ascending by parameter; if `param` is
+/// already present its matching power is incremented, otherwise a fresh factor
+/// is inserted at the sorted position. `O(#factors)`, and the result stays
+/// canonical. This increment on a *repeated* parameter is the collapse mechanism
+/// that keeps parameter-reusing ansätze (UCJ/LUCJ) from exploding: two paths
+/// that reach the same `(param -> powers)` map produce identical runs and merge
+/// under `deduplicate`.
+#[inline]
+fn write_incremented(dst: &mut Vec<u32>, run: &[u32], param: u32, is_sin: bool) {
+    let mut i = 0usize;
+    while i < run.len() && factor_param(run[i]) < param {
+        dst.push(run[i]);
+        i += 1;
+    }
+    if i < run.len() && factor_param(run[i]) == param {
+        let f = run[i];
+        let (mut cos_pow, mut sin_pow) = (factor_cos(f), factor_sin(f));
+        if is_sin {
+            sin_pow += 1;
+        } else {
+            cos_pow += 1;
+        }
+        debug_assert!(
+            cos_pow <= POW_MASK && sin_pow <= POW_MASK,
+            "trig power exceeds the 8-bit cap (255) for param {param}; \
+             a single parameter branched >255 times on one path"
+        );
+        dst.push(make_factor(param, cos_pow, sin_pow));
+        i += 1;
+    } else {
+        let (cos_pow, sin_pow) = if is_sin { (0, 1) } else { (1, 0) };
+        dst.push(make_factor(param, cos_pow, sin_pow));
+    }
+    dst.extend_from_slice(&run[i..]);
+}
+
 /// Per-monomial header: the scalar plus the *exclusive* end offset of this
-/// monomial's varint bytes in the owning coefficient's `masks` arena (its start
-/// is the previous header's `end`, or 0 for the first monomial).
+/// monomial's factors in the owning coefficient's `factors` arena (its start is
+/// the previous header's `end`, or 0 for the first monomial).
 ///
 /// `scalar` is real, not complex: `apply_rotation` is only ever invoked on
 /// anticommuting (generator, term) pairs, and for Hermitian, involutory
@@ -180,18 +174,18 @@ fn run_is_canonical(bytes: &[u8]) -> bool {
 /// leaving a real result at every step. Given a real (Hermitian) seed
 /// observable, every monomial's scalar stays real by induction.
 ///
-/// `end` is a u64 *byte* offset: a single coefficient can legitimately hold
-/// billions of mask bytes at the design scale. The header is deliberately kept
-/// at 16 bytes (8 + 8, no padding): a monomial's frequency and last-gate are
-/// both recovered cheaply by decoding its (short) run wherever they're needed,
-/// so no extra field is stored — that keeps the varint memory win intact.
+/// `end` is a u64 *factor-count* offset into the shared arena: a single
+/// coefficient can legitimately hold billions of factor words at the design
+/// scale. The header is deliberately kept at 16 bytes (8 + 8, no padding): a
+/// monomial's frequency is recovered cheaply by summing its (short) run's
+/// powers wherever it's needed, so no extra field is stored.
 #[derive(Clone, Copy, Debug)]
 struct MonoHead {
     scalar: f64,
     end: u64,
 }
 
-/// Per-thread free-list of previously-live `(heads, masks)` buffer pairs,
+/// Per-thread free-list of previously-live `(heads, factors)` buffer pairs,
 /// recycled by `apply_rotation`'s branch construction and `deduplicate`'s
 /// rebuild instead of round-tripping through the global allocator — both are
 /// the hottest per-gate/per-flush allocation sites for `SymbolicCoeff`. Scoped
@@ -202,25 +196,25 @@ struct MonoHead {
 const BUFFER_POOL_CAP: usize = 64;
 
 thread_local! {
-    static COEFF_BUFFER_POOL: RefCell<Vec<(Vec<MonoHead>, Vec<u8>)>> =
+    static COEFF_BUFFER_POOL: RefCell<Vec<(Vec<MonoHead>, Vec<u32>)>> =
         const { RefCell::new(Vec::new()) };
 }
 
 /// Check out a buffer pair from this thread's pool, or a fresh empty pair if
 /// none is available. Callers must `reserve` as needed before use.
-fn take_pooled_buffers() -> (Vec<MonoHead>, Vec<u8>) {
+fn take_pooled_buffers() -> (Vec<MonoHead>, Vec<u32>) {
     COEFF_BUFFER_POOL.with(|pool| pool.borrow_mut().pop()).unwrap_or_default()
 }
 
 /// Return a no-longer-needed buffer pair to this thread's pool for reuse, or
 /// drop it normally if the pool is already at capacity.
-fn return_pooled_buffers(mut heads: Vec<MonoHead>, mut masks: Vec<u8>) {
+fn return_pooled_buffers(mut heads: Vec<MonoHead>, mut factors: Vec<u32>) {
     heads.clear();
-    masks.clear();
+    factors.clear();
     COEFF_BUFFER_POOL.with(|pool| {
         let mut pool = pool.borrow_mut();
         if pool.len() < BUFFER_POOL_CAP {
-            pool.push((heads, masks));
+            pool.push((heads, factors));
         }
     });
 }
@@ -248,52 +242,54 @@ fn return_order(mut order: Vec<u32>) {
 /// A sum of monomials `scalar * product(trig factors)`: a symbolic
 /// coefficient accumulated during surrogate propagation.
 ///
-/// Each monomial stores its branch factors as a **delta-varint run** rather
-/// than a dense per-gate bitmask: one LEB128 varint per trig factor, in
-/// ascending gate order, where the varint value is `(gate - prev_gate) << 1 |
-/// sin_bit` (`prev_gate` starts at 0). A commuting gate contributes no factor
-/// and no bytes; a numeric-angle gate is folded into the scalar and likewise
-/// stores nothing. Storage is therefore O(frequency) per monomial — a few
-/// bytes for a low-frequency monomial regardless of how deep in the circuit its
-/// last branch falls — instead of O(highest gate index), the dominant win over
-/// a dense mask under aggressive frequency truncation.
+/// Each monomial stores its branch factors in **parameter space**: one `u32`
+/// per distinct parameter it touched, packed `[param:16 | cos_pow:8 |
+/// sin_pow:8]` and sorted ascending by parameter. A symbolic gate on parameter
+/// `p` multiplies the monomial by `cos(θ_p)` (or `sin(θ_p)`), which increments
+/// `p`'s cos/sin power (inserting the factor if `p` is new) — so a parameter
+/// reused across many gates accumulates into powers rather than spawning a
+/// distinct factor per gate. A commuting gate contributes nothing; a
+/// numeric-angle gate is folded into the scalar and stores nothing. Storage is
+/// O(#distinct params) per monomial.
 ///
-/// The parameter behind gate `j` is recovered at evaluation time from a
-/// circuit-wide `gate -> param` table, so the run itself stores no parameter
-/// indices.
+/// The key property over a gate-indexed scheme: two paths that pick up the same
+/// parameters to the same total powers (e.g. `cos(θ_p)·sin(θ_p)` reached via
+/// gate-A-cos/gate-B-sin vs gate-A-sin/gate-B-cos on the same parameter)
+/// produce **identical** runs, so `deduplicate` merges them. For ansätze that
+/// reuse parameters this collapses the monomial count dramatically.
 ///
 /// Stored in CSR/SoA form — one 16-byte header per monomial plus a single
-/// shared byte arena — instead of one owning object per monomial. At the design
+/// shared `u32` arena — instead of one owning object per monomial. At the design
 /// scale (hundreds of millions of monomials) the per-monomial representation
 /// was the dominant cost: every clone/grow/merge did one allocator round-trip
 /// *per monomial*. Here every operation is a streaming pass over two flat
 /// buffers with at most one buffer rebuild per call.
 ///
-/// Runs are canonical (ascending gates, exact byte length), so two monomials
-/// with the same branch pattern compare equal byte-for-byte. `add_assign`
-/// simply appends monomials (and flags the coefficient dirty); call
-/// `deduplicate` to merge identical runs and drop near-zero terms before
-/// evaluation.
+/// Runs are canonical (ascending params, nonzero powers), so two monomials with
+/// the same parameter/power map compare equal word-for-word. `add_assign` simply
+/// appends monomials (and flags the coefficient dirty); call `deduplicate` to
+/// merge identical runs and drop near-zero terms before evaluation.
+
 /// An immutable, already-deduplicated monomial arena, shared behind an `Arc` by
 /// the parent and child of a numeric branch. See `SymbolicCoeff::shared`.
 #[derive(Default)]
 struct Inner {
     heads: Vec<MonoHead>,
-    masks: Vec<u8>,
+    factors: Vec<u32>,
 }
 
 #[derive(Clone, Default)]
 pub struct SymbolicCoeff {
     heads: Vec<MonoHead>,
-    masks: Vec<u8>,
+    factors: Vec<u32>,
     /// Whether identical runs may exist across monomials. Only `add_assign`
     /// can introduce duplicates (rotations preserve pairwise distinctness,
-    /// scaling doesn't touch masks), so `deduplicate` skips clean coefficients
+    /// scaling doesn't touch factors), so `deduplicate` skips clean coefficients
     /// entirely — the common case at a flush, where most live terms received no
     /// inbox merges since the last one.
     dirty: bool,
-    /// Copy-on-write structural sharing. When `Some((mult, inner))`, the owned
-    /// `heads`/`masks` are empty and the logical value is `mult · inner` — a
+    /// Copy-on-write structural sharing. When `Some((inner, mult))`, the owned
+    /// `heads`/`factors` are empty and the logical value is `mult · inner` — a
     /// shared, immutable, canonical arena. Created only at a **numeric** branch
     /// (`apply_rotation_numeric`), where parent and child are the same arena up
     /// to a scalar; this makes numeric branching O(1) instead of copying the
@@ -306,26 +302,26 @@ pub struct SymbolicCoeff {
 }
 
 impl SymbolicCoeff {
-    /// Single scalar monomial with an empty run (no gates branched); used to
+    /// Single scalar monomial with an empty run (no params branched); used to
     /// seed from the observable.
     pub fn from_scalar(c: f64) -> Self {
         SymbolicCoeff {
             heads: vec![MonoHead { scalar: c, end: 0 }],
-            masks: Vec::new(),
+            factors: Vec::new(),
             dirty: false,
             shared: None,
         }
     }
 
-    /// `(heads, masks, mult)` view over the effective monomials — the owned
+    /// `(heads, factors, mult)` view over the effective monomials — the owned
     /// buffers with `mult = 1`, or the shared arena with its multiplier. Read-only
     /// operations use this so they transparently handle a shared value without
     /// realizing it (which would collapse the sharing).
     #[inline]
-    fn view(&self) -> (&[MonoHead], &[u8], f64) {
+    fn view(&self) -> (&[MonoHead], &[u32], f64) {
         match &self.shared {
-            Some((inner, mult)) => (&inner.heads, &inner.masks, *mult),
-            None => (self.heads.as_slice(), self.masks.as_slice(), 1.0),
+            Some((inner, mult)) => (&inner.heads, &inner.factors, *mult),
+            None => (self.heads.as_slice(), self.factors.as_slice(), 1.0),
         }
     }
 
@@ -342,7 +338,7 @@ impl SymbolicCoeff {
     pub fn realize(&mut self) {
         if let Some((inner, mult)) = self.shared.take() {
             // The owned buffers are empty while shared; refill them in place.
-            self.masks.extend_from_slice(&inner.masks);
+            self.factors.extend_from_slice(&inner.factors);
             self.heads.reserve(inner.heads.len());
             self.heads.extend(
                 inner.heads.iter().map(|h| MonoHead { scalar: h.scalar * mult, end: h.end }),
@@ -361,23 +357,23 @@ impl SymbolicCoeff {
         self.deduplicate(); // no-op when already clean
         let inner = Arc::new(Inner {
             heads: std::mem::take(&mut self.heads),
-            masks: std::mem::take(&mut self.masks),
+            factors: std::mem::take(&mut self.factors),
         });
         self.shared = Some((Arc::clone(&inner), 1.0));
         self.dirty = false;
         inner
     }
 
-    /// Start offset of monomial `i`'s byte run.
+    /// Start offset of monomial `i`'s factor run.
     #[inline]
     fn start(&self, i: usize) -> usize {
         if i == 0 { 0 } else { self.heads[i - 1].end as usize }
     }
 
-    /// Byte run of monomial `i`.
+    /// Factor run of monomial `i`.
     #[inline]
-    fn mask_run(&self, i: usize) -> &[u8] {
-        &self.masks[self.start(i)..self.heads[i].end as usize]
+    fn factor_run(&self, i: usize) -> &[u32] {
+        &self.factors[self.start(i)..self.heads[i].end as usize]
     }
 
     pub fn monomial_count(&self) -> usize {
@@ -388,37 +384,37 @@ impl SymbolicCoeff {
         self.view().0.is_empty()
     }
 
-    /// Iterate `(scalar, byte run)` per monomial, in storage order. Scalars are
+    /// Iterate `(scalar, factor run)` per monomial, in storage order. Scalars are
     /// scaled by the shared multiplier when the value is shared.
-    pub fn iter_monomials(&self) -> impl Iterator<Item = (f64, &[u8])> + '_ {
-        let (heads, masks, mult) = self.view();
+    pub fn iter_monomials(&self) -> impl Iterator<Item = (f64, &[u32])> + '_ {
+        let (heads, factors, mult) = self.view();
         let mut start = 0usize;
         heads.iter().map(move |h| {
             let end = h.end as usize;
-            let run = &masks[start..end];
+            let run = &factors[start..end];
             start = end;
             (h.scalar * mult, run)
         })
     }
 
-    /// Append one monomial. `mask` must be a canonical varint run (ascending
-    /// gates) — this is the deserialization/test construction entry point, and
-    /// `save` writes canonical runs, so no fix-up happens here.
-    pub fn push_monomial(&mut self, scalar: f64, mask: &[u8]) {
-        debug_assert!(run_is_canonical(mask), "mask run must be canonical (ascending gates)");
+    /// Append one monomial. `run` must be a canonical factor run (params
+    /// ascending, powers nonzero) — this is the deserialization/test construction
+    /// entry point, and `save` writes canonical runs, so no fix-up happens here.
+    pub fn push_monomial(&mut self, scalar: f64, run: &[u32]) {
+        debug_assert!(run_is_canonical(run), "factor run must be canonical (ascending params)");
         self.realize();
-        self.masks.extend_from_slice(mask);
-        self.heads.push(MonoHead { scalar, end: self.masks.len() as u64 });
+        self.factors.extend_from_slice(run);
+        self.heads.push(MonoHead { scalar, end: self.factors.len() as u64 });
     }
 
-    /// Reserve for `n_monomials` headers and `n_bytes` mask-arena bytes.
-    pub fn reserve(&mut self, n_monomials: usize, n_bytes: usize) {
+    /// Reserve for `n_monomials` headers and `n_factors` arena factors.
+    pub fn reserve(&mut self, n_monomials: usize, n_factors: usize) {
         self.heads.reserve(n_monomials);
-        self.masks.reserve(n_bytes);
+        self.factors.reserve(n_factors);
     }
 
-    /// Drop monomials with frequency (symbolic branch count) > max_freq,
-    /// compacting the arena in place (no allocation).
+    /// Drop monomials with frequency (total trig power) > max_freq, compacting
+    /// the arena in place (no allocation).
     pub fn trim_high_frequency(&mut self, max_freq: usize) {
         self.compact(|freq, _| freq <= max_freq);
     }
@@ -445,25 +441,25 @@ impl SymbolicCoeff {
     fn compact(&mut self, mut keep: impl FnMut(usize, f64) -> bool) {
         self.realize();
         let mut w_head = 0usize;
-        let mut w_mask = 0usize;
+        let mut w_fac = 0usize;
         let mut start = 0usize;
         for i in 0..self.heads.len() {
             let end = self.heads[i].end as usize;
             let scalar = self.heads[i].scalar;
-            let freq = mask_frequency(&self.masks[start..end]);
+            let freq = run_frequency(&self.factors[start..end]);
             if keep(freq, scalar) {
                 let len = end - start;
-                if w_mask != start {
-                    self.masks.copy_within(start..end, w_mask);
+                if w_fac != start {
+                    self.factors.copy_within(start..end, w_fac);
                 }
-                w_mask += len;
-                self.heads[w_head] = MonoHead { scalar, end: w_mask as u64 };
+                w_fac += len;
+                self.heads[w_head] = MonoHead { scalar, end: w_fac as u64 };
                 w_head += 1;
             }
             start = end;
         }
         self.heads.truncate(w_head);
-        self.masks.truncate(w_mask);
+        self.factors.truncate(w_fac);
     }
 
     /// Merge monomials with identical runs and drop near-zero results. Skips
@@ -487,59 +483,60 @@ impl SymbolicCoeff {
         if self.heads.len() < HASH_MERGE_THRESHOLD {
             let mut order = take_order();
             order.extend(0..self.heads.len() as u32);
-            order.sort_unstable_by(|&a, &b| self.mask_run(a as usize).cmp(self.mask_run(b as usize)));
+            order.sort_unstable_by(|&a, &b| self.factor_run(a as usize).cmp(self.factor_run(b as usize)));
 
-            let (mut heads, mut masks) = take_pooled_buffers();
+            let (mut heads, mut factors) = take_pooled_buffers();
             heads.reserve(self.heads.len());
-            masks.reserve(self.masks.len());
+            factors.reserve(self.factors.len());
             let mut i = 0usize;
             while i < order.len() {
-                let run = self.mask_run(order[i] as usize);
+                let run = self.factor_run(order[i] as usize);
                 let mut scalar = self.heads[order[i] as usize].scalar;
                 let mut j = i + 1;
-                while j < order.len() && self.mask_run(order[j] as usize) == run {
+                while j < order.len() && self.factor_run(order[j] as usize) == run {
                     scalar += self.heads[order[j] as usize].scalar;
                     j += 1;
                 }
                 if scalar.abs() > 1e-15 {
-                    masks.extend_from_slice(run);
-                    heads.push(MonoHead { scalar, end: masks.len() as u64 });
+                    factors.extend_from_slice(run);
+                    heads.push(MonoHead { scalar, end: factors.len() as u64 });
                 }
                 i = j;
             }
             let old_heads = std::mem::replace(&mut self.heads, heads);
-            let old_masks = std::mem::replace(&mut self.masks, masks);
-            return_pooled_buffers(old_heads, old_masks);
+            let old_factors = std::mem::replace(&mut self.factors, factors);
+            return_pooled_buffers(old_heads, old_factors);
             return_order(order);
             return;
         }
 
-        let mut acc: FxHashMap<&[u8], f64> = FxHashMap::default();
+        let mut acc: FxHashMap<&[u32], f64> = FxHashMap::default();
         acc.reserve(self.heads.len());
         let mut start = 0usize;
         for h in &self.heads {
             let end = h.end as usize;
-            *acc.entry(&self.masks[start..end]).or_insert(0.0) += h.scalar;
+            *acc.entry(&self.factors[start..end]).or_insert(0.0) += h.scalar;
             start = end;
         }
-        let (mut heads, mut masks) = take_pooled_buffers();
+        let (mut heads, mut factors) = take_pooled_buffers();
         heads.reserve(acc.len());
-        masks.reserve(self.masks.len());
+        factors.reserve(self.factors.len());
         for (run, scalar) in acc {
             if scalar.abs() > 1e-15 {
-                masks.extend_from_slice(run);
-                heads.push(MonoHead { scalar, end: masks.len() as u64 });
+                factors.extend_from_slice(run);
+                heads.push(MonoHead { scalar, end: factors.len() as u64 });
             }
         }
         let old_heads = std::mem::replace(&mut self.heads, heads);
-        let old_masks = std::mem::replace(&mut self.masks, masks);
-        return_pooled_buffers(old_heads, old_masks);
+        let old_factors = std::mem::replace(&mut self.factors, factors);
+        return_pooled_buffers(old_heads, old_factors);
     }
 
     /// Evaluate against a flat LUT indexed by `2 * param` (`cos`) /
-    /// `2 * param + 1` (`sin`), resolving each factor's gate to its parameter
-    /// via `gate_to_param[gate]`. Each monomial walks its varint run once,
-    /// reconstructing absolute gate indices from the deltas.
+    /// `2 * param + 1` (`sin`). Each monomial walks its factor run once, raising
+    /// each parameter's `cos`/`sin` to the recorded powers (`powi`) — the
+    /// parameter index is stored directly in the factor, so there is no
+    /// gate→param indirection at evaluate time.
     ///
     /// `SurrogateModel::evaluate` already parallelizes across terms, which
     /// covers the common case; but a handful of terms can carry the
@@ -549,8 +546,8 @@ impl SymbolicCoeff {
     /// ordinary (small) terms while still splitting (and letting idle threads
     /// steal via the outer per-term `par_iter`) once a term's monomial count is
     /// large enough to be worth it.
-    pub fn evaluate(&self, lut: &[f64], gate_to_param: &[u32]) -> f64 {
-        let (heads, masks, mult) = self.view();
+    pub fn evaluate(&self, lut: &[f64]) -> f64 {
+        let (heads, factors, mult) = self.view();
         (0..heads.len())
             .into_par_iter()
             .with_min_len(evaluate_par_min_len())
@@ -558,15 +555,16 @@ impl SymbolicCoeff {
                 let start = if i == 0 { 0 } else { heads[i - 1].end as usize };
                 let end = heads[i].end as usize;
                 let mut prod = heads[i].scalar * mult;
-                let mut prev = 0u32;
-                let mut pos = start;
-                while pos < end {
-                    let (v, next) = read_varint(masks, pos);
-                    pos = next;
-                    let gate = prev + (v >> 1);
-                    prev = gate;
-                    let p = gate_to_param[gate as usize] as usize;
-                    prod *= if v & 1 == SIN_BIT { lut[2 * p + 1] } else { lut[2 * p] };
+                for &f in &factors[start..end] {
+                    let p = factor_param(f) as usize;
+                    let cos_pow = factor_cos(f) as i32;
+                    let sin_pow = factor_sin(f) as i32;
+                    if cos_pow > 0 {
+                        prod *= lut[2 * p].powi(cos_pow);
+                    }
+                    if sin_pow > 0 {
+                        prod *= lut[2 * p + 1].powi(sin_pow);
+                    }
                 }
                 prod
             })
@@ -579,7 +577,7 @@ impl SymbolicCoeff {
     /// truncation pass that calls this per live term.
     pub fn top_frequency_and_count(&self) -> (usize, usize) {
         const PAR_MIN_LEN: usize = 65_536;
-        let (heads, masks, _mult) = self.view();
+        let (heads, factors, _mult) = self.view();
         (0..heads.len())
             .into_par_iter()
             .with_min_len(PAR_MIN_LEN)
@@ -588,7 +586,7 @@ impl SymbolicCoeff {
                 |(mut freq, mut count), i| {
                     let start = if i == 0 { 0 } else { heads[i - 1].end as usize };
                     let end = heads[i].end as usize;
-                    let len = mask_frequency(&masks[start..end]);
+                    let len = run_frequency(&factors[start..end]);
                     match len.cmp(&freq) {
                         std::cmp::Ordering::Greater => { freq = len; count = 1; }
                         std::cmp::Ordering::Equal => count += 1,
@@ -623,7 +621,7 @@ impl SymbolicCoeff {
         let mut start = 0usize;
         for h in &self.heads {
             let end = h.end as usize;
-            if mask_frequency(&self.masks[start..end]) == freq {
+            if run_frequency(&self.factors[start..end]) == freq {
                 hits += 1;
             }
             start = end;
@@ -660,11 +658,11 @@ impl SymbolicCoeff {
     /// monomials of frequency `f`), growing it as needed. Used to build the
     /// global frequency histogram that drives importance-ranked truncation.
     pub fn add_freq_histogram(&self, hist: &mut Vec<u64>) {
-        let (heads, masks, _mult) = self.view();
+        let (heads, factors, _mult) = self.view();
         let mut start = 0usize;
         for h in heads {
             let end = h.end as usize;
-            let f = mask_frequency(&masks[start..end]);
+            let f = run_frequency(&factors[start..end]);
             if f >= hist.len() {
                 hist.resize(f + 1, 0);
             }
@@ -677,11 +675,11 @@ impl SymbolicCoeff {
     /// The gathered values from all coefficients feed a single `select_nth`
     /// that picks the scalar threshold within the boundary-frequency bucket.
     pub fn collect_boundary_scalars(&self, freq: usize, out: &mut Vec<f64>) {
-        let (heads, masks, mult) = self.view();
+        let (heads, factors, mult) = self.view();
         let mut start = 0usize;
         for h in heads {
             let end = h.end as usize;
-            if mask_frequency(&masks[start..end]) == freq {
+            if run_frequency(&factors[start..end]) == freq {
                 out.push((h.scalar * mult).abs());
             }
             start = end;
@@ -709,7 +707,7 @@ impl SymbolicCoeff {
         let mut start = 0usize;
         for h in &self.heads {
             let end = h.end as usize;
-            if mask_frequency(&self.masks[start..end]) == f_star && h.scalar.abs() == s_star {
+            if run_frequency(&self.factors[start..end]) == f_star && h.scalar.abs() == s_star {
                 tie_hits += 1;
             }
             start = end;
@@ -756,26 +754,28 @@ impl SymbolicCoeff {
         removed
     }
 
-    /// Symbolic rotation at gate `gate_idx`: records that every monomial's path
-    /// branched at this gate, picking up `cos` (kept in place on `self`) or
-    /// `sin` (returned as the new anticommuted term). No parameter is stored —
-    /// the gate index is written (as a delta) into the run, and the parameter
-    /// is recovered at `evaluate` time from the circuit's `gate -> param` table.
+    /// Symbolic rotation on parameter `param`: records that every monomial's path
+    /// branched on this parameter, picking up `cos` (kept in place on `self`) or
+    /// `sin` (returned as the new anticommuted term). The parameter index is
+    /// written directly into the run — evaluation reads it straight from the
+    /// factor, with no gate→param table.
     ///
-    /// Because gate indices are assigned in propagation order, `gate_idx` is
-    /// strictly greater than every gate already recorded on a monomial, so the
-    /// appended factor's delta is `gate_idx - run_last_gate` (`>= 1`), and runs
-    /// only ever grow at the tail. Both branches stream each monomial's existing
-    /// bytes into a fresh arena and append one varint — decoding the copied run
-    /// to recover its last gate costs nothing beyond the copy already paid.
+    /// Both branches stream each monomial's existing factors into a fresh arena,
+    /// folding one more `cos`/`sin` power on `param` (see `write_incremented`):
+    /// if the monomial already touched `param` its power is bumped in place,
+    /// otherwise a factor is inserted at the sorted position. A repeated
+    /// parameter therefore grows a power instead of adding a factor — the
+    /// collapse mechanism for parameter-reusing ansätze. Both branches remain
+    /// pairwise distinct (the increment is injective), so no dedup is forced.
     ///
     /// `prune_freq` enables look-ahead pruning: the sin child's frequency is its
-    /// parent's + 1, so a parent already at `>= cap` would produce a child a
-    /// lossy `max_frequency` flush discards. When set, such children are never
-    /// generated. The cos branch is left untouched (it stays in an existing
-    /// term, trimmed at the next flush as before). The propagator only passes
-    /// `Some` when this is provably equivalent to the deferred trim.
-    fn apply_rotation_symbolic(&mut self, gate_idx: u32, prune_freq: Option<u32>, phase: Complex64) -> Self {
+    /// parent's + 1 (one more unit of total power), so a parent already at
+    /// `>= cap` would produce a child a lossy `max_frequency` flush discards.
+    /// When set, such children are never generated. The cos branch is left
+    /// untouched (it stays in an existing term, trimmed at the next flush as
+    /// before). The propagator only passes `Some` when this is provably
+    /// equivalent to the deferred trim.
+    fn apply_rotation_symbolic(&mut self, param: u32, prune_freq: Option<u32>, phase: Complex64) -> Self {
         // sin branch scalar: * (i * phase). `phase` is always ±i here (only
         // called on anticommuting generator/term pairs), so `i * phase` is
         // always real — see the `MonoHead::scalar` doc comment.
@@ -783,7 +783,7 @@ impl SymbolicCoeff {
         debug_assert!(branch_phase.im.abs() < 1e-9, "expected real branch phase: {branch_phase:?}");
         let branch_phase = branch_phase.re;
 
-        // A symbolic gate appends a factor to every monomial, so the shared
+        // A symbolic gate folds a factor into every monomial, so the shared
         // immutable arena can't be reused — materialize first. (Rare for the
         // numeric-heavy workload this sharing targets.)
         self.realize();
@@ -791,52 +791,48 @@ impl SymbolicCoeff {
 
         // Sin branch first, while `self`'s arena is still un-rebuilt. Buffers
         // come from this thread's pool instead of a fresh allocation. Each
-        // appended factor grows a run by at most 5 bytes (max u32 varint).
-        let (mut sin_heads, mut sin_masks) = take_pooled_buffers();
+        // monomial grows by at most one factor word.
+        let (mut sin_heads, mut sin_factors) = take_pooled_buffers();
         sin_heads.reserve(n);
-        sin_masks.reserve(self.masks.len() + 2 * n);
+        sin_factors.reserve(self.factors.len() + n);
 
         let mut start = 0usize;
         for head in &self.heads {
             let end = head.end as usize;
-            let run = &self.masks[start..end];
+            let run = &self.factors[start..end];
             start = end;
 
             // Look-ahead: the sin child's frequency is this monomial's
             // frequency + 1; skip emitting it if that would exceed the cap.
             if let Some(cap) = prune_freq {
-                if mask_frequency(run) as u32 >= cap {
+                if run_frequency(run) as u32 >= cap {
                     continue;
                 }
             }
 
-            let last_gate = run_last_gate(run);
-            sin_masks.extend_from_slice(run);
-            write_varint(&mut sin_masks, ((gate_idx - last_gate) << 1) | SIN_BIT);
-            sin_heads.push(MonoHead { scalar: head.scalar * branch_phase, end: sin_masks.len() as u64 });
+            write_incremented(&mut sin_factors, run, param, true);
+            sin_heads.push(MonoHead { scalar: head.scalar * branch_phase, end: sin_factors.len() as u64 });
         }
 
-        // Cos branch: rebuild `self`, appending this gate's cos factor to every
-        // monomial's run (they all took the cos branch).
-        let (mut new_heads, mut new_masks) = take_pooled_buffers();
+        // Cos branch: rebuild `self`, folding this parameter's cos factor into
+        // every monomial's run (they all took the cos branch).
+        let (mut new_heads, mut new_factors) = take_pooled_buffers();
         new_heads.reserve(n);
-        new_masks.reserve(self.masks.len() + 2 * n);
+        new_factors.reserve(self.factors.len() + n);
         let mut start = 0usize;
         for head in &self.heads {
             let end = head.end as usize;
-            let run = &self.masks[start..end];
+            let run = &self.factors[start..end];
             start = end;
-            let last_gate = run_last_gate(run);
-            new_masks.extend_from_slice(run);
-            write_varint(&mut new_masks, ((gate_idx - last_gate) << 1) | COS_BIT);
-            new_heads.push(MonoHead { scalar: head.scalar, end: new_masks.len() as u64 });
+            write_incremented(&mut new_factors, run, param, false);
+            new_heads.push(MonoHead { scalar: head.scalar, end: new_factors.len() as u64 });
         }
         let old_heads = std::mem::replace(&mut self.heads, new_heads);
-        let old_masks = std::mem::replace(&mut self.masks, new_masks);
-        return_pooled_buffers(old_heads, old_masks);
+        let old_factors = std::mem::replace(&mut self.factors, new_factors);
+        return_pooled_buffers(old_heads, old_factors);
 
         // Duplicates in self (if any) are duplicated into the branch too.
-        SymbolicCoeff { heads: sin_heads, masks: sin_masks, dirty: self.dirty, shared: None }
+        SymbolicCoeff { heads: sin_heads, factors: sin_factors, dirty: self.dirty, shared: None }
     }
 
     /// Numeric-angle rotation: `cos`/`sin` of `angle` are computed immediately
@@ -867,7 +863,7 @@ impl SymbolicCoeff {
 
         let mut sin = SymbolicCoeff {
             heads: Vec::new(),
-            masks: Vec::new(),
+            factors: Vec::new(),
             dirty: false,
             shared: Some((inner, mult_pre * branch_phase)),
         };
@@ -887,28 +883,24 @@ impl SymbolicCoeff {
 /// baked in immediately (mirrors `Complex64::apply_rotation`'s math and never
 /// touches the run).
 ///
-/// Both variants carry `gate_idx`: the gate's position in propagation order,
-/// which is the gate index written (as a delta) into every branching monomial's
-/// run. It is assigned by the propagator (`run_build`) after extraction, exactly
-/// like `prune_freq`. `Symbolic` additionally carries `param` (the parameter
-/// index behind this gate, used by the propagator to build the circuit-wide
-/// `gate -> param` table — `apply_rotation` itself does not read it) and the
-/// optional look-ahead `prune_freq` cap. `Numeric` needs no `param` — a
-/// numeric rotation never grows a monomial's frequency.
+/// `Symbolic` carries `param` (the parameter index behind this gate — written
+/// directly into every branching monomial's run) and the optional look-ahead
+/// `prune_freq` cap (injected by the propagator after extraction). `Numeric`
+/// carries only its `angle` — a numeric rotation never grows a monomial's
+/// frequency and stores nothing.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GateParam {
-    Symbolic { gate_idx: u32, param: u32, prune_freq: Option<u32> },
-    Numeric { gate_idx: u32, angle: f64 },
+    Symbolic { param: u32, prune_freq: Option<u32> },
+    Numeric { angle: f64 },
 }
 
 impl GateParam {
-    /// A symbolic gate whose gate index and parameter index are both `x`,
-    /// with no look-ahead pruning. Convenience for the Python extraction path
-    /// (the propagator injects the real `gate_idx`/`prune_freq` afterward),
-    /// tests, and benchmarks where each gate has its own parameter.
+    /// A symbolic gate on parameter `x`, with no look-ahead pruning. Convenience
+    /// for the Python extraction path (the propagator injects the real
+    /// `prune_freq` afterward), tests, and benchmarks.
     #[inline]
     pub fn symbolic(x: u32) -> Self {
-        GateParam::Symbolic { gate_idx: x, param: x, prune_freq: None }
+        GateParam::Symbolic { param: x, prune_freq: None }
     }
 }
 
@@ -949,12 +941,12 @@ impl CoeffRepr for SymbolicCoeff {
         // General case: materialize both and concatenate monomials.
         self.realize();
         other.realize();
-        let base = self.masks.len() as u64;
-        self.masks.append(&mut other.masks);
+        let base = self.factors.len() as u64;
+        self.factors.append(&mut other.factors);
         self.heads.reserve(other.heads.len());
         self.heads.extend(other.heads.iter().map(|h| MonoHead { scalar: h.scalar, end: h.end + base }));
         self.dirty = true;
-        return_pooled_buffers(other.heads, other.masks);
+        return_pooled_buffers(other.heads, other.factors);
     }
 
     /// Dispatches to `apply_rotation_symbolic` (branch factor recorded) for a
@@ -962,10 +954,10 @@ impl CoeffRepr for SymbolicCoeff {
     /// scalar) for a concrete angle.
     fn apply_rotation(&mut self, param: &GateParam, phase: Complex64) -> Self {
         match param {
-            GateParam::Symbolic { gate_idx, prune_freq, .. } => {
-                self.apply_rotation_symbolic(*gate_idx, *prune_freq, phase)
+            GateParam::Symbolic { param, prune_freq } => {
+                self.apply_rotation_symbolic(*param, *prune_freq, phase)
             }
-            GateParam::Numeric { angle, .. } => self.apply_rotation_numeric(*angle, phase),
+            GateParam::Numeric { angle } => self.apply_rotation_numeric(*angle, phase),
         }
     }
 
@@ -982,10 +974,10 @@ impl CoeffRepr for SymbolicCoeff {
         }
     }
 
-    /// Collapse monomials with identical masks that `add_assign` just
+    /// Collapse monomials with identical runs that `add_assign` just
     /// juxtaposed. Without this, a periodic outbox merge only dedupes at the
-    /// term-key level — masks that happen to coincide (every monomial from a
-    /// purely-numeric gate history shares the same empty mask) pile up as
+    /// term-key level — runs that happen to coincide (every monomial from a
+    /// purely-numeric gate history shares the same empty run) pile up as
     /// separate entries until the next full truncation flush. `deduplicate`
     /// already no-ops on a clean (non-`dirty`) coefficient, so this costs
     /// nothing when `add_assign` had nothing new to fold in.
@@ -1014,9 +1006,9 @@ impl CoeffRepr for SymbolicCoeff {
         // coefficient's own live (or shared) buffers.
         unsafe {
             use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
-            let (heads, masks, _mult) = self.view();
-            let ptr = masks.as_ptr() as *const i8;
-            let bytes = std::mem::size_of_val(masks);
+            let (heads, factors, _mult) = self.view();
+            let ptr = factors.as_ptr() as *const i8;
+            let bytes = std::mem::size_of_val(factors);
             let mut off = 0usize;
             while off < bytes {
                 _mm_prefetch(ptr.add(off), _MM_HINT_T0);
@@ -1034,47 +1026,39 @@ impl CoeffRepr for SymbolicCoeff {
 
     /// A rotation's `param_index` (`Optional[int]`) takes precedence: if
     /// present, the gate is symbolic. Otherwise falls back to `angle`
-    /// (`float`), a concrete numeric angle baked in at build time. `gate_idx`
-    /// is a placeholder here — the propagator assigns the real value in
-    /// propagation order.
+    /// (`float`), a concrete numeric angle baked in at build time.
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<GateParam> {
         let param_index: Option<u32> = obj.getattr("param_index")?.extract()?;
         if let Some(param) = param_index {
-            return Ok(GateParam::Symbolic { gate_idx: 0, param, prune_freq: None });
+            return Ok(GateParam::Symbolic { param, prune_freq: None });
         }
         let angle: f64 = obj.getattr("angle")?.extract()?;
-        Ok(GateParam::Numeric { gate_idx: 0, angle })
+        Ok(GateParam::Numeric { angle })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
-    /// Identity gate->param table long enough to cover any gate index used in
-    /// these tests: `evaluate`'s `2*param` LUT layout then indexes by gate
-    /// directly, matching the tests' convention that gate index == parameter.
-    fn identity_map(n: usize) -> Vec<u32> {
-        (0..n as u32).collect()
-    }
-
-    /// Encode a set of `(gate, is_sin)` factors into a canonical varint run
-    /// (sorted ascending by gate; gates must be distinct).
-    fn enc(branches: &[(u32, bool)]) -> Vec<u8> {
-        let mut v: Vec<(u32, bool)> = branches.to_vec();
-        v.sort_by_key(|&(g, _)| g);
-        let mut buf = Vec::new();
-        let mut prev = 0u32;
-        for (g, is_sin) in v {
-            write_varint(&mut buf, ((g - prev) << 1) | (is_sin as u32));
-            prev = g;
+    /// Encode a set of `(param, is_sin)` branches into a canonical factor run:
+    /// cos/sin powers per parameter accumulated, sorted ascending by parameter.
+    fn enc(branches: &[(u32, bool)]) -> Vec<u32> {
+        let mut map: BTreeMap<u32, (u32, u32)> = BTreeMap::new();
+        for &(p, is_sin) in branches {
+            let e = map.entry(p).or_insert((0, 0));
+            if is_sin {
+                e.1 += 1;
+            } else {
+                e.0 += 1;
+            }
         }
-        buf
+        map.into_iter().map(|(p, (c, s))| make_factor(p, c, s)).collect()
     }
 
-    /// Build a coefficient from raw `(scalar, [(gate, is_sin)])` monomials.
-    /// Gates within one monomial must be distinct (a gate branches a path at
-    /// most once). Flagged dirty like a real post-merge coefficient.
+    /// Build a coefficient from raw `(scalar, [(param, is_sin)])` monomials.
+    /// Flagged dirty like a real post-merge coefficient.
     fn coeff(monomials: &[(f64, &[(u32, bool)])]) -> SymbolicCoeff {
         let mut c = SymbolicCoeff::default();
         for &(scalar, branches) in monomials {
@@ -1085,8 +1069,8 @@ mod tests {
     }
 
     /// Coefficient of monomials with exactly the given `(scalar, frequency,
-    /// tag)` specs: `frequency` distinct cos branches, at gate positions made
-    /// unique per tag so summed frequency equals `freq` directly.
+    /// tag)` specs: `frequency` distinct cos branches, at parameter positions
+    /// made unique per tag so summed frequency equals `freq` directly.
     fn coeff_with_freqs(specs: &[(f64, usize, u32)]) -> SymbolicCoeff {
         let mut c = SymbolicCoeff::default();
         for &(scalar, freq, tag) in specs {
@@ -1097,13 +1081,15 @@ mod tests {
     }
 
     /// Reference evaluation independent of `evaluate`'s parallel path.
-    fn naive_evaluate(c: &SymbolicCoeff, lut: &[f64], g2p: &[u32]) -> f64 {
+    fn naive_evaluate(c: &SymbolicCoeff, lut: &[f64]) -> f64 {
         c.iter_monomials()
             .map(|(scalar, run)| {
                 let mut prod = scalar;
-                for (gate, is_sin) in decode_run(run) {
-                    let p = g2p[gate as usize] as usize;
-                    prod *= if is_sin { lut[2 * p + 1] } else { lut[2 * p] };
+                for &f in run {
+                    let p = factor_param(f) as usize;
+                    let cos_pow = factor_cos(f) as i32;
+                    let sin_pow = factor_sin(f) as i32;
+                    prod *= lut[2 * p].powi(cos_pow) * lut[2 * p + 1].powi(sin_pow);
                 }
                 prod
             })
@@ -1120,71 +1106,87 @@ mod tests {
     }
 
     #[test]
+    fn factor_pack_round_trips() {
+        let f = make_factor(12345, 200, 55);
+        assert_eq!(factor_param(f), 12345);
+        assert_eq!(factor_cos(f), 200);
+        assert_eq!(factor_sin(f), 55);
+    }
+
+    #[test]
     fn push_and_iter_round_trip() {
         let c = coeff(&[
             (1.5, &[(1, false), (0, true)]),
             (-2.0, &[(3, false)]),
             (0.5, &[]),
         ]);
-        let collected: Vec<(f64, Vec<u8>)> =
+        let collected: Vec<(f64, Vec<u32>)> =
             c.iter_monomials().map(|(s, run)| (s, run.to_vec())).collect();
         assert_eq!(collected.len(), 3);
         assert_eq!(collected[0].0, 1.5);
-        // gate 0 sin -> (0<<1)|1 = 1; gate 1 cos -> (1<<1)|0 = 2. Canonical order.
-        assert_eq!(collected[0].1, vec![1u8, 2u8]);
-        // gate 3 cos -> (3<<1)|0 = 6
-        assert_eq!(collected[1].1, vec![6u8]);
+        // param 0 sin, param 1 cos, in ascending-param canonical order.
+        assert_eq!(collected[0].1, vec![make_factor(0, 0, 1), make_factor(1, 1, 0)]);
+        assert_eq!(collected[1].1, vec![make_factor(3, 1, 0)]);
         assert!(collected[2].1.is_empty());
         assert_eq!(c.monomial_count(), 3);
     }
 
     #[test]
-    fn apply_rotation_matches_trig_identity_and_keeps_masks_canonical() {
+    fn apply_rotation_matches_trig_identity_and_keeps_runs_canonical() {
         let lut = make_lut(8);
-        let g2p = identity_map(8);
         let mut c = SymbolicCoeff::from_scalar(0.75);
-        // Distinct, increasing gate indices (propagation order); gate == param
-        // here via the identity map.
-        for gate in [0u32, 1, 2, 5, 7] {
-            let before = naive_evaluate(&c, &lut, &g2p);
-            let sin_branch = c.apply_rotation(&GateParam::symbolic(gate), Complex64::new(0.0, -1.0));
-            let (cos_t, sin_t) = (lut[(gate << 1) as usize], lut[((gate << 1) | 1) as usize]);
-            assert!((naive_evaluate(&c, &lut, &g2p) - cos_t * before).abs() < 1e-12);
+        // Distinct parameter indices.
+        for param in [0u32, 1, 2, 5, 7] {
+            let before = naive_evaluate(&c, &lut);
+            let sin_branch = c.apply_rotation(&GateParam::symbolic(param), Complex64::new(0.0, -1.0));
+            let (cos_t, sin_t) = (lut[(param << 1) as usize], lut[((param << 1) | 1) as usize]);
+            assert!((naive_evaluate(&c, &lut) - cos_t * before).abs() < 1e-12);
             // branch_phase = (i * -i).re = 1.0
-            assert!((naive_evaluate(&sin_branch, &lut, &g2p) - sin_t * before).abs() < 1e-12);
+            assert!((naive_evaluate(&sin_branch, &lut) - sin_t * before).abs() < 1e-12);
             for (_, run) in c.iter_monomials().chain(sin_branch.iter_monomials()) {
-                assert!(run_is_canonical(run), "mask run must stay canonical (ascending gates)");
+                assert!(run_is_canonical(run), "factor run must stay canonical (ascending params)");
             }
         }
     }
 
     #[test]
-    fn same_parameter_at_two_gates_multiplies_as_a_power() {
-        // Two distinct gates mapping to the SAME parameter: the run records two
-        // separate cos factors, and evaluate multiplies cos(theta_p) twice,
-        // i.e. cos^2 — the gate-indexed analogue of the old exponent stacking.
-        let g2p = vec![0u32, 0u32]; // gates 0 and 1 both -> param 0
-        let lut = make_lut(1); // one parameter
+    fn same_parameter_at_two_gates_multiplies_as_a_power_and_collapses() {
+        // Two rotations on the SAME parameter (two gates behind one theta, as in
+        // UCJ/LUCJ): the cos branch accumulates into a single cos^2 factor — one
+        // monomial, not two — which is the whole point of the parameter-space
+        // representation over the gate-indexed scheme.
+        let lut = make_lut(1);
         let mut c = SymbolicCoeff::from_scalar(1.0);
         let _ = c.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
-        let _ = c.apply_rotation(&GateParam::symbolic(1), Complex64::new(0.0, -1.0));
-        // cos branch of both -> cos(theta_0)^2
-        let expected = lut[0] * lut[0];
-        assert!((naive_evaluate(&c, &lut, &g2p) - expected).abs() < 1e-12);
-        assert!((c.evaluate(&lut, &g2p) - expected).abs() < 1e-12);
+        let _ = c.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+        assert_eq!(c.monomial_count(), 1, "same param at two gates must merge into one monomial");
+        let (_, run) = c.iter_monomials().next().unwrap();
+        assert_eq!(run, &[make_factor(0, 2, 0)]);
+        let expected = lut[0] * lut[0]; // cos(theta_0)^2
+        assert!((naive_evaluate(&c, &lut) - expected).abs() < 1e-12);
+        assert!((c.evaluate(&lut) - expected).abs() < 1e-12);
     }
 
     #[test]
-    fn cos_and_sin_on_paths_through_the_same_parameter() {
-        let g2p = vec![0u32, 0u32];
+    fn two_paths_through_same_parameter_dedup_to_one_monomial() {
+        // The collapse the gate-indexed scheme could not do: cos·sin on one
+        // parameter reached two ways (gate A cos / gate B sin, and gate A sin /
+        // gate B cos, both on param 0) yields the SAME factor run, so after
+        // add_assign + deduplicate the two paths merge into a single monomial.
         let lut = make_lut(1);
-        let mut c = SymbolicCoeff::from_scalar(1.0);
-        // Gate 0: sin branch is a brand-new term with sin(theta_0).
-        let mut sin_branch = c.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
-        // Gate 1 (same param) on that sin branch's cos side -> sin*cos.
-        let _ = sin_branch.apply_rotation(&GateParam::symbolic(1), Complex64::new(0.0, -1.0));
-        let expected = lut[1] * lut[0]; // sin(theta_0) * cos(theta_0)
-        assert!((naive_evaluate(&sin_branch, &lut, &g2p) - expected).abs() < 1e-12);
+        // The two branch orderings, each already accumulated into one factor by
+        // enc, land on the same run and sum under deduplicate.
+        let mut c = coeff(&[
+            (1.0, &[(0, false), (0, true)]), // cos·sin via A-cos, B-sin
+            (1.0, &[(0, true), (0, false)]), // cos·sin via A-sin, B-cos
+        ]);
+        c.deduplicate();
+        assert_eq!(c.monomial_count(), 1);
+        let (scalar, run) = c.iter_monomials().next().unwrap();
+        assert_eq!(run, &[make_factor(0, 1, 1)]);
+        assert!((scalar - 2.0).abs() < 1e-12);
+        let expected = 2.0 * lut[0] * lut[1];
+        assert!((c.evaluate(&lut) - expected).abs() < 1e-12);
     }
 
     #[test]
@@ -1194,7 +1196,7 @@ mod tests {
         let phase = Complex64::new(0.0, -1.0);
 
         let mut c = SymbolicCoeff::from_scalar(c0);
-        let sin_branch = c.apply_rotation(&GateParam::Numeric { gate_idx: 0, angle }, phase);
+        let sin_branch = c.apply_rotation(&GateParam::Numeric { angle }, phase);
 
         let (cos_scalar, cos_run) = c.iter_monomials().next().unwrap();
         assert!((cos_scalar - c0 * angle.cos()).abs() < 1e-12);
@@ -1206,56 +1208,55 @@ mod tests {
     }
 
     #[test]
-    fn apply_rotation_numeric_never_touches_the_mask() {
+    fn apply_rotation_numeric_never_touches_the_run() {
         let mut c = SymbolicCoeff::from_scalar(1.0);
         // Seed some pre-existing symbolic branches first, as in a mixed circuit.
         let _ = c.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
         let _ = c.apply_rotation(&GateParam::symbolic(1), Complex64::new(0.0, -1.0));
 
-        let runs_before: Vec<Vec<u8>> = c.iter_monomials().map(|(_, run)| run.to_vec()).collect();
+        let runs_before: Vec<Vec<u32>> = c.iter_monomials().map(|(_, run)| run.to_vec()).collect();
 
-        let sin_branch = c.apply_rotation(&GateParam::Numeric { gate_idx: 2, angle: 0.3 }, Complex64::new(0.0, -1.0));
+        let sin_branch = c.apply_rotation(&GateParam::Numeric { angle: 0.3 }, Complex64::new(0.0, -1.0));
 
-        let runs_after: Vec<Vec<u8>> = c.iter_monomials().map(|(_, run)| run.to_vec()).collect();
-        let sin_runs: Vec<Vec<u8>> = sin_branch.iter_monomials().map(|(_, run)| run.to_vec()).collect();
+        let runs_after: Vec<Vec<u32>> = c.iter_monomials().map(|(_, run)| run.to_vec()).collect();
+        let sin_runs: Vec<Vec<u32>> = sin_branch.iter_monomials().map(|(_, run)| run.to_vec()).collect();
 
-        assert_eq!(runs_before, runs_after, "numeric rotation must not touch the cos branch's mask");
-        assert_eq!(runs_before, sin_runs, "numeric rotation must not touch the sin branch's mask");
+        assert_eq!(runs_before, runs_after, "numeric rotation must not touch the cos branch's run");
+        assert_eq!(runs_before, sin_runs, "numeric rotation must not touch the sin branch's run");
     }
 
     #[test]
     fn apply_rotation_mixed_numeric_then_symbolic_composes_correctly() {
         let c0: f64 = 1.0;
         let angle: f64 = 0.6;
-        let gate = 3u32;
+        let param = 3u32;
         let phase = Complex64::new(0.0, -1.0);
         let lut = make_lut(8);
-        let g2p = identity_map(8);
-        let (cos_t_sym, sin_t_sym) = (lut[(2 * gate) as usize], lut[(2 * gate + 1) as usize]);
+        let (cos_t_sym, sin_t_sym) = (lut[(2 * param) as usize], lut[(2 * param + 1) as usize]);
         let (cos_num, sin_num) = (angle.cos(), angle.sin());
 
         // Numeric first, then symbolic on both resulting branches.
         let mut cos_branch = SymbolicCoeff::from_scalar(c0);
-        let mut sin_branch = cos_branch.apply_rotation(&GateParam::Numeric { gate_idx: 0, angle }, phase);
-        let cos_cos = cos_branch.apply_rotation(&GateParam::symbolic(gate), phase);
-        let sin_cos = sin_branch.apply_rotation(&GateParam::symbolic(gate), phase);
+        let mut sin_branch = cos_branch.apply_rotation(&GateParam::Numeric { angle }, phase);
+        let cos_cos = cos_branch.apply_rotation(&GateParam::symbolic(param), phase);
+        let sin_cos = sin_branch.apply_rotation(&GateParam::symbolic(param), phase);
 
-        assert!((naive_evaluate(&cos_branch, &lut, &g2p) - c0 * cos_num * cos_t_sym).abs() < 1e-12);
-        assert!((naive_evaluate(&cos_cos, &lut, &g2p) - c0 * cos_num * sin_t_sym).abs() < 1e-12);
-        assert!((naive_evaluate(&sin_branch, &lut, &g2p) - c0 * sin_num * cos_t_sym).abs() < 1e-12);
-        assert!((naive_evaluate(&sin_cos, &lut, &g2p) - c0 * sin_num * sin_t_sym).abs() < 1e-12);
+        assert!((naive_evaluate(&cos_branch, &lut) - c0 * cos_num * cos_t_sym).abs() < 1e-12);
+        assert!((naive_evaluate(&cos_cos, &lut) - c0 * cos_num * sin_t_sym).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_branch, &lut) - c0 * sin_num * cos_t_sym).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_cos, &lut) - c0 * sin_num * sin_t_sym).abs() < 1e-12);
 
         // Symbolic first, then numeric on both resulting branches -- same four
         // outcomes, order must not matter.
         let mut cos_branch2 = SymbolicCoeff::from_scalar(c0);
-        let mut sin_branch2 = cos_branch2.apply_rotation(&GateParam::symbolic(gate), phase);
-        let cos_num2 = cos_branch2.apply_rotation(&GateParam::Numeric { gate_idx: 4, angle }, phase);
-        let sin_num2 = sin_branch2.apply_rotation(&GateParam::Numeric { gate_idx: 4, angle }, phase);
+        let mut sin_branch2 = cos_branch2.apply_rotation(&GateParam::symbolic(param), phase);
+        let cos_num2 = cos_branch2.apply_rotation(&GateParam::Numeric { angle }, phase);
+        let sin_num2 = sin_branch2.apply_rotation(&GateParam::Numeric { angle }, phase);
 
-        assert!((naive_evaluate(&cos_branch2, &lut, &g2p) - c0 * cos_t_sym * cos_num).abs() < 1e-12);
-        assert!((naive_evaluate(&cos_num2, &lut, &g2p) - c0 * cos_t_sym * sin_num).abs() < 1e-12);
-        assert!((naive_evaluate(&sin_branch2, &lut, &g2p) - c0 * sin_t_sym * cos_num).abs() < 1e-12);
-        assert!((naive_evaluate(&sin_num2, &lut, &g2p) - c0 * sin_t_sym * sin_num).abs() < 1e-12);
+        assert!((naive_evaluate(&cos_branch2, &lut) - c0 * cos_t_sym * cos_num).abs() < 1e-12);
+        assert!((naive_evaluate(&cos_num2, &lut) - c0 * cos_t_sym * sin_num).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_branch2, &lut) - c0 * sin_t_sym * cos_num).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_num2, &lut) - c0 * sin_t_sym * sin_num).abs() < 1e-12);
     }
 
     #[test]
@@ -1265,7 +1266,7 @@ mod tests {
         let phase = Complex64::new(0.0, -1.0);
 
         let mut symbolic = SymbolicCoeff::from_scalar(c0);
-        let symbolic_sin = symbolic.apply_rotation(&GateParam::Numeric { gate_idx: 0, angle }, phase);
+        let symbolic_sin = symbolic.apply_rotation(&GateParam::Numeric { angle }, phase);
 
         let mut complex = Complex64::new(c0, 0.0);
         let complex_sin = complex.apply_rotation(&angle, phase);
@@ -1283,30 +1284,29 @@ mod tests {
         // A numeric branch makes the cos branch (self) and the returned sin
         // branch reference the *same* immutable arena — O(1), no copy.
         let mut c = coeff(&[(1.0, &[(0, false)]), (2.0, &[(1, true)])]);
-        let sin = c.apply_rotation(&GateParam::Numeric { gate_idx: 5, angle: 0.7 }, Complex64::new(0.0, -1.0));
+        let sin = c.apply_rotation(&GateParam::Numeric { angle: 0.7 }, Complex64::new(0.0, -1.0));
         let a = c.shared.as_ref().expect("cos branch is shared");
         let b = sin.shared.as_ref().expect("sin branch is shared");
         assert!(Arc::ptr_eq(&a.0, &b.0), "cos and sin share the same arena");
         // While shared, the owned buffers are empty.
-        assert!(c.heads.is_empty() && c.masks.is_empty());
+        assert!(c.heads.is_empty() && c.factors.is_empty());
     }
 
     #[test]
     fn realize_reproduces_shared_value_exactly() {
         let lut = make_lut(8);
-        let g2p = identity_map(8);
         let mut c = coeff(&[(1.5, &[(0, false)]), (2.0, &[(1, true)])]);
-        let sin = c.apply_rotation(&GateParam::Numeric { gate_idx: 5, angle: 0.7 }, Complex64::new(0.0, -1.0));
+        let sin = c.apply_rotation(&GateParam::Numeric { angle: 0.7 }, Complex64::new(0.0, -1.0));
 
-        let before_eval = sin.evaluate(&lut, &g2p);
-        let before: Vec<(f64, Vec<u8>)> = sin.iter_monomials().map(|(s, r)| (s, r.to_vec())).collect();
+        let before_eval = sin.evaluate(&lut);
+        let before: Vec<(f64, Vec<u32>)> = sin.iter_monomials().map(|(s, r)| (s, r.to_vec())).collect();
 
         let mut realized = sin.clone();
         realized.realize();
         assert!(realized.shared.is_none(), "realize materializes to owned");
 
-        assert!((realized.evaluate(&lut, &g2p) - before_eval).abs() < 1e-12);
-        let after: Vec<(f64, Vec<u8>)> = realized.iter_monomials().map(|(s, r)| (s, r.to_vec())).collect();
+        assert!((realized.evaluate(&lut) - before_eval).abs() < 1e-12);
+        let after: Vec<(f64, Vec<u32>)> = realized.iter_monomials().map(|(s, r)| (s, r.to_vec())).collect();
         assert_eq!(before.len(), after.len());
         for ((s1, r1), (s2, r2)) in before.iter().zip(&after) {
             assert!((s1 - s2).abs() < 1e-12);
@@ -1317,27 +1317,25 @@ mod tests {
     #[test]
     fn same_arena_add_assign_sums_multipliers_and_stays_shared() {
         let lut = make_lut(4);
-        let g2p = identity_map(4);
-        let mut c = coeff(&[(1.0, &[])]); // single empty-mask monomial, value 1
-        let sin = c.apply_rotation(&GateParam::Numeric { gate_idx: 0, angle: 0.7 }, Complex64::new(0.0, -1.0));
-        let expected = c.evaluate(&lut, &g2p) + sin.evaluate(&lut, &g2p);
+        let mut c = coeff(&[(1.0, &[])]); // single empty-run monomial, value 1
+        let sin = c.apply_rotation(&GateParam::Numeric { angle: 0.7 }, Complex64::new(0.0, -1.0));
+        let expected = c.evaluate(&lut) + sin.evaluate(&lut);
         let arc_before = Arc::clone(&c.shared.as_ref().unwrap().0);
         c.add_assign(sin);
         assert!(c.shared.is_some(), "same-arena add stays shared");
         assert!(Arc::ptr_eq(&arc_before, &c.shared.as_ref().unwrap().0), "same arena reused, no realize");
-        assert!((c.evaluate(&lut, &g2p) - expected).abs() < 1e-12);
+        assert!((c.evaluate(&lut) - expected).abs() < 1e-12);
     }
 
     #[test]
     fn scale_real_and_post_merge_keep_shared() {
         let lut = make_lut(4);
-        let g2p = identity_map(4);
         let mut c = coeff(&[(2.0, &[(0, false)])]);
-        let _sin = c.apply_rotation(&GateParam::Numeric { gate_idx: 0, angle: 0.5 }, Complex64::new(0.0, -1.0));
-        let before = c.evaluate(&lut, &g2p);
+        let _sin = c.apply_rotation(&GateParam::Numeric { angle: 0.5 }, Complex64::new(0.0, -1.0));
+        let before = c.evaluate(&lut);
         c.scale_real(3.0);
         assert!(c.shared.is_some(), "scale_real is O(1), no realize");
-        assert!((c.evaluate(&lut, &g2p) - 3.0 * before).abs() < 1e-12);
+        assert!((c.evaluate(&lut) - 3.0 * before).abs() < 1e-12);
         c.post_merge();
         assert!(c.shared.is_some(), "post_merge (dedup) is a no-op on a shared value");
     }
@@ -1345,23 +1343,22 @@ mod tests {
     #[test]
     fn symbolic_gate_realizes_shared() {
         let lut = make_lut(16);
-        let g2p = identity_map(16);
         let mut c = coeff(&[(1.0, &[(0, false)])]);
-        let _num = c.apply_rotation(&GateParam::Numeric { gate_idx: 5, angle: 0.4 }, Complex64::new(0.0, -1.0));
+        let _num = c.apply_rotation(&GateParam::Numeric { angle: 0.4 }, Complex64::new(0.0, -1.0));
         assert!(c.shared.is_some());
-        let c_val = c.evaluate(&lut, &g2p);
+        let c_val = c.evaluate(&lut);
         let _sym = c.apply_rotation(&GateParam::symbolic(8), Complex64::new(0.0, -1.0));
         assert!(c.shared.is_none(), "a symbolic gate realizes the shared value");
-        // cos branch picks up cos(theta_8): gate 8 -> param 8 -> lut[16].
-        assert!((c.evaluate(&lut, &g2p) - c_val * lut[16]).abs() < 1e-12);
+        // cos branch picks up cos(theta_8): param 8 -> lut[16].
+        assert!((c.evaluate(&lut) - c_val * lut[16]).abs() < 1e-12);
     }
 
     #[test]
     fn apply_rotation_symbolic_prune_matches_unpruned_then_trim() {
         let cap = 2u32;
-        let gate = 7u32;
+        let param = 7u32;
         let phase = Complex64::new(0.0, -1.0);
-        // Monomials spanning frequencies 0..=3 on gates other than `gate` (so
+        // Monomials spanning frequencies 0..=3 on params other than `param` (so
         // every branch is at a fresh position); the sin child of each has
         // frequency parent + 1, i.e. 1..=4.
         let build = || {
@@ -1373,23 +1370,22 @@ mod tests {
             ])
         };
         let lut = make_lut(8);
-        let g2p = identity_map(8);
 
         // Pruned rotation: sin children above the cap are never generated.
         let mut c_prune = build();
         let sin_prune =
-            c_prune.apply_rotation(&GateParam::Symbolic { gate_idx: gate, param: gate, prune_freq: Some(cap) }, phase);
+            c_prune.apply_rotation(&GateParam::Symbolic { param, prune_freq: Some(cap) }, phase);
 
         // Reference: full rotation, then trim the sin branch to the same cap.
         let mut c_ref = build();
         let mut sin_ref =
-            c_ref.apply_rotation(&GateParam::Symbolic { gate_idx: gate, param: gate, prune_freq: None }, phase);
+            c_ref.apply_rotation(&GateParam::Symbolic { param, prune_freq: None }, phase);
         sin_ref.trim_high_frequency(cap as usize);
 
-        assert!((naive_evaluate(&sin_prune, &lut, &g2p) - naive_evaluate(&sin_ref, &lut, &g2p)).abs() < 1e-12);
+        assert!((naive_evaluate(&sin_prune, &lut) - naive_evaluate(&sin_ref, &lut)).abs() < 1e-12);
         assert_eq!(sin_prune.monomial_count(), 2);
         assert_eq!(sin_ref.monomial_count(), 2);
-        assert!((naive_evaluate(&c_prune, &lut, &g2p) - naive_evaluate(&c_ref, &lut, &g2p)).abs() < 1e-12);
+        assert!((naive_evaluate(&c_prune, &lut) - naive_evaluate(&c_ref, &lut)).abs() < 1e-12);
     }
 
     #[test]
@@ -1398,8 +1394,7 @@ mod tests {
         let mut dst = SymbolicCoeff::default();
         dst.add_assign(src.clone());
         let lut = make_lut(4);
-        let g2p = identity_map(4);
-        assert!((naive_evaluate(&dst, &lut, &g2p) - naive_evaluate(&src, &lut, &g2p)).abs() < 1e-15);
+        assert!((naive_evaluate(&dst, &lut) - naive_evaluate(&src, &lut)).abs() < 1e-15);
         assert_eq!(dst.monomial_count(), 2);
     }
 
@@ -1409,14 +1404,13 @@ mod tests {
         a.dirty = false;
         let b = coeff(&[(2.0, &[(2, true)]), (3.0, &[])]);
         let lut = make_lut(4);
-        let g2p = identity_map(4);
-        let expected = naive_evaluate(&a, &lut, &g2p) + naive_evaluate(&b, &lut, &g2p);
+        let expected = naive_evaluate(&a, &lut) + naive_evaluate(&b, &lut);
         a.add_assign(b);
         assert!(a.dirty);
         assert_eq!(a.monomial_count(), 3);
-        assert!((naive_evaluate(&a, &lut, &g2p) - expected).abs() < 1e-12);
-        let runs: Vec<Vec<u8>> = a.iter_monomials().map(|(_, r)| r.to_vec()).collect();
-        assert_eq!(runs[1], vec![5u8]); // gate 2 sin -> (2<<1)|1 = 5
+        assert!((naive_evaluate(&a, &lut) - expected).abs() < 1e-12);
+        let runs: Vec<Vec<u32>> = a.iter_monomials().map(|(_, r)| r.to_vec()).collect();
+        assert_eq!(runs[1], vec![make_factor(2, 0, 1)]); // param 2 sin
         assert!(runs[2].is_empty());
     }
 
@@ -1440,7 +1434,7 @@ mod tests {
         ]);
         c.deduplicate();
         assert!(c.is_empty());
-        assert!(c.masks.is_empty());
+        assert!(c.factors.is_empty());
     }
 
     #[test]
@@ -1462,7 +1456,7 @@ mod tests {
 
     /// Reproduces the pattern that motivated `CoeffRepr::post_merge`: a term
     /// receives several outbox entries whose lineage is purely numeric (every
-    /// monomial has the same empty mask, `dirty == false`, exactly like the
+    /// monomial has the same empty run, `dirty == false`, exactly like the
     /// output of `apply_rotation_numeric`). Mirrors `flush_outboxes_to_maps`'s
     /// `entry.add_assign(coeff); entry.post_merge();` sequence one push at a
     /// time. Without `post_merge` these would pile up as separate (but
@@ -1486,7 +1480,7 @@ mod tests {
         // Second push for the same term: a real merge, so post_merge must fire.
         entry.add_assign(fresh_numeric_push(2.0));
         entry.post_merge();
-        assert_eq!(entry.monomial_count(), 1, "identical empty-mask monomials must collapse immediately, not linger until a truncation flush");
+        assert_eq!(entry.monomial_count(), 1, "identical empty-run monomials must collapse immediately, not linger until a truncation flush");
         let (scalar, run) = entry.iter_monomials().next().unwrap();
         assert!((scalar - 3.0).abs() < 1e-12);
         assert!(run.is_empty());
@@ -1501,12 +1495,11 @@ mod tests {
     fn hash_path_matches_naive_evaluation() {
         let n_params = 400;
         let lut = make_lut(n_params);
-        let g2p = identity_map(n_params);
 
-        // > HASH_MERGE_THRESHOLD monomials with many repeated mask patterns,
+        // > HASH_MERGE_THRESHOLD monomials with many repeated factor patterns,
         // inserted in varying order, to exercise the hash-merge path and its
         // order-independence. i != j always, so each monomial's two branches
-        // are at distinct gate positions.
+        // are at distinct parameter positions.
         let mut c = SymbolicCoeff::default();
         for rep in 0..3usize {
             for i in 0..n_params as u32 {
@@ -1514,7 +1507,7 @@ mod tests {
                     if i == j {
                         continue;
                     }
-                    // Lower gate cos, higher gate sin (canonical order handled by enc).
+                    // Lower param cos, higher param sin (canonical order handled by enc).
                     let (lo, hi) = (i.min(j), i.max(j));
                     c.push_monomial(0.1 * (rep as f64 + 1.0), &enc(&[(lo, false), (hi, true)]));
                 }
@@ -1523,9 +1516,9 @@ mod tests {
         c.dirty = true;
         assert!(c.monomial_count() >= HASH_MERGE_THRESHOLD, "test setup should exercise the hash path");
 
-        let expected = naive_evaluate(&c, &lut, &g2p);
+        let expected = naive_evaluate(&c, &lut);
         c.deduplicate();
-        let actual = c.evaluate(&lut, &g2p);
+        let actual = c.evaluate(&lut);
         assert!(
             (actual - expected).abs() < 1e-9,
             "hash-merge path changed the evaluated value: {actual} vs {expected}"
@@ -1535,7 +1528,6 @@ mod tests {
     #[test]
     fn small_and_large_paths_agree() {
         let lut = make_lut(8);
-        let g2p = identity_map(8);
 
         let base: &[(f64, &[(u32, bool)])] = &[
             (1.0, &[(0, false), (1, true)]),
@@ -1543,23 +1535,23 @@ mod tests {
             (-0.5, &[(2, false)]),
         ];
         let mut small = coeff(base);
-        let expected = naive_evaluate(&small, &lut, &g2p);
+        let expected = naive_evaluate(&small, &lut);
         small.deduplicate();
         assert!(small.monomial_count() < HASH_MERGE_THRESHOLD);
-        assert!((small.evaluate(&lut, &g2p) - expected).abs() < 1e-12);
+        assert!((small.evaluate(&lut) - expected).abs() < 1e-12);
 
         let mut large = coeff(base);
-        // Fixed gate 3 cos plus a varying gate drawn from 4..8 (distinct from
+        // Fixed param 3 cos plus a varying param drawn from 4..8 (distinct from
         // 3, within lut range), paired as exactly-cancelling entries.
         for k in 0..HASH_MERGE_THRESHOLD as u32 {
-            let mask = enc(&[(3, false), (4 + (k % 4), true)]);
-            large.push_monomial(5.0, &mask);
-            large.push_monomial(-5.0, &mask);
+            let run = enc(&[(3, false), (4 + (k % 4), true)]);
+            large.push_monomial(5.0, &run);
+            large.push_monomial(-5.0, &run);
         }
         assert!(large.monomial_count() >= HASH_MERGE_THRESHOLD);
-        assert!((naive_evaluate(&large, &lut, &g2p) - expected).abs() < 1e-9);
+        assert!((naive_evaluate(&large, &lut) - expected).abs() < 1e-9);
         large.deduplicate();
-        assert!((large.evaluate(&lut, &g2p) - expected).abs() < 1e-9);
+        assert!((large.evaluate(&lut) - expected).abs() < 1e-9);
     }
 
     #[test]
@@ -1568,7 +1560,7 @@ mod tests {
         c.trim_high_frequency(2);
         assert_eq!(c.monomial_count(), 2);
         let kept: Vec<(f64, usize)> =
-            c.iter_monomials().map(|(s, r)| (s, mask_frequency(r))).collect();
+            c.iter_monomials().map(|(s, r)| (s, run_frequency(r))).collect();
         assert_eq!(kept, vec![(2.0, 1), (4.0, 2)]);
     }
 
@@ -1586,7 +1578,7 @@ mod tests {
         let removed = c.remove_at_frequency_budgeted(3, &remaining);
         assert_eq!(removed, 2);
         assert_eq!(c.monomial_count(), 1);
-        assert_eq!(mask_frequency(c.iter_monomials().next().unwrap().1), 1);
+        assert_eq!(run_frequency(c.iter_monomials().next().unwrap().1), 1);
         assert_eq!(remaining.load(Ordering::Relaxed), 8);
     }
 
@@ -1633,7 +1625,7 @@ mod tests {
     fn remove_at_frequency_removes_exactly_that_bucket() {
         let mut c = coeff_with_freqs(&[(1.0, 2, 0), (2.0, 3, 1), (3.0, 2, 2), (4.0, 1, 3)]);
         c.remove_at_frequency(2);
-        let lens: Vec<usize> = c.iter_monomials().map(|(_, r)| mask_frequency(r)).collect();
+        let lens: Vec<usize> = c.iter_monomials().map(|(_, r)| run_frequency(r)).collect();
         assert_eq!(lens, vec![3, 1]);
     }
 
@@ -1658,7 +1650,7 @@ mod tests {
         let removed = c.remove_by_rank_budgeted(2, 0.5, &budget);
         assert_eq!(removed, 2);
         let kept: Vec<(f64, usize)> =
-            c.iter_monomials().map(|(s, r)| (s, mask_frequency(r))).collect();
+            c.iter_monomials().map(|(s, r)| (s, run_frequency(r))).collect();
         assert_eq!(kept, vec![(0.9, 2), (2.0, 1)]);
         assert_eq!(budget.load(Ordering::Relaxed), 0);
     }
@@ -1672,15 +1664,14 @@ mod tests {
         let removed = c.remove_by_rank_budgeted(2, f64::INFINITY, &budget);
         assert_eq!(removed, 3);
         let kept: Vec<(f64, usize)> =
-            c.iter_monomials().map(|(s, r)| (s, mask_frequency(r))).collect();
+            c.iter_monomials().map(|(s, r)| (s, run_frequency(r))).collect();
         assert_eq!(kept, vec![(2.0, 1)]);
     }
 
     #[test]
     fn evaluate_parallel_matches_naive_at_scale() {
-        let n_gates = 64usize;
-        let lut = make_lut(n_gates);
-        let g2p = identity_map(n_gates);
+        let n_params = 64usize;
+        let lut = make_lut(n_params);
         let mut c = SymbolicCoeff::default();
         let mut state = 0x9E3779B97F4A7C15u64;
         for _ in 0..20_000 {
@@ -1688,17 +1679,23 @@ mod tests {
             state ^= state >> 7;
             state ^= state << 17;
             let len = (state % 6) as usize;
-            // Draw `len` distinct gate positions with random cos/sin codes.
-            let mut used: std::collections::BTreeMap<u32, bool> = std::collections::BTreeMap::new();
+            // Draw `len` distinct parameter positions with random cos/sin codes.
+            let mut used: BTreeMap<u32, bool> = BTreeMap::new();
             for k in 0..len {
-                let v = (state >> (8 * k)) as u32 % (2 * n_gates as u32);
-                let (gate, is_sin) = (v >> 1, v & 1 == 1);
-                used.entry(gate).or_insert(is_sin);
+                let v = (state >> (8 * k)) as u32 % (2 * n_params as u32);
+                let (param, is_sin) = (v >> 1, v & 1 == 1);
+                used.entry(param).or_insert(is_sin);
             }
             let branches: Vec<(u32, bool)> = used.into_iter().collect();
             c.push_monomial(((state % 1000) as f64 - 500.0) / 250.0, &enc(&branches));
         }
-        let expected = naive_evaluate(&c, &lut, &g2p);
-        assert!((c.evaluate(&lut, &g2p) - expected).abs() < 1e-9 * expected.abs().max(1.0));
+        let expected = naive_evaluate(&c, &lut);
+        assert!((c.evaluate(&lut) - expected).abs() < 1e-9 * expected.abs().max(1.0));
+    }
+
+    #[test]
+    fn run_last_param_reports_highest_param() {
+        assert_eq!(run_last_param(&[]), 0);
+        assert_eq!(run_last_param(&enc(&[(2, false), (9, true), (5, false)])), 9);
     }
 }

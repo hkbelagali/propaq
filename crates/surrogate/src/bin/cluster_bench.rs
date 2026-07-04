@@ -314,9 +314,11 @@ fn main() {
             // Mostly-numeric workload: only every `symbolic_period`-th gate is
             // parameterized; the rest fold a fixed angle into the scalar.
             let param = if gate_idx % args.symbolic_period == 0 {
-                GateParam::symbolic(gate_idx as u32)
+                // Parameter index must fit the 16-bit factor field; mask to stay
+                // in range for long runs (also exercises parameter reuse).
+                GateParam::symbolic(gate_idx as u32 & 0xffff)
             } else {
-                GateParam::Numeric { gate_idx: gate_idx as u32, angle: 0.5 }
+                GateParam::Numeric { angle: 0.5 }
             };
             let (added, added_monomials) = propagator.apply_gate_inplace(&generator, param);
             pending_terms += added;
