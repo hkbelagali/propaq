@@ -25,6 +25,18 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// the thread map and two entries arrive at the same Pauli string.
     fn add_assign(&mut self, other: Self);
 
+    /// Called after `add_assign` during a periodic (non-truncating) outbox
+    /// merge, so a coefficient can collapse any structure that just became
+    /// mergeable while doing so is still cheap. No-op by default: `Complex64`
+    /// is already merged exactly by `add_assign`. `SymbolicCoeff` overrides
+    /// this to call `deduplicate()` — without it, monomials whose masks
+    /// happen to coincide (e.g. every monomial produced by a purely-numeric
+    /// gate history shares the same empty mask) would otherwise pile up as
+    /// separate entries until the next full truncation flush, growing memory
+    /// with no matching increase in information.
+    #[inline]
+    fn post_merge(&mut self) {}
+
     /// Apply a non-commuting Pauli rotation.
     ///
     /// Modifies `self` in-place for the cos branch and returns a new value for

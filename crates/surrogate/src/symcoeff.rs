@@ -862,6 +862,18 @@ impl CoeffRepr for SymbolicCoeff {
         }
     }
 
+    /// Collapse monomials with identical masks that `add_assign` just
+    /// juxtaposed. Without this, a periodic outbox merge only dedupes at the
+    /// term-key level — masks that happen to coincide (every monomial from a
+    /// purely-numeric gate history shares the same empty mask) pile up as
+    /// separate entries until the next full truncation flush. `deduplicate`
+    /// already no-ops on a clean (non-`dirty`) coefficient, so this costs
+    /// nothing when `add_assign` had nothing new to fold in.
+    #[inline]
+    fn post_merge(&mut self) {
+        self.deduplicate();
+    }
+
     /// L1 norm is undefined for symbolic; return 0 to skip coeff-based truncation.
     #[inline]
     fn l1_norm(&self) -> f64 {

@@ -452,7 +452,9 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                             // SAFETY: each index in 0..n_cell is read exactly
                             // once, transferring ownership out of the buffer.
                             let (term, coeff) = unsafe { std::ptr::read(base.add(i)) };
-                            map.entry(term).or_default().add_assign(coeff);
+                            let entry = map.entry(term).or_default();
+                            entry.add_assign(coeff);
+                            entry.post_merge();
                         }
                     }
                 });
