@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use num_complex::Complex64;
 use pyo3::prelude::*;
@@ -45,6 +46,18 @@ fn evaluate_par_min_len() -> usize {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(EVALUATE_PAR_MIN_LEN_DEFAULT)
+    });
+    *V
+}
+
+/// Whether numeric-branch coefficient sharing (copy-on-write via `Arc`) is on.
+/// Default on; set `PROPAQ_DISABLE_COEFF_SHARING=1` to force an immediate copy at
+/// every numeric branch (the pre-sharing baseline) — used to A/B the memory win
+/// and as a safety escape hatch. Read once, cached.
+#[inline]
+fn coeff_sharing_enabled() -> bool {
+    static V: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        !matches!(std::env::var("PROPAQ_DISABLE_COEFF_SHARING").as_deref(), Ok("1") | Ok("true"))
     });
     *V
 }
@@ -261,6 +274,14 @@ fn return_order(mut order: Vec<u32>) {
 /// simply appends monomials (and flags the coefficient dirty); call
 /// `deduplicate` to merge identical runs and drop near-zero terms before
 /// evaluation.
+/// An immutable, already-deduplicated monomial arena, shared behind an `Arc` by
+/// the parent and child of a numeric branch. See `SymbolicCoeff::shared`.
+#[derive(Default)]
+struct Inner {
+    heads: Vec<MonoHead>,
+    masks: Vec<u8>,
+}
+
 #[derive(Clone, Default)]
 pub struct SymbolicCoeff {
     heads: Vec<MonoHead>,
@@ -271,6 +292,17 @@ pub struct SymbolicCoeff {
     /// entirely — the common case at a flush, where most live terms received no
     /// inbox merges since the last one.
     dirty: bool,
+    /// Copy-on-write structural sharing. When `Some((mult, inner))`, the owned
+    /// `heads`/`masks` are empty and the logical value is `mult · inner` — a
+    /// shared, immutable, canonical arena. Created only at a **numeric** branch
+    /// (`apply_rotation_numeric`), where parent and child are the same arena up
+    /// to a scalar; this makes numeric branching O(1) instead of copying the
+    /// whole arena. Any *structural* mutation (`realize`) materializes it back to
+    /// the owned representation, folding `mult` into each scalar. A shared value
+    /// is always clean (its `inner` was deduplicated when wrapped), so
+    /// `deduplicate`/`post_merge` are no-ops on it — it survives the merge cadence
+    /// unrealized, which is the whole point for numeric-heavy circuits.
+    shared: Option<(Arc<Inner>, f64)>,
 }
 
 impl SymbolicCoeff {
@@ -281,7 +313,59 @@ impl SymbolicCoeff {
             heads: vec![MonoHead { scalar: c, end: 0 }],
             masks: Vec::new(),
             dirty: false,
+            shared: None,
         }
+    }
+
+    /// `(heads, masks, mult)` view over the effective monomials — the owned
+    /// buffers with `mult = 1`, or the shared arena with its multiplier. Read-only
+    /// operations use this so they transparently handle a shared value without
+    /// realizing it (which would collapse the sharing).
+    #[inline]
+    fn view(&self) -> (&[MonoHead], &[u8], f64) {
+        match &self.shared {
+            Some((inner, mult)) => (&inner.heads, &inner.masks, *mult),
+            None => (self.heads.as_slice(), self.masks.as_slice(), 1.0),
+        }
+    }
+
+    /// Identity of the shared arena (its `Arc` pointer address), or `None` if the
+    /// value is owned. Distinct terms that share one arena report the same id;
+    /// used by `cluster_bench` to measure the terms-per-arena ratio.
+    pub fn arena_ptr(&self) -> Option<usize> {
+        self.shared.as_ref().map(|(inner, _)| Arc::as_ptr(inner) as usize)
+    }
+
+    /// Materialize a shared value into the owned representation (folding `mult`
+    /// into each scalar) so a mutating op can proceed. No-op on an owned value.
+    /// `pub` so the compile step can flatten every term before building the model.
+    pub fn realize(&mut self) {
+        if let Some((inner, mult)) = self.shared.take() {
+            // The owned buffers are empty while shared; refill them in place.
+            self.masks.extend_from_slice(&inner.masks);
+            self.heads.reserve(inner.heads.len());
+            self.heads.extend(
+                inner.heads.iter().map(|h| MonoHead { scalar: h.scalar * mult, end: h.end }),
+            );
+            self.dirty = false; // inner was deduplicated when shared
+        }
+    }
+
+    /// Ensure `self` is a shared value and return a clone of its `Arc<Inner>`.
+    /// Wrapping an owned value deduplicates it first, upholding the invariant that
+    /// a shared arena is always canonical.
+    fn ensure_shared(&mut self) -> Arc<Inner> {
+        if let Some((inner, _)) = &self.shared {
+            return Arc::clone(inner);
+        }
+        self.deduplicate(); // no-op when already clean
+        let inner = Arc::new(Inner {
+            heads: std::mem::take(&mut self.heads),
+            masks: std::mem::take(&mut self.masks),
+        });
+        self.shared = Some((Arc::clone(&inner), 1.0));
+        self.dirty = false;
+        inner
     }
 
     /// Start offset of monomial `i`'s byte run.
@@ -297,21 +381,23 @@ impl SymbolicCoeff {
     }
 
     pub fn monomial_count(&self) -> usize {
-        self.heads.len()
+        self.view().0.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.heads.is_empty()
+        self.view().0.is_empty()
     }
 
-    /// Iterate `(scalar, byte run)` per monomial, in storage order.
+    /// Iterate `(scalar, byte run)` per monomial, in storage order. Scalars are
+    /// scaled by the shared multiplier when the value is shared.
     pub fn iter_monomials(&self) -> impl Iterator<Item = (f64, &[u8])> + '_ {
+        let (heads, masks, mult) = self.view();
         let mut start = 0usize;
-        self.heads.iter().map(move |h| {
+        heads.iter().map(move |h| {
             let end = h.end as usize;
-            let run = &self.masks[start..end];
+            let run = &masks[start..end];
             start = end;
-            (h.scalar, run)
+            (h.scalar * mult, run)
         })
     }
 
@@ -320,6 +406,7 @@ impl SymbolicCoeff {
     /// `save` writes canonical runs, so no fix-up happens here.
     pub fn push_monomial(&mut self, scalar: f64, mask: &[u8]) {
         debug_assert!(run_is_canonical(mask), "mask run must be canonical (ascending gates)");
+        self.realize();
         self.masks.extend_from_slice(mask);
         self.heads.push(MonoHead { scalar, end: self.masks.len() as u64 });
     }
@@ -352,7 +439,11 @@ impl SymbolicCoeff {
     /// In-place compaction keeping monomials for which `keep(frequency,
     /// scalar)` holds. Writes never overtake reads (removal only shrinks), so
     /// both buffers are rewritten in one forward pass with zero allocation.
+    /// Realizes a shared value first (monomial-level removal must mutate the
+    /// arena; this is where a shared value's sharing is lost under monomial-level
+    /// truncation — term-level truncation drops whole terms instead).
     fn compact(&mut self, mut keep: impl FnMut(usize, f64) -> bool) {
+        self.realize();
         let mut w_head = 0usize;
         let mut w_mask = 0usize;
         let mut start = 0usize;
@@ -459,15 +550,14 @@ impl SymbolicCoeff {
     /// steal via the outer per-term `par_iter`) once a term's monomial count is
     /// large enough to be worth it.
     pub fn evaluate(&self, lut: &[f64], gate_to_param: &[u32]) -> f64 {
-        let heads = &self.heads;
-        let masks = &self.masks;
+        let (heads, masks, mult) = self.view();
         (0..heads.len())
             .into_par_iter()
             .with_min_len(evaluate_par_min_len())
             .map(|i| {
                 let start = if i == 0 { 0 } else { heads[i - 1].end as usize };
                 let end = heads[i].end as usize;
-                let mut prod = heads[i].scalar;
+                let mut prod = heads[i].scalar * mult;
                 let mut prev = 0u32;
                 let mut pos = start;
                 while pos < end {
@@ -489,8 +579,7 @@ impl SymbolicCoeff {
     /// truncation pass that calls this per live term.
     pub fn top_frequency_and_count(&self) -> (usize, usize) {
         const PAR_MIN_LEN: usize = 65_536;
-        let heads = &self.heads;
-        let masks = &self.masks;
+        let (heads, masks, _mult) = self.view();
         (0..heads.len())
             .into_par_iter()
             .with_min_len(PAR_MIN_LEN)
@@ -529,6 +618,7 @@ impl SymbolicCoeff {
     /// one atomic operation per coefficient that actually has a hit, not per
     /// monomial.
     pub fn remove_at_frequency_budgeted(&mut self, freq: usize, remaining: &AtomicUsize) -> usize {
+        self.realize();
         let mut hits = 0usize;
         let mut start = 0usize;
         for h in &self.heads {
@@ -570,10 +660,11 @@ impl SymbolicCoeff {
     /// monomials of frequency `f`), growing it as needed. Used to build the
     /// global frequency histogram that drives importance-ranked truncation.
     pub fn add_freq_histogram(&self, hist: &mut Vec<u64>) {
+        let (heads, masks, _mult) = self.view();
         let mut start = 0usize;
-        for h in &self.heads {
+        for h in heads {
             let end = h.end as usize;
-            let f = mask_frequency(&self.masks[start..end]);
+            let f = mask_frequency(&masks[start..end]);
             if f >= hist.len() {
                 hist.resize(f + 1, 0);
             }
@@ -586,11 +677,12 @@ impl SymbolicCoeff {
     /// The gathered values from all coefficients feed a single `select_nth`
     /// that picks the scalar threshold within the boundary-frequency bucket.
     pub fn collect_boundary_scalars(&self, freq: usize, out: &mut Vec<f64>) {
+        let (heads, masks, mult) = self.view();
         let mut start = 0usize;
-        for h in &self.heads {
+        for h in heads {
             let end = h.end as usize;
-            if mask_frequency(&self.masks[start..end]) == freq {
-                out.push(h.scalar.abs());
+            if mask_frequency(&masks[start..end]) == freq {
+                out.push((h.scalar * mult).abs());
             }
             start = end;
         }
@@ -612,6 +704,7 @@ impl SymbolicCoeff {
     /// `remove_at_frequency_budgeted`. `s_star = INFINITY` removes the whole
     /// boundary bucket (used when the budget consumes it entirely).
     pub fn remove_by_rank_budgeted(&mut self, f_star: usize, s_star: f64, tie_budget: &AtomicUsize) -> usize {
+        self.realize();
         let mut tie_hits = 0usize;
         let mut start = 0usize;
         for h in &self.heads {
@@ -690,6 +783,10 @@ impl SymbolicCoeff {
         debug_assert!(branch_phase.im.abs() < 1e-9, "expected real branch phase: {branch_phase:?}");
         let branch_phase = branch_phase.re;
 
+        // A symbolic gate appends a factor to every monomial, so the shared
+        // immutable arena can't be reused — materialize first. (Rare for the
+        // numeric-heavy workload this sharing targets.)
+        self.realize();
         let n = self.heads.len();
 
         // Sin branch first, while `self`'s arena is still un-rebuilt. Buffers
@@ -739,16 +836,21 @@ impl SymbolicCoeff {
         return_pooled_buffers(old_heads, old_masks);
 
         // Duplicates in self (if any) are duplicated into the branch too.
-        SymbolicCoeff { heads: sin_heads, masks: sin_masks, dirty: self.dirty }
+        SymbolicCoeff { heads: sin_heads, masks: sin_masks, dirty: self.dirty, shared: None }
     }
 
     /// Numeric-angle rotation: `cos`/`sin` of `angle` are computed immediately
-    /// (mirrors `Complex64::apply_rotation` exactly) and folded directly into
-    /// each monomial's scalar. Numeric gates carry no symbolic information, so
-    /// no factor is written — the run is copied through byte-for-byte, which
-    /// composes correctly with any symbolic branches a monomial already carries
-    /// (they pass through unchanged; only the scalar is rescaled) and avoids
-    /// growing the run for a gate that never affects `evaluate`.
+    /// (mirrors `Complex64::apply_rotation` exactly). Numeric gates carry no
+    /// symbolic information — no factor is written — so parent (cos branch) and
+    /// child (sin branch) are the *same* monomial arena up to a scalar multiple.
+    ///
+    /// Rather than deep-copying the arena, this **shares** it: `self` is wrapped
+    /// into an immutable `Arc` once (`ensure_shared`), then the cos branch scales
+    /// `self`'s multiplier and the sin branch returns a new value referencing the
+    /// same arena. Both branches are O(1). The copy is deferred to `realize`,
+    /// which only fires on a structural mutation — for a numeric-heavy circuit
+    /// that means the *rare* symbolic gate, so a whole numeric sub-tree of
+    /// distinct terms shares one arena. See the `shared` field.
     fn apply_rotation_numeric(&mut self, angle: f64, phase: Complex64) -> Self {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
@@ -758,22 +860,24 @@ impl SymbolicCoeff {
         debug_assert!(branch_phase.im.abs() < 1e-9, "expected real branch phase: {branch_phase:?}");
         let branch_phase = branch_phase.re;
 
-        // Sin branch computed from `self`'s pre-mutation state, before the cos
-        // branch scales `self` in place below — same ordering as the symbolic
-        // rotation.
-        let (mut sin_heads, mut sin_masks) = take_pooled_buffers();
-        sin_heads.reserve(self.heads.len());
-        sin_masks.extend_from_slice(&self.masks);
-        sin_heads.extend(self.heads.iter().map(|h| MonoHead {
-            scalar: h.scalar * branch_phase,
-            end: h.end,
-        }));
+        let inner = self.ensure_shared();
+        // Multiplier before this gate: `cos` scales `self`, `sin` seeds the child.
+        let mult_pre = self.shared.as_ref().unwrap().1;
+        self.shared.as_mut().unwrap().1 = mult_pre * cos_t;
 
-        for h in &mut self.heads {
-            h.scalar *= cos_t;
+        let mut sin = SymbolicCoeff {
+            heads: Vec::new(),
+            masks: Vec::new(),
+            dirty: false,
+            shared: Some((inner, mult_pre * branch_phase)),
+        };
+        // Baseline / escape hatch: materialize both branches immediately, i.e.
+        // the pre-sharing deep-copy behavior.
+        if !coeff_sharing_enabled() {
+            self.realize();
+            sin.realize();
         }
-
-        SymbolicCoeff { heads: sin_heads, masks: sin_masks, dirty: self.dirty }
+        sin
     }
 }
 
@@ -822,24 +926,34 @@ impl CoeffRepr for SymbolicCoeff {
     }
 
     fn add_assign(&mut self, mut other: Self) {
-        if self.heads.is_empty() {
-            // Common case at a flush: a term newly inserted into the map gets
-            // `or_default().add_assign(coeff)` — take the buffers instead of
-            // copying every monomial into a fresh allocation.
+        // `self` is the additive-identity default (empty owned, not a ref): take
+        // `other` wholesale, preserving any shared ref it carries. Common at a
+        // flush: `map.entry(term).or_default().add_assign(coeff)`.
+        if self.shared.is_none() && self.heads.is_empty() {
             *self = other;
             return;
         }
-        if other.heads.is_empty() {
+        // `other` is the additive identity: nothing to add.
+        if other.shared.is_none() && other.heads.is_empty() {
             return;
         }
+        // Same shared arena — the common case for two numeric-branch siblings
+        // that merged onto one Pauli string: O(1), just add the multipliers, no
+        // realize (the shared arena stays shared).
+        if let (Some((ai, am)), Some((bi, bm))) = (&mut self.shared, &other.shared) {
+            if Arc::ptr_eq(ai, bi) {
+                *am += *bm;
+                return;
+            }
+        }
+        // General case: materialize both and concatenate monomials.
+        self.realize();
+        other.realize();
         let base = self.masks.len() as u64;
         self.masks.append(&mut other.masks);
         self.heads.reserve(other.heads.len());
         self.heads.extend(other.heads.iter().map(|h| MonoHead { scalar: h.scalar, end: h.end + base }));
         self.dirty = true;
-        // `other.masks` was emptied by `append`; `other.heads` has been copied
-        // into `self.heads`. Both retain their (pool-origin) capacity — return
-        // them so the branch buffers they came from stay warm.
         return_pooled_buffers(other.heads, other.masks);
     }
 
@@ -857,6 +971,12 @@ impl CoeffRepr for SymbolicCoeff {
 
     #[inline]
     fn scale_real(&mut self, factor: f64) {
+        // Scaling a shared value is O(1) — just the multiplier; it stays shared,
+        // so uniform noise between symbolic gates never forces a realize.
+        if let Some((_, mult)) = &mut self.shared {
+            *mult *= factor;
+            return;
+        }
         for h in &mut self.heads {
             h.scalar *= factor;
         }
@@ -881,28 +1001,29 @@ impl CoeffRepr for SymbolicCoeff {
     }
 
     /// Monomial count is what actually drives memory/CPU cost for symbolic
-    /// coefficients, unlike raw term count.
+    /// coefficients, unlike raw term count. Reads through a shared value.
     #[inline]
     fn size_hint(&self) -> usize {
-        self.heads.len()
+        self.monomial_count()
     }
 
     #[inline]
     fn prefetch_read(&self) {
         #[cfg(target_arch = "x86_64")]
         // SAFETY: prefetch has no memory effects; the pointers are this
-        // coefficient's own live buffers.
+        // coefficient's own live (or shared) buffers.
         unsafe {
             use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
-            let ptr = self.masks.as_ptr() as *const i8;
-            let bytes = std::mem::size_of_val(&self.masks[..]);
+            let (heads, masks, _mult) = self.view();
+            let ptr = masks.as_ptr() as *const i8;
+            let bytes = std::mem::size_of_val(masks);
             let mut off = 0usize;
             while off < bytes {
                 _mm_prefetch(ptr.add(off), _MM_HINT_T0);
                 off += 64;
             }
-            let ptr = self.heads.as_ptr() as *const i8;
-            let bytes = std::mem::size_of_val(&self.heads[..]);
+            let ptr = heads.as_ptr() as *const i8;
+            let bytes = std::mem::size_of_val(heads);
             let mut off = 0usize;
             while off < bytes {
                 _mm_prefetch(ptr.add(off), _MM_HINT_T0);
@@ -1155,6 +1276,84 @@ mod tests {
         assert!(complex_sin.im.abs() < 1e-12);
         assert!((cos_scalar - complex.re).abs() < 1e-12);
         assert!((sin_scalar - complex_sin.re).abs() < 1e-12);
+    }
+
+    #[test]
+    fn numeric_branch_shares_one_arena() {
+        // A numeric branch makes the cos branch (self) and the returned sin
+        // branch reference the *same* immutable arena — O(1), no copy.
+        let mut c = coeff(&[(1.0, &[(0, false)]), (2.0, &[(1, true)])]);
+        let sin = c.apply_rotation(&GateParam::Numeric { gate_idx: 5, angle: 0.7 }, Complex64::new(0.0, -1.0));
+        let a = c.shared.as_ref().expect("cos branch is shared");
+        let b = sin.shared.as_ref().expect("sin branch is shared");
+        assert!(Arc::ptr_eq(&a.0, &b.0), "cos and sin share the same arena");
+        // While shared, the owned buffers are empty.
+        assert!(c.heads.is_empty() && c.masks.is_empty());
+    }
+
+    #[test]
+    fn realize_reproduces_shared_value_exactly() {
+        let lut = make_lut(8);
+        let g2p = identity_map(8);
+        let mut c = coeff(&[(1.5, &[(0, false)]), (2.0, &[(1, true)])]);
+        let sin = c.apply_rotation(&GateParam::Numeric { gate_idx: 5, angle: 0.7 }, Complex64::new(0.0, -1.0));
+
+        let before_eval = sin.evaluate(&lut, &g2p);
+        let before: Vec<(f64, Vec<u8>)> = sin.iter_monomials().map(|(s, r)| (s, r.to_vec())).collect();
+
+        let mut realized = sin.clone();
+        realized.realize();
+        assert!(realized.shared.is_none(), "realize materializes to owned");
+
+        assert!((realized.evaluate(&lut, &g2p) - before_eval).abs() < 1e-12);
+        let after: Vec<(f64, Vec<u8>)> = realized.iter_monomials().map(|(s, r)| (s, r.to_vec())).collect();
+        assert_eq!(before.len(), after.len());
+        for ((s1, r1), (s2, r2)) in before.iter().zip(&after) {
+            assert!((s1 - s2).abs() < 1e-12);
+            assert_eq!(r1, r2);
+        }
+    }
+
+    #[test]
+    fn same_arena_add_assign_sums_multipliers_and_stays_shared() {
+        let lut = make_lut(4);
+        let g2p = identity_map(4);
+        let mut c = coeff(&[(1.0, &[])]); // single empty-mask monomial, value 1
+        let sin = c.apply_rotation(&GateParam::Numeric { gate_idx: 0, angle: 0.7 }, Complex64::new(0.0, -1.0));
+        let expected = c.evaluate(&lut, &g2p) + sin.evaluate(&lut, &g2p);
+        let arc_before = Arc::clone(&c.shared.as_ref().unwrap().0);
+        c.add_assign(sin);
+        assert!(c.shared.is_some(), "same-arena add stays shared");
+        assert!(Arc::ptr_eq(&arc_before, &c.shared.as_ref().unwrap().0), "same arena reused, no realize");
+        assert!((c.evaluate(&lut, &g2p) - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn scale_real_and_post_merge_keep_shared() {
+        let lut = make_lut(4);
+        let g2p = identity_map(4);
+        let mut c = coeff(&[(2.0, &[(0, false)])]);
+        let _sin = c.apply_rotation(&GateParam::Numeric { gate_idx: 0, angle: 0.5 }, Complex64::new(0.0, -1.0));
+        let before = c.evaluate(&lut, &g2p);
+        c.scale_real(3.0);
+        assert!(c.shared.is_some(), "scale_real is O(1), no realize");
+        assert!((c.evaluate(&lut, &g2p) - 3.0 * before).abs() < 1e-12);
+        c.post_merge();
+        assert!(c.shared.is_some(), "post_merge (dedup) is a no-op on a shared value");
+    }
+
+    #[test]
+    fn symbolic_gate_realizes_shared() {
+        let lut = make_lut(16);
+        let g2p = identity_map(16);
+        let mut c = coeff(&[(1.0, &[(0, false)])]);
+        let _num = c.apply_rotation(&GateParam::Numeric { gate_idx: 5, angle: 0.4 }, Complex64::new(0.0, -1.0));
+        assert!(c.shared.is_some());
+        let c_val = c.evaluate(&lut, &g2p);
+        let _sym = c.apply_rotation(&GateParam::symbolic(8), Complex64::new(0.0, -1.0));
+        assert!(c.shared.is_none(), "a symbolic gate realizes the shared value");
+        // cos branch picks up cos(theta_8): gate 8 -> param 8 -> lut[16].
+        assert!((c.evaluate(&lut, &g2p) - c_val * lut[16]).abs() < 1e-12);
     }
 
     #[test]

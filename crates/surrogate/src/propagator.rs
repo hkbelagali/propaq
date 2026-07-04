@@ -263,6 +263,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         let mut gate_idx: usize = 0;
         let mut pending: usize = 0;
         let mut pending_monomials: usize = 0;
+        let mut deferred_threshold_trigger: Option<&'static str> = None;
 
         for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
             // Apply uniform noise before the layer (mirrors numerical propagator order).
@@ -316,15 +317,38 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 // count directly so a flush still fires in that case.
                 let monomials_trigger = max_monomials
                     .map_or(false, |max| self.total_monomials + pending_monomials >= max);
-                if !next_is_intermediate && (terms_trigger || monomials_trigger) {
-                    let trigger = if monomials_trigger && !terms_trigger {
+                let threshold_trigger = if terms_trigger || monomials_trigger {
+                    Some(if monomials_trigger && !terms_trigger {
                         "monomial_threshold"
                     } else {
                         "threshold"
-                    };
-                    py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, layer_idx, trigger));
-                    pending = 0;
-                    pending_monomials = 0;
+                    })
+                } else {
+                    None
+                };
+                let pending_trigger = deferred_threshold_trigger.or(threshold_trigger);
+                if let Some(trigger) = pending_trigger {
+                    if !next_is_intermediate {
+                        py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, layer_idx, trigger));
+                        pending = 0;
+                        pending_monomials = 0;
+                        deferred_threshold_trigger = None;
+                    } else if threshold_trigger.is_some() && deferred_threshold_trigger.is_none() {
+                        deferred_threshold_trigger = Some(trigger);
+                        if self.verbose_log.is_some() {
+                            let live_terms = self.inner.total_terms() + pending;
+                            let live_monomials = self.total_monomials + pending_monomials;
+                            let qki = self
+                                .current_qiskit_gate_idx
+                                .map_or_else(|| "null".to_string(), |v| v.to_string());
+                            if let Some(ref mut log) = self.verbose_log {
+                                let _ = writeln!(
+                                    log,
+                                    r#"{{"event":"surrogate_flush_deferred","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms":{live_terms},"monomials":{live_monomials},"reason":"intermediate_boundary"}}"#
+                                );
+                            }
+                        }
+                    }
                 } else if !next_is_intermediate
                     && merge_max_terms.map_or(false, |m| pending >= m)
                 {

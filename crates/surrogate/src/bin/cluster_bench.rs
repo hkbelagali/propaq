@@ -133,6 +133,11 @@ struct Args {
     max_monomials: Option<usize>,
     merge_max_terms: Option<usize>,
     min_abs_scalar: Option<f64>,
+    /// Every `symbolic_period`-th gate is a symbolic (parameterized) rotation;
+    /// the rest are numeric (fixed-angle). `1` = all symbolic (the original
+    /// behavior); large values model the numeric-heavy workload that coefficient
+    /// sharing targets.
+    symbolic_period: usize,
     report_every: usize,
     rng_seed: u64,
 }
@@ -152,6 +157,7 @@ impl Default for Args {
             max_monomials: Some(10_000_000),
             merge_max_terms: Some(2_000_000),
             min_abs_scalar: None,
+            symbolic_period: 1,
             report_every: 50,
             rng_seed: 0xC0FFEE,
         }
@@ -221,6 +227,10 @@ fn parse_args() -> Args {
                 } else {
                     Some(val.parse().expect("--min-abs-scalar expects a float or 'none'"))
                 }
+            }
+            "--symbolic-period" => {
+                args.symbolic_period = val.parse().expect("--symbolic-period expects an integer >= 1");
+                assert!(args.symbolic_period >= 1, "--symbolic-period must be >= 1");
             }
             "--report-every" => args.report_every = val.parse().expect("--report-every expects an integer"),
             "--rng-seed" => args.rng_seed = val.parse().expect("--rng-seed expects an integer"),
@@ -301,7 +311,14 @@ fn main() {
     for layer in 0..args.n_layers {
         for (q0, q1) in brick_wall_pairs(layer, args.n_qubits) {
             let generator = two_qubit_generator(&mut rng, q0, q1, args.n_qubits);
-            let (added, added_monomials) = propagator.apply_gate_inplace(&generator, GateParam::symbolic(gate_idx as u32));
+            // Mostly-numeric workload: only every `symbolic_period`-th gate is
+            // parameterized; the rest fold a fixed angle into the scalar.
+            let param = if gate_idx % args.symbolic_period == 0 {
+                GateParam::symbolic(gate_idx as u32)
+            } else {
+                GateParam::Numeric { gate_idx: gate_idx as u32, angle: 0.5 }
+            };
+            let (added, added_monomials) = propagator.apply_gate_inplace(&generator, param);
             pending_terms += added;
             live_monomials += added_monomials;
             peak_monomials = peak_monomials.max(live_monomials);
@@ -330,13 +347,33 @@ fn main() {
                 let monomials_before = propagator.sum_coeffs(|c| c.monomial_count());
                 let terms_before = propagator.total_terms();
 
+                // Sharing snapshot right after the transpose (before truncation
+                // may realize refs): how many live terms are shared refs, and
+                // how many distinct arenas they collapse to (terms-per-arena).
+                let shared_terms = propagator.sum_coeffs(|c| c.arena_ptr().is_some() as usize);
+                let distinct_arenas = propagator
+                    .fold_coeffs(
+                        std::collections::HashSet::<usize>::new,
+                        |mut s, c| {
+                            if let Some(p) = c.arena_ptr() {
+                                s.insert(p);
+                            }
+                            s
+                        },
+                        |mut a, b| {
+                            a.extend(b);
+                            a
+                        },
+                    )
+                    .len();
+
                 let t1 = Instant::now();
                 let outcome = apply_truncation_policy(&mut propagator, &cfg);
                 let truncate_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
                 let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
                 println!(
-                    r#"{{"event":"flush","gate_idx":{gate_idx},"layer_idx":{layer},"trigger":"{}","terms_before":{terms_before},"terms_after":{},"terms_discarded":{},"monomials_before":{monomials_before},"monomials_after":{},"monomials_discarded":{},"elapsed_ms":{elapsed_ms:.3e},"transpose_ms":{transpose_ms:.3e},"truncate_ms":{truncate_ms:.3e}}}"#,
+                    r#"{{"event":"flush","gate_idx":{gate_idx},"layer_idx":{layer},"trigger":"{}","terms_before":{terms_before},"terms_after":{},"terms_discarded":{},"monomials_before":{monomials_before},"monomials_after":{},"monomials_discarded":{},"shared_terms":{shared_terms},"distinct_arenas":{distinct_arenas},"elapsed_ms":{elapsed_ms:.3e},"transpose_ms":{transpose_ms:.3e},"truncate_ms":{truncate_ms:.3e}}}"#,
                     if monomials_trigger && !terms_trigger { "monomial_threshold" } else { "term_threshold" },
                     outcome.total_after,
                     terms_before.saturating_sub(outcome.total_after),

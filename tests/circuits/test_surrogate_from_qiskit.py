@@ -126,10 +126,41 @@ class TestFromQiskitAgreesWithConcrete:
     def test_shared_parameter_collapses_n_params(self, kind):
         qc, theta = _bare_parameter_circuit()
         variational, circuit = _variational_model(kind, qc)
-        # theta shared (bare, scale 1.0) across rz+p -> 1 slot; rz(0.4) -> 1 constant slot.
-        assert circuit.n_params == 2
-        assert variational.n_params == 2
+        # theta shared (bare, scale 1.0) across rz+p -> 1 slot. The concrete
+        # rz(0.4) is baked in as a *numeric* rotation (folded into the scalar,
+        # no symbolic mask factor), so it consumes no parameter slot.
+        assert circuit.n_params == 1
+        assert variational.n_params == 1
         assert variational.parameters == (theta,)
+
+    def test_numeric_gates_stay_numeric(self, kind):
+        # Regression: purely-numeric gates (and the constant residual of an
+        # otherwise-parameterized angle) must become numeric rotations
+        # (`angle` set, `param_index is None`), NOT symbolic parameter slots.
+        # Symbolic constants write a factor into every monomial's mask and
+        # count toward its frequency, so treating numeric gates as symbolic
+        # makes purely-numeric circuit stretches explode combinatorially
+        # (monomials far exceeding the term count) instead of collapsing to one
+        # monomial per term.
+        theta = Parameter("theta")
+        qc = QuantumCircuit(N_QUBITS)
+        qc.rz(0.7, 0)              # pure numeric
+        qc.p(1.3, 1)              # pure numeric
+        qc.rz(2 * theta + 0.5, 2)  # symbolic slot for theta + numeric constant 0.5
+        _, circuit = _variational_model(kind, qc)
+
+        rotations = circuit.rotations
+        numeric = [r for r in rotations if r.param_index is None]
+        symbolic = [r for r in rotations if r.param_index is not None]
+
+        # Every numeric rotation carries a concrete angle and no param slot.
+        assert numeric, "expected numeric rotations for the concrete-angle gates"
+        assert all(r.angle is not None for r in numeric)
+        # Exactly one symbolic slot (theta); the 0.5 constant is numeric.
+        assert circuit.n_params == 1
+        assert all(r.angle is None for r in symbolic)
+        # No ParamSource is a constant (parameter=None) slot anymore.
+        assert all(src.parameter is not None for src in circuit.parameter_sources)
 
     def test_xx_plus_yy_symbolic_beta(self, kind):
         qc, theta, beta = _xx_plus_yy_circuit()
