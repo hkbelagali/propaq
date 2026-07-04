@@ -1,5 +1,3 @@
-from qiskit.quantum_info import SparsePauliOp
-
 from ._noise import GateNoiseModel, UniformNoiseModel
 from ._pauli_string import PauliString
 from ._pauli_term_streamer import PauliTermStreamer
@@ -73,17 +71,6 @@ class PauliTermSum:
 
         Arguments:
             streamer: A PauliTermStreamer opened with PauliTermStreamer.from_file().
-        """
-        ...
-
-    def to_sparse_pauli_op(self) -> SparsePauliOp:
-        """
-        Convert this PauliTermSum back to a Qiskit SparsePauliOp.
-
-        Raises ValueError if the term sum is empty (n_qubits cannot be inferred).
-
-        Returns:
-            The equivalent SparsePauliOp with simplified (deduplicated) terms.
         """
         ...
 

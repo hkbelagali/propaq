@@ -56,7 +56,8 @@ class PauliPropagator:
     def truncators(self) -> list[_NumericalTruncator]: ...
     @property
     def schedule(self) -> FlushSchedule: ...
-    def set_schedule(self, schedule: FlushSchedule) -> None: ...
+    @schedule.setter
+    def schedule(self, schedule: FlushSchedule) -> None: ...
     def set_truncation(
         self,
         truncation: _NumericalTruncator
@@ -65,7 +66,12 @@ class PauliPropagator:
         | None = None,
     ) -> None: ...
 
-    def propagate(self, observable: PauliTermSum, circuit: PauliCircuit) -> PauliTermSum:
+    def propagate(
+        self,
+        observable: PauliTermSum,
+        circuit: PauliCircuit,
+        filename: str | None = None,
+    ) -> PauliTermSum:
         r"""
         Back-propagate *circuit* through *observable* in the Heisenberg picture.
 
@@ -76,6 +82,7 @@ class PauliPropagator:
         Arguments:
             observable: The observable to propagate, as a PauliTermSum.
             circuit: The quantum circuit (PauliCircuit) to propagate through.
+            filename: Optional filename to write the propagated observable to disk as a compressed gzip file.
 
         Returns:
             The propagated observable as a PauliTermSum.
@@ -87,6 +94,7 @@ class PauliPropagator:
         observable: PauliTermSum,
         circuit: PauliCircuit,
         initial_state: int = 0,
+        filename: str | None = None,
     ) -> PropagationResult:
         """
         Compute the expectation value of *observable* after back-propagating *circuit*.
@@ -95,6 +103,7 @@ class PauliPropagator:
             observable: The observable to propagate.
             circuit: The quantum circuit to propagate through.
             initial_state: Computational basis state (bitstring integer) for the trace.
+            filename: Optional filename to write the propagated observable to disk as a compressed gzip file.
 
         Returns:
             PropagationResult with ``expectation_value`` and per-gate ``n_terms``.

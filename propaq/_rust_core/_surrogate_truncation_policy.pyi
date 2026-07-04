@@ -35,12 +35,18 @@ class FrequencyTruncationPolicy:
     at or just above ``max_monomials`` in practice, not down near
     ``min_monomials``. Defaults to (5_000_000, 10_000_000); set to
     (None, None) (after construction, via the attribute) to disable.
+
+    ``merge_max_terms`` controls the finer lossless merge cadence: once this
+    many terms accumulate in the outboxes since the last flush, duplicate
+    strings are collapsed into the partition maps without truncating. Defaults
+    to 2_000_000 (on); assign ``None`` after construction to disable.
     """
 
     max_frequency: int | None
     weight_cutoff: int | None
     truncation_range: tuple[int | None, int | None]
     monomial_range: tuple[int | None, int | None]
+    merge_max_terms: int | None
 
     def __init__(
         self,
@@ -48,6 +54,7 @@ class FrequencyTruncationPolicy:
         weight_cutoff: int | None = None,
         truncation_range: tuple[int | None, int | None] | None = (None, 10_000_000),
         monomial_range: tuple[int | None, int | None] | None = (5_000_000, 10_000_000),
+        merge_max_terms: int | None = 2_000_000,
     ) -> None: ...
 
     def __repr__(self) -> str: ...
