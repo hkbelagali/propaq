@@ -8,6 +8,7 @@ use propaq_core::propagator::AbstractPropagator;
 use propaq_core::traits::AbstractTerm;
 
 use crate::symcoeff::{GateParam, SymbolicCoeff};
+use crate::interning::Generation;
 use crate::truncation::FrequencyTruncationPolicy;
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
 use propaq_core::truncators::{
@@ -54,6 +55,23 @@ pub struct SurrogatePropagator<M: AbstractTerm> {
     /// this is only refreshed at flush points (recomputing it every gate would
     /// require a full O(total_terms) pass, unlike the O(1) term-count read).
     total_monomials: usize,
+    /// The current frozen support/exponent interning generation. Coefficients'
+    /// base ids reference it between flushes; `reconcile` advances it (folding
+    /// each live coefficient's extension into a fresh generation) at flush
+    /// barriers, and it is handed to the compiled model at the end.
+    generation: Generation,
+}
+
+/// Whether the live support⊗exponent factoring is enabled. Default on; set
+/// `PROPAQ_DISABLE_FACTORING=1` to skip reconciliation entirely — coefficients
+/// then stay flat (base ids `(0, 0)`, all factors in the extension), i.e. the
+/// pre-factoring representation. A/B and safety escape hatch.
+#[inline]
+fn factoring_enabled() -> bool {
+    static V: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        !matches!(std::env::var("PROPAQ_DISABLE_FACTORING").as_deref(), Ok("1") | Ok("true"))
+    });
+    *V
 }
 
 impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
@@ -93,7 +111,24 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             last_log_gate_idx: 0,
             current_qiskit_gate_idx: None,
             total_monomials: 0,
+            generation: Generation::new(),
         })
+    }
+
+    /// Advance the interning generation: fold every live coefficient's extension
+    /// into a fresh generation, replacing base ids and clearing extensions. The
+    /// caller must have already flushed outboxes into the partition maps, so all
+    /// live coefficients are reachable. Single-threaded interning into one shared
+    /// generation (see `AbstractPropagator::for_each_coeff_mut`). No-op when
+    /// factoring is disabled.
+    fn reconcile(&mut self) {
+        if !factoring_enabled() {
+            return;
+        }
+        let old = std::mem::take(&mut self.generation);
+        let mut new = Generation::new();
+        self.inner.for_each_coeff_mut(|c| c.reconcile_into(&old, &mut new));
+        self.generation = new;
     }
 
     fn open_log(&mut self) -> PyResult<()> {
@@ -130,6 +165,11 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         let cfg = resolve_config(&self.truncators);
         let outcome = apply_truncation_policy(&mut self.inner, &cfg);
         self.total_monomials = outcome.monomials_after;
+
+        // Compact the survivors: fold their extensions into a fresh interning
+        // generation. Runs after truncation so only surviving structure is
+        // re-interned (dead nodes are dropped with the old generation).
+        self.reconcile();
 
         if self.verbose_log.is_some() {
             let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -168,6 +208,9 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         n_params: usize,
     ) -> PyResult<SurrogateModel<M>> {
         self.open_log()?;
+        // Fresh interning generation for this build (the previous build's was
+        // moved into its model, but reset defensively in case one errored out).
+        self.generation = Generation::new();
 
         // Resolve the truncation pipeline once (Copy config). The flush triggers
         // (`max_terms`/`max_monomials`) and the `min_terms` gate come from the
@@ -401,7 +444,11 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             }
         });
 
-        Ok(SurrogateModel::new(raw, n_params))
+        // The final `flush_and_maybe_truncate("final")` above reconciled the
+        // survivors, so every coefficient's base ids reference `self.generation`
+        // (empty when factoring is disabled). Hand it to the model.
+        let generation = std::mem::take(&mut self.generation);
+        Ok(SurrogateModel::with_generation(raw, n_params, generation))
     }
 }
 
@@ -932,5 +979,90 @@ mod numeric_history_dedup_tests {
         // Sanity floor: the run actually exercised real branching (non-trivial
         // term count), so the bound above wasn't vacuously true on an empty map.
         assert!(peak_live_monomials > 1, "test did not exercise any branching");
+    }
+}
+
+mod shared_parameter_dedup_tests {
+    use super::*;
+    use num_complex::Complex64;
+    use propaq_core::bitset::Bitset;
+    use propaq_core::termsum::AbstractTermSum;
+
+    fn pauli(x: u64, z: u64, n_qubits: usize) -> PauliString {
+        let xb = Bitset::from_le_bytes(&x.to_le_bytes());
+        let zb = Bitset::from_le_bytes(&z.to_le_bytes());
+        let weight = (&xb | &zb).count_ones();
+        PauliString { x: xb, z: zb, n_qubits, weight }
+    }
+
+    /// A UCJ/LUCJ-style circuit reuses each parameter across many gates. The
+    /// gate-indexed scheme this replaced stored one factor per *gate*, so a
+    /// monomial's distinct-factor count grew with the number of gates branched
+    /// — up to `2^gates` live monomials for a fully-anticommuting history,
+    /// exactly the blowup (1.8B monomials) reported against a real UCJ
+    /// ansatz. The parameter-space scheme instead accumulates a reused
+    /// parameter into cos/sin *powers*: for `N_PARAMS` distinct parameters,
+    /// the number of distinct `(cos_pow, sin_pow)` combinations any one
+    /// term's coefficient can hold is bounded by `product_p(times_p_branched
+    /// + 1)` — polynomial in the gate count, not exponential. This test
+    /// drives far more gates than `2^gates` could ever let fit in memory, and
+    /// checks live monomials stay within that polynomial bound at every
+    /// merge.
+    #[test]
+    fn symbolic_gates_on_few_shared_parameters_keep_monomials_polynomial_not_exponential() {
+        const N_QUBITS: usize = 8;
+        const N_PARAMS: usize = 3;
+        let mut prop: AbstractPropagator<PauliString, SymbolicCoeff> =
+            AbstractPropagator::new(None, FlushSchedule::none(), Vec::new(), Some(4), false, None)
+                .expect("propagator construction");
+
+        let mut seed = AbstractTermSum::new();
+        seed.add(pauli(0, 1, N_QUBITS), Complex64::new(1.0, 0.0));
+        prop.initialize_from(&seed);
+
+        // Brick-wall of two-qubit generators, all *symbolic*, cycling through
+        // only `N_PARAMS` distinct parameter indices — every parameter is
+        // reused dozens of times over the run.
+        let mut gate_idx: u32 = 0;
+        let mut param_counts = [0usize; N_PARAMS];
+        let mut peak_live_monomials = 0usize;
+        for round in 0..30 {
+            let offset = round % 2;
+            for q in (offset..N_QUBITS - 1).step_by(2) {
+                let generator = pauli((1 << q) | (1 << (q + 1)), 0, N_QUBITS);
+                let param = gate_idx as usize % N_PARAMS;
+                prop.apply_gate_inplace(
+                    &generator,
+                    GateParam::Symbolic { param: param as u32, prune_freq: None },
+                );
+                param_counts[param] += 1;
+                gate_idx += 1;
+            }
+            prop.flush_outboxes_to_maps();
+
+            let live_terms = prop.total_terms();
+            let live_monomials = prop.sum_coeffs(|c| c.monomial_count());
+            peak_live_monomials = peak_live_monomials.max(live_monomials);
+
+            // Upper bound on any single term's monomial count: the product,
+            // over the few distinct parameters, of (times branched so far +
+            // 1) — the count of distinct cos/sin power splits reachable for
+            // that parameter. Live monomials (summed across all live terms)
+            // must never exceed that bound times the term count.
+            let max_monomials_per_term: usize = param_counts.iter().map(|&k| k + 1).product();
+            assert!(
+                live_monomials <= max_monomials_per_term * live_terms.max(1),
+                "round {round}: live monomials {live_monomials} exceeded the polynomial \
+                 bound {max_monomials_per_term} * {live_terms} terms — same-parameter \
+                 branches were not collapsing into trig powers",
+            );
+        }
+
+        // Sanity floor: real branching happened, and the run went through far
+        // more gates than `2^gate_idx` monomials (the old scheme's bound)
+        // could ever let fit in memory, yet stayed within the polynomial
+        // bound above throughout.
+        assert!(peak_live_monomials > 1, "test did not exercise any branching");
+        assert!(gate_idx as usize > 4 * N_PARAMS, "test should reuse each parameter many times");
     }
 }

@@ -12,6 +12,7 @@ use propaq_pauli::string::PauliString;
 use propaq_majorana::monomial::MajoranaMonomial;
 
 use crate::symcoeff::SymbolicCoeff;
+use crate::interning::Generation;
 
 /// A single compiled term: a Pauli/Majorana string with its structural overlap and
 /// symbolic coefficient that maps parameter angles to a numerical contribution.
@@ -30,11 +31,20 @@ pub struct SurrogateTerm<M: AbstractTerm> {
 pub struct SurrogateModel<M: AbstractTerm> {
     pub terms: Vec<SurrogateTerm<M>>,
     pub n_params: usize,
+    /// The interned support/exponent tables the terms' coefficients reference.
+    /// Empty when every coefficient is flat (base ids all `(0, 0)`), which is
+    /// the case until reconciliation populates bases.
+    pub generation: Generation,
 }
 
 impl<M: AbstractTerm> SurrogateModel<M> {
     pub fn new(terms: Vec<SurrogateTerm<M>>, n_params: usize) -> Self {
-        SurrogateModel { terms, n_params }
+        SurrogateModel { terms, n_params, generation: Generation::new() }
+    }
+
+    /// Build a model whose coefficients reference `generation`'s interned tables.
+    pub fn with_generation(terms: Vec<SurrogateTerm<M>>, n_params: usize, generation: Generation) -> Self {
+        SurrogateModel { terms, n_params, generation }
     }
 
     /// Evaluate the expectation value for the given parameter angles.
@@ -45,7 +55,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let lut = Self::make_lut(params);
         self.terms
             .par_iter()
-            .map(|t| t.overlap * t.coeff.evaluate(&lut))
+            .map(|t| t.overlap * t.coeff.evaluate(&self.generation, &lut))
             .sum()
     }
 
@@ -102,6 +112,11 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             })
             .collect::<std::io::Result<_>>()?;
 
+        // The shared interning generation is written once, before the shards,
+        // as a length-prefixed blob; every term's base ids reference it.
+        let mut gen_blob = Vec::new();
+        self.generation.serialize(&mut gen_blob);
+
         let file = OpenOptions::new().create(true).write(true).truncate(true).open(path)?;
         let mut w = BufWriter::new(file);
         w.write_all(&MAGIC.to_le_bytes())?;
@@ -109,6 +124,8 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         w.write_all(&(self.n_params as u64).to_le_bytes())?;
         w.write_all(&system_size.to_le_bytes())?;
         w.write_all(&key_stride.to_le_bytes())?;
+        w.write_all(&(gen_blob.len() as u64).to_le_bytes())?;
+        w.write_all(&gen_blob)?;
         w.write_all(&(blobs.len() as u64).to_le_bytes())?;
         for b in &blobs {
             w.write_all(&(b.len() as u64).to_le_bytes())?;
@@ -150,6 +167,12 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         let system_size = read_u64!();
         let key_stride = read_u64!() as usize;
 
+        // Shared interning generation, read before the shards.
+        let gen_len = read_u64!() as usize;
+        let mut gen_blob = vec![0u8; gen_len];
+        r.read_exact(&mut gen_blob)?;
+        let generation = Generation::deserialize(&gen_blob, &mut 0usize);
+
         let n_shards = read_u64!() as usize;
         let mut shard_lens = Vec::with_capacity(n_shards);
         for _ in 0..n_shards {
@@ -166,7 +189,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 
         let per_shard: Vec<Vec<SurrogateTerm<M>>> = blobs
             .par_iter()
-            .map(|blob| parse_shard::<M>(blob, key_stride, system_size))
+            .map(|blob| parse_shard::<M>(blob, key_stride, system_size, &generation))
             .collect::<std::io::Result<_>>()?;
 
         let mut terms = Vec::with_capacity(per_shard.iter().map(|s| s.len()).sum());
@@ -174,7 +197,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             terms.extend(shard);
         }
 
-        Ok(SurrogateModel { terms, n_params })
+        Ok(SurrogateModel { terms, n_params, generation })
     }
 }
 
@@ -182,20 +205,24 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 /// A mismatch on load is a hard error — the sharded format deliberately breaks
 /// compatibility with pre-sharding files.
 const MAGIC: u32 = u32::from_le_bytes(*b"PQSM");
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
 
 /// Serialize one term into `buf` (uncompressed): key bytes, overlap (f64le),
-/// monomial count (u64le), then per monomial `scalar` (f64le), factor count
-/// (u64le), and that many packed `u32le` parameter-space factors from the
-/// coefficient arena.
+/// monomial count (u64le), then per monomial `scalar` (f64le), `base_support`
+/// (u32le), `base_exp` (u32le) — ids into the model's shared generation — and a
+/// length-prefixed extension run (`u64le` count + packed `u32le` factors, empty
+/// for a fully-reconciled model). `base_freq` is recomputed from the generation
+/// on load, so it is not written.
 fn write_term_into<M: AbstractTerm>(buf: &mut Vec<u8>, st: &SurrogateTerm<M>) {
     buf.extend_from_slice(&st.term.to_bytes_vec());
     buf.extend_from_slice(&st.overlap.to_le_bytes());
     buf.extend_from_slice(&(st.coeff.monomial_count() as u64).to_le_bytes());
-    for (scalar, run) in st.coeff.iter_monomials() {
+    for (scalar, base_support, base_exp, ext) in st.coeff.iter_factored() {
         buf.extend_from_slice(&scalar.to_le_bytes());
-        buf.extend_from_slice(&(run.len() as u64).to_le_bytes());
-        for &f in run {
+        buf.extend_from_slice(&base_support.to_le_bytes());
+        buf.extend_from_slice(&base_exp.to_le_bytes());
+        buf.extend_from_slice(&(ext.len() as u64).to_le_bytes());
+        for &f in ext {
             buf.extend_from_slice(&f.to_le_bytes());
         }
     }
@@ -214,6 +241,7 @@ fn parse_shard<M: AbstractTerm>(
     compressed: &[u8],
     key_stride: usize,
     system_size: u64,
+    generation: &Generation,
 ) -> std::io::Result<Vec<SurrogateTerm<M>>> {
     let mut raw = Vec::new();
     GzDecoder::new(compressed).read_to_end(&mut raw)?;
@@ -249,13 +277,17 @@ fn parse_shard<M: AbstractTerm>(
         coeff.reserve(n_mono, 0);
         for _ in 0..n_mono {
             let scalar = rd_f64(&raw, &mut pos);
+            let base_support = rd_u32(&raw, &mut pos);
+            let base_exp = rd_u32(&raw, &mut pos);
             let n_factors = rd_u64(&raw, &mut pos) as usize;
             factors.clear();
             factors.reserve(n_factors);
             for _ in 0..n_factors {
                 factors.push(rd_u32(&raw, &mut pos));
             }
-            coeff.push_monomial(scalar, &factors);
+            // `base_freq` is recovered from the shared generation (not stored).
+            let base_freq = generation.run_freq(base_exp);
+            coeff.push_factored(scalar, base_support, base_exp, base_freq, &factors);
         }
         terms.push(SurrogateTerm { term, overlap, coeff });
     }

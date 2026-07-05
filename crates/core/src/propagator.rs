@@ -713,6 +713,22 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         })
     }
 
+    /// Sequentially apply `f` to every live coefficient across all partition
+    /// maps. Single-threaded on purpose: the surrogate reconciliation pass
+    /// interns each coefficient's runs into one **shared** generation, which a
+    /// serial walk lets it do without any synchronization. Not on the per-gate
+    /// hot path — only at flush barriers.
+    pub fn for_each_coeff_mut<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut C),
+    {
+        for map in self.thread_maps.iter_mut() {
+            for coeff in map.values_mut() {
+                f(coeff);
+            }
+        }
+    }
+
     /// Access verbose log writer for writing custom log entries from surrogate propagator.
     pub fn verbose_log_mut(&mut self) -> Option<&mut BufWriter<std::fs::File>> {
         self.verbose_log.as_mut()

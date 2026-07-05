@@ -99,6 +99,19 @@ class TestNumericalAgreement:
         numerical = numerical_ev(obs, circ)
         assert surr == pytest.approx(numerical, rel=1e-9)
 
+    def test_parameter_reused_three_times(self):
+        """The same param_index behind three separate gates: repeated
+        branches on one parameter must accumulate as a trig power (the
+        parameter-space representation), not diverge as distinct paths."""
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        angle = 0.4
+        gens = [ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0)]
+        circ = PauliCircuit([PauliRotation(g, angle) for g in gens])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 0, 0])
+        surr = surrogate_ev(obs, sc, [angle])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
     def test_empty_circuit(self):
         """Empty circuit: surrogate should equal the direct expectation value."""
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
@@ -236,6 +249,85 @@ class TestMergeCadence:
 
     def test_default_policy_has_merge_cadence_on(self):
         assert FrequencyTruncationPolicy().merge_max_terms is not None
+
+
+class TestParameterReuseDedup:
+    """Targeted coverage for the parameter-space merge/dedup logic: circuits
+    that reuse a small set of parameters across many gates (the UCJ/LUCJ
+    pattern) must merge and evaluate exactly, under every merge cadence,
+    under frequency truncation, and across a save/load round trip.
+    """
+
+    def _reused_param_circuit(self):
+        """Two parameters, each behind two gates, interleaved so a naive
+        gate-indexed scheme would keep every branch distinct."""
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        params = [0.3, 0.6]
+        gens = [ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0), ps(0b1000, 0)]
+        angles = [params[0], params[1], params[0], params[1]]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 0, 1])
+        return obs, sc, circ, params
+
+    def test_interleaved_shared_parameters_matches_numerical(self):
+        obs, sc, circ, params = self._reused_param_circuit()
+        surr = surrogate_ev(obs, sc, params)
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
+    def test_merge_cadence_matches_with_shared_parameters(self):
+        """Forcing a merge after every gate (which triggers `post_merge` /
+        `deduplicate` on the parameter-space runs) must not change the result
+        relative to deferring every merge to the final truncation flush."""
+        obs, sc, circ, params = self._reused_param_circuit()
+        exact = numerical_ev(obs, circ)
+
+        eager = FrequencyTruncationPolicy()
+        eager.merge_max_terms = 1
+        m_eager = PauliSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
+
+        off = FrequencyTruncationPolicy()
+        off.merge_max_terms = None
+        m_off = PauliSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
+
+        assert m_eager.evaluate(params) == pytest.approx(exact, rel=1e-9)
+        assert m_eager.evaluate(params) == pytest.approx(m_off.evaluate(params), rel=1e-12)
+
+    def test_frequency_truncation_monotonic_with_shared_parameters(self):
+        """`max_frequency` caps total trig *power*, not gate count; with a
+        parameter reused across gates that cap must still be exact once it
+        reaches the number of rotations, and error must shrink monotonically
+        below that."""
+        obs, sc, circ, params = self._reused_param_circuit()
+        n_rots = 4
+        numerical = numerical_ev(obs, circ)
+        prev_err = float("inf")
+        for freq in range(0, n_rots + 1):
+            model = PauliSurrogatePropagator(
+                truncation=FrequencyTruncationPolicy(max_frequency=freq)
+            ).build(obs, sc, initial_state=0)
+            err = abs(model.evaluate(params) - numerical)
+            assert err <= prev_err + 1e-12, (
+                f"error did not decrease monotonically at freq={freq}: "
+                f"prev={prev_err:.3e}, curr={err:.3e}"
+            )
+            prev_err = err
+        assert prev_err < 1e-9
+
+    def test_many_reuses_of_one_parameter_matches_numerical(self):
+        """A single parameter driving five separate gates: the trig-power
+        accumulation must compose correctly across that many reuses."""
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        angle = 0.25
+        gens = [
+            ps(0b0001, 0), ps(0b0010, 0), ps(0b0011, 0),
+            ps(0, 0b0010), ps(0b0100, 0b0001),
+        ]
+        circ = PauliCircuit([PauliRotation(g, angle) for g in gens])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0] * len(gens))
+        surr = surrogate_ev(obs, sc, [angle])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
 
 
 class TestComposableTruncation:
@@ -453,6 +545,30 @@ class TestSaveLoad:
                 )
         finally:
             os.unlink(path)
+
+    def test_round_trip_with_shared_parameter(self):
+        """Save/load must preserve the parameter-space factor runs (and their
+        dedup state) exactly for a circuit with a parameter reused across
+        several gates."""
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        angle = 0.45
+        gens = [ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0)]
+        circ = PauliCircuit([PauliRotation(g, angle) for g in gens])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 0, 0])
+        model = PauliSurrogatePropagator().build(obs, sc, initial_state=0)
+        original_val = model.evaluate([angle])
+
+        with tempfile.NamedTemporaryFile(suffix=".surrogate.gz", delete=False) as f:
+            path = f.name
+        try:
+            model.save(path)
+            loaded = PauliSurrogateModel.load(path)
+            assert loaded.evaluate([angle]) == pytest.approx(original_val, rel=1e-14)
+            # A different angle exercises the loaded powers, not a cached value.
+            assert loaded.evaluate([0.9]) == pytest.approx(model.evaluate([0.9]), rel=1e-14)
+        finally:
+            os.unlink(path)
+
 
 class TestNTermsFiltering:
     def test_n_terms_leq_propagated(self):

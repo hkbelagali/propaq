@@ -95,6 +95,19 @@ class TestNumericalAgreement:
         numerical = numerical_ev(obs, circ)
         assert surr == pytest.approx(numerical, rel=1e-9)
 
+    def test_parameter_reused_three_times(self):
+        """The same param_index behind three separate gates: repeated
+        branches on one parameter must accumulate as a trig power (the
+        parameter-space representation), not diverge as distinct paths."""
+        obs = MajoranaTermSum({mm(0b0011): 1.0})
+        angle = 0.35
+        gens = [mm(0b0110), mm(0b1001), mm(0b0101)]
+        circ = MajoranaCircuit([MajoranaRotation(g, angle) for g in gens], n_modes=N_MODES)
+        sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[0, 0, 0])
+        surr = surrogate_ev(obs, sc, [angle])
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
 class TestFrequencyTruncation:
     def _circuit_and_obs(self):
         obs = MajoranaTermSum({mm(0b0011): 1.0})
@@ -127,6 +140,49 @@ class TestFrequencyTruncation:
         numerical = numerical_ev(obs, circ)
         assert model.evaluate(angles) == pytest.approx(numerical, rel=1e-9)
 
+class TestParameterReuseDedup:
+    """Targeted coverage for the parameter-space merge/dedup logic, mirrored
+    from the Pauli suite: a small set of parameters reused across many gates
+    must merge and evaluate exactly, under every merge cadence."""
+
+    def _reused_param_circuit(self):
+        """Two parameters, each behind two gates, interleaved so a naive
+        gate-indexed scheme would keep every branch distinct."""
+        obs = MajoranaTermSum({mm(0b0011): 1.0})
+        params = [0.35, 0.65]
+        gens = [mm(0b0110), mm(0b1001), mm(0b0110), mm(0b1001)]
+        angles = [params[0], params[1], params[0], params[1]]
+        circ = MajoranaCircuit(
+            [MajoranaRotation(g, a) for g, a in zip(gens, angles)], n_modes=N_MODES
+        )
+        sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[0, 1, 0, 1])
+        return obs, sc, circ, params
+
+    def test_interleaved_shared_parameters_matches_numerical(self):
+        obs, sc, circ, params = self._reused_param_circuit()
+        surr = surrogate_ev(obs, sc, params)
+        numerical = numerical_ev(obs, circ)
+        assert surr == pytest.approx(numerical, rel=1e-9)
+
+    def test_merge_cadence_matches_with_shared_parameters(self):
+        """Forcing a merge after every gate (which triggers `post_merge` /
+        `deduplicate` on the parameter-space runs) must not change the result
+        relative to deferring every merge to the final truncation flush."""
+        obs, sc, circ, params = self._reused_param_circuit()
+        exact = numerical_ev(obs, circ)
+
+        eager = FrequencyTruncationPolicy()
+        eager.merge_max_terms = 1
+        m_eager = MajoranaSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
+
+        off = FrequencyTruncationPolicy()
+        off.merge_max_terms = None
+        m_off = MajoranaSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
+
+        assert m_eager.evaluate(params) == pytest.approx(exact, rel=1e-9)
+        assert m_eager.evaluate(params) == pytest.approx(m_off.evaluate(params), rel=1e-12)
+
+
 class TestSaveLoad:
     def test_round_trip(self):
         obs = MajoranaTermSum({mm(0b0011): 1.0})
@@ -145,6 +201,28 @@ class TestSaveLoad:
             assert loaded.evaluate(angles) == pytest.approx(original_val, rel=1e-14)
             assert loaded.n_terms == model.n_terms
             assert loaded.n_params == model.n_params
+        finally:
+            os.unlink(path)
+
+    def test_round_trip_with_shared_parameter(self):
+        """Save/load must preserve the parameter-space factor runs (and their
+        dedup state) exactly for a circuit with a parameter reused across
+        several gates."""
+        obs = MajoranaTermSum({mm(0b0011): 1.0})
+        angle = 0.4
+        gens = [mm(0b0110), mm(0b1001), mm(0b0101)]
+        circ = MajoranaCircuit([MajoranaRotation(g, angle) for g in gens], n_modes=N_MODES)
+        sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[0, 0, 0])
+        model = MajoranaSurrogatePropagator().build(obs, sc, initial_state=0)
+        original_val = model.evaluate([angle])
+
+        with tempfile.NamedTemporaryFile(suffix=".surrogate.gz", delete=False) as f:
+            path = f.name
+        try:
+            model.save(path)
+            loaded = MajoranaSurrogateModel.load(path)
+            assert loaded.evaluate([angle]) == pytest.approx(original_val, rel=1e-14)
+            assert loaded.evaluate([0.9]) == pytest.approx(model.evaluate([0.9]), rel=1e-14)
         finally:
             os.unlink(path)
 

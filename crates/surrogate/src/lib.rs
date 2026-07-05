@@ -1,4 +1,5 @@
 pub mod symcoeff;
+pub mod interning;
 pub mod truncation;
 pub mod model;
 pub mod propagator;

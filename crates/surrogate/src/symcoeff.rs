@@ -9,6 +9,8 @@ use rustc_hash::FxHashMap;
 
 use propaq_core::coeff::CoeffRepr;
 
+use crate::interning::Generation;
+
 /// Below this monomial count, use the simple sort-based merge. Benchmarking
 /// showed the hash-based merge only reliably wins with substantial exact
 /// factor-pattern duplication (~100x+ repeats); with little/no duplication it
@@ -28,24 +30,25 @@ const PARAM_SHIFT: u32 = 16;
 const COS_SHIFT: u32 = 8;
 const POW_MASK: u32 = 0xff;
 
-/// Pack `(param, cos_pow, sin_pow)` into a factor word.
+/// Pack `(param, cos_pow, sin_pow)` into a factor word. `pub(crate)` so the
+/// interning layer (`interning.rs`) can materialize decoded runs.
 #[inline]
-fn make_factor(param: u32, cos_pow: u32, sin_pow: u32) -> u32 {
+pub(crate) fn make_factor(param: u32, cos_pow: u32, sin_pow: u32) -> u32 {
     (param << PARAM_SHIFT) | (cos_pow << COS_SHIFT) | sin_pow
 }
 
 #[inline]
-fn factor_param(f: u32) -> u32 {
+pub(crate) fn factor_param(f: u32) -> u32 {
     f >> PARAM_SHIFT
 }
 
 #[inline]
-fn factor_cos(f: u32) -> u32 {
+pub(crate) fn factor_cos(f: u32) -> u32 {
     (f >> COS_SHIFT) & POW_MASK
 }
 
 #[inline]
-fn factor_sin(f: u32) -> u32 {
+pub(crate) fn factor_sin(f: u32) -> u32 {
     f & POW_MASK
 }
 
@@ -163,9 +166,44 @@ fn write_incremented(dst: &mut Vec<u32>, run: &[u32], param: u32, is_sin: bool) 
     dst.extend_from_slice(&run[i..]);
 }
 
-/// Per-monomial header: the scalar plus the *exclusive* end offset of this
-/// monomial's factors in the owning coefficient's `factors` arena (its start is
-/// the previous header's `end`, or 0 for the first monomial).
+/// Merge two canonical (ascending-param, params-distinct) factor runs into one
+/// canonical run in `dst`, summing the cos/sin powers of any param that appears
+/// in both. Used at reconciliation to fold a monomial's extension back into its
+/// decoded base (a param branched during the window that was already in the base
+/// lands in both halves and must recombine into a single factor).
+fn merge_runs(dst: &mut Vec<u32>, a: &[u32], b: &[u32]) {
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < a.len() && j < b.len() {
+        let (pa, pb) = (factor_param(a[i]), factor_param(b[j]));
+        if pa < pb {
+            dst.push(a[i]);
+            i += 1;
+        } else if pb < pa {
+            dst.push(b[j]);
+            j += 1;
+        } else {
+            let cos_pow = factor_cos(a[i]) + factor_cos(b[j]);
+            let sin_pow = factor_sin(a[i]) + factor_sin(b[j]);
+            debug_assert!(
+                cos_pow <= POW_MASK && sin_pow <= POW_MASK,
+                "merged trig power exceeds the 8-bit cap (255) for param {pa}"
+            );
+            dst.push(make_factor(pa, cos_pow, sin_pow));
+            i += 1;
+            j += 1;
+        }
+    }
+    dst.extend_from_slice(&a[i..]);
+    dst.extend_from_slice(&b[j..]);
+}
+
+/// Per-monomial header for the support⊗exponent factored representation.
+///
+/// A monomial's full factor run is split into a **base** (the history interned
+/// into a frozen [`Generation`](crate::interning::Generation) before the last
+/// flush) plus an **extension** (the factors appended since, stored inline in
+/// the owning coefficient's `factors` arena). The full run is
+/// `generation.decode(base_support, base_exp) ++ factors[start..end]`.
 ///
 /// `scalar` is real, not complex: `apply_rotation` is only ever invoked on
 /// anticommuting (generator, term) pairs, and for Hermitian, involutory
@@ -174,15 +212,28 @@ fn write_incremented(dst: &mut Vec<u32>, run: &[u32], param: u32, is_sin: bool) 
 /// leaving a real result at every step. Given a real (Hermitian) seed
 /// observable, every monomial's scalar stays real by induction.
 ///
-/// `end` is a u64 *factor-count* offset into the shared arena: a single
-/// coefficient can legitimately hold billions of factor words at the design
-/// scale. The header is deliberately kept at 16 bytes (8 + 8, no padding): a
-/// monomial's frequency is recovered cheaply by summing its (short) run's
-/// powers wherever it's needed, so no extra field is stored.
+/// `base_support`/`base_exp` are opaque ids into the current frozen generation's
+/// support trie / exponent dictionary (`(0, 0)` = empty base, before any
+/// reconciliation). `base_freq` caches the base's `Σ` powers so the hot path
+/// recovers a monomial's frequency as `base_freq + Σ extension powers` **without
+/// dereferencing the tables**. `end` is a u64 factor-count offset of this
+/// monomial's *extension* in the arena (its start is the previous header's
+/// `end`, or 0 for the first).
 #[derive(Clone, Copy, Debug)]
 struct MonoHead {
     scalar: f64,
+    base_support: u32,
+    base_exp: u32,
+    base_freq: u32,
     end: u64,
+}
+
+impl MonoHead {
+    /// A monomial whose base is empty (all factors live in the extension).
+    #[inline]
+    fn flat(scalar: f64, end: u64) -> Self {
+        MonoHead { scalar, base_support: 0, base_exp: 0, base_freq: 0, end }
+    }
 }
 
 /// Per-thread free-list of previously-live `(heads, factors)` buffer pairs,
@@ -306,7 +357,7 @@ impl SymbolicCoeff {
     /// seed from the observable.
     pub fn from_scalar(c: f64) -> Self {
         SymbolicCoeff {
-            heads: vec![MonoHead { scalar: c, end: 0 }],
+            heads: vec![MonoHead::flat(c, 0)],
             factors: Vec::new(),
             dirty: false,
             shared: None,
@@ -341,7 +392,7 @@ impl SymbolicCoeff {
             self.factors.extend_from_slice(&inner.factors);
             self.heads.reserve(inner.heads.len());
             self.heads.extend(
-                inner.heads.iter().map(|h| MonoHead { scalar: h.scalar * mult, end: h.end }),
+                inner.heads.iter().map(|h| MonoHead { scalar: h.scalar * mult, ..*h }),
             );
             self.dirty = false; // inner was deduplicated when shared
         }
@@ -370,10 +421,18 @@ impl SymbolicCoeff {
         if i == 0 { 0 } else { self.heads[i - 1].end as usize }
     }
 
-    /// Factor run of monomial `i`.
+    /// Extension factor run of monomial `i` (the factors appended since the last
+    /// reconciliation; the full run is `decode(base) ++ this`).
     #[inline]
     fn factor_run(&self, i: usize) -> &[u32] {
         &self.factors[self.start(i)..self.heads[i].end as usize]
+    }
+
+    /// Identity key of monomial `i` for dedup: `(base_support, base_exp)`. Two
+    /// monomials are the same iff these match *and* their extension runs match.
+    #[inline]
+    fn mono_base(&self, i: usize) -> (u32, u32) {
+        (self.heads[i].base_support, self.heads[i].base_exp)
     }
 
     pub fn monomial_count(&self) -> usize {
@@ -384,8 +443,15 @@ impl SymbolicCoeff {
         self.view().0.is_empty()
     }
 
-    /// Iterate `(scalar, factor run)` per monomial, in storage order. Scalars are
-    /// scaled by the shared multiplier when the value is shared.
+    /// Iterate `(scalar, extension run)` per monomial, in storage order. Scalars
+    /// are scaled by the shared multiplier when the value is shared.
+    ///
+    /// This yields only the **extension** — the factors appended since the last
+    /// reconciliation. When the base is empty (every monomial `(0, 0)`, e.g. a
+    /// freshly-built or deserialized-flat coefficient) that *is* the full run,
+    /// which is how the tests and the flat serialization path use it. Callers
+    /// that must see the full run of a base-populated coefficient decode the
+    /// base against the generation explicitly (see `evaluate` / reconciliation).
     pub fn iter_monomials(&self) -> impl Iterator<Item = (f64, &[u32])> + '_ {
         let (heads, factors, mult) = self.view();
         let mut start = 0usize;
@@ -397,20 +463,103 @@ impl SymbolicCoeff {
         })
     }
 
-    /// Append one monomial. `run` must be a canonical factor run (params
-    /// ascending, powers nonzero) — this is the deserialization/test construction
-    /// entry point, and `save` writes canonical runs, so no fix-up happens here.
+    /// Iterate `(scalar, base_support, base_exp, extension run)` per monomial,
+    /// in storage order, scaling scalars by the shared multiplier. The
+    /// serialization path uses this to write each monomial's base ids (which
+    /// reference the model's generation) plus any residual extension.
+    pub(crate) fn iter_factored(&self) -> impl Iterator<Item = (f64, u32, u32, &[u32])> + '_ {
+        let (heads, factors, mult) = self.view();
+        let mut start = 0usize;
+        heads.iter().map(move |h| {
+            let end = h.end as usize;
+            let run = &factors[start..end];
+            start = end;
+            (h.scalar * mult, h.base_support, h.base_exp, run)
+        })
+    }
+
+    /// Append one monomial with an empty base. `run` must be a canonical factor
+    /// run (params ascending, powers nonzero) — this is the deserialization/test
+    /// construction entry point, and it writes the whole run into the extension.
     pub fn push_monomial(&mut self, scalar: f64, run: &[u32]) {
         debug_assert!(run_is_canonical(run), "factor run must be canonical (ascending params)");
         self.realize();
         self.factors.extend_from_slice(run);
-        self.heads.push(MonoHead { scalar, end: self.factors.len() as u64 });
+        self.heads.push(MonoHead::flat(scalar, self.factors.len() as u64));
+    }
+
+    /// Append one monomial that already carries a base `(support, exp, freq)`
+    /// plus a (possibly empty) canonical extension run. Used when reconstructing
+    /// factored coefficients (model load) and by the reconciliation rewrite.
+    pub(crate) fn push_factored(
+        &mut self,
+        scalar: f64,
+        base_support: u32,
+        base_exp: u32,
+        base_freq: u32,
+        extension: &[u32],
+    ) {
+        debug_assert!(run_is_canonical(extension), "extension run must be canonical");
+        self.realize();
+        self.factors.extend_from_slice(extension);
+        self.heads.push(MonoHead {
+            scalar,
+            base_support,
+            base_exp,
+            base_freq,
+            end: self.factors.len() as u64,
+        });
     }
 
     /// Reserve for `n_monomials` headers and `n_factors` arena factors.
     pub fn reserve(&mut self, n_monomials: usize, n_factors: usize) {
         self.heads.reserve(n_monomials);
         self.factors.reserve(n_factors);
+    }
+
+    /// Advance this coefficient into a new generation: fold every monomial's
+    /// full run (its base decoded against `old` merged with its extension) into
+    /// `new`'s interning tables, replacing the base ids and clearing the
+    /// extension. `old` must be the generation the current base ids reference.
+    ///
+    /// After this, every monomial has an empty extension and a base id pair into
+    /// `new`. Because re-interning is content-addressed, two monomials that
+    /// reached the same full run via different base/extension splits now share
+    /// one base id, so a `deduplicate` merges them (the cross-lineage merge the
+    /// mid-window dedup defers). Realizes a shared value first.
+    pub(crate) fn reconcile_into(&mut self, old: &Generation, new: &mut Generation) {
+        self.realize();
+        if self.heads.is_empty() {
+            return;
+        }
+        let (mut new_heads, unused) = take_pooled_buffers();
+        new_heads.reserve(self.heads.len());
+        let mut full: Vec<u32> = Vec::new();
+        let mut base_dec: Vec<u32> = Vec::new();
+        let mut start = 0usize;
+        for h in &self.heads {
+            let end = h.end as usize;
+            let ext = &self.factors[start..end];
+            start = end;
+            // Full canonical run = decode(old base) merged with the extension.
+            let merged: &[u32] = if h.base_support == 0 && h.base_exp == 0 {
+                ext
+            } else {
+                base_dec.clear();
+                old.decode_into(h.base_support, h.base_exp, &mut base_dec);
+                full.clear();
+                merge_runs(&mut full, &base_dec, ext);
+                &full
+            };
+            let (support, exp, freq) = new.intern_run(merged);
+            new_heads.push(MonoHead { scalar: h.scalar, base_support: support, base_exp: exp, base_freq: freq, end: 0 });
+        }
+        let old_heads = std::mem::replace(&mut self.heads, new_heads);
+        self.factors.clear();
+        return_pooled_buffers(old_heads, unused);
+        // Cross-lineage duplicates now share base ids; collapse them.
+        self.dirty = true;
+        self.deduplicate();
     }
 
     /// Drop monomials with frequency (total trig power) > max_freq, compacting
@@ -444,16 +593,16 @@ impl SymbolicCoeff {
         let mut w_fac = 0usize;
         let mut start = 0usize;
         for i in 0..self.heads.len() {
-            let end = self.heads[i].end as usize;
-            let scalar = self.heads[i].scalar;
-            let freq = run_frequency(&self.factors[start..end]);
-            if keep(freq, scalar) {
+            let head = self.heads[i];
+            let end = head.end as usize;
+            let freq = head.base_freq as usize + run_frequency(&self.factors[start..end]);
+            if keep(freq, head.scalar) {
                 let len = end - start;
                 if w_fac != start {
                     self.factors.copy_within(start..end, w_fac);
                 }
                 w_fac += len;
-                self.heads[w_head] = MonoHead { scalar, end: w_fac as u64 };
+                self.heads[w_head] = MonoHead { end: w_fac as u64, ..head };
                 w_head += 1;
             }
             start = end;
@@ -483,23 +632,34 @@ impl SymbolicCoeff {
         if self.heads.len() < HASH_MERGE_THRESHOLD {
             let mut order = take_order();
             order.extend(0..self.heads.len() as u32);
-            order.sort_unstable_by(|&a, &b| self.factor_run(a as usize).cmp(self.factor_run(b as usize)));
+            // Order by (base_support, base_exp) then the extension run, so all
+            // identical monomials (same base *and* extension) are adjacent.
+            order.sort_unstable_by(|&a, &b| {
+                self.mono_base(a as usize)
+                    .cmp(&self.mono_base(b as usize))
+                    .then_with(|| self.factor_run(a as usize).cmp(self.factor_run(b as usize)))
+            });
 
             let (mut heads, mut factors) = take_pooled_buffers();
             heads.reserve(self.heads.len());
             factors.reserve(self.factors.len());
             let mut i = 0usize;
             while i < order.len() {
+                let head = self.heads[order[i] as usize];
+                let base = (head.base_support, head.base_exp);
                 let run = self.factor_run(order[i] as usize);
-                let mut scalar = self.heads[order[i] as usize].scalar;
+                let mut scalar = head.scalar;
                 let mut j = i + 1;
-                while j < order.len() && self.factor_run(order[j] as usize) == run {
+                while j < order.len()
+                    && self.mono_base(order[j] as usize) == base
+                    && self.factor_run(order[j] as usize) == run
+                {
                     scalar += self.heads[order[j] as usize].scalar;
                     j += 1;
                 }
                 if scalar.abs() > 1e-15 {
                     factors.extend_from_slice(run);
-                    heads.push(MonoHead { scalar, end: factors.len() as u64 });
+                    heads.push(MonoHead { scalar, end: factors.len() as u64, ..head });
                 }
                 i = j;
             }
@@ -510,21 +670,32 @@ impl SymbolicCoeff {
             return;
         }
 
-        let mut acc: FxHashMap<&[u32], f64> = FxHashMap::default();
+        // Key on (base_support, base_exp, extension run); value carries the
+        // summed scalar and the group's base_freq (identical across a group).
+        let mut acc: FxHashMap<(u32, u32, &[u32]), (f64, u32)> = FxHashMap::default();
         acc.reserve(self.heads.len());
         let mut start = 0usize;
         for h in &self.heads {
             let end = h.end as usize;
-            *acc.entry(&self.factors[start..end]).or_insert(0.0) += h.scalar;
+            let slot = acc
+                .entry((h.base_support, h.base_exp, &self.factors[start..end]))
+                .or_insert((0.0, h.base_freq));
+            slot.0 += h.scalar;
             start = end;
         }
         let (mut heads, mut factors) = take_pooled_buffers();
         heads.reserve(acc.len());
         factors.reserve(self.factors.len());
-        for (run, scalar) in acc {
+        for ((base_support, base_exp, run), (scalar, base_freq)) in acc {
             if scalar.abs() > 1e-15 {
                 factors.extend_from_slice(run);
-                heads.push(MonoHead { scalar, end: factors.len() as u64 });
+                heads.push(MonoHead {
+                    scalar,
+                    base_support,
+                    base_exp,
+                    base_freq,
+                    end: factors.len() as u64,
+                });
             }
         }
         let old_heads = std::mem::replace(&mut self.heads, heads);
@@ -546,15 +717,21 @@ impl SymbolicCoeff {
     /// ordinary (small) terms while still splitting (and letting idle threads
     /// steal via the outer per-term `par_iter`) once a term's monomial count is
     /// large enough to be worth it.
-    pub fn evaluate(&self, lut: &[f64]) -> f64 {
+    pub fn evaluate(&self, gen: &Generation, lut: &[f64]) -> f64 {
         let (heads, factors, mult) = self.view();
         (0..heads.len())
             .into_par_iter()
             .with_min_len(evaluate_par_min_len())
             .map(|i| {
+                let h = heads[i];
                 let start = if i == 0 { 0 } else { heads[i - 1].end as usize };
-                let end = heads[i].end as usize;
-                let mut prod = heads[i].scalar * mult;
+                let end = h.end as usize;
+                let mut prod = h.scalar * mult;
+                // Base contribution (interned history); skipped for an empty base
+                // so a flat coefficient needs no table access.
+                if h.base_support != 0 || h.base_exp != 0 {
+                    prod *= gen.base_product(h.base_support, h.base_exp, lut);
+                }
                 for &f in &factors[start..end] {
                     let p = factor_param(f) as usize;
                     let cos_pow = factor_cos(f) as i32;
@@ -586,7 +763,7 @@ impl SymbolicCoeff {
                 |(mut freq, mut count), i| {
                     let start = if i == 0 { 0 } else { heads[i - 1].end as usize };
                     let end = heads[i].end as usize;
-                    let len = run_frequency(&factors[start..end]);
+                    let len = heads[i].base_freq as usize + run_frequency(&factors[start..end]);
                     match len.cmp(&freq) {
                         std::cmp::Ordering::Greater => { freq = len; count = 1; }
                         std::cmp::Ordering::Equal => count += 1,
@@ -621,7 +798,7 @@ impl SymbolicCoeff {
         let mut start = 0usize;
         for h in &self.heads {
             let end = h.end as usize;
-            if run_frequency(&self.factors[start..end]) == freq {
+            if h.base_freq as usize + run_frequency(&self.factors[start..end]) == freq {
                 hits += 1;
             }
             start = end;
@@ -662,7 +839,7 @@ impl SymbolicCoeff {
         let mut start = 0usize;
         for h in heads {
             let end = h.end as usize;
-            let f = run_frequency(&factors[start..end]);
+            let f = h.base_freq as usize + run_frequency(&factors[start..end]);
             if f >= hist.len() {
                 hist.resize(f + 1, 0);
             }
@@ -679,7 +856,7 @@ impl SymbolicCoeff {
         let mut start = 0usize;
         for h in heads {
             let end = h.end as usize;
-            if run_frequency(&factors[start..end]) == freq {
+            if h.base_freq as usize + run_frequency(&factors[start..end]) == freq {
                 out.push((h.scalar * mult).abs());
             }
             start = end;
@@ -707,7 +884,9 @@ impl SymbolicCoeff {
         let mut start = 0usize;
         for h in &self.heads {
             let end = h.end as usize;
-            if run_frequency(&self.factors[start..end]) == f_star && h.scalar.abs() == s_star {
+            if h.base_freq as usize + run_frequency(&self.factors[start..end]) == f_star
+                && h.scalar.abs() == s_star
+            {
                 tie_hits += 1;
             }
             start = end;
@@ -802,16 +981,21 @@ impl SymbolicCoeff {
             let run = &self.factors[start..end];
             start = end;
 
-            // Look-ahead: the sin child's frequency is this monomial's
-            // frequency + 1; skip emitting it if that would exceed the cap.
+            // Look-ahead: the sin child's frequency is this monomial's full
+            // frequency (base + extension) + 1; skip emitting it if that would
+            // exceed the cap.
             if let Some(cap) = prune_freq {
-                if run_frequency(run) as u32 >= cap {
+                if head.base_freq + run_frequency(run) as u32 >= cap {
                     continue;
                 }
             }
 
             write_incremented(&mut sin_factors, run, param, true);
-            sin_heads.push(MonoHead { scalar: head.scalar * branch_phase, end: sin_factors.len() as u64 });
+            sin_heads.push(MonoHead {
+                scalar: head.scalar * branch_phase,
+                end: sin_factors.len() as u64,
+                ..*head
+            });
         }
 
         // Cos branch: rebuild `self`, folding this parameter's cos factor into
@@ -825,7 +1009,7 @@ impl SymbolicCoeff {
             let run = &self.factors[start..end];
             start = end;
             write_incremented(&mut new_factors, run, param, false);
-            new_heads.push(MonoHead { scalar: head.scalar, end: new_factors.len() as u64 });
+            new_heads.push(MonoHead { end: new_factors.len() as u64, ..*head });
         }
         let old_heads = std::mem::replace(&mut self.heads, new_heads);
         let old_factors = std::mem::replace(&mut self.factors, new_factors);
@@ -941,10 +1125,10 @@ impl CoeffRepr for SymbolicCoeff {
         // General case: materialize both and concatenate monomials.
         self.realize();
         other.realize();
-        let base = self.factors.len() as u64;
+        let ext_base = self.factors.len() as u64;
         self.factors.append(&mut other.factors);
         self.heads.reserve(other.heads.len());
-        self.heads.extend(other.heads.iter().map(|h| MonoHead { scalar: h.scalar, end: h.end + base }));
+        self.heads.extend(other.heads.iter().map(|h| MonoHead { end: h.end + ext_base, ..*h }));
         self.dirty = true;
         return_pooled_buffers(other.heads, other.factors);
     }
@@ -1164,7 +1348,7 @@ mod tests {
         assert_eq!(run, &[make_factor(0, 2, 0)]);
         let expected = lut[0] * lut[0]; // cos(theta_0)^2
         assert!((naive_evaluate(&c, &lut) - expected).abs() < 1e-12);
-        assert!((c.evaluate(&lut) - expected).abs() < 1e-12);
+        assert!((c.evaluate(&crate::interning::Generation::new(), &lut) - expected).abs() < 1e-12);
     }
 
     #[test]
@@ -1186,7 +1370,7 @@ mod tests {
         assert_eq!(run, &[make_factor(0, 1, 1)]);
         assert!((scalar - 2.0).abs() < 1e-12);
         let expected = 2.0 * lut[0] * lut[1];
-        assert!((c.evaluate(&lut) - expected).abs() < 1e-12);
+        assert!((c.evaluate(&crate::interning::Generation::new(), &lut) - expected).abs() < 1e-12);
     }
 
     #[test]
@@ -1298,14 +1482,14 @@ mod tests {
         let mut c = coeff(&[(1.5, &[(0, false)]), (2.0, &[(1, true)])]);
         let sin = c.apply_rotation(&GateParam::Numeric { angle: 0.7 }, Complex64::new(0.0, -1.0));
 
-        let before_eval = sin.evaluate(&lut);
+        let before_eval = sin.evaluate(&crate::interning::Generation::new(), &lut);
         let before: Vec<(f64, Vec<u32>)> = sin.iter_monomials().map(|(s, r)| (s, r.to_vec())).collect();
 
         let mut realized = sin.clone();
         realized.realize();
         assert!(realized.shared.is_none(), "realize materializes to owned");
 
-        assert!((realized.evaluate(&lut) - before_eval).abs() < 1e-12);
+        assert!((realized.evaluate(&crate::interning::Generation::new(), &lut) - before_eval).abs() < 1e-12);
         let after: Vec<(f64, Vec<u32>)> = realized.iter_monomials().map(|(s, r)| (s, r.to_vec())).collect();
         assert_eq!(before.len(), after.len());
         for ((s1, r1), (s2, r2)) in before.iter().zip(&after) {
@@ -1319,12 +1503,12 @@ mod tests {
         let lut = make_lut(4);
         let mut c = coeff(&[(1.0, &[])]); // single empty-run monomial, value 1
         let sin = c.apply_rotation(&GateParam::Numeric { angle: 0.7 }, Complex64::new(0.0, -1.0));
-        let expected = c.evaluate(&lut) + sin.evaluate(&lut);
+        let expected = c.evaluate(&crate::interning::Generation::new(), &lut) + sin.evaluate(&crate::interning::Generation::new(), &lut);
         let arc_before = Arc::clone(&c.shared.as_ref().unwrap().0);
         c.add_assign(sin);
         assert!(c.shared.is_some(), "same-arena add stays shared");
         assert!(Arc::ptr_eq(&arc_before, &c.shared.as_ref().unwrap().0), "same arena reused, no realize");
-        assert!((c.evaluate(&lut) - expected).abs() < 1e-12);
+        assert!((c.evaluate(&crate::interning::Generation::new(), &lut) - expected).abs() < 1e-12);
     }
 
     #[test]
@@ -1332,10 +1516,10 @@ mod tests {
         let lut = make_lut(4);
         let mut c = coeff(&[(2.0, &[(0, false)])]);
         let _sin = c.apply_rotation(&GateParam::Numeric { angle: 0.5 }, Complex64::new(0.0, -1.0));
-        let before = c.evaluate(&lut);
+        let before = c.evaluate(&crate::interning::Generation::new(), &lut);
         c.scale_real(3.0);
         assert!(c.shared.is_some(), "scale_real is O(1), no realize");
-        assert!((c.evaluate(&lut) - 3.0 * before).abs() < 1e-12);
+        assert!((c.evaluate(&crate::interning::Generation::new(), &lut) - 3.0 * before).abs() < 1e-12);
         c.post_merge();
         assert!(c.shared.is_some(), "post_merge (dedup) is a no-op on a shared value");
     }
@@ -1346,11 +1530,11 @@ mod tests {
         let mut c = coeff(&[(1.0, &[(0, false)])]);
         let _num = c.apply_rotation(&GateParam::Numeric { angle: 0.4 }, Complex64::new(0.0, -1.0));
         assert!(c.shared.is_some());
-        let c_val = c.evaluate(&lut);
+        let c_val = c.evaluate(&crate::interning::Generation::new(), &lut);
         let _sym = c.apply_rotation(&GateParam::symbolic(8), Complex64::new(0.0, -1.0));
         assert!(c.shared.is_none(), "a symbolic gate realizes the shared value");
         // cos branch picks up cos(theta_8): param 8 -> lut[16].
-        assert!((c.evaluate(&lut) - c_val * lut[16]).abs() < 1e-12);
+        assert!((c.evaluate(&crate::interning::Generation::new(), &lut) - c_val * lut[16]).abs() < 1e-12);
     }
 
     #[test]
@@ -1518,7 +1702,7 @@ mod tests {
 
         let expected = naive_evaluate(&c, &lut);
         c.deduplicate();
-        let actual = c.evaluate(&lut);
+        let actual = c.evaluate(&crate::interning::Generation::new(), &lut);
         assert!(
             (actual - expected).abs() < 1e-9,
             "hash-merge path changed the evaluated value: {actual} vs {expected}"
@@ -1538,7 +1722,7 @@ mod tests {
         let expected = naive_evaluate(&small, &lut);
         small.deduplicate();
         assert!(small.monomial_count() < HASH_MERGE_THRESHOLD);
-        assert!((small.evaluate(&lut) - expected).abs() < 1e-12);
+        assert!((small.evaluate(&crate::interning::Generation::new(), &lut) - expected).abs() < 1e-12);
 
         let mut large = coeff(base);
         // Fixed param 3 cos plus a varying param drawn from 4..8 (distinct from
@@ -1551,7 +1735,7 @@ mod tests {
         assert!(large.monomial_count() >= HASH_MERGE_THRESHOLD);
         assert!((naive_evaluate(&large, &lut) - expected).abs() < 1e-9);
         large.deduplicate();
-        assert!((large.evaluate(&lut) - expected).abs() < 1e-9);
+        assert!((large.evaluate(&crate::interning::Generation::new(), &lut) - expected).abs() < 1e-9);
     }
 
     #[test]
@@ -1690,12 +1874,69 @@ mod tests {
             c.push_monomial(((state % 1000) as f64 - 500.0) / 250.0, &enc(&branches));
         }
         let expected = naive_evaluate(&c, &lut);
-        assert!((c.evaluate(&lut) - expected).abs() < 1e-9 * expected.abs().max(1.0));
+        assert!((c.evaluate(&crate::interning::Generation::new(), &lut) - expected).abs() < 1e-9 * expected.abs().max(1.0));
     }
 
     #[test]
     fn run_last_param_reports_highest_param() {
         assert_eq!(run_last_param(&[]), 0);
         assert_eq!(run_last_param(&enc(&[(2, false), (9, true), (5, false)])), 9);
+    }
+
+    #[test]
+    fn reconcile_preserves_value_and_folds_extension_into_base() {
+        let lut = make_lut(8);
+        let mut c = coeff(&[
+            (1.5, &[(0, false), (3, true)]),
+            (-2.0, &[(0, false)]),
+            (0.75, &[(1, false), (3, false)]),
+        ]);
+        c.deduplicate();
+        // Flat baseline (empty base ⇒ table-free evaluation).
+        let before = c.evaluate(&Generation::new(), &lut);
+
+        // First reconcile: empty old generation ⇒ moves each full run into the
+        // base of a fresh generation, clearing extensions.
+        let mut gen1 = Generation::new();
+        c.reconcile_into(&Generation::new(), &mut gen1);
+        assert!(
+            c.iter_monomials().all(|(_, run)| run.is_empty()),
+            "extensions must be empty after reconciliation"
+        );
+        assert!(c.heads.iter().any(|h| h.base_support != 0 || h.base_exp != 0), "base populated");
+        let after1 = c.evaluate(&gen1, &lut);
+        assert!((after1 - before).abs() < 1e-12, "reconcile changed the value");
+
+        // Next window: symbolic gates append to the extension, including param 0
+        // which already lives in the base (exercises merge_runs recombination).
+        let _ = c.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+        let _ = c.apply_rotation(&GateParam::symbolic(5), Complex64::new(0.0, -1.0));
+        let mid = c.evaluate(&gen1, &lut);
+
+        // Second reconcile: decode against gen1, fold the extension back in.
+        let mut gen2 = Generation::new();
+        c.reconcile_into(&gen1, &mut gen2);
+        assert!(c.iter_monomials().all(|(_, run)| run.is_empty()));
+        let after2 = c.evaluate(&gen2, &lut);
+        assert!((after2 - mid).abs() < 1e-12, "second reconcile changed the value");
+    }
+
+    #[test]
+    fn reconcile_merges_cross_lineage_duplicates() {
+        let lut = make_lut(4);
+        // Two monomials that are equal as full runs but were built to look
+        // distinct; after reconcile they share base ids and must merge.
+        let mut c = SymbolicCoeff::default();
+        c.push_monomial(1.0, &enc(&[(0, false), (2, true)]));
+        c.push_monomial(3.0, &enc(&[(0, false), (2, true)]));
+        c.dirty = true;
+        let before = c.evaluate(&Generation::new(), &lut);
+
+        let mut gen = Generation::new();
+        c.reconcile_into(&Generation::new(), &mut gen);
+        assert_eq!(c.monomial_count(), 1, "identical full runs collapse to one monomial");
+        let (scalar, _) = c.iter_monomials().next().unwrap();
+        assert!((scalar - 4.0).abs() < 1e-12);
+        assert!((c.evaluate(&gen, &lut) - before).abs() < 1e-12);
     }
 }
