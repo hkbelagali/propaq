@@ -1,6 +1,5 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use num_complex::Complex64;
 
 use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
 use propaq_core::termsum::AbstractTermSum;
@@ -8,10 +7,10 @@ use propaq_core::termsum::AbstractTermSum;
 use crate::monomial::MajoranaMonomial;
 use crate::streamer::MajoranaTermStreamer;
 
-/// A mutable, weighted sum of Majorana monomials with complex coefficients.
+/// A mutable, weighted sum of Majorana monomials with real coefficients.
 ///
 /// Arguments:
-///     terms: Optional initial mapping of MajoranaMonomial to complex coefficient.
+///     terms: Optional initial mapping of MajoranaMonomial to real coefficient.
 #[pyclass(subclass, module = "propaq._rust_core")]
 pub struct MajoranaTermSum {
     pub inner: AbstractTermSum<MajoranaMonomial>,
@@ -22,7 +21,7 @@ impl MajoranaTermSum {
     /// Initialize a Majorana term sum.
     ///
     /// Arguments:
-    ///     terms: Optional initial mapping of MajoranaMonomial to complex coefficient.
+    ///     terms: Optional initial mapping of MajoranaMonomial to real coefficient.
     #[new]
     #[pyo3(signature = (terms=None))]
     fn new(terms: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
@@ -31,7 +30,7 @@ impl MajoranaTermSum {
             inner.terms.reserve(dict.len());
             for (k, v) in dict.iter() {
                 let key: MajoranaMonomial = k.extract()?;
-                let val: Complex64 = v.extract()?;
+                let val: f64 = v.extract()?;
                 inner.terms.insert(key, val);
             }
         }
@@ -39,12 +38,12 @@ impl MajoranaTermSum {
     }
 
     /// Add *coeff* × *term* to the sum, accumulating if the monomial is already present.
-    fn add(&mut self, term: MajoranaMonomial, coeff: Complex64) {
+    fn add(&mut self, term: MajoranaMonomial, coeff: f64) {
         self.inner.add(term, coeff);
     }
 
     /// Multiply every coefficient by *factor* in-place.
-    fn scale(&mut self, factor: Complex64) {
+    fn scale(&mut self, factor: f64) {
         self.inner.scale(factor);
     }
 
@@ -78,7 +77,7 @@ impl MajoranaTermSum {
     }
 
     /// Return all (monomial, coefficient) pairs.
-    fn items(&self) -> Vec<(MajoranaMonomial, Complex64)> {
+    fn items(&self) -> Vec<(MajoranaMonomial, f64)> {
         self.inner.terms.iter().map(|(k, v)| (k.clone(), *v)).collect()
     }
 
@@ -86,11 +85,11 @@ impl MajoranaTermSum {
         self.inner.terms.len()
     }
 
-    fn __setitem__(&mut self, term: MajoranaMonomial, coeff: Complex64) {
+    fn __setitem__(&mut self, term: MajoranaMonomial, coeff: f64) {
         self.inner.terms.insert(term, coeff);
     }
 
-    fn __getitem__(&self, term: &MajoranaMonomial) -> Complex64 {
+    fn __getitem__(&self, term: &MajoranaMonomial) -> f64 {
         self.inner.terms.get(term).copied().unwrap_or_default()
     }
 

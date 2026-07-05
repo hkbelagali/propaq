@@ -21,7 +21,7 @@ def test_loschmidt_echo():
         x = int(np.random.randint(0, 2**N))
         z = int(np.random.randint(0, 2**N))
         gen = PauliString(BitMask(x), BitMask(z), N)
-        coeff = np.random.rand() + 1j * np.random.rand()
+        coeff = float(np.random.rand())
         obs[gen] = coeff
 
     # Construct a random PauliCircuit.

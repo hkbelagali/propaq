@@ -1094,11 +1094,10 @@ impl CoeffRepr for SymbolicCoeff {
     type GateParam = GateParam;
 
     #[inline]
-    fn from_complex(c: Complex64) -> Self {
+    fn from_real(c: f64) -> Self {
         // Seed observables are Hermitian, so their Pauli/Majorana-basis
         // coefficients are real; see the `MonoHead::scalar` doc comment.
-        debug_assert!(c.im.abs() < 1e-9, "surrogate seed coefficient must be real: {c:?}");
-        SymbolicCoeff::from_scalar(c.re)
+        SymbolicCoeff::from_scalar(c)
     }
 
     fn add_assign(&mut self, mut other: Self) {
@@ -1444,7 +1443,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_rotation_numeric_scalar_matches_complex64_apply_rotation() {
+    fn apply_rotation_numeric_scalar_matches_f64_apply_rotation() {
         let c0 = 0.42;
         let angle = 1.1;
         let phase = Complex64::new(0.0, -1.0);
@@ -1452,15 +1451,15 @@ mod tests {
         let mut symbolic = SymbolicCoeff::from_scalar(c0);
         let symbolic_sin = symbolic.apply_rotation(&GateParam::Numeric { angle }, phase);
 
-        let mut complex = Complex64::new(c0, 0.0);
-        let complex_sin = complex.apply_rotation(&angle, phase);
+        // The numeric `CoeffRepr` is `f64`; the symbolic path must agree with it.
+        let mut real = c0;
+        let real_sin = real.apply_rotation(&angle, phase);
 
         let (cos_scalar, _) = symbolic.iter_monomials().next().unwrap();
         let (sin_scalar, _) = symbolic_sin.iter_monomials().next().unwrap();
 
-        assert!(complex_sin.im.abs() < 1e-12);
-        assert!((cos_scalar - complex.re).abs() < 1e-12);
-        assert!((sin_scalar - complex_sin.re).abs() < 1e-12);
+        assert!((cos_scalar - real).abs() < 1e-12);
+        assert!((sin_scalar - real_sin).abs() < 1e-12);
     }
 
     #[test]

@@ -1,4 +1,3 @@
-use num_complex::Complex64;
 use pyo3::prelude::*;
 
 use propaq_core::streamer::TermStreamer;
@@ -25,7 +24,7 @@ impl MajoranaTermStreamer {
         slf
     }
 
-    fn __next__(&mut self) -> PyResult<Option<(MajoranaMonomial, Complex64)>> {
+    fn __next__(&mut self) -> PyResult<Option<(MajoranaMonomial, f64)>> {
         match self.inner.next() {
             None => Ok(None),
             Some(Ok(pair)) => Ok(Some(pair)),

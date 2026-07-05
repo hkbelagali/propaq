@@ -1,6 +1,5 @@
 use pyo3::prelude::*;
 
-use num_complex::Complex64;
 use propaq_core::propagator::{AbstractPropagator, PropagationResult};
 use propaq_core::truncators::{reject_surrogate_only, resolve_truncation, FlushSchedule};
 
@@ -20,7 +19,7 @@ use crate::termsum::PauliTermSum;
 ///     logger: Optional Logger for verbose JSON Lines event logging.
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliPropagator {
-    inner: AbstractPropagator<PauliString, Complex64>,
+    inner: AbstractPropagator<PauliString, f64>,
 }
 
 #[pymethods]

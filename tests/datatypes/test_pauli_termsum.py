@@ -10,7 +10,7 @@ def ps(x: int, z: int, n_qubits: int = 4) -> PauliString:
 
 def test_streamer_round_trip_single_term(tmp_path):
     a = ps(0b0001, 0)
-    ts = PauliTermSum({a: 2.0 + 1j})
+    ts = PauliTermSum({a: 2.0})
     path = str(tmp_path / "ts.gz")
     ts.save(path)
 
@@ -18,20 +18,20 @@ def test_streamer_round_trip_single_term(tmp_path):
     assert len(pairs) == 1
     term, coeff = pairs[0]
     assert term == a
-    assert coeff == pytest.approx(2.0 + 1j)
+    assert coeff == pytest.approx(2.0)
 
 
 def test_streamer_round_trip_multi_term(tmp_path):
     a, b, c = ps(0b0001, 0), ps(0, 0b0010), ps(0b0001, 0b0001)
-    ts = PauliTermSum({a: 1.0, b: -0.5j, c: 3.0 + 2j})
+    ts = PauliTermSum({a: 1.0, b: -0.5, c: 3.0})
     path = str(tmp_path / "ts.gz")
     ts.save(path)
 
     result = {term: coeff for term, coeff in PauliTermStreamer.from_file(path)}
     assert len(result) == 3
     assert result[a] == pytest.approx(1.0)
-    assert result[b] == pytest.approx(-0.5j)
-    assert result[c] == pytest.approx(3.0 + 2j)
+    assert result[b] == pytest.approx(-0.5)
+    assert result[c] == pytest.approx(3.0)
 
 
 def test_streamer_empty_file(tmp_path):
@@ -43,7 +43,7 @@ def test_streamer_empty_file(tmp_path):
 
 def test_merge_from_file_matches_from_file(tmp_path):
     a, b = ps(0b0001, 0), ps(0, 0b0010)
-    ts = PauliTermSum({a: 1.5, b: -2.0 + 1j})
+    ts = PauliTermSum({a: 1.5, b: -2.0})
     path = str(tmp_path / "ts.gz")
     ts.save(path)
 

@@ -12,7 +12,6 @@ use std::io::{BufReader, Read};
 use std::marker::PhantomData;
 
 use flate2::read::GzDecoder;
-use num_complex::Complex64;
 use pyo3::prelude::*;
 
 use crate::traits::AbstractTerm;
@@ -54,7 +53,7 @@ impl<M: AbstractTerm> TermStreamer<M> {
 }
 
 impl<M: AbstractTerm> Iterator for TermStreamer<M> {
-    type Item = PyResult<(M, Complex64)>;
+    type Item = PyResult<(M, f64)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == 0 {
@@ -70,14 +69,10 @@ impl<M: AbstractTerm> Iterator for TermStreamer<M> {
         if let Err(e) = self.reader.read_exact(&mut f64_buf).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string())) {
             return Some(Err(e));
         }
-        let re = f64::from_le_bytes(f64_buf);
-        if let Err(e) = self.reader.read_exact(&mut f64_buf).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string())) {
-            return Some(Err(e));
-        }
-        let im = f64::from_le_bytes(f64_buf);
+        let coeff = f64::from_le_bytes(f64_buf);
 
         self.remaining -= 1;
         let term = M::from_bytes_vec(&self.key_buf, self.system_size);
-        Some(Ok((term, Complex64::new(re, im))))
+        Some(Ok((term, coeff)))
     }
 }

@@ -1,6 +1,5 @@
 /// Numerical term sum abstracted to any operator basis (Pauli, Majorana, etc.).
 use pyo3::prelude::*;
-use num_complex::Complex64;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
@@ -11,7 +10,7 @@ use crate::traits::AbstractTerm;
 
 // Abstract term sum (not a pyclass, only concrete wrappers are exposed)
 pub struct AbstractTermSum<M: AbstractTerm> {
-    pub terms: FxHashMap<M, Complex64>,
+    pub terms: FxHashMap<M, f64>,
 }
 
 impl<M: AbstractTerm> AbstractTermSum<M> {
@@ -23,11 +22,11 @@ impl<M: AbstractTerm> AbstractTermSum<M> {
         AbstractTermSum { terms: self.terms.clone() }
     }
 
-    pub fn add(&mut self, term: M, coeff: Complex64) {
-        *self.terms.entry(term).or_insert(Complex64::new(0.0, 0.0)) += coeff;
+    pub fn add(&mut self, term: M, coeff: f64) {
+        *self.terms.entry(term).or_insert(0.0) += coeff;
     }
 
-    pub fn scale(&mut self, factor: Complex64) {
+    pub fn scale(&mut self, factor: f64) {
         for coeff in self.terms.values_mut() {
             *coeff *= factor;
         }
@@ -45,7 +44,7 @@ impl<M: AbstractTerm> AbstractTermSum<M> {
             let cc = tp.coeff_cutoff;
             self.terms.retain(|term, coeff| {
                 let weight_ok = wc.map_or(true, |w| term.weight() <= w);
-                weight_ok && coeff.norm() >= cc
+                weight_ok && coeff.abs() >= cc
             });
             return Ok(());
         }
@@ -53,7 +52,7 @@ impl<M: AbstractTerm> AbstractTermSum<M> {
         let mut to_remove: Vec<M> = Vec::new();
         for (term, coeff) in self.terms.iter() {
             let should_remove: bool = policy
-                .call_method1("should_truncate", (term.weight(), coeff.norm()))?
+                .call_method1("should_truncate", (term.weight(), coeff.abs()))?
                 .extract()?;
             if should_remove {
                 to_remove.push(term.clone());
@@ -83,7 +82,7 @@ impl<M: AbstractTerm> AbstractTermSum<M> {
     }
 
     pub fn norm_squared(&self) -> f64 {
-        self.terms.values().map(|c| c.norm_sqr()).sum()
+        self.terms.values().map(|c| c * c).sum()
     }
 
     pub fn merge_from_streamer(&mut self, streamer: &mut TermStreamer<M>) -> PyResult<()> {

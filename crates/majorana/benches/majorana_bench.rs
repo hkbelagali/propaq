@@ -1,5 +1,4 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
-use num_complex::Complex64;
 use propaq_core::bitset::Bitset;
 use propaq_core::termsum::AbstractTermSum;
 use propaq_core::traits::AbstractTerm;
@@ -18,7 +17,7 @@ fn build_termsum(n_terms: usize, n_modes: usize) -> AbstractTermSum<MajoranaMono
         let idx = i % (n_modes / 2);
         let bits = (1u64 << (2 * idx)) | (1u64 << (2 * idx + 1));
         let term = make_mon(bits, n_modes);
-        ts.add(term, Complex64::new(1.0 / (i + 1) as f64, 0.0));
+        ts.add(term, 1.0 / (i + 1) as f64);
     }
     ts
 }
@@ -74,7 +73,7 @@ fn bench_termsum_add(c: &mut Criterion) {
             bench.iter_batched(
                 || build_termsum(n, n_modes),
                 |mut ts| {
-                    ts.add(black_box(term.clone()), black_box(Complex64::new(0.5, 0.0)));
+                    ts.add(black_box(term.clone()), black_box(0.5));
                     black_box(ts)
                 },
                 BatchSize::SmallInput,

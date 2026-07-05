@@ -1,4 +1,3 @@
-use num_complex::Complex64;
 use pyo3::prelude::*;
 
 use propaq_core::streamer::TermStreamer;
@@ -25,7 +24,7 @@ impl PauliTermStreamer {
         slf
     }
 
-    fn __next__(&mut self) -> PyResult<Option<(PauliString, Complex64)>> {
+    fn __next__(&mut self) -> PyResult<Option<(PauliString, f64)>> {
         match self.inner.next() {
             None => Ok(None),
             Some(Ok(pair)) => Ok(Some(pair)),

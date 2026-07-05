@@ -1,5 +1,4 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
-use num_complex::Complex64;
 use propaq_core::bitset::Bitset;
 use propaq_core::termsum::AbstractTermSum;
 use propaq_core::traits::AbstractTerm;
@@ -18,7 +17,7 @@ fn build_termsum(n_terms: usize, n_qubits: usize) -> AbstractTermSum<PauliString
         let x = 1u64 << (i % n_qubits);
         let z = 1u64 << ((i + 1) % n_qubits);
         let term = make_pauli(x, z ^ x, n_qubits);
-        ts.add(term, Complex64::new(1.0 / (i + 1) as f64, 0.0));
+        ts.add(term, 1.0 / (i + 1) as f64);
     }
     ts
 }
@@ -63,7 +62,7 @@ fn bench_termsum_add(c: &mut Criterion) {
             bench.iter_batched(
                 || build_termsum(n, n_qubits),
                 |mut ts| {
-                    ts.add(black_box(term.clone()), black_box(Complex64::new(0.5, 0.0)));
+                    ts.add(black_box(term.clone()), black_box(0.5));
                     black_box(ts)
                 },
                 BatchSize::SmallInput,

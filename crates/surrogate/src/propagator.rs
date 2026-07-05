@@ -897,7 +897,6 @@ mod monomial_removal_budget_tests {
 #[cfg(test)]
 mod numeric_history_dedup_tests {
     use super::*;
-    use num_complex::Complex64;
     use propaq_core::bitset::Bitset;
     use propaq_core::termsum::AbstractTermSum;
 
@@ -925,7 +924,7 @@ mod numeric_history_dedup_tests {
 
         // Seed a single weight-1 Z on qubit 0.
         let mut seed = AbstractTermSum::new();
-        seed.add(pauli(0, 1, N_QUBITS), Complex64::new(1.0, 0.0));
+        seed.add(pauli(0, 1, N_QUBITS), 1.0);
         prop.initialize_from(&seed);
 
         // Brick-wall of two-qubit generators, all with *numeric* angles, with a
@@ -964,7 +963,6 @@ mod numeric_history_dedup_tests {
 
 mod shared_parameter_dedup_tests {
     use super::*;
-    use num_complex::Complex64;
     use propaq_core::bitset::Bitset;
     use propaq_core::termsum::AbstractTermSum;
 
@@ -997,7 +995,7 @@ mod shared_parameter_dedup_tests {
                 .expect("propagator construction");
 
         let mut seed = AbstractTermSum::new();
-        seed.add(pauli(0, 1, N_QUBITS), Complex64::new(1.0, 0.0));
+        seed.add(pauli(0, 1, N_QUBITS), 1.0);
         prop.initialize_from(&seed);
 
         // Brick-wall of two-qubit generators, all *symbolic*, cycling through

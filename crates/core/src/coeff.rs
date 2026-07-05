@@ -2,10 +2,15 @@
 /// Coefficient representation trait and implementations for Pauli/Majorana strings. 
 /// propaq currently supports two coefficient types - numerical and symbolic. 
 /// For generalizability and performance, the coefficient representation is 
-/// abstract into a trait `CoeffRepr`, which is implemented concretely for 
-/// `Complex64` (numerical) and `SymbolicCoeff` (symbolic). Doing so 
+/// abstract into a trait `CoeffRepr`, which is implemented concretely for
+/// `f64` (numerical) and `SymbolicCoeff` (symbolic). Doing so
 /// allows one to easily extend the library to a new basis if and when required!
-/// TODO : Replace `Complex64` with `f64` for numerical representation - Hermitian operators only require real coefficients
+///
+/// Numerical coefficients are represented as `f64`: propaq only propagates
+/// Hermitian operators, so coefficients remain real throughout a run. The
+/// Pauli/Majorana product *phase* fed into `apply_rotation` is still a genuine
+/// 4th root of unity (`±1, ±i`) and stays `Complex64`; `i * phase` collapses to
+/// a real number for the anticommuting terms that branch.
 ///
 /// As many of the operations on coefficients are on the hot path, 
 /// as many methods as possible should be `#[inline]`-able for performance. 
@@ -28,10 +33,10 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
         Default::default()
     }
 
-    /// Convert a coefficient into this internal representation.
-    /// For `Complex64`, this just returns itself, and for 
+    /// Convert a real coefficient into this internal representation.
+    /// For `f64`, this just returns itself, and for
     /// `SymbolicCoeff`,  this wraps it in a monomial's scalar field.
-    fn from_complex(c: Complex64) -> Self;
+    fn from_real(c: f64) -> Self;
 
     /// Additive merge: `self += other`. Used when inserting from inboxes into
     /// the thread map and two entries arrive at the same Pauli string.
@@ -41,7 +46,7 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// merge, so a coefficient can collapse any structure that just became
     /// mergeable while doing so is still cheap. No-op by default.
     // 
-    // `Complex64`is already merged exactly by `add_assign`. `SymbolicCoeff` overrides
+    // `f64` is already merged exactly by `add_assign`. `SymbolicCoeff` overrides
     /// this to call `deduplicate()`. Without it, monomials whose masks
     /// happen to coincide (e.g. every monomial produced by a purely-numeric
     /// gate history shares the same empty mask) would otherwise pile up as
@@ -85,12 +90,12 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
 }
 
-/// Implementation for the numerical coefficient representation. 
-impl CoeffRepr for Complex64 {
+/// Implementation for the numerical coefficient representation.
+impl CoeffRepr for f64 {
     type GateParam = f64;
 
     #[inline]
-    fn from_complex(c: Complex64) -> Self {
+    fn from_real(c: f64) -> Self {
         c
     }
 
@@ -101,9 +106,13 @@ impl CoeffRepr for Complex64 {
 
     #[inline]
     fn apply_rotation(&mut self, angle: &f64, phase: Complex64) -> Self {
-        let cos_t = angle.cos();
-        let sin_t = angle.sin();
-        let sin_branch = *self * Complex64::new(0.0, sin_t) * phase;
+        let (sin_t, cos_t) = angle.sin_cos();
+        // For real coefficients the rotation phase is always ±i (the
+        // anticommuting terms that branch); `i * phase` is then real and equals
+        // `-phase.im`. A phase of ±1 would produce an imaginary contribution,
+        // which cannot occur for Hermitian generators.
+        debug_assert!(phase.re.abs() < 1e-9, "rotation phase must be ±i for real coefficients");
+        let sin_branch = *self * sin_t * (-phase.im);
         *self *= cos_t;
         sin_branch
     }
@@ -115,7 +124,7 @@ impl CoeffRepr for Complex64 {
 
     #[inline]
     fn l1_norm(&self) -> f64 {
-        self.norm()
+        self.abs()
     }
 
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<f64> {

@@ -24,7 +24,6 @@
 ///
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use num_complex::Complex64;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -107,10 +106,9 @@ impl PropagationResult {
 ///   u64  system_size   (n_qubits for Pauli, n_modes for Majorana)
 ///   For each term:
 ///     [u8; key_stride]  key bytes from AbstractTerm::to_bytes_vec()
-///     f64               coefficient real part
-///     f64               coefficient imaginary part
+///     f64               coefficient (real)
 pub fn save_terms_to_file<M: AbstractTerm>(
-    terms: &FxHashMap<M, Complex64>,
+    terms: &FxHashMap<M, f64>,
     path: &str,
 ) -> PyResult<()> {
     let file = OpenOptions::new()
@@ -136,9 +134,7 @@ pub fn save_terms_to_file<M: AbstractTerm>(
     for (term, coeff) in terms.iter() {
         enc.write_all(&term.to_bytes_vec())
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        enc.write_all(&coeff.re.to_le_bytes())
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-        enc.write_all(&coeff.im.to_le_bytes())
+        enc.write_all(&coeff.to_le_bytes())
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
     }
 
@@ -148,7 +144,7 @@ pub fn save_terms_to_file<M: AbstractTerm>(
 }
 
 /// Deserialize a term map from a file produced by `save_terms_to_file`.
-pub fn load_terms_from_file<M: AbstractTerm>(path: &str) -> PyResult<FxHashMap<M, Complex64>> {
+pub fn load_terms_from_file<M: AbstractTerm>(path: &str) -> PyResult<FxHashMap<M, f64>> {
     let file = std::fs::File::open(path)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
     let mut dec = BufReader::new(GzDecoder::new(file));
@@ -174,11 +170,9 @@ pub fn load_terms_from_file<M: AbstractTerm>(path: &str) -> PyResult<FxHashMap<M
     for _ in 0..n_terms {
         dec.read_exact(&mut key_buf).map_err(io_err)?;
         dec.read_exact(&mut f64_buf).map_err(io_err)?;
-        let re = f64::from_le_bytes(f64_buf);
-        dec.read_exact(&mut f64_buf).map_err(io_err)?;
-        let im = f64::from_le_bytes(f64_buf);
+        let coeff = f64::from_le_bytes(f64_buf);
         let term = M::from_bytes_vec(&key_buf, system_size);
-        terms.insert(term, Complex64::new(re, im));
+        terms.insert(term, coeff);
     }
     Ok(terms)
 }
@@ -280,7 +274,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
 
         let mut buckets: Vec<Vec<(&M, C)>> = (0..n).map(|_| Vec::new()).collect();
         for (term, coeff) in &evolved.terms {
-            buckets[owner_of(term, log2_n)].push((term, C::from_complex(*coeff)));
+            buckets[owner_of(term, log2_n)].push((term, C::from_real(*coeff)));
         }
 
         let pool = Arc::clone(&self.pool);
@@ -697,7 +691,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     }
 }
 
-impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
+impl<M: AbstractTerm> AbstractPropagator<M, f64> {
     /// Remove terms from thread_maps that fail the resolved weight/coefficient
     /// cutoffs
     fn retain_by_policy(&mut self, cfg: &ResolvedConfig) {
@@ -708,7 +702,7 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
         pool.install(|| {
             thread_maps.par_iter_mut().for_each(|map| {
                 map.retain(|t, c| {
-                    wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc
+                    wc.map_or(true, |w| t.weight() <= w) && c.abs() >= cc
                 });
             });
         });
@@ -726,7 +720,7 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
                 .zip(mask.par_iter())
                 .for_each(|(map, &apply)| {
                     if apply {
-                        map.retain(|t, c| wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc);
+                        map.retain(|t, c| wc.map_or(true, |w| t.weight() <= w) && c.abs() >= cc);
                     }
                 });
         });
@@ -745,10 +739,10 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
                 .map(|map| {
                     let (mut dl1, mut dmax, mut surv) = (0.0f64, 0.0f64, 0usize);
                     for (t, c) in map.iter() {
-                        if wc.map_or(true, |w| t.weight() <= w) && c.norm() >= cc {
+                        if wc.map_or(true, |w| t.weight() <= w) && c.abs() >= cc {
                             surv += 1;
                         } else {
-                            let norm = c.norm();
+                            let norm = c.abs();
                             dl1 += norm;
                             dmax = dmax.max(norm);
                         }
@@ -862,7 +856,7 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
         evolved.terms.reserve(self.total_terms);
         let pool = Arc::clone(&self.pool);
         let thread_maps = &self.thread_maps;
-        let all_items: Vec<(M, Complex64)> = pool.install(|| {
+        let all_items: Vec<(M, f64)> = pool.install(|| {
             thread_maps
                 .par_iter()
                 .flat_map_iter(|map| map.iter().map(|(k, v)| (k.clone(), *v)))
@@ -1020,7 +1014,7 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
         let n_terms = self.run_propagation_inner(py, evolved, circuit, true)?;
 
         let pool = Arc::clone(&self.pool);
-        let total: Complex64 = pool.install(|| {
+        let total: f64 = pool.install(|| {
             evolved.terms
                 .par_iter()
                 .map(|(term, coeff)| *coeff * term.trace_with_fock_state(fock_state))
@@ -1031,6 +1025,6 @@ impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
             save_terms_to_file(&evolved.terms, path)?;
         }
 
-        Ok(PropagationResult { n_terms, expectation_value: total.re })
+        Ok(PropagationResult { n_terms, expectation_value: total })
     }
 }

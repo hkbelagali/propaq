@@ -40,7 +40,6 @@
 
 use std::time::Instant;
 
-use num_complex::Complex64;
 
 use propaq_core::bitset::Bitset;
 use propaq_core::propagator::AbstractPropagator;
@@ -293,7 +292,7 @@ fn main() {
     let mut evolved = AbstractTermSum::new();
     for k in 0..args.n_seed_terms {
         let q = k % args.n_qubits;
-        evolved.add(make_pauli(0, 1u64 << q, args.n_qubits), Complex64::new(1.0, 0.0));
+        evolved.add(make_pauli(0, 1u64 << q, args.n_qubits), 1.0);
     }
     propagator.initialize_from(&evolved);
 

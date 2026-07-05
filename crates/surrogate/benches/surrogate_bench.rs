@@ -63,7 +63,7 @@ fn build_termsum(n_terms: usize, n_qubits: usize, seed: u64) -> AbstractTermSum<
     for i in 0..n_terms {
         let x = rng.next() & mask;
         let z = rng.next() & mask;
-        ts.add(make_pauli(x, z, n_qubits), Complex64::new(1.0 / (i + 1) as f64, 0.0));
+        ts.add(make_pauli(x, z, n_qubits), 1.0 / (i + 1) as f64);
     }
     ts
 }
@@ -156,7 +156,7 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
 /// factor list by one. This is the same combinatorial growth real propagation
 /// produces, just replayed directly instead of driven by a propagator.
 fn grown_coeff(steps: u32) -> SymbolicCoeff {
-    let mut c = SymbolicCoeff::from_complex(Complex64::new(1.0, 0.0));
+    let mut c = SymbolicCoeff::from_real(1.0);
     for i in 0..steps {
         let branch = c.apply_rotation(&GateParam::symbolic(i), Complex64::new(0.0, 1.0));
         c.add_assign(branch);
