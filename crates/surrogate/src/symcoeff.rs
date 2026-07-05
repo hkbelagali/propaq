@@ -527,7 +527,24 @@ impl SymbolicCoeff {
     /// reached the same full run via different base/extension splits now share
     /// one base id, so a `deduplicate` merges them (the cross-lineage merge the
     /// mid-window dedup defers). Realizes a shared value first.
+    ///
+    /// Interns and then deduplicates. `reconcile()` uses `reconcile_into_deferred`
+    /// directly so it can batch the (independent, per-coefficient) dedup into a
+    /// parallel pass after the serial interning loop; this wrapper preserves the
+    /// intern-then-collapse contract for the unit tests (its only callers).
+    #[cfg(test)]
     pub(crate) fn reconcile_into(&mut self, old: &Generation, new: &mut Generation) {
+        self.reconcile_into_deferred(old, new);
+        self.deduplicate();
+    }
+
+    /// Interning half of `reconcile_into`: fold every monomial's full run into
+    /// `new` and replace the base ids, leaving the coefficient marked `dirty`
+    /// **without** collapsing cross-lineage duplicates. The caller must run
+    /// `deduplicate` afterwards (see `SurrogatePropagator::reconcile`, which does
+    /// so in a parallel pass since each coefficient's dedup is independent and
+    /// touches no shared state).
+    pub(crate) fn reconcile_into_deferred(&mut self, old: &Generation, new: &mut Generation) {
         self.realize();
         if self.heads.is_empty() {
             return;
@@ -557,9 +574,9 @@ impl SymbolicCoeff {
         let old_heads = std::mem::replace(&mut self.heads, new_heads);
         self.factors.clear();
         return_pooled_buffers(old_heads, unused);
-        // Cross-lineage duplicates now share base ids; collapse them.
+        // Cross-lineage duplicates now share base ids; a later `deduplicate`
+        // (deferred to the parallel pass in `reconcile`) collapses them.
         self.dirty = true;
-        self.deduplicate();
     }
 
     /// Drop monomials with frequency (total trig power) > max_freq, compacting

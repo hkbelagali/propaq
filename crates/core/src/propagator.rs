@@ -605,6 +605,23 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         total_size
     }
 
+    /// Apply `f` to every live coefficient across all partition maps, in
+    /// parallel over both partitions and the coefficients within each. `f` must
+    /// mutate only the coefficient it is given (no shared state), so callers use
+    /// this for independent per-coefficient work like `deduplicate`.
+    pub fn par_for_each_coeff_mut<F>(&mut self, f: F)
+    where
+        F: Fn(&mut C) + Sync,
+    {
+        let pool = Arc::clone(&self.pool);
+        let thread_maps = &mut self.thread_maps;
+        pool.install(|| {
+            thread_maps.par_iter_mut().for_each(|map| {
+                map.par_iter_mut().for_each(|(_t, c)| f(c));
+            });
+        });
+    }
+
     pub fn drain_collect_terms<R, F>(&mut self, f: F) -> Vec<R>
     where
         R: Send,

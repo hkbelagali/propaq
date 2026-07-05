@@ -118,17 +118,23 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
     /// Advance the interning generation: fold every live coefficient's extension
     /// into a fresh generation, replacing base ids and clearing extensions. The
     /// caller must have already flushed outboxes into the partition maps, so all
-    /// live coefficients are reachable. Single-threaded interning into one shared
-    /// generation (see `AbstractPropagator::for_each_coeff_mut`). No-op when
-    /// factoring is disabled.
+    /// live coefficients are reachable. Interning is single-threaded (one shared
+    /// generation, via `for_each_coeff_mut`); the follow-up per-coefficient dedup
+    /// is independent and runs in parallel (via `par_for_each_coeff_mut`). No-op
+    /// when factoring is disabled.
     fn reconcile(&mut self) {
         if !factoring_enabled() {
             return;
         }
         let old = std::mem::take(&mut self.generation);
         let mut new = Generation::new();
-        self.inner.for_each_coeff_mut(|c| c.reconcile_into(&old, &mut new));
+        // Serial: interning mutates one shared generation.
+        self.inner.for_each_coeff_mut(|c| c.reconcile_into_deferred(&old, &mut new));
         self.generation = new;
+        // Parallel: each coefficient's dedup is independent and reads no shared
+        // state (it never dereferences the generation), so lift it off the
+        // serial interning critical path onto all worker threads.
+        self.inner.par_for_each_coeff_mut(|c| c.deduplicate());
     }
 
     fn open_log(&mut self) -> PyResult<()> {
