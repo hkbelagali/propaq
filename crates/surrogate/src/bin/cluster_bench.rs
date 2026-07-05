@@ -38,6 +38,11 @@
 //! final `event: "summary"` line — so the same downstream tooling/analysis
 //! used on real production logs applies here unchanged.
 
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 use std::time::Instant;
 
 

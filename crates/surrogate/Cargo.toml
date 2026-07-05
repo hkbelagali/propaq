@@ -16,6 +16,7 @@ num-complex = "0.4"
 rayon = "1.10"
 rustc-hash = "2"
 flate2 = "1"
+mimalloc = "0.1.52"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
