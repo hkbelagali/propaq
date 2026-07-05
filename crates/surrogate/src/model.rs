@@ -61,7 +61,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 
     /// Evaluate for many parameter assignments at once. Parallelizes across
     /// assignments (each of which still parallelizes across terms/monomials
-    /// internally — rayon's work stealing handles the nesting), which is the
+    /// internally, rayon's work stealing handles the nesting), which is the
     /// natural shape for the build-once/evaluate-many workloads this model
     /// exists for.
     pub fn evaluate_batch(&self, param_sets: &[Vec<f64>]) -> Vec<f64> {
@@ -88,7 +88,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
     /// the header, a shard-length index, and the compressed blobs are written
     /// sequentially. This makes `save` scale with cores instead of walking every
     /// monomial single-threaded. The format is **not** backward compatible with
-    /// pre-sharding files — `load` rejects them and the model must be rebuilt.
+    /// pre-sharding files. `load` rejects them and the model must be rebuilt.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let first = self.terms.first();
         let key_stride: u64 = first.map_or(0, |t| t.term.to_bytes_vec().len() as u64);
@@ -139,9 +139,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 
     /// Load from a file produced by `save`. The header + compressed blobs are
     /// read sequentially, then the shards are decompressed and parsed in
-    /// parallel and concatenated (in shard/term order). Rejects files that don't
-    /// carry the current `MAGIC`/`FORMAT_VERSION` — those predate the sharded
-    /// format and their models must be rebuilt.
+    /// parallel and concatenated (in shard/term order).
     pub fn load(path: &str) -> std::io::Result<Self> {
         let mut r = BufReader::new(std::fs::File::open(path)?);
 
@@ -202,14 +200,12 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 }
 
 /// Magic bytes and format version stamped at the head of every saved model.
-/// A mismatch on load is a hard error — the sharded format deliberately breaks
-/// compatibility with pre-sharding files.
 const MAGIC: u32 = u32::from_le_bytes(*b"PQSM");
 const FORMAT_VERSION: u32 = 4;
 
 /// Serialize one term into `buf` (uncompressed): key bytes, overlap (f64le),
 /// monomial count (u64le), then per monomial `scalar` (f64le), `base_support`
-/// (u32le), `base_exp` (u32le) — ids into the model's shared generation — and a
+/// (u32le), `base_exp` (u32le) ids into the model's shared generation  and a
 /// length-prefixed extension run (`u64le` count + packed `u32le` factors, empty
 /// for a fully-reconciled model). `base_freq` is recomputed from the generation
 /// on load, so it is not written.

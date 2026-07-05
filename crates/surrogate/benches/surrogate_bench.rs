@@ -6,7 +6,7 @@
 //!
 //! `SymbolicCoeff`'s monomial storage is crate-private by design, so all
 //! coefficient data here is built through the public
-//! `SymbolicCoeff`/`CoeffRepr` API rather than constructed directly —
+//! `SymbolicCoeff`/`CoeffRepr` API rather than constructed directly.
 //! `apply_rotation` is what real propagation uses to grow coefficients, so
 //! building benchmark inputs the same way keeps them representative instead
 //! of synthetic.
@@ -68,7 +68,7 @@ fn build_termsum(n_terms: usize, n_qubits: usize, seed: u64) -> AbstractTermSum<
     ts
 }
 
-/// A pseudo-random generator confined to the low `band_qubits` qubits — used
+/// A pseudo-random generator confined to the low `band_qubits` qubits, used
 /// to organically grow a narrow subset of terms' coefficients without
 /// reaching into propagator-internal state (which is intentionally private).
 fn banded_generator(rng: &mut Xorshift64, n_qubits: usize, band_qubits: usize) -> PauliString {
@@ -91,7 +91,7 @@ fn new_propagator() -> AbstractPropagator<PauliString, SymbolicCoeff> {
 
 /// Compares gate-application cost when live coefficients carry roughly equal
 /// weight across partitions vs. when a narrow subset of terms carries
-/// disproportionately many monomials — the scenario sub-partition work
+/// disproportionately many monomials, the scenario sub-partition work
 /// distribution (rather than partition-only parallelism) is meant to handle.
 /// A regression in that distribution shows up as the skewed variant falling
 /// far behind balanced, rather than scaling with total live work.
@@ -125,7 +125,7 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
                 let mut rng = Xorshift64(0xBADF00D);
                 // Grow only the terms overlapping a narrow qubit band before
                 // timing starts, so a handful of terms enter the timed
-                // region carrying far more monomials than the rest — while
+                // region carrying far more monomials than the rest, while
                 // every other term is untouched by this burst and stays at
                 // its seed size. Left un-flushed deliberately: outbox items
                 // are reprocessed by `apply_gate_inplace` on every
@@ -153,7 +153,7 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
 /// Grows a `SymbolicCoeff` from a single scalar monomial to `2^steps`
 /// monomials via real `apply_rotation` calls (cos branch mutates in place,
 /// sin branch is added back in), each step also lengthening every monomial's
-/// factor list by one — the same combinatorial growth real propagation
+/// factor list by one. This is the same combinatorial growth real propagation
 /// produces, just replayed directly instead of driven by a propagator.
 fn grown_coeff(steps: u32) -> SymbolicCoeff {
     let mut c = SymbolicCoeff::from_complex(Complex64::new(1.0, 0.0));
@@ -182,7 +182,7 @@ fn bench_apply_rotation_by_size(c: &mut Criterion) {
 }
 
 /// `repeats` exact copies of the same `2^steps`-monomial coefficient, summed
-/// together — collapses to exactly `2^steps` unique factor patterns after
+/// together, which collapses to exactly `2^steps` unique factor patterns after
 /// dedup, giving a known, controllable duplication ratio instead of relying
 /// on incidental collisions.
 fn build_with_duplication(steps: u32, repeats: usize) -> SymbolicCoeff {

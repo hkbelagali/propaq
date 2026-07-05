@@ -1,3 +1,7 @@
+///
+/// Some helper stuff for the core crate to convert 
+// between Python integers and Bitsets. 
+///
 use pyo3::prelude::*;
 use crate::bitset::Bitset;
 

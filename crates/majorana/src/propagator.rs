@@ -11,7 +11,7 @@ use crate::termsum::MajoranaTermSum;
 ///
 /// Arguments:
 ///     noise: Optional noise model (UniformNoiseModel, GateNoiseModel, or custom).
-///     truncation: The truncation pipeline — a list of truncators
+///     truncation: A list of truncators
 ///         (WeightTruncator, CoefficientTruncator, TermBudget), a single such
 ///         truncator, a legacy TruncationPolicy (decomposed), or None. The
 ///         symbolic-only FrequencyTruncator/MonomialBudget are rejected.

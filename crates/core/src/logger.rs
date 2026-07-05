@@ -1,3 +1,12 @@
+///
+/// Logger for structured event logging of propagator runs. 
+/// The logger outputs key information, such a term, monomal (for surrogate propagation)
+/// gate/truncation events, timing, and other relevant data to a JSONL file.
+///
+/// On the Python side, there's a LogParser class that can read the JSONL file and 
+/// provide the information directly as lists. See the example notebook `examples/propaq.ipynb` 
+/// for usage.
+/// 
 use pyo3::prelude::*;
 
 /// Structured event logger for propagator runs, writing JSON Lines to a file.

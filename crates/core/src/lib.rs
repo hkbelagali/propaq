@@ -1,3 +1,6 @@
+/// 
+/// Main library for the propaq core.
+///
 pub mod bitset;
 pub mod coeff;
 pub mod traits;

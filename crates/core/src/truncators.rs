@@ -1,14 +1,6 @@
-//! Composable truncation vocabulary shared by the numerical and surrogate
-//! propagators.
-//!
-//! A truncation configuration is a `FlushSchedule` (when to flush/merge) plus an
-//! ordered list of `Truncator` operators (what to remove). The numerical
-//! propagator honors `WeightTruncator`/`CoefficientTruncator`/`TermBudget`; the
-//! surrogate additionally honors `FrequencyTruncator`/`MonomialBudget`. All
-//! operator fields are `Optional` and default to `None` (a `None` field is a
-//! no-op), which makes the classes friendly to argparse-style construction where
-//! a limit may legitimately be absent.
-
+/// Composable truncation policies shared by the numerical and surrogate
+/// propagators.
+///
 use pyo3::prelude::*;
 
 use crate::truncation::TruncationPolicy;
@@ -18,10 +10,7 @@ use crate::truncation::TruncationPolicy;
 /// within-window peak near the unique-term count rather than the path count.
 pub const DEFAULT_MERGE_MAX_TERMS: usize = 2_000_000;
 
-/// When to do the finer lossless merge — the *scheduling* half of truncation,
-/// orthogonal to *what* gets removed (the `[Truncator]` list). Flush triggers
-/// live on the budgets (`TermBudget`/`MonomialBudget`); this holds only the
-/// merge cadence.
+/// When to do the finer lossless merge. 
 ///
 /// `merge_max_terms`: once this many terms accumulate in the outboxes since the
 /// last flush, collapse duplicate Pauli/Majorana strings into the maps without
@@ -52,9 +41,6 @@ impl FlushSchedule {
 }
 
 impl FlushSchedule {
-    /// Every scheduled behavior disabled — the baseline used when neither a
-    /// schedule nor any truncator is supplied (propagation then flushes only at
-    /// the end), and for decomposing a legacy policy that carries no merge field.
     pub fn none() -> Self {
         FlushSchedule { merge_max_terms: None }
     }
@@ -67,7 +53,7 @@ impl Default for FlushSchedule {
 }
 
 /// Drop monomials whose symbolic branch count (frequency) exceeds `frequency`.
-/// Surrogate-only — the numerical propagator rejects it. A monomial with `l`
+/// The numerical propagator rejects it. A monomial with `l`
 /// trig factors has expected squared magnitude `(1/2)^l` over uniform random
 /// angles, so this bounds the approximation order.
 #[pyclass(subclass, module = "propaq._rust_core")]
@@ -94,9 +80,7 @@ impl FrequencyTruncator {
 
 /// Drop contributions whose coefficient magnitude is below `coefficient`. For
 /// the numerical propagator this drops whole terms with `|coeff| < coefficient`;
-/// for the surrogate it drops monomials with `|scalar| < coefficient` (valid as
-/// a contribution bound since the symbolic trig product is `<= 1`). `None` (the
-/// default) applies no coefficient truncation.
+/// for the surrogate it drops monomials with `|scalar| < coefficient`
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct CoefficientTruncator {
@@ -169,11 +153,6 @@ impl TermBudget {
     }
 }
 
-/// Monomial-count budget (surrogate-only — the numerical propagator rejects it):
-/// once the live monomial count exceeds `max_monomials`, remove monomials by rank
-/// `(frequency desc, |scalar| asc)` down to `max_monomials`. `min_monomials` is a
-/// floor guarding against a single oversized top bucket overshooting. Either
-/// field `None` disables that bound.
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct MonomialBudget {
@@ -232,8 +211,6 @@ impl Truncator {
     }
 }
 
-/// Error if any surrogate-only operator (`FrequencyTruncator`/`MonomialBudget`)
-/// is present — the numerical propagator cannot honor them.
 pub fn reject_surrogate_only(truncators: &[Truncator]) -> PyResult<()> {
     if truncators.iter().any(Truncator::is_surrogate_only) {
         return Err(pyo3::exceptions::PyValueError::new_err(
@@ -285,7 +262,7 @@ pub fn resolve_config(truncators: &[Truncator]) -> ResolvedConfig {
 ///
 /// Recognizes: a list of truncators, a single truncator, a legacy
 /// `TruncationPolicy` (decomposed; an explicit `schedule` overrides), and `None`
-/// (→ "flush only at the end" unless a schedule is given). Surrogate-specific
+/// ("flush only at the end" unless a schedule is given). Surrogate-specific
 /// forms (`FrequencyTruncationPolicy`) are handled by the surrogate crate before
 /// delegating here.
 pub fn resolve_truncation(

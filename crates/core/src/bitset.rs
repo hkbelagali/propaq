@@ -1,3 +1,9 @@
+///
+/// A simple bitset implementation using a `SmallVec` of `u64` words. 
+/// Pauli and Majorana strings can be compactly represented using 
+/// this structure, and it supports basic bitwise operations and lexicographic ordering.
+///
+
 use std::hash::{Hash, Hasher};
 use std::ops::{BitAnd, BitOr, BitXor};
 use std::cmp::Ordering;

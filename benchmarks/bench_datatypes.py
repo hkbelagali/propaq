@@ -2,7 +2,7 @@
 Microbenchmarks for pure-algebra operations on PauliString, MajoranaMonomial,
 PauliTermSum, and MajoranaTermSum.
 
-These are cheap (microseconds per call) — no circuits or propagation involved.
+These are cheap (microseconds per call). no circuits or propagation involved.
 """
 
 

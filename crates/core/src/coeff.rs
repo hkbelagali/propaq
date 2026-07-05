@@ -1,10 +1,22 @@
+///
+/// Coefficient representation trait and implementations for Pauli/Majorana strings. 
+/// propaq currently supports two coefficient types - numerical and symbolic. 
+/// For generalizability and performance, the coefficient representation is 
+/// abstract into a trait `CoeffRepr`, which is implemented concretely for 
+/// `Complex64` (numerical) and `SymbolicCoeff` (symbolic). Doing so 
+/// allows one to easily extend the library to a new basis if and when required!
+/// TODO : Replace `Complex64` with `f64` for numerical representation - Hermitian operators only require real coefficients
+///
+/// As many of the operations on coefficients are on the hot path, 
+/// as many methods as possible should be `#[inline]`-able for performance. 
+ 
 use pyo3::prelude::*;
 use num_complex::Complex64;
 
 /// Coefficient type carried by Pauli/Majorana terms during propagation.
 ///
 /// `Default` must be the additive identity (zero).
-/// All methods are expected to be `#[inline]`-able; they sit on the hot path.
+///
 pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// Gate parameter type: `f64` (angle) for numerical mode,
     /// `u32` (parameter index) for surrogate mode.
@@ -16,9 +28,9 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
         Default::default()
     }
 
-    /// Convert a numerical initial coefficient (from the input observable) into
-    /// this representation. For `Complex64` this is the identity. For
-    /// `SymbolicCoeff` it wraps the value in a single scalar monomial.
+    /// Convert a coefficient into this internal representation.
+    /// For `Complex64`, this just returns itself, and for 
+    /// `SymbolicCoeff`,  this wraps it in a monomial's scalar field.
     fn from_complex(c: Complex64) -> Self;
 
     /// Additive merge: `self += other`. Used when inserting from inboxes into
@@ -27,13 +39,13 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
 
     /// Called after `add_assign` during a periodic (non-truncating) outbox
     /// merge, so a coefficient can collapse any structure that just became
-    /// mergeable while doing so is still cheap. No-op by default: `Complex64`
-    /// is already merged exactly by `add_assign`. `SymbolicCoeff` overrides
-    /// this to call `deduplicate()` — without it, monomials whose masks
+    /// mergeable while doing so is still cheap. No-op by default.
+    // 
+    // `Complex64`is already merged exactly by `add_assign`. `SymbolicCoeff` overrides
+    /// this to call `deduplicate()`. Without it, monomials whose masks
     /// happen to coincide (e.g. every monomial produced by a purely-numeric
     /// gate history shares the same empty mask) would otherwise pile up as
-    /// separate entries until the next full truncation flush, growing memory
-    /// with no matching increase in information.
+    /// separate entries until the next full truncation flush.
     #[inline]
     fn post_merge(&mut self) {}
 
@@ -51,11 +63,10 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// Returns `0.0` for symbolic representations where the norm is undefined.
     fn l1_norm(&self) -> f64;
 
-    /// Cheap size hint used to decide when to flush: how many indivisible
-    /// units this coefficient represents. `1` for scalar representations
-    /// (the default); `SymbolicCoeff` overrides this with its monomial count,
-    /// since that (not term count) is what actually drives its memory/CPU
-    /// cost.
+    /// How many indivisible units this coefficient represents. 
+    // `1` for scalar representations (the default)
+    // `SymbolicCoeff` overrides this with its monomial count,
+    /// as this is the primary driver of memory usage for surrogate propagation.
     #[inline]
     fn size_hint(&self) -> usize {
         1
@@ -65,6 +76,8 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// flush merge loop a few entries ahead of use, so buffer cache misses
     /// overlap with the current entry's work. No-op by default (scalar
     /// coefficients have no out-of-line data).
+    /// 
+    /// `SymbolicCoeff` overrides this to prefetch its monomial vector.
     #[inline]
     fn prefetch_read(&self) {}
 
@@ -72,6 +85,7 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
 }
 
+/// Implementation for the numerical coefficient representation. 
 impl CoeffRepr for Complex64 {
     type GateParam = f64;
 

@@ -1,3 +1,12 @@
+///
+/// Lazy loading of terms from a gzipped term file. 
+/// 
+/// It's common for propagation runs to produce 
+/// hundreds of millions of terms. Although these 
+/// can be stored in memory in cluster environments, 
+/// propaq provides a mechanism to lazily iterate 
+/// over terms from a gzipped file for post-processing.
+///
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::marker::PhantomData;

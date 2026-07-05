@@ -1,3 +1,27 @@
+///
+/// The main propagator implementation. 
+///
+/// The propagator employs a merging-BFS strategy to exploit 
+/// multithreading. Each thread is responsible for a disjoint 
+/// partition of the term space, and each thread maintains a 
+/// hashmap of terms in its partition, as well as a set of 
+/// outboxes for terms belonging to other partitions.
+///
+/// When a gate is applied, each thread iterates over its terms 
+/// (both in its partition and in the outboxes) to apply the gate.
+/// The resulting terms are placed in the appropriate outboxes.
+///
+/// Truncation demands uniqueness of terms in the containers, so 
+/// prior to a truncation step, the outboxes are merged into the 
+/// partition maps. This is done using a parallel transpose 
+/// operation, where each destination thread drains its 
+/// column of outboxes into its own partition map.
+///
+/// This deferred merge strategy aims to prevent lock contention 
+/// while preventing unnecessary memory allocation for duplicate 
+/// threads. The outbox flush becomes a bottleneck, 
+/// but the cost is amortized over the propagation run.
+///
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use num_complex::Complex64;
@@ -18,34 +42,23 @@ use crate::coeff::CoeffRepr;
 use crate::logger::Logger;
 
 /// Fibonacci hashing multiplier for multiply-shift uniform partition distribution.
+/// This is used to distribute the terms (roughly evenly) over the thread-local partitions.
 const PARTITION_HASH_MUL: u64 = 0x517cc1b727220a95;
 
-/// Per-partition term map. `hashbrown` rather than `std::collections::HashMap`
-/// (same table implementation, same Fx hasher) because its `rayon` feature
-/// splits the raw table for parallel iteration directly: rayon's impls for
-/// the std map first materialize every entry into a temporary `Vec` —
-/// serially — which `apply_gate_inplace` would pay per partition per gate.
+/// Per-partition term map. 
 type PartitionMap<M, C> = hashbrown::HashMap<M, C, FxBuildHasher>;
 
 const EXP_LUT_SIZE: usize = 4096;
 
 /// Minimum chunk size before `apply_gate_inplace` splits sub-partition work
-/// further (see its doc comment). Deliberately low relative to `evaluate`'s
+/// further. Deliberately low relative to `evaluate`'s
 /// analogous threshold: per-term cost here can be arbitrarily large and
 /// arbitrarily skewed (one term's whole symbolic coefficient), unlike
 /// `evaluate`'s near-uniform per-monomial cost, so it's worth being more
 /// willing to split even at modest partition sizes.
 ///
 /// Overridable once at process start via the `PROPAQ_GATE_PAR_MIN_LEN`
-/// environment variable so it can be swept without recompiling (see the sweep
-/// notes in `crates/surrogate/benches/surrogate_bench.rs`); the read is cached
-/// in a `LazyLock`, so it costs one relaxed load per `apply_gate_inplace` call
-/// (once per partition per gate), never per element.
-///
-/// Kept at 256 after a `cluster_bench` sweep (28-thread Xeon): 64 was clearly
-/// worse (over-splitting overhead) while 256/1024/4096 were within run-to-run
-/// noise, so the low value is retained for its skew-balancing benefit on
-/// many-core cluster nodes where a fat coefficient must be stealable.
+/// environment variable so it can be swept.
 const GATE_PAR_MIN_LEN_DEFAULT: usize = 256;
 
 #[inline]
@@ -182,17 +195,13 @@ pub fn owner_of<M: AbstractTerm>(term: &M, log2_n: u32) -> usize {
 
 pub struct AbstractPropagator<M: AbstractTerm, C: CoeffRepr> {
     pub noise: Option<PyObject>,
-    /// Flush/merge cadence (the scheduling half of truncation).
     pub schedule: FlushSchedule,
-    /// The truncation pipeline (operators). Read by the numerical `Complex64`
-    /// impl and by the surrogate wrapper; both resolve it via `resolve_config`.
     pub truncators: Vec<Truncator>,
     pub pool: Arc<rayon::ThreadPool>,
     pub progress_bar: bool,
     n_partitions: usize,
     log2_n: u32,
     thread_maps: Vec<PartitionMap<M, C>>,
-    // outboxes[src][dst]: terms produced by partition src that belong to partition dst
     outboxes: Vec<Vec<Vec<(M, C)>>>,
     total_terms: usize,
     scratch_new_terms: Vec<Vec<(usize, M, C)>>,
@@ -264,6 +273,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     }
 
     /// Partition `evolved.terms` into per-partition maps at the start of a run.
+    /// Parallelized over partitions, but not terms within a partition.
     pub fn initialize_from(&mut self, evolved: &AbstractTermSum<M>) {
         let n = self.n_partitions;
         let log2_n = self.log2_n;
@@ -294,29 +304,19 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     /// Apply a gate in place. Returns `(count, size)`: the number of new
     /// outbox entries created, and the sum of their `CoeffRepr::size_hint()`
     /// (equal to `count` for scalar coefficients; the total monomial count
-    /// added for `SymbolicCoeff`, which is what a surrogate flush trigger
-    /// needs to watch instead of raw term count).
+    /// added for `SymbolicCoeff`).
     ///
-    /// This is the hottest loop in the whole system — called once per gate
-    /// for every live term — so it's parallelized down to individual entries
-    /// (not just partitions), both for `local_map` and for each outbox
-    /// bucket. Partition-only parallelism (one rayon task per partition,
-    /// serial inside) is a fine match for `Complex64` coefficients, where
-    /// per-term cost is O(1) and hash-partitioning by term count also
-    /// balances actual work. It's a bad match for `SymbolicCoeff`
-    /// coefficients, where per-term cost is O(that term's own monomial
-    /// count) and a handful of terms can carry the overwhelming majority of
-    /// monomials (see `crates/surrogate`): one partition can land the
-    /// outsized term and stall for the whole gate while every other thread
-    /// finishes instantly and blocks on the final `reduce`. Nested
-    /// `par_iter_mut` lets any idle thread steal from whichever
-    /// partition/bucket is actually slow, every gate, instead of only at
-    /// (much rarer) flush time.
-    ///
-    /// `with_min_len` keeps this from regressing the numeric propagator:
-    /// below `GATE_PAR_MIN_LEN` entries, rayon runs a single sequential
-    /// chunk (no parallel task overhead at all), so small partitions behave
-    /// exactly as before.
+    /// This is the probably the most frequently used function in the entire 
+    /// propagator, so it's parallelized over both partitions and terms. 
+    /// The latter is largely unnecessary for numerical coefficients 
+    /// since the per-term cost is O(1), but relevant for symbolic coefficients 
+    /// where the information processed grows with the number of monomials 
+    /// in the coefficient. This setup allows work-stealing to balance the load 
+    /// across threads. 
+    /// 
+    /// Below a certain threshold, the per-partition work is done serially to avoid 
+    /// the unnecessary overhead of splitting and joining tasks. This is set by the 
+    /// `PROPAQ_GATE_PAR_MIN_LEN` environment variable.
     pub fn apply_gate_inplace(&mut self, generator: &M, param: C::GateParam) -> (usize, usize) {
         let log2_n = self.log2_n;
         let pool = Arc::clone(&self.pool);
@@ -334,15 +334,6 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                 .map(|(((local_map, outbox_row), new_terms), snap)| {
                     new_terms.clear();
 
-                    // Apply gate to thread_map entries. `hashbrown`'s rayon
-                    // support splits the raw table directly (no up-front
-                    // materialization like rayon's std-HashMap impls), but
-                    // it's unindexed splitting, so `with_min_len` isn't
-                    // available here the way it is for the slice-based
-                    // outbox loop below — the small-partition gate has to
-                    // happen a level up: take the plain serial path outright
-                    // rather than relying on internal splitting to degrade
-                    // gracefully to zero task overhead.
                     if local_map.len() >= gate_par_min_len() {
                         new_terms.par_extend(
                             local_map
@@ -406,13 +397,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     }
 
     /// Transpose all outboxes directly into thread_maps and update
-    /// `total_terms`. This is the shared core of every flush; truncation is
-    /// applied on top by the coefficient-specific impl blocks.
-    ///
-    /// Each per-`dst` task drains its column of outbox cells straight into
-    /// its own partition map — no staging buffer in between, so the pending
-    /// data is moved once, not twice, and nothing retains peak-flush
-    /// capacity between flushes.
+    /// `total_terms`.
     pub fn flush_outboxes_to_maps(&mut self) {
         let n = self.n_partitions;
         let pool = Arc::clone(&self.pool);
@@ -427,18 +412,14 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                     for src in 0..n {
                         // SAFETY: Each parallel task owns a unique `dst`.
                         // Thread `dst` drains outboxes[src][dst] for all src.
-                        // No two threads share a (src, dst) pair; the cells are
-                        // distinct heap allocations. `outboxes` is not resized
-                        // during this block (n is fixed, no push occurs).
+                        // No two threads share a (src, dst) pair. 
+                        // `outboxes` is not resized during this block 
+                        // (n is fixed, no push occurs).
                         let cell = unsafe { &mut (&mut *outboxes_ptr.offset(src))[dst] };
-                        // The merge is memory-latency-bound: each entry
-                        // dereferences its coefficient's heap buffers cold.
-                        // Prefetching a few entries ahead overlaps those
-                        // misses with the current entry's hash + merge work.
                         const PREFETCH_AHEAD: usize = 4;
                         let n_cell = cell.len();
                         // SAFETY: length is zeroed *before* the manual moves
-                        // below, so a panic mid-loop leaks the not-yet-moved
+                        // below, so a panic mid-loop leaks the unmoved
                         // tail instead of double-dropping the moved head. The
                         // buffer itself stays allocated and valid.
                         unsafe { cell.set_len(0) };
@@ -446,7 +427,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                         for i in 0..n_cell {
                             if i + PREFETCH_AHEAD < n_cell {
                                 // SAFETY: in-bounds read of an element we
-                                // exclusively own (only prefetched, not moved).
+                                // exclusively own.
                                 unsafe { (*base.add(i + PREFETCH_AHEAD)).1.prefetch_read() };
                             }
                             // SAFETY: each index in 0..n_cell is read exactly
@@ -512,6 +493,9 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         None
     }
 
+    /// Helper functions for using tqdm progress bars in Python.
+    /// These claim and release the GIL since they are called 
+    /// from the main thread. 
     pub fn make_progress_bar(
         &self,
         py: Python<'_>,
@@ -587,24 +571,9 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     }
 
     /// Mutate every coefficient across all partition maps with `f`, then drop
-    /// entries for which `keep` returns `false` — in one traversal per
-    /// partition instead of the two separate full passes a `map_coeffs_inplace`
-    /// followed by `retain_maps_with` used to require. Returns the total
-    /// `size_hint()` across all surviving coefficients, computed during the
-    /// same pass (so callers that need a post-mutation size total, like the
-    /// surrogate propagator's live monomial count, don't need a further
-    /// separate `sum_coeffs` traversal just to get it).
+    /// entries for which `keep` returns `false`. 
     ///
-    /// The mutate/keep step is parallelized down to individual entries (via
-    /// a nested `par_iter_mut`, not just across partitions): a handful of
-    /// oversized coefficients (e.g. one term whose symbolic coefficient has
-    /// ballooned to far more monomials than the rest) would otherwise stall
-    /// whichever partition owns them while every other thread sits idle.
-    /// Discarded keys are collected during that same parallel pass — via
-    /// per-worker `fold`/`reduce` accumulators, so only discarded keys are
-    /// ever cloned or buffered, not an O(live terms) result per partition —
-    /// and removed afterward with an O(discarded) sweep, rather than a
-    /// second O(total_terms) `retain` pass.
+    // Returns the total `size_hint()` across all surviving coefficients.
     pub fn map_and_retain_coeffs_inplace<F, K>(&mut self, f: F, keep: K) -> usize
     where
         F: Fn(&M, &mut C) + Sync,
@@ -616,10 +585,6 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
             thread_maps
                 .par_iter_mut()
                 .map(|map| {
-                    // Apply `f` per entry with nested per-entry parallelism
-                    // (skew-safe: one giant coefficient can't stall its whole
-                    // partition), tallying kept `size_hint` and how many
-                    // entries fail `keep`.
                     let (size, n_discard) = map
                         .par_iter_mut()
                         .fold(
@@ -635,15 +600,6 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                             },
                         )
                         .reduce(|| (0usize, 0usize), |(s1, d1), (s2, d2)| (s1 + s2, d1 + d2));
-                    // Only restructure the map when something actually failed
-                    // `keep` — the common dedup-only flush discards nothing and
-                    // skips this entirely. A single in-place `retain` re-checks
-                    // the cheap `keep` predicate and compacts, replacing the old
-                    // "clone every discarded key, then `remove` each (a fresh
-                    // hash+probe+erase per key)" with one pass, no key clones.
-                    // The extra O(len) `keep` scan is dominated by the O(len ×
-                    // coeff-size) `f` pass just above, so it costs nothing next
-                    // to it; `keep` itself is O(1) so this introduces no skew.
                     if n_discard > 0 {
                         map.retain(|t, c| keep(t, c));
                     }
@@ -655,14 +611,6 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         total_size
     }
 
-    /// Like a parallel flat-map over all partition maps returning `Some(R)`
-    /// items, but drains (moves out of) each map instead of borrowing it.
-    /// Only meaningful once the caller is done with `self` for this round —
-    /// every partition map ends up empty, exactly as if `retain(|_, _| false)`
-    /// had been called on all of them (the surrogate propagator's build step
-    /// is the only caller, and it never reuses `self`'s maps after compiling
-    /// the final model). Avoids cloning every surviving term and its
-    /// coefficient just to hand back an owned copy.
     pub fn drain_collect_terms<R, F>(&mut self, f: F) -> Vec<R>
     where
         R: Send,
@@ -692,11 +640,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     }
 
     /// Parallel per-coefficient fold across all partition maps, merged via
-    /// `combine`. More general than `sum_coeffs` for aggregations that
-    /// aren't a single running total — e.g. a histogram keyed by some
-    /// per-coefficient property, which the surrogate propagator's
-    /// monomial-range truncation uses to find the tightest frequency cutoff
-    /// that reaches a target monomial count.
+    /// `combine`. 
     pub fn fold_coeffs<T, F, R>(&self, identity: impl Fn() -> T + Sync, fold: F, combine: R) -> T
     where
         T: Send,
@@ -713,11 +657,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         })
     }
 
-    /// Sequentially apply `f` to every live coefficient across all partition
-    /// maps. Single-threaded on purpose: the surrogate reconciliation pass
-    /// interns each coefficient's runs into one **shared** generation, which a
-    /// serial walk lets it do without any synchronization. Not on the per-gate
-    /// hot path — only at flush barriers.
+    /// Sequentially apply `f` to every live coefficient across all partition maps.
     pub fn for_each_coeff_mut<F>(&mut self, mut f: F)
     where
         F: FnMut(&mut C),
@@ -759,7 +699,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
 
 impl<M: AbstractTerm> AbstractPropagator<M, Complex64> {
     /// Remove terms from thread_maps that fail the resolved weight/coefficient
-    /// cutoffs (`weight` → keep `weight <= wc`; `coefficient` → keep `|c| >= cc`).
+    /// cutoffs
     fn retain_by_policy(&mut self, cfg: &ResolvedConfig) {
         let wc = cfg.weight;
         let cc = cfg.coefficient.unwrap_or(0.0);

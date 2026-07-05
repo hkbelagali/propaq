@@ -1,3 +1,8 @@
+///
+/// A truncation policy for discarding terms during propagation.
+///
+/// This is left for legacy compatibility with the old single-policy form.
+///
 use pyo3::prelude::*;
 
 const DEFAULT_MAX_TERMS: usize = 10_000_000;

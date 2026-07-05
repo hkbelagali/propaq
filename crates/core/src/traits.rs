@@ -1,3 +1,9 @@
+///
+/// An abstract class for $\sum_i c_i B_i$ 
+/// where $B_i$ is a basis element belgonging to 
+/// an operator basis (usually Pauli or Majorana) 
+/// and $c_i$ is a coefficient. 
+///
 use std::hash::Hash;
 use num_complex::Complex64;
 

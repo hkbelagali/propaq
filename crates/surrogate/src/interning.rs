@@ -1,23 +1,20 @@
-//! Global interning tables for the support⊗exponent factored coefficient
-//! representation.
-//!
-//! A monomial's factor run `[param:16 | cos_pow:8 | sin_pow:8]*` is split into
-//! two independently-shared parts:
-//!
-//! - its **support** — the ascending sequence of parameter indices it touched —
-//!   interned into a hash-consed [`SupportTrie`] (a prefix of one run is a prefix
-//!   path in the trie, stored once);
-//! - its **exponent pattern** — the positionally-aligned `(cos_pow, sin_pow)`
-//!   list — interned into an [`ExponentDict`].
-//!
-//! A [`Generation`] bundles the two. During a flush window the propagator holds
-//! one **frozen** generation and only *decodes* against it (lock-free reads); at
-//! each flush a fresh generation is built by re-interning the live survivors, so
-//! truncation-removed structure is garbage-collected for free (no refcounting).
-//!
-//! This module is deliberately self-contained — it knows only how to intern and
-//! decode runs. The reconciliation driver that walks live coefficients lives in
-//! the propagator.
+/// Global interning tables for the support⊗exponent factored coefficient
+/// representation.
+///
+/// A monomial's factor run `[param:16 | cos_pow:8 | sin_pow:8]*` is split into
+/// two independently-shared parts:
+///
+/// - its **support**: the ascending sequence of parameter indices it touched,
+///   interned into a hash-consed [`SupportTrie`] (a prefix of one run is a prefix
+///   path in the trie, stored once);
+/// - its **exponent pattern**: the positionally-aligned `(cos_pow, sin_pow)`
+///   list, interned into an [`ExponentDict`].
+///
+/// A [`Generation`] bundles the two. During a flush window the propagator holds
+/// one **frozen** generation and only *decodes* against it (lock-free reads); at
+/// each flush a fresh generation is built by re-interning the live survivors, so
+/// truncation-removed structure is garbage-collected for free (no refcounting).
+///
 
 use rustc_hash::FxHashMap;
 
@@ -385,10 +382,10 @@ mod tests {
         assert_eq!(a, b, "identical param sequences intern to the same id");
 
         let before = t.node_count();
-        let _c = t.intern_params(&[0, 3]); // strict prefix — no new nodes
+        let _c = t.intern_params(&[0, 3]); // strict prefix, no new nodes
         assert_eq!(t.node_count(), before, "a prefix reuses existing path nodes");
 
-        let _d = t.intern_params(&[0, 5]); // diverges after [0] — one new node
+        let _d = t.intern_params(&[0, 5]); // diverges after [0], one new node
         assert_eq!(t.node_count(), before + 1);
     }
 

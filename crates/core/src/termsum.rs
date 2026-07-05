@@ -1,3 +1,4 @@
+/// Numerical term sum abstracted to any operator basis (Pauli, Majorana, etc.).
 use pyo3::prelude::*;
 use num_complex::Complex64;
 use rayon::prelude::*;
@@ -8,7 +9,7 @@ use crate::truncation::TruncationPolicy;
 use crate::noise::UniformNoiseModel;
 use crate::traits::AbstractTerm;
 
-// Abstract term sum (not a pyclass — only concrete wrappers are exposed)
+// Abstract term sum (not a pyclass, only concrete wrappers are exposed)
 pub struct AbstractTermSum<M: AbstractTerm> {
     pub terms: FxHashMap<M, Complex64>,
 }

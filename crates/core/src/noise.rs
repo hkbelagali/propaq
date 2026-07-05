@@ -1,3 +1,14 @@
+///
+/// Noise models for propagator runs.
+///
+/// Currently, only uniform depolarising noise is implemented
+/// in the Rust core. However, the `GateNoiseModel` class
+/// allows one to wrap a custom Python noise model object 
+/// that implements the same interface as `UniformNoiseModel`. 
+/// 
+/// ## Custom Python noise models will be significantly slower 
+/// than the built-in uniform noise model due to GIL overhead. 
+///
 use pyo3::prelude::*;
 
 /// Exponential damping noise: each term of weight w is scaled by $\exp(-\gamma w)$, where $w$ is the term's Pauli weight.

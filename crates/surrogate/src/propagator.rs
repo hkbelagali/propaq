@@ -18,8 +18,8 @@ use propaq_core::truncators::{
 
 /// Resolve the flexible `truncation` constructor argument into `(FlushSchedule,
 /// [Truncator])`. The surrogate additionally accepts the legacy
-/// `FrequencyTruncationPolicy` (decomposed here); everything else — a list, a
-/// single truncator, a core `TruncationPolicy`, or `None` — is delegated to the
+/// `FrequencyTruncationPolicy` (decomposed here); everything else, such as a list, a
+/// single truncator, a core `TruncationPolicy`, or `None`, is delegated to the
 /// shared `propaq_core` resolver.
 fn resolve_truncation(
     truncation: Option<&Bound<'_, PyAny>>,
@@ -63,7 +63,7 @@ pub struct SurrogatePropagator<M: AbstractTerm> {
 }
 
 /// Whether the live support⊗exponent factoring is enabled. Default on; set
-/// `PROPAQ_DISABLE_FACTORING=1` to skip reconciliation entirely — coefficients
+/// `PROPAQ_DISABLE_FACTORING=1` to skip reconciliation entirely. Coefficients
 /// then stay flat (base ids `(0, 0)`, all factors in the extension), i.e. the
 /// pre-factoring representation. A/B and safety escape hatch.
 #[inline]
@@ -221,7 +221,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         // Look-ahead frequency-pruning cap for symbolic rotations. Skipping a
         // doomed sin-branch monomial at generation time is exactly equivalent to
         // trimming it at the next flush only when *every* flush applies the
-        // frequency cap — i.e. when the `min_terms` gate is 0/None so
+        // frequency cap, i.e. when the `min_terms` gate is 0/None so
         // `apply_lossy` in `apply_truncation_policy` is always true. With a
         // nonzero `min_terms`, trimming is deferred, so eager pruning could
         // diverge; fall back to `None` (no look-ahead) there. Requires a
@@ -233,7 +233,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         };
 
         // Extract circuit data from Python: each rotation is either
-        // symbolic (`param_index`) or numeric (`angle`) — see `GateParam`.
+        // symbolic (`param_index`) or numeric (`angle`), see `GateParam`.
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
 
         let circuit_data: Vec<Vec<(M, GateParam, bool, Option<usize>)>> = layers
@@ -262,7 +262,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             .collect::<PyResult<_>>()?;
 
         // Each symbolic rotation carries its parameter index directly, written
-        // into every branching monomial's factor run — no gate numbering or
+        // into every branching monomial's factor run, no gate numbering or
         // `gate -> param` table is needed (a parameter reused across gates
         // accumulates into a trig power at build time; see `SymbolicCoeff`).
         let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
@@ -371,25 +371,6 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 } else if !next_is_intermediate
                     && merge_max_terms.map_or(false, |m| pending >= m)
                 {
-                    // Finer lossless merge: transpose outboxes into the maps,
-                    // collapsing duplicate Pauli strings *and* — via
-                    // `CoeffRepr::post_merge` -> `deduplicate` — the identical
-                    // monomials `add_assign` just juxtaposed inside each
-                    // coefficient, without the lossy truncation pass. This
-                    // refreshes `total_terms` (so the truncation trigger sees
-                    // the unique-term count, not the path count) and resets
-                    // `pending`.
-                    //
-                    // The merge is lossless in *value* but reduces the monomial
-                    // *count* (dedup collapses coincident masks — every monomial
-                    // from a purely-numeric gate stretch shares the empty mask),
-                    // so `total_monomials` is refreshed from the now-deduplicated
-                    // maps and `pending_monomials` (a pre-dedup count of every
-                    // monomial produced since the last flush) is reset. Both the
-                    // progress display and the `monomials_trigger` therefore read
-                    // the true live count right after each merge, drifting only
-                    // conservatively upward until the next one. `sum_coeffs` is a
-                    // parallel O(live terms) pass (`monomial_count` is O(1)).
                     let terms_before = self.inner.total_terms() + pending;
                     py.allow_threads(|| self.inner.flush_outboxes_to_maps());
                     pending = 0;
@@ -431,7 +412,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         }
 
         // Compile: collect terms with nonzero structural overlap. Drains
-        // `self.inner`'s partition maps rather than cloning out of them —
+        // `self.inner`'s partition maps rather than cloning out of them.
         // `self.inner` is re-initialized from scratch on the next `build()`
         // call, so nothing is lost by moving instead of copying here.
         let raw: Vec<SurrogateTerm<M>> = self.inner.drain_collect_terms(|term, mut coeff| {
@@ -464,7 +445,7 @@ pub struct TruncationOutcome {
 
 /// Apply the resolved truncation config to `propagator`'s current live state.
 /// Assumes the caller has already flushed outboxes into partition maps
-/// (`AbstractPropagator::flush_outboxes_to_maps`) if that's needed — this
+/// (`AbstractPropagator::flush_outboxes_to_maps`) if that's needed. This
 /// only touches what's already live in `propagator`'s maps.
 ///
 /// Two independent stages:
@@ -473,18 +454,17 @@ pub struct TruncationOutcome {
 ///    optional `max_frequency` trim and `weight_cutoff` term retain.
 /// 2. Independently, if a `monomial_range` is configured and the live
 ///    monomial count still exceeds `monomial_range.1` (`max`) after stage 1,
-///    remove monomials at the single highest frequency currently present
-///    — never anything lower. The *target* is `max`, not `monomial_range.0`
+///    remove monomials at the single highest frequency currently present,
+//     never anything lower. The *target* is `max`, not `monomial_range.0`
 ///    (`min`): the top-frequency bucket is removed in full only if doing so
 ///    doesn't remove more than needed to reach `max`; otherwise only enough
 ///    of it is removed (an arbitrary subset of the tied top frequency,
-///    since frequency alone — not scalar magnitude — is this crate's
+///    since frequency alone, and not scalar magnitude, is this crate's
 ///    existing pruning signal; see `trim_high_frequency`) to land exactly
-///    at `max`. `min` is not a target here — see `monomial_removal_budget`
-///    — it's a floor that only matters on a misconfigured policy
+///    at `max`. `min` is not a target here, see `monomial_removal_budget`.
+//     it's a floor that only matters on a misconfigured policy
 ///    (`min > max`). If the whole top-frequency bucket is itself smaller
-///    than what's needed to reach `max`, it's still removed in full
-///    (falling short of `max`, left to a subsequent flush — see below). Not
+///    than what's needed to reach `max`, it's still removed in full. Not
 ///    gated behind stage 1's term-count floor: monomial count can explode
 ///    with comparatively few live terms, so it needs its own trigger.
 ///
@@ -497,8 +477,8 @@ pub struct TruncationOutcome {
 ///
 /// Extracted as a standalone function (rather than inlined in
 /// `SurrogatePropagator::flush_and_maybe_truncate`) so tooling that drives
-/// an `AbstractPropagator` directly — without going through the
-/// PyO3-circuit-driven `build()` entrypoint, e.g. `bin/cluster_bench` —
+/// an `AbstractPropagator` directly, without going through the
+/// PyO3-circuit-driven `build()` entrypoint, e.g. `bin/cluster_bench`
 /// replicates the exact same flush behavior instead of a hand-rolled copy
 /// that could drift out of sync with it.
 ///
@@ -563,7 +543,7 @@ fn boundary_from_histogram(hist: &[u64], budget: usize) -> (usize, usize) {
 ///    always-on lossless dedup (merge identical monomials, drop exact zeros),
 ///    then the optional `coefficient` trim (run *after* dedup so it sees merged
 ///    scalars); plus a per-term `weight` retain. These lossy operators are gated
-///    by the `TermBudget`'s `min_terms` — below it, only dedup runs.
+///    by the `TermBudget`'s `min_terms`, below it, only dedup runs.
 /// 2. If a `MonomialBudget` (`max_monomials`) is present and the live monomial
 ///    count still exceeds it, an importance-ranked removal keyed by
 ///    `(frequency desc, |scalar| asc)` down to `max_monomials`. Not gated by
@@ -688,7 +668,7 @@ use propaq_majorana::termsum::MajoranaTermSum;
 /// that can be re-evaluated for any parameter assignment.
 ///
 /// Arguments:
-///     truncation: The truncation pipeline — a list of truncator objects
+///     truncation: A list of truncator objects
 ///         (FrequencyTruncator, CoefficientTruncator, WeightTruncator,
 ///         MonomialBudget) applied at each flush, a single such truncator, a
 ///         legacy FrequencyTruncationPolicy (decomposed automatically), or None.
@@ -972,7 +952,7 @@ mod numeric_history_dedup_tests {
             assert!(
                 live_monomials <= live_terms,
                 "round {round}: live monomials {live_monomials} exceeded live terms {live_terms} \
-                 — numeric-history monomials were not deduplicated at the merge",
+                 , numeric-history monomials were not deduplicated at the merge",
             );
         }
 
@@ -998,13 +978,13 @@ mod shared_parameter_dedup_tests {
     /// A UCJ/LUCJ-style circuit reuses each parameter across many gates. The
     /// gate-indexed scheme this replaced stored one factor per *gate*, so a
     /// monomial's distinct-factor count grew with the number of gates branched
-    /// — up to `2^gates` live monomials for a fully-anticommuting history,
+    /// up to `2^gates` live monomials for a fully-anticommuting history,
     /// exactly the blowup (1.8B monomials) reported against a real UCJ
     /// ansatz. The parameter-space scheme instead accumulates a reused
     /// parameter into cos/sin *powers*: for `N_PARAMS` distinct parameters,
     /// the number of distinct `(cos_pow, sin_pow)` combinations any one
     /// term's coefficient can hold is bounded by `product_p(times_p_branched
-    /// + 1)` — polynomial in the gate count, not exponential. This test
+    /// + 1)` polynomial in the gate count, not exponential. This test
     /// drives far more gates than `2^gates` could ever let fit in memory, and
     /// checks live monomials stay within that polynomial bound at every
     /// merge.
@@ -1021,7 +1001,7 @@ mod shared_parameter_dedup_tests {
         prop.initialize_from(&seed);
 
         // Brick-wall of two-qubit generators, all *symbolic*, cycling through
-        // only `N_PARAMS` distinct parameter indices — every parameter is
+        // only `N_PARAMS` distinct parameter indices every parameter is
         // reused dozens of times over the run.
         let mut gate_idx: u32 = 0;
         let mut param_counts = [0usize; N_PARAMS];
