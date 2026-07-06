@@ -62,18 +62,6 @@ pub struct SurrogatePropagator<M: AbstractTerm> {
     generation: Generation,
 }
 
-/// Whether the live support⊗exponent factoring is enabled. Default on; set
-/// `PROPAQ_DISABLE_FACTORING=1` to skip reconciliation entirely. Coefficients
-/// then stay flat (base ids `(0, 0)`, all factors in the extension), i.e. the
-/// pre-factoring representation. A/B and safety escape hatch.
-#[inline]
-fn factoring_enabled() -> bool {
-    static V: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-        !matches!(std::env::var("PROPAQ_DISABLE_FACTORING").as_deref(), Ok("1") | Ok("true"))
-    });
-    *V
-}
-
 impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
     pub fn new(
         schedule: FlushSchedule,
@@ -120,12 +108,8 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
     /// caller must have already flushed outboxes into the partition maps, so all
     /// live coefficients are reachable. Interning is single-threaded (one shared
     /// generation, via `for_each_coeff_mut`); the follow-up per-coefficient dedup
-    /// is independent and runs in parallel (via `par_for_each_coeff_mut`). No-op
-    /// when factoring is disabled.
+    /// is independent and runs in parallel (via `par_for_each_coeff_mut`).
     fn reconcile(&mut self) {
-        if !factoring_enabled() {
-            return;
-        }
         let old = std::mem::take(&mut self.generation);
         let mut new = Generation::new();
         // Serial: interning mutates one shared generation.
@@ -432,8 +416,8 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         });
 
         // The final `flush_and_maybe_truncate("final")` above reconciled the
-        // survivors, so every coefficient's base ids reference `self.generation`
-        // (empty when factoring is disabled). Hand it to the model.
+        // survivors, so every coefficient's base ids reference `self.generation`.
+        // Hand it to the model.
         let generation = std::mem::take(&mut self.generation);
         Ok(SurrogateModel::with_generation(raw, n_params, generation))
     }
@@ -467,9 +451,9 @@ pub struct TruncationOutcome {
 ///    of it is removed (an arbitrary subset of the tied top frequency,
 ///    since frequency alone, and not scalar magnitude, is this crate's
 ///    existing pruning signal; see `trim_high_frequency`) to land exactly
-///    at `max`. `min` is not a target here, see `monomial_removal_budget`.
-//     it's a floor that only matters on a misconfigured policy
-///    (`min > max`). If the whole top-frequency bucket is itself smaller
+///    at `max`. `min` is not a target here (see `monomial_removal_budget`);
+///    a `min > max` policy is rejected by a `debug_assert` rather than
+///    handled at runtime. If the whole top-frequency bucket is itself smaller
 ///    than what's needed to reach `max`, it's still removed in full. Not
 ///    gated behind stage 1's term-count floor: monomial count can explode
 ///    with comparatively few live terms, so it needs its own trigger.
@@ -488,24 +472,16 @@ pub struct TruncationOutcome {
 /// replicates the exact same flush behavior instead of a hand-rolled copy
 /// that could drift out of sync with it.
 ///
-/// Maximum number of monomials the monomial-range stage may remove from the
-/// current top-frequency bucket this call, given `monomials_after > max`.
-///
-/// Targets landing at `max` (`monomials_after - max`), not `min`: a
-/// top-frequency bucket bigger than that amount only ever gets a partial,
-/// budgeted removal (see the caller's `budget >= n_top` branch), never
-/// discarded in full, so truncation stops at `max` instead of continuing to
-/// erode down toward `min`. `min` only becomes the binding constraint (via
-/// `want.min(floor)` below) on a misconfigured policy with `min > max`;
-/// under a sane one (`max >= min`), `monomials_after - max` is always `<=
-/// monomials_after - min`, so this always reduces to `monomials_after -
-/// max` and `min` has no effect. Kept as an explicit floor regardless,
-/// rather than relying on callers never passing `min > max`.
+/// Number of monomials the monomial-range stage must remove to land at `max`,
+/// given `monomials_after > max`. `min_monomials` is not a target: a
+/// top-frequency bucket bigger than this amount only ever gets a partial,
+/// budgeted removal (see the caller's `budget >= n_top` branch), so truncation
+/// stops at `max` rather than eroding further toward `min`. The caller asserts
+/// `max >= min` (a `min > max` policy is a configuration error, not a runtime
+/// case to accommodate), so `min` never enters this computation.
 #[inline]
-fn monomial_removal_budget(monomials_after: usize, min: usize, max: usize) -> usize {
-    let want = monomials_after.saturating_sub(max);
-    let floor = monomials_after.saturating_sub(min);
-    want.min(floor)
+fn monomial_removal_budget(monomials_after: usize, max: usize) -> usize {
+    monomials_after.saturating_sub(max)
 }
 
 /// Elementwise-add two frequency histograms, reconciling lengths. Combine step
@@ -591,9 +567,12 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
     );
 
     if let Some(max) = cfg.max_monomials {
-        let min = cfg.min_monomials.unwrap_or(0);
+        debug_assert!(
+            max >= cfg.min_monomials.unwrap_or(0),
+            "MonomialBudget misconfigured: min_monomials must not exceed max_monomials",
+        );
         if monomials_after > max {
-            let budget = monomial_removal_budget(monomials_after, min, max);
+            let budget = monomial_removal_budget(monomials_after, max);
             if budget > 0 {
                 // 1. Global frequency histogram in one parallel fold. Frequency
                 //    is a small bounded int, so a per-worker `Vec<u64>` keyed by
@@ -866,37 +845,21 @@ mod monomial_removal_budget_tests {
     }
 
     #[test]
-    fn targets_max_when_bucket_would_be_more_than_enough() {
-        // A bucket of any size > 10 should only ever be allowed to remove
-        // 10 (landing exactly at max=90), never eroded further toward
-        // min=50 just because a bigger bucket happens to be available.
-        assert_eq!(monomial_removal_budget(100, 50, 90), 10);
-    }
-
-    #[test]
-    fn sane_policy_ignores_min_entirely() {
-        // want = after - max is always <= floor = after - min when
-        // max >= min, so min should never change the result.
-        for (after, min, max) in [(100, 50, 90), (100, 0, 99), (1_000_000, 1, 999_999), (11, 10, 10)] {
-            assert_eq!(monomial_removal_budget(after, min, max), after - max);
+    fn budget_always_targets_max() {
+        // The budget is exactly `after - max`, landing precisely at max.
+        for (after, max) in [(100, 90), (100, 99), (1_000_000, 999_999), (11, 10)] {
+            assert_eq!(monomial_removal_budget(after, max), after - max);
         }
     }
 
     #[test]
-    fn misconfigured_min_greater_than_max_clamps_to_the_min_floor() {
-        // min > max: the floor (after - min) is tighter than the max-based
-        // want (after - max), so it's the binding constraint.
-        assert_eq!(monomial_removal_budget(100, 90, 50), 10);
-    }
-
-    #[test]
     fn exactly_one_over_max_wants_a_budget_of_one() {
-        assert_eq!(monomial_removal_budget(91, 50, 90), 1);
+        assert_eq!(monomial_removal_budget(91, 90), 1);
     }
 
     #[test]
-    fn zero_min_and_max_equal_to_after_minus_one() {
-        assert_eq!(monomial_removal_budget(1000, 0, 999), 1);
+    fn max_equal_to_after_wants_zero() {
+        assert_eq!(monomial_removal_budget(999, 999), 0);
     }
 }
 

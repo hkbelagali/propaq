@@ -1,3 +1,6 @@
+///
+/// impl for Pauli propagators' lazy loading functionality.
+///
 use pyo3::prelude::*;
 
 use propaq_core::streamer::TermStreamer;

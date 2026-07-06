@@ -73,6 +73,7 @@ impl TruncationPolicy {
     /// no merge field), `weight_cutoff` → `WeightTruncator`, a positive
     /// `coeff_cutoff` → `CoefficientTruncator`, and `truncation_range` →
     /// `TermBudget`.
+    /// TODO: Deprecate this eventually in favor of the new `FlushSchedule` + `Truncator` form, which is more flexible and composable.
     pub fn decompose(&self) -> (crate::truncators::FlushSchedule, Vec<crate::truncators::Truncator>) {
         use crate::truncators::{
             CoefficientTruncator, FlushSchedule, TermBudget, Truncator, WeightTruncator,

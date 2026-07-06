@@ -1,3 +1,9 @@
+///
+/// impl for the Majorana propagator, which works with observables 
+/// represented in the Majorana operator basis. The propagator is 
+/// just a wrapper around the generic `AbstractPropagator`, incorporating 
+/// the Majorana algebra and the Majorana monomial representation.
+///
 use pyo3::prelude::*;
 
 use propaq_core::propagator::{AbstractPropagator, PropagationResult};

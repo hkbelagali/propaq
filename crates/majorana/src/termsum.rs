@@ -1,3 +1,6 @@
+///
+/// Represent a linear combination of Majorana monomials with real coefficients. 
+///
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 

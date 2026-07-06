@@ -8,13 +8,13 @@
 ///
 /// Numerical coefficients are represented as `f64`: propaq only propagates
 /// Hermitian operators, so coefficients remain real throughout a run. The
-/// Pauli/Majorana product *phase* fed into `apply_rotation` is still a genuine
+/// Pauli/Majorana product *phase* fed into `apply_rotation` is still a
 /// 4th root of unity (`±1, ±i`) and stays `Complex64`; `i * phase` collapses to
 /// a real number for the anticommuting terms that branch.
 ///
 /// As many of the operations on coefficients are on the hot path, 
 /// as many methods as possible should be `#[inline]`-able for performance. 
- 
+///
 use pyo3::prelude::*;
 use num_complex::Complex64;
 
@@ -64,11 +64,7 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// Multiply all scalar components by a real noise damping factor.
     fn scale_real(&mut self, factor: f64);
 
-    /// L1 norm for discard statistics in verbose logging.
-    /// Returns `0.0` for symbolic representations where the norm is undefined.
-    fn l1_norm(&self) -> f64;
-
-    /// How many indivisible units this coefficient represents. 
+    /// How many indivisible units this coefficient represents.
     // `1` for scalar representations (the default)
     // `SymbolicCoeff` overrides this with its monomial count,
     /// as this is the primary driver of memory usage for surrogate propagation.
@@ -120,11 +116,6 @@ impl CoeffRepr for f64 {
     #[inline]
     fn scale_real(&mut self, factor: f64) {
         *self *= factor;
-    }
-
-    #[inline]
-    fn l1_norm(&self) -> f64 {
-        self.abs()
     }
 
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<f64> {

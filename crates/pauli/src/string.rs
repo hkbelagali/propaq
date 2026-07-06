@@ -1,3 +1,6 @@
+///
+/// Defines the core algebra of Pauli strings.
+///
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use num_complex::Complex64;

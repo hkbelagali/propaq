@@ -1,5 +1,12 @@
-/// Composable truncation policies shared by the numerical and surrogate
+/// Composable truncation and flush policies shared by the numerical and surrogate
 /// propagators.
+///
+/// Since we're doing a merging-BFS, we provide the functionality to control 
+/// when to flush the outboxes, and when to truncate the live terms. The 
+/// latter will always require a flush, but the former can be done independently 
+/// in a lossless manner. Despite the parallel transpose, the flush operations 
+/// are still the dominant source of walltime in the propagators,
+/// so a finer cadence will reduce peak memory usage at the expense of time. 
 ///
 use pyo3::prelude::*;
 
@@ -105,6 +112,11 @@ impl CoefficientTruncator {
 
 /// Drop whole Pauli/Majorana terms whose operator weight exceeds `weight`.
 /// Applies to both propagators.
+///
+/// A term with weight `w` is exponentially unlikely in `w` to
+/// contribute to the final state, which is why this is a useful 
+/// truncation criterion for larger circuits!
+///
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct WeightTruncator {
@@ -222,9 +234,9 @@ pub fn reject_surrogate_only(truncators: &[Truncator]) -> PyResult<()> {
 }
 
 /// The distinct truncation operations resolved from a pipeline. The list is
-/// collapsed into at-most-one of each kind (last occurrence wins); `None`
-/// disables. The pure filters commute, and the budgets are always applied by the
-/// propagator at the appropriate stage, so list order is immaterial.
+/// collapsed into at most one of each kind. `None` disables. The pure filters commute, 
+/// and the budgets are always applied by the propagator at the appropriate stage, so 
+/// list order is immaterial.
 #[derive(Default, Clone, Copy)]
 pub struct ResolvedConfig {
     pub frequency: Option<usize>,

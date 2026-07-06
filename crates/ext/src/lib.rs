@@ -1,3 +1,12 @@
+///
+/// Export the core Rust functionality to Python via PyO3.
+/// 
+/// The propagation (especially symbolic) will generate an
+/// enormous number of memory allocations. Due to the shard-based
+/// parallelism, the default allocator would likely suffer from 
+/// contention and fragmentation. Therefore, we use mimalloc 
+/// as the global allocator, which is designed for high-performance 
+/// multithreaded workloads.
 use mimalloc::MiMalloc;
 
 #[global_allocator]

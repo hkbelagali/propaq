@@ -1,3 +1,6 @@
+///
+/// impl for the Majorana propagator's lazy loading functionality.
+///
 use pyo3::prelude::*;
 
 use propaq_core::streamer::TermStreamer;

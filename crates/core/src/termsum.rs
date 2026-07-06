@@ -38,6 +38,7 @@ impl<M: AbstractTerm> AbstractTermSum<M> {
         }
     }
 
+    /// Numerical truncation of the term is only according to coefficient or weight.
     pub fn truncate(&mut self, policy: &Bound<'_, PyAny>) -> PyResult<()> {
         if let Ok(tp) = policy.extract::<PyRef<TruncationPolicy>>() {
             let wc = tp.weight_cutoff;

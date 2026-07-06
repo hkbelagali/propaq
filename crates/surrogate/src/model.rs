@@ -1,3 +1,20 @@
+///
+/// Representation of a compiled surrogate model for expectation value calculations.
+/// After a symbolic propagation, the resulting object is a mapping 
+///
+///            $f : \theta \mapsto tr(U(\theta)^\dagger H U(\theta) \rho)$
+///
+/// for some parameters $\theta$. 
+/// The parameter values are stored in an LUT for fast lookup, and the evaluation 
+/// of the mapping is parallelized. In order to make the evaluations faster, 
+/// the terms are structurally pruned to remove zero contributions.
+///
+/// Surrogate models can be saved to disk and loaded back into memory, allowing for 
+/// the reuse of the same model for different optimization runs. 
+///
+/// This file contains both the trait definitions for the surrogate model, as well as 
+/// impls for Pauli and Majorana surrogate models.
+///
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::fs::OpenOptions;
 
@@ -60,18 +77,12 @@ impl<M: AbstractTerm> SurrogateModel<M> {
     }
 
     /// Evaluate for many parameter assignments at once. Parallelizes across
-    /// assignments (each of which still parallelizes across terms/monomials
-    /// internally, rayon's work stealing handles the nesting), which is the
-    /// natural shape for the build-once/evaluate-many workloads this model
-    /// exists for.
+    /// assignments.
     pub fn evaluate_batch(&self, param_sets: &[Vec<f64>]) -> Vec<f64> {
         param_sets.par_iter().map(|p| self.evaluate(p)).collect()
     }
 
-    /// Flat evaluation LUT indexed by `2 * param_index` (`cos(theta_i)`) /
-    /// `2 * param_index + 1` (`sin(theta_i)`). `SymbolicCoeff::evaluate` walks
-    /// each monomial's factor run, reads each parameter index directly from the
-    /// factor, and raises the matching `cos`/`sin` to the recorded powers.
+    /// Build a lookup table of cos/sin values for the given parameter angles.
     fn make_lut(params: &[f64]) -> Vec<f64> {
         params.iter().flat_map(|&t| [t.cos(), t.sin()]).collect()
     }
@@ -87,8 +98,7 @@ impl<M: AbstractTerm> SurrogateModel<M> {
     /// serialized and gzip-compressed **independently and in parallel**, then
     /// the header, a shard-length index, and the compressed blobs are written
     /// sequentially. This makes `save` scale with cores instead of walking every
-    /// monomial single-threaded. The format is **not** backward compatible with
-    /// pre-sharding files. `load` rejects them and the model must be rebuilt.
+    /// monomial single-threaded. 
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let first = self.terms.first();
         let key_stride: u64 = first.map_or(0, |t| t.term.to_bytes_vec().len() as u64);

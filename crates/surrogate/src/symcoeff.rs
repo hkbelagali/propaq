@@ -5,22 +5,9 @@ use std::sync::Arc;
 use num_complex::Complex64;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
-
 use propaq_core::coeff::CoeffRepr;
 
 use crate::interning::Generation;
-
-/// Below this monomial count, use the simple sort-based merge. Benchmarking
-/// showed the hash-based merge only reliably wins with substantial exact
-/// factor-pattern duplication (~100x+ repeats); with little/no duplication it
-/// is comparable or slower at every scale tested, and gets relatively worse
-/// as the count grows (larger hashtables mean more cache misses, while sort's
-/// O(log k) term grows very slowly). Set conservatively high so only the rare
-/// pathological terms (which dominate wall-clock time, and are more likely to
-/// carry real duplication after surviving many merges) take the hash path,
-/// while the common case keeps the well-tested sort with no regression risk.
-const HASH_MERGE_THRESHOLD: usize = 100_000;
 
 /// A trig factor is packed into a single `u32`:
 /// `[param:16 | cos_pow:8 | sin_pow:8]`. The **parameter index** lives in the
@@ -216,22 +203,24 @@ fn merge_runs(dst: &mut Vec<u32>, a: &[u32], b: &[u32]) {
 /// support trie / exponent dictionary (`(0, 0)` = empty base, before any
 /// reconciliation). `base_freq` caches the base's `Σ` powers so the hot path
 /// recovers a monomial's frequency as `base_freq + Σ extension powers` **without
-/// dereferencing the tables**. `end` is a u64 factor-count offset of this
+/// dereferencing the tables**. `end` is a `u32` factor-count offset of this
 /// monomial's *extension* in the arena (its start is the previous header's
-/// `end`, or 0 for the first).
+/// `end`, or 0 for the first). The extension only ever holds factors branched
+/// since the last flush (reconcile clears it), so it never approaches the `u32`
+/// range.
 #[derive(Clone, Copy, Debug)]
 struct MonoHead {
     scalar: f64,
     base_support: u32,
     base_exp: u32,
     base_freq: u32,
-    end: u64,
+    end: u32,
 }
 
 impl MonoHead {
     /// A monomial whose base is empty (all factors live in the extension).
     #[inline]
-    fn flat(scalar: f64, end: u64) -> Self {
+    fn flat(scalar: f64, end: u32) -> Self {
         MonoHead { scalar, base_support: 0, base_exp: 0, base_freq: 0, end }
     }
 }
@@ -485,7 +474,7 @@ impl SymbolicCoeff {
         debug_assert!(run_is_canonical(run), "factor run must be canonical (ascending params)");
         self.realize();
         self.factors.extend_from_slice(run);
-        self.heads.push(MonoHead::flat(scalar, self.factors.len() as u64));
+        self.heads.push(MonoHead::flat(scalar, self.factors.len() as u32));
     }
 
     /// Append one monomial that already carries a base `(support, exp, freq)`
@@ -507,7 +496,7 @@ impl SymbolicCoeff {
             base_support,
             base_exp,
             base_freq,
-            end: self.factors.len() as u64,
+            end: self.factors.len() as u32,
         });
     }
 
@@ -619,7 +608,7 @@ impl SymbolicCoeff {
                     self.factors.copy_within(start..end, w_fac);
                 }
                 w_fac += len;
-                self.heads[w_head] = MonoHead { end: w_fac as u64, ..head };
+                self.heads[w_head] = MonoHead { end: w_fac as u32, ..head };
                 w_head += 1;
             }
             start = end;
@@ -634,11 +623,9 @@ impl SymbolicCoeff {
     /// matches where they can arise, since destructive cancellation requires a
     /// merge in the first place.
     ///
-    /// Below `HASH_MERGE_THRESHOLD` monomials, sorts an index permutation
-    /// (comparing arena slices) and merges adjacent equal runs (`O(k log k)`,
-    /// cheap for small `k`). Above it, accumulates scalars in a hashmap keyed
-    /// by *borrowed* arena slices (`O(k)` amortized). Either path rebuilds the
-    /// two flat buffers once; there is no per-monomial allocation.
+    /// Sorts an index permutation (comparing arena slices) and merges adjacent
+    /// equal runs (`O(k log k)`), rebuilding the two flat buffers once; there is
+    /// no per-monomial allocation.
     pub fn deduplicate(&mut self) {
         if !self.dirty || self.heads.len() <= 1 {
             self.dirty = false;
@@ -646,78 +633,43 @@ impl SymbolicCoeff {
         }
         self.dirty = false;
 
-        if self.heads.len() < HASH_MERGE_THRESHOLD {
-            let mut order = take_order();
-            order.extend(0..self.heads.len() as u32);
-            // Order by (base_support, base_exp) then the extension run, so all
-            // identical monomials (same base *and* extension) are adjacent.
-            order.sort_unstable_by(|&a, &b| {
-                self.mono_base(a as usize)
-                    .cmp(&self.mono_base(b as usize))
-                    .then_with(|| self.factor_run(a as usize).cmp(self.factor_run(b as usize)))
-            });
+        let mut order = take_order();
+        order.extend(0..self.heads.len() as u32);
+        // Order by (base_support, base_exp) then the extension run, so all
+        // identical monomials (same base *and* extension) are adjacent.
+        order.sort_unstable_by(|&a, &b| {
+            self.mono_base(a as usize)
+                .cmp(&self.mono_base(b as usize))
+                .then_with(|| self.factor_run(a as usize).cmp(self.factor_run(b as usize)))
+        });
 
-            let (mut heads, mut factors) = take_pooled_buffers();
-            heads.reserve(self.heads.len());
-            factors.reserve(self.factors.len());
-            let mut i = 0usize;
-            while i < order.len() {
-                let head = self.heads[order[i] as usize];
-                let base = (head.base_support, head.base_exp);
-                let run = self.factor_run(order[i] as usize);
-                let mut scalar = head.scalar;
-                let mut j = i + 1;
-                while j < order.len()
-                    && self.mono_base(order[j] as usize) == base
-                    && self.factor_run(order[j] as usize) == run
-                {
-                    scalar += self.heads[order[j] as usize].scalar;
-                    j += 1;
-                }
-                if scalar.abs() > 1e-15 {
-                    factors.extend_from_slice(run);
-                    heads.push(MonoHead { scalar, end: factors.len() as u64, ..head });
-                }
-                i = j;
-            }
-            let old_heads = std::mem::replace(&mut self.heads, heads);
-            let old_factors = std::mem::replace(&mut self.factors, factors);
-            return_pooled_buffers(old_heads, old_factors);
-            return_order(order);
-            return;
-        }
-
-        // Key on (base_support, base_exp, extension run); value carries the
-        // summed scalar and the group's base_freq (identical across a group).
-        let mut acc: FxHashMap<(u32, u32, &[u32]), (f64, u32)> = FxHashMap::default();
-        acc.reserve(self.heads.len());
-        let mut start = 0usize;
-        for h in &self.heads {
-            let end = h.end as usize;
-            let slot = acc
-                .entry((h.base_support, h.base_exp, &self.factors[start..end]))
-                .or_insert((0.0, h.base_freq));
-            slot.0 += h.scalar;
-            start = end;
-        }
         let (mut heads, mut factors) = take_pooled_buffers();
-        heads.reserve(acc.len());
+        heads.reserve(self.heads.len());
         factors.reserve(self.factors.len());
-        for ((base_support, base_exp, run), (scalar, base_freq)) in acc {
+        let mut i = 0usize;
+        while i < order.len() {
+            let head = self.heads[order[i] as usize];
+            let base = (head.base_support, head.base_exp);
+            let run = self.factor_run(order[i] as usize);
+            let mut scalar = head.scalar;
+            let mut j = i + 1;
+            while j < order.len()
+                && self.mono_base(order[j] as usize) == base
+                && self.factor_run(order[j] as usize) == run
+            {
+                scalar += self.heads[order[j] as usize].scalar;
+                j += 1;
+            }
             if scalar.abs() > 1e-15 {
                 factors.extend_from_slice(run);
-                heads.push(MonoHead {
-                    scalar,
-                    base_support,
-                    base_exp,
-                    base_freq,
-                    end: factors.len() as u64,
-                });
+                heads.push(MonoHead { scalar, end: factors.len() as u32, ..head });
             }
+            i = j;
         }
         let old_heads = std::mem::replace(&mut self.heads, heads);
         let old_factors = std::mem::replace(&mut self.factors, factors);
         return_pooled_buffers(old_heads, old_factors);
+        return_order(order);
     }
 
     /// Evaluate against a flat LUT indexed by `2 * param` (`cos`) /
@@ -1010,7 +962,7 @@ impl SymbolicCoeff {
             write_incremented(&mut sin_factors, run, param, true);
             sin_heads.push(MonoHead {
                 scalar: head.scalar * branch_phase,
-                end: sin_factors.len() as u64,
+                end: sin_factors.len() as u32,
                 ..*head
             });
         }
@@ -1026,7 +978,7 @@ impl SymbolicCoeff {
             let run = &self.factors[start..end];
             start = end;
             write_incremented(&mut new_factors, run, param, false);
-            new_heads.push(MonoHead { end: new_factors.len() as u64, ..*head });
+            new_heads.push(MonoHead { end: new_factors.len() as u32, ..*head });
         }
         let old_heads = std::mem::replace(&mut self.heads, new_heads);
         let old_factors = std::mem::replace(&mut self.factors, new_factors);
@@ -1141,7 +1093,7 @@ impl CoeffRepr for SymbolicCoeff {
         // General case: materialize both and concatenate monomials.
         self.realize();
         other.realize();
-        let ext_base = self.factors.len() as u64;
+        let ext_base = self.factors.len() as u32;
         self.factors.append(&mut other.factors);
         self.heads.reserve(other.heads.len());
         self.heads.extend(other.heads.iter().map(|h| MonoHead { end: h.end + ext_base, ..*h }));
@@ -1184,12 +1136,6 @@ impl CoeffRepr for SymbolicCoeff {
     #[inline]
     fn post_merge(&mut self) {
         self.deduplicate();
-    }
-
-    /// L1 norm is undefined for symbolic; return 0 to skip coeff-based truncation.
-    #[inline]
-    fn l1_norm(&self) -> f64 {
-        0.0
     }
 
     /// Monomial count is what actually drives memory/CPU cost for symbolic
@@ -1692,12 +1638,12 @@ mod tests {
     }
 
     #[test]
-    fn hash_path_matches_naive_evaluation() {
+    fn dedup_at_scale_matches_naive_evaluation() {
         let n_params = 400;
         let lut = make_lut(n_params);
 
-        // > HASH_MERGE_THRESHOLD monomials with many repeated factor patterns,
-        // inserted in varying order, to exercise the hash-merge path and its
+        // Hundreds of thousands of monomials with many repeated factor patterns,
+        // inserted in varying order, to exercise dedup at scale and its
         // order-independence. i != j always, so each monomial's two branches
         // are at distinct parameter positions.
         let mut c = SymbolicCoeff::default();
@@ -1714,19 +1660,19 @@ mod tests {
             }
         }
         c.dirty = true;
-        assert!(c.monomial_count() >= HASH_MERGE_THRESHOLD, "test setup should exercise the hash path");
+        assert!(c.monomial_count() > 100_000, "test setup should exercise dedup at scale");
 
         let expected = naive_evaluate(&c, &lut);
         c.deduplicate();
         let actual = c.evaluate(&crate::interning::Generation::new(), &lut);
         assert!(
             (actual - expected).abs() < 1e-9,
-            "hash-merge path changed the evaluated value: {actual} vs {expected}"
+            "dedup changed the evaluated value: {actual} vs {expected}"
         );
     }
 
     #[test]
-    fn small_and_large_paths_agree() {
+    fn dedup_matches_naive_at_small_and_large_scale() {
         let lut = make_lut(8);
 
         let base: &[(f64, &[(u32, bool)])] = &[
@@ -1737,18 +1683,17 @@ mod tests {
         let mut small = coeff(base);
         let expected = naive_evaluate(&small, &lut);
         small.deduplicate();
-        assert!(small.monomial_count() < HASH_MERGE_THRESHOLD);
         assert!((small.evaluate(&crate::interning::Generation::new(), &lut) - expected).abs() < 1e-12);
 
         let mut large = coeff(base);
         // Fixed param 3 cos plus a varying param drawn from 4..8 (distinct from
         // 3, within lut range), paired as exactly-cancelling entries.
-        for k in 0..HASH_MERGE_THRESHOLD as u32 {
+        for k in 0..100_000u32 {
             let run = enc(&[(3, false), (4 + (k % 4), true)]);
             large.push_monomial(5.0, &run);
             large.push_monomial(-5.0, &run);
         }
-        assert!(large.monomial_count() >= HASH_MERGE_THRESHOLD);
+        assert!(large.monomial_count() >= 100_000);
         assert!((naive_evaluate(&large, &lut) - expected).abs() < 1e-9);
         large.deduplicate();
         assert!((large.evaluate(&crate::interning::Generation::new(), &lut) - expected).abs() < 1e-9);

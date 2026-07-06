@@ -1,3 +1,9 @@
+///
+/// impl for the Pauli propagator, which works with observables 
+/// represented in the Pauli operator basis. The propagator is 
+/// just a wrapper around the generic `AbstractPropagator`, incorporating 
+/// the Pauli algebra and the Pauli string representation.
+///
 use pyo3::prelude::*;
 
 use propaq_core::propagator::{AbstractPropagator, PropagationResult};

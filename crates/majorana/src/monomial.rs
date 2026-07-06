@@ -1,3 +1,6 @@
+///
+/// Defines the core algebra of Majorana monomials, products of Majorana operators
+///
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use num_complex::Complex64;
@@ -283,9 +286,11 @@ fn compress_to_qubits(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset 
     compress_to_qubits_scalar(modes, n_qubits, offset)
 }
 
-// Each modes word covers 64 mode bits = 32 qubits.
-// Two consecutive modes words interleave into one qubit word:
-//   qubit_word[q] = pext(modes_word[2q], mask) | (pext(modes_word[2q+1], mask) << 32)
+/// We can use BMI2's PEXT instruction to compress 
+/// the even and odd bits of the Majorana mode bitmask quickly.
+/// Each modes word covers 64 mode bits = 32 qubits.
+/// Two consecutive modes words interleave into one qubit word:
+/// qubit_word[q] = pext(modes_word[2q], mask) | (pext(modes_word[2q+1], mask) << 32)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "bmi2")]
 unsafe fn compress_to_qubits_bmi2(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {

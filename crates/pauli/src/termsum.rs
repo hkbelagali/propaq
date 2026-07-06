@@ -1,3 +1,6 @@
+///
+/// Represent a linear combination of Pauli strings with real coefficients.
+///
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
