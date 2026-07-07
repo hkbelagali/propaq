@@ -71,7 +71,10 @@
                                 <a class="variable" href="#MajoranaPropagator.noise">noise</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaPropagator.truncation">truncation</a>
+                                <a class="variable" href="#MajoranaPropagator.schedule">schedule</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaPropagator.truncators">truncators</a>
                         </li>
                 </ul>
 
@@ -92,10 +95,13 @@
                                 <a class="function" href="#PauliPropagator.set_truncation">set_truncation</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliPropagator.truncation">truncation</a>
+                                <a class="variable" href="#PauliPropagator.noise">noise</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliPropagator.noise">noise</a>
+                                <a class="variable" href="#PauliPropagator.truncators">truncators</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#PauliPropagator.schedule">schedule</a>
                         </li>
                 </ul>
 
@@ -110,7 +116,7 @@
                                 <a class="function" href="#AbstractPropagator.set_noise">set_noise</a>
                         </li>
                         <li>
-                                <a class="variable" href="#AbstractPropagator.truncation">truncation</a>
+                                <a class="variable" href="#AbstractPropagator.truncators">truncators</a>
                         </li>
                         <li>
                                 <a class="function" href="#AbstractPropagator.set_truncation">set_truncation</a>
@@ -120,6 +126,42 @@
                         </li>
                         <li>
                                 <a class="function" href="#AbstractPropagator.expectation_value">expectation_value</a>
+                        </li>
+                </ul>
+
+            </li>
+            <li>
+                    <a class="class" href="#PauliSurrogatePropagator">PauliSurrogatePropagator</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#PauliSurrogatePropagator.build">build</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#PauliSurrogatePropagator.set_truncation">set_truncation</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#PauliSurrogatePropagator.truncators">truncators</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#PauliSurrogatePropagator.schedule">schedule</a>
+                        </li>
+                </ul>
+
+            </li>
+            <li>
+                    <a class="class" href="#MajoranaSurrogatePropagator">MajoranaSurrogatePropagator</a>
+                            <ul class="memberlist">
+                        <li>
+                                <a class="function" href="#MajoranaSurrogatePropagator.build">build</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#MajoranaSurrogatePropagator.set_truncation">set_truncation</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaSurrogatePropagator.truncators">truncators</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaSurrogatePropagator.schedule">schedule</a>
                         </li>
                 </ul>
 
@@ -152,11 +194,16 @@
 </span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._abstract</span><span class="w"> </span><span class="kn">import</span> <span class="n">AbstractPropagator</span>
 </span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaPropagator</span> <span class="k">as</span> <span class="n">MajoranaPropagator</span>
 </span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliPropagator</span> <span class="k">as</span> <span class="n">PauliPropagator</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="n">AbstractPropagator</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">MajoranaPropagator</span><span class="p">)</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="n">AbstractPropagator</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">PauliPropagator</span><span class="p">)</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;MajoranaPropagator&quot;</span><span class="p">,</span> <span class="s2">&quot;PauliPropagator&quot;</span><span class="p">,</span> <span class="s2">&quot;AbstractPropagator&quot;</span><span class="p">]</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.surrogate_majorana</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaSurrogatePropagator</span> <span class="k">as</span> <span class="n">MajoranaSurrogatePropagator</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.surrogate_pauli</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliSurrogatePropagator</span> <span class="k">as</span> <span class="n">PauliSurrogatePropagator</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="n">AbstractPropagator</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">MajoranaPropagator</span><span class="p">)</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="n">AbstractPropagator</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">PauliPropagator</span><span class="p">)</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a>    <span class="s2">&quot;MajoranaPropagator&quot;</span><span class="p">,</span> <span class="s2">&quot;PauliPropagator&quot;</span><span class="p">,</span> <span class="s2">&quot;AbstractPropagator&quot;</span><span class="p">,</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;PauliSurrogatePropagator&quot;</span><span class="p">,</span> <span class="s2">&quot;MajoranaSurrogatePropagator&quot;</span><span class="p">,</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="p">]</span>
 </span></pre></div>
 
 
@@ -177,7 +224,11 @@
 
 <ul>
 <li><strong>noise:</strong>  Optional noise model (UniformNoiseModel, GateNoiseModel, or custom).</li>
-<li><strong>truncation:</strong>  Optional TruncationPolicy controlling weight and coefficient cutoffs.</li>
+<li><strong>truncation:</strong>  A list of truncators
+(WeightTruncator, CoefficientTruncator, TermBudget), a single such
+truncator, a legacy TruncationPolicy (decomposed), or None. The
+symbolic-only FrequencyTruncator/MonomialBudget are rejected.</li>
+<li><strong>schedule:</strong>  Optional FlushSchedule controlling the lossless merge cadence.</li>
 <li><strong>n_threads:</strong>  Number of worker threads. Defaults to the system thread count.</li>
 <li><strong>progress_bar:</strong>  Display a tqdm progress bar during propagation.</li>
 <li><strong>logger:</strong>  Optional Logger for verbose JSON Lines event logging.</li>
@@ -255,7 +306,10 @@
     </div>
     <a class="headerlink" href="#MajoranaPropagator.set_truncation"></a>
     
-    
+            <div class="docstring"><p>Replace the truncation pipeline (accepts the same forms as the
+constructor's <code>truncation</code>); the current schedule is preserved.</p>
+</div>
+
 
                             </div>
                             <div id="MajoranaPropagator.noise" class="classattr">
@@ -269,15 +323,30 @@
     
 
                             </div>
-                            <div id="MajoranaPropagator.truncation" class="classattr">
+                            <div id="MajoranaPropagator.schedule" class="classattr">
                                 <div class="attr variable">
-            <span class="name">truncation</span>
+            <span class="name">schedule</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaPropagator.truncation"></a>
+    <a class="headerlink" href="#MajoranaPropagator.schedule"></a>
     
+            <div class="docstring"><p>The flush/merge schedule.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaPropagator.truncators" class="classattr">
+                                <div class="attr variable">
+            <span class="name">truncators</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaPropagator.truncators"></a>
     
+            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
+</div>
+
 
                             </div>
                 </section>
@@ -297,7 +366,10 @@
 
 <ul>
 <li><strong>noise:</strong>  Optional noise model (UniformNoiseModel, GateNoiseModel, or custom).</li>
-<li><strong>truncation:</strong>  Optional TruncationPolicy controlling weight and coefficient cutoffs.</li>
+<li><strong>truncation:</strong>  A list of truncators (WeightTruncator, CoefficientTruncator, TermBudget), a single such
+truncator, a legacy TruncationPolicy (decomposed), or None. The
+symbolic-only FrequencyTruncator/MonomialBudget are rejected.</li>
+<li><strong>schedule:</strong>  Optional FlushSchedule controlling the lossless merge cadence.</li>
 <li><strong>n_threads:</strong>  Number of worker threads. Defaults to the system thread count.</li>
 <li><strong>progress_bar:</strong>  Display a tqdm progress bar during propagation.</li>
 <li><strong>logger:</strong>  Optional Logger for verbose JSON Lines event logging.</li>
@@ -377,20 +449,8 @@
     </div>
     <a class="headerlink" href="#PauliPropagator.set_truncation"></a>
     
-            <div class="docstring"><p>Set the truncation policy for this propagator.</p>
-</div>
-
-
-                            </div>
-                            <div id="PauliPropagator.truncation" class="classattr">
-                                <div class="attr variable">
-            <span class="name">truncation</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliPropagator.truncation"></a>
-    
-            <div class="docstring"><p>The truncation policy used during propagation, if any.</p>
+            <div class="docstring"><p>Replace the truncation pipeline (accepts the same forms as the
+constructor's <code>truncation</code>); the current schedule is preserved.</p>
 </div>
 
 
@@ -408,6 +468,32 @@
 
 
                             </div>
+                            <div id="PauliPropagator.truncators" class="classattr">
+                                <div class="attr variable">
+            <span class="name">truncators</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliPropagator.truncators"></a>
+    
+            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliPropagator.schedule" class="classattr">
+                                <div class="attr variable">
+            <span class="name">schedule</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliPropagator.schedule"></a>
+    
+            <div class="docstring"><p>The flush/merge schedule.</p>
+</div>
+
+
+                            </div>
                 </section>
                 <section id="AbstractPropagator">
                             <input id="AbstractPropagator-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
@@ -420,42 +506,45 @@
 
     </div>
     <a class="headerlink" href="#AbstractPropagator"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator-16"><a href="#AbstractPropagator-16"><span class="linenos">16</span></a><span class="k">class</span><span class="w"> </span><span class="nc">AbstractPropagator</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
-</span><span id="AbstractPropagator-17"><a href="#AbstractPropagator-17"><span class="linenos">17</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Abstract propagator interface.  Concrete examples: MajoranaPropagator, PauliPropagator.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator-18"><a href="#AbstractPropagator-18"><span class="linenos">18</span></a>
-</span><span id="AbstractPropagator-19"><a href="#AbstractPropagator-19"><span class="linenos">19</span></a>    <span class="nd">@property</span>
-</span><span id="AbstractPropagator-20"><a href="#AbstractPropagator-20"><span class="linenos">20</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator-21"><a href="#AbstractPropagator-21"><span class="linenos">21</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">noise</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">UniformNoiseModel</span> <span class="o">|</span> <span class="n">GateNoiseModel</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="AbstractPropagator-22"><a href="#AbstractPropagator-22"><span class="linenos">22</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The current noise model, or None.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator-23"><a href="#AbstractPropagator-23"><span class="linenos">23</span></a>
-</span><span id="AbstractPropagator-24"><a href="#AbstractPropagator-24"><span class="linenos">24</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator-25"><a href="#AbstractPropagator-25"><span class="linenos">25</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_noise</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noise</span><span class="p">:</span> <span class="n">UniformNoiseModel</span> <span class="o">|</span> <span class="n">GateNoiseModel</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="AbstractPropagator-26"><a href="#AbstractPropagator-26"><span class="linenos">26</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the noise model.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator-27"><a href="#AbstractPropagator-27"><span class="linenos">27</span></a>
-</span><span id="AbstractPropagator-28"><a href="#AbstractPropagator-28"><span class="linenos">28</span></a>    <span class="nd">@property</span>
-</span><span id="AbstractPropagator-29"><a href="#AbstractPropagator-29"><span class="linenos">29</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator-30"><a href="#AbstractPropagator-30"><span class="linenos">30</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">truncation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TruncationPolicy</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="AbstractPropagator-31"><a href="#AbstractPropagator-31"><span class="linenos">31</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The current truncation policy, or None.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator-32"><a href="#AbstractPropagator-32"><span class="linenos">32</span></a>
-</span><span id="AbstractPropagator-33"><a href="#AbstractPropagator-33"><span class="linenos">33</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator-34"><a href="#AbstractPropagator-34"><span class="linenos">34</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_truncation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">truncation</span><span class="p">:</span> <span class="n">TruncationPolicy</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="AbstractPropagator-35"><a href="#AbstractPropagator-35"><span class="linenos">35</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the truncation policy.&quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator-36"><a href="#AbstractPropagator-36"><span class="linenos">36</span></a>
-</span><span id="AbstractPropagator-37"><a href="#AbstractPropagator-37"><span class="linenos">37</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator-38"><a href="#AbstractPropagator-38"><span class="linenos">38</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">propagate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-</span><span id="AbstractPropagator-39"><a href="#AbstractPropagator-39"><span class="linenos">39</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Back-propagate *circuit* through *observable* in the Heisenberg picture.</span>
-</span><span id="AbstractPropagator-40"><a href="#AbstractPropagator-40"><span class="linenos">40</span></a>
-</span><span id="AbstractPropagator-41"><a href="#AbstractPropagator-41"><span class="linenos">41</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
-</span><span id="AbstractPropagator-42"><a href="#AbstractPropagator-42"><span class="linenos">42</span></a><span class="sd">        binary file at that path.</span>
-</span><span id="AbstractPropagator-43"><a href="#AbstractPropagator-43"><span class="linenos">43</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="AbstractPropagator-44"><a href="#AbstractPropagator-44"><span class="linenos">44</span></a>
-</span><span id="AbstractPropagator-45"><a href="#AbstractPropagator-45"><span class="linenos">45</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator-46"><a href="#AbstractPropagator-46"><span class="linenos">46</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">expectation_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PropagationResult</span><span class="p">:</span>
-</span><span id="AbstractPropagator-47"><a href="#AbstractPropagator-47"><span class="linenos">47</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the expectation value of *observable* after evolving through *circuit*.</span>
-</span><span id="AbstractPropagator-48"><a href="#AbstractPropagator-48"><span class="linenos">48</span></a>
-</span><span id="AbstractPropagator-49"><a href="#AbstractPropagator-49"><span class="linenos">49</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
-</span><span id="AbstractPropagator-50"><a href="#AbstractPropagator-50"><span class="linenos">50</span></a><span class="sd">        binary file at that path.</span>
-</span><span id="AbstractPropagator-51"><a href="#AbstractPropagator-51"><span class="linenos">51</span></a><span class="sd">        &quot;&quot;&quot;</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator-18"><a href="#AbstractPropagator-18"><span class="linenos">18</span></a><span class="k">class</span><span class="w"> </span><span class="nc">AbstractPropagator</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+</span><span id="AbstractPropagator-19"><a href="#AbstractPropagator-19"><span class="linenos">19</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Abstract propagator interface.  Concrete examples: MajoranaPropagator, PauliPropagator.&quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator-20"><a href="#AbstractPropagator-20"><span class="linenos">20</span></a>
+</span><span id="AbstractPropagator-21"><a href="#AbstractPropagator-21"><span class="linenos">21</span></a>    <span class="nd">@property</span>
+</span><span id="AbstractPropagator-22"><a href="#AbstractPropagator-22"><span class="linenos">22</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator-23"><a href="#AbstractPropagator-23"><span class="linenos">23</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">noise</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">UniformNoiseModel</span> <span class="o">|</span> <span class="n">GateNoiseModel</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="AbstractPropagator-24"><a href="#AbstractPropagator-24"><span class="linenos">24</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The current noise model, or None.&quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator-25"><a href="#AbstractPropagator-25"><span class="linenos">25</span></a>
+</span><span id="AbstractPropagator-26"><a href="#AbstractPropagator-26"><span class="linenos">26</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator-27"><a href="#AbstractPropagator-27"><span class="linenos">27</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_noise</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noise</span><span class="p">:</span> <span class="n">UniformNoiseModel</span> <span class="o">|</span> <span class="n">GateNoiseModel</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="AbstractPropagator-28"><a href="#AbstractPropagator-28"><span class="linenos">28</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the noise model.&quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator-29"><a href="#AbstractPropagator-29"><span class="linenos">29</span></a>
+</span><span id="AbstractPropagator-30"><a href="#AbstractPropagator-30"><span class="linenos">30</span></a>    <span class="nd">@property</span>
+</span><span id="AbstractPropagator-31"><a href="#AbstractPropagator-31"><span class="linenos">31</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator-32"><a href="#AbstractPropagator-32"><span class="linenos">32</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">truncators</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">]:</span>
+</span><span id="AbstractPropagator-33"><a href="#AbstractPropagator-33"><span class="linenos">33</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The current truncation pipeline.&quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator-34"><a href="#AbstractPropagator-34"><span class="linenos">34</span></a>
+</span><span id="AbstractPropagator-35"><a href="#AbstractPropagator-35"><span class="linenos">35</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator-36"><a href="#AbstractPropagator-36"><span class="linenos">36</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_truncation</span><span class="p">(</span>
+</span><span id="AbstractPropagator-37"><a href="#AbstractPropagator-37"><span class="linenos">37</span></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="AbstractPropagator-38"><a href="#AbstractPropagator-38"><span class="linenos">38</span></a>        <span class="n">truncation</span><span class="p">:</span> <span class="nb">object</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="n">TruncationPolicy</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="AbstractPropagator-39"><a href="#AbstractPropagator-39"><span class="linenos">39</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="AbstractPropagator-40"><a href="#AbstractPropagator-40"><span class="linenos">40</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the truncation pipeline.&quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator-41"><a href="#AbstractPropagator-41"><span class="linenos">41</span></a>
+</span><span id="AbstractPropagator-42"><a href="#AbstractPropagator-42"><span class="linenos">42</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator-43"><a href="#AbstractPropagator-43"><span class="linenos">43</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">propagate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+</span><span id="AbstractPropagator-44"><a href="#AbstractPropagator-44"><span class="linenos">44</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Back-propagate *circuit* through *observable* in the Heisenberg picture.</span>
+</span><span id="AbstractPropagator-45"><a href="#AbstractPropagator-45"><span class="linenos">45</span></a>
+</span><span id="AbstractPropagator-46"><a href="#AbstractPropagator-46"><span class="linenos">46</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
+</span><span id="AbstractPropagator-47"><a href="#AbstractPropagator-47"><span class="linenos">47</span></a><span class="sd">        binary file at that path.</span>
+</span><span id="AbstractPropagator-48"><a href="#AbstractPropagator-48"><span class="linenos">48</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="AbstractPropagator-49"><a href="#AbstractPropagator-49"><span class="linenos">49</span></a>
+</span><span id="AbstractPropagator-50"><a href="#AbstractPropagator-50"><span class="linenos">50</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator-51"><a href="#AbstractPropagator-51"><span class="linenos">51</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">expectation_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PropagationResult</span><span class="p">:</span>
+</span><span id="AbstractPropagator-52"><a href="#AbstractPropagator-52"><span class="linenos">52</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the expectation value of *observable* after evolving through *circuit*.</span>
+</span><span id="AbstractPropagator-53"><a href="#AbstractPropagator-53"><span class="linenos">53</span></a>
+</span><span id="AbstractPropagator-54"><a href="#AbstractPropagator-54"><span class="linenos">54</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
+</span><span id="AbstractPropagator-55"><a href="#AbstractPropagator-55"><span class="linenos">55</span></a><span class="sd">        binary file at that path.</span>
+</span><span id="AbstractPropagator-56"><a href="#AbstractPropagator-56"><span class="linenos">56</span></a><span class="sd">        &quot;&quot;&quot;</span>
 </span></pre></div>
 
 
@@ -472,10 +561,10 @@
 
     </div>
     <a class="headerlink" href="#AbstractPropagator.noise"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.noise-19"><a href="#AbstractPropagator.noise-19"><span class="linenos">19</span></a>    <span class="nd">@property</span>
-</span><span id="AbstractPropagator.noise-20"><a href="#AbstractPropagator.noise-20"><span class="linenos">20</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator.noise-21"><a href="#AbstractPropagator.noise-21"><span class="linenos">21</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">noise</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">UniformNoiseModel</span> <span class="o">|</span> <span class="n">GateNoiseModel</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="AbstractPropagator.noise-22"><a href="#AbstractPropagator.noise-22"><span class="linenos">22</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The current noise model, or None.&quot;&quot;&quot;</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.noise-21"><a href="#AbstractPropagator.noise-21"><span class="linenos">21</span></a>    <span class="nd">@property</span>
+</span><span id="AbstractPropagator.noise-22"><a href="#AbstractPropagator.noise-22"><span class="linenos">22</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator.noise-23"><a href="#AbstractPropagator.noise-23"><span class="linenos">23</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">noise</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">UniformNoiseModel</span> <span class="o">|</span> <span class="n">GateNoiseModel</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="AbstractPropagator.noise-24"><a href="#AbstractPropagator.noise-24"><span class="linenos">24</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The current noise model, or None.&quot;&quot;&quot;</span>
 </span></pre></div>
 
 
@@ -496,9 +585,9 @@
 
     </div>
     <a class="headerlink" href="#AbstractPropagator.set_noise"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.set_noise-24"><a href="#AbstractPropagator.set_noise-24"><span class="linenos">24</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator.set_noise-25"><a href="#AbstractPropagator.set_noise-25"><span class="linenos">25</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_noise</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noise</span><span class="p">:</span> <span class="n">UniformNoiseModel</span> <span class="o">|</span> <span class="n">GateNoiseModel</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="AbstractPropagator.set_noise-26"><a href="#AbstractPropagator.set_noise-26"><span class="linenos">26</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the noise model.&quot;&quot;&quot;</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.set_noise-26"><a href="#AbstractPropagator.set_noise-26"><span class="linenos">26</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator.set_noise-27"><a href="#AbstractPropagator.set_noise-27"><span class="linenos">27</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_noise</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">noise</span><span class="p">:</span> <span class="n">UniformNoiseModel</span> <span class="o">|</span> <span class="n">GateNoiseModel</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="AbstractPropagator.set_noise-28"><a href="#AbstractPropagator.set_noise-28"><span class="linenos">28</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the noise model.&quot;&quot;&quot;</span>
 </span></pre></div>
 
 
@@ -507,23 +596,23 @@
 
 
                             </div>
-                            <div id="AbstractPropagator.truncation" class="classattr">
-                                        <input id="AbstractPropagator.truncation-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+                            <div id="AbstractPropagator.truncators" class="classattr">
+                                        <input id="AbstractPropagator.truncators-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr variable">
-            <span class="name">truncation</span><span class="annotation">: <a href="_rust_core.html#TruncationPolicy">propaq._rust_core.TruncationPolicy</a> | None</span>
+            <span class="name">truncators</span><span class="annotation">: list[object]</span>
 
-                <label class="view-source-button" for="AbstractPropagator.truncation-view-source"><span>View Source</span></label>
+                <label class="view-source-button" for="AbstractPropagator.truncators-view-source"><span>View Source</span></label>
 
     </div>
-    <a class="headerlink" href="#AbstractPropagator.truncation"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.truncation-28"><a href="#AbstractPropagator.truncation-28"><span class="linenos">28</span></a>    <span class="nd">@property</span>
-</span><span id="AbstractPropagator.truncation-29"><a href="#AbstractPropagator.truncation-29"><span class="linenos">29</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator.truncation-30"><a href="#AbstractPropagator.truncation-30"><span class="linenos">30</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">truncation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TruncationPolicy</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="AbstractPropagator.truncation-31"><a href="#AbstractPropagator.truncation-31"><span class="linenos">31</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The current truncation policy, or None.&quot;&quot;&quot;</span>
+    <a class="headerlink" href="#AbstractPropagator.truncators"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.truncators-30"><a href="#AbstractPropagator.truncators-30"><span class="linenos">30</span></a>    <span class="nd">@property</span>
+</span><span id="AbstractPropagator.truncators-31"><a href="#AbstractPropagator.truncators-31"><span class="linenos">31</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator.truncators-32"><a href="#AbstractPropagator.truncators-32"><span class="linenos">32</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">truncators</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">]:</span>
+</span><span id="AbstractPropagator.truncators-33"><a href="#AbstractPropagator.truncators-33"><span class="linenos">33</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;The current truncation pipeline.&quot;&quot;&quot;</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>The current truncation policy, or None.</p>
+            <div class="docstring"><p>The current truncation pipeline.</p>
 </div>
 
 
@@ -534,19 +623,22 @@
                     <div class="decorator decorator-abstractmethod">@abstractmethod</div>
 
         <span class="def">def</span>
-        <span class="name">set_truncation</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="bp">self</span>,</span><span class="param">	<span class="n">truncation</span><span class="p">:</span> <span class="n"><a href="_rust_core.html#TruncationPolicy">propaq._rust_core.TruncationPolicy</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+        <span class="name">set_truncation</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="bp">self</span>,</span><span class="param">	<span class="n">truncation</span><span class="p">:</span> <span class="nb">object</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="n"><a href="_rust_core.html#TruncationPolicy">propaq._rust_core.TruncationPolicy</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
 
                 <label class="view-source-button" for="AbstractPropagator.set_truncation-view-source"><span>View Source</span></label>
 
     </div>
     <a class="headerlink" href="#AbstractPropagator.set_truncation"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.set_truncation-33"><a href="#AbstractPropagator.set_truncation-33"><span class="linenos">33</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator.set_truncation-34"><a href="#AbstractPropagator.set_truncation-34"><span class="linenos">34</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_truncation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">truncation</span><span class="p">:</span> <span class="n">TruncationPolicy</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="AbstractPropagator.set_truncation-35"><a href="#AbstractPropagator.set_truncation-35"><span class="linenos">35</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the truncation policy.&quot;&quot;&quot;</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.set_truncation-35"><a href="#AbstractPropagator.set_truncation-35"><span class="linenos">35</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator.set_truncation-36"><a href="#AbstractPropagator.set_truncation-36"><span class="linenos">36</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">set_truncation</span><span class="p">(</span>
+</span><span id="AbstractPropagator.set_truncation-37"><a href="#AbstractPropagator.set_truncation-37"><span class="linenos">37</span></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="AbstractPropagator.set_truncation-38"><a href="#AbstractPropagator.set_truncation-38"><span class="linenos">38</span></a>        <span class="n">truncation</span><span class="p">:</span> <span class="nb">object</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="n">TruncationPolicy</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="AbstractPropagator.set_truncation-39"><a href="#AbstractPropagator.set_truncation-39"><span class="linenos">39</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="AbstractPropagator.set_truncation-40"><a href="#AbstractPropagator.set_truncation-40"><span class="linenos">40</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace the truncation pipeline.&quot;&quot;&quot;</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>Replace the truncation policy.</p>
+            <div class="docstring"><p>Replace the truncation pipeline.</p>
 </div>
 
 
@@ -563,13 +655,13 @@
 
     </div>
     <a class="headerlink" href="#AbstractPropagator.propagate"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.propagate-37"><a href="#AbstractPropagator.propagate-37"><span class="linenos">37</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator.propagate-38"><a href="#AbstractPropagator.propagate-38"><span class="linenos">38</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">propagate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-</span><span id="AbstractPropagator.propagate-39"><a href="#AbstractPropagator.propagate-39"><span class="linenos">39</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Back-propagate *circuit* through *observable* in the Heisenberg picture.</span>
-</span><span id="AbstractPropagator.propagate-40"><a href="#AbstractPropagator.propagate-40"><span class="linenos">40</span></a>
-</span><span id="AbstractPropagator.propagate-41"><a href="#AbstractPropagator.propagate-41"><span class="linenos">41</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
-</span><span id="AbstractPropagator.propagate-42"><a href="#AbstractPropagator.propagate-42"><span class="linenos">42</span></a><span class="sd">        binary file at that path.</span>
-</span><span id="AbstractPropagator.propagate-43"><a href="#AbstractPropagator.propagate-43"><span class="linenos">43</span></a><span class="sd">        &quot;&quot;&quot;</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.propagate-42"><a href="#AbstractPropagator.propagate-42"><span class="linenos">42</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator.propagate-43"><a href="#AbstractPropagator.propagate-43"><span class="linenos">43</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">propagate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+</span><span id="AbstractPropagator.propagate-44"><a href="#AbstractPropagator.propagate-44"><span class="linenos">44</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Back-propagate *circuit* through *observable* in the Heisenberg picture.</span>
+</span><span id="AbstractPropagator.propagate-45"><a href="#AbstractPropagator.propagate-45"><span class="linenos">45</span></a>
+</span><span id="AbstractPropagator.propagate-46"><a href="#AbstractPropagator.propagate-46"><span class="linenos">46</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
+</span><span id="AbstractPropagator.propagate-47"><a href="#AbstractPropagator.propagate-47"><span class="linenos">47</span></a><span class="sd">        binary file at that path.</span>
+</span><span id="AbstractPropagator.propagate-48"><a href="#AbstractPropagator.propagate-48"><span class="linenos">48</span></a><span class="sd">        &quot;&quot;&quot;</span>
 </span></pre></div>
 
 
@@ -593,13 +685,13 @@ binary file at that path.</p>
 
     </div>
     <a class="headerlink" href="#AbstractPropagator.expectation_value"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.expectation_value-45"><a href="#AbstractPropagator.expectation_value-45"><span class="linenos">45</span></a>    <span class="nd">@abstractmethod</span>
-</span><span id="AbstractPropagator.expectation_value-46"><a href="#AbstractPropagator.expectation_value-46"><span class="linenos">46</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">expectation_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PropagationResult</span><span class="p">:</span>
-</span><span id="AbstractPropagator.expectation_value-47"><a href="#AbstractPropagator.expectation_value-47"><span class="linenos">47</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the expectation value of *observable* after evolving through *circuit*.</span>
-</span><span id="AbstractPropagator.expectation_value-48"><a href="#AbstractPropagator.expectation_value-48"><span class="linenos">48</span></a>
-</span><span id="AbstractPropagator.expectation_value-49"><a href="#AbstractPropagator.expectation_value-49"><span class="linenos">49</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
-</span><span id="AbstractPropagator.expectation_value-50"><a href="#AbstractPropagator.expectation_value-50"><span class="linenos">50</span></a><span class="sd">        binary file at that path.</span>
-</span><span id="AbstractPropagator.expectation_value-51"><a href="#AbstractPropagator.expectation_value-51"><span class="linenos">51</span></a><span class="sd">        &quot;&quot;&quot;</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="AbstractPropagator.expectation_value-50"><a href="#AbstractPropagator.expectation_value-50"><span class="linenos">50</span></a>    <span class="nd">@abstractmethod</span>
+</span><span id="AbstractPropagator.expectation_value-51"><a href="#AbstractPropagator.expectation_value-51"><span class="linenos">51</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">expectation_value</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PropagationResult</span><span class="p">:</span>
+</span><span id="AbstractPropagator.expectation_value-52"><a href="#AbstractPropagator.expectation_value-52"><span class="linenos">52</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute the expectation value of *observable* after evolving through *circuit*.</span>
+</span><span id="AbstractPropagator.expectation_value-53"><a href="#AbstractPropagator.expectation_value-53"><span class="linenos">53</span></a>
+</span><span id="AbstractPropagator.expectation_value-54"><a href="#AbstractPropagator.expectation_value-54"><span class="linenos">54</span></a><span class="sd">        If *filename* is given, the final term sum is saved to a gzip-compressed</span>
+</span><span id="AbstractPropagator.expectation_value-55"><a href="#AbstractPropagator.expectation_value-55"><span class="linenos">55</span></a><span class="sd">        binary file at that path.</span>
+</span><span id="AbstractPropagator.expectation_value-56"><a href="#AbstractPropagator.expectation_value-56"><span class="linenos">56</span></a><span class="sd">        &quot;&quot;&quot;</span>
 </span></pre></div>
 
 
@@ -607,6 +699,173 @@ binary file at that path.</p>
 
 <p>If <em>filename</em> is given, the final term sum is saved to a gzip-compressed
 binary file at that path.</p>
+</div>
+
+
+                            </div>
+                </section>
+                <section id="PauliSurrogatePropagator">
+                    <div class="attr class">
+            
+    <span class="def">class</span>
+    <span class="name">PauliSurrogatePropagator</span>:
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogatePropagator"></a>
+    
+            <div class="docstring"><p>Back-propagates Pauli observables symbolically, producing a compiled model
+that can be re-evaluated for any parameter assignment.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>truncation:</strong>  A list of truncator objects
+(FrequencyTruncator, CoefficientTruncator, WeightTruncator,
+MonomialBudget) applied at each flush, a single such truncator, a
+legacy FrequencyTruncationPolicy (decomposed automatically), or None.</li>
+<li><strong>schedule:</strong>  Optional FlushSchedule controlling flush/merge cadence. Omitted
+-> sensible defaults when any truncator is given, or "flush only at the
+end" when truncation is also None. A legacy policy supplies its own
+schedule unless one is passed explicitly here.</li>
+<li><strong>n_threads:</strong>  Number of worker threads. Defaults to the system thread count.</li>
+<li><strong>progress_bar:</strong>  Display a tqdm progress bar during propagation.</li>
+<li><strong>logger:</strong>  Optional Logger for verbose JSON Lines event logging.</li>
+</ul>
+</div>
+
+
+                            <div id="PauliSurrogatePropagator.build" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">build</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogatePropagator.build"></a>
+    
+            <div class="docstring"><p>Compile the observable back-propagated through the circuit into a SurrogateModel.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>observable:</strong>  The Pauli observable to back-propagate.</li>
+<li><strong>circuit:</strong>  A SurrogatePauliCircuit.</li>
+<li><strong>initial_state:</strong>  Fock state as a bitstring integer (default 0).</li>
+</ul>
+</div>
+
+
+                            </div>
+                            <div id="PauliSurrogatePropagator.set_truncation" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">set_truncation</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">truncation</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogatePropagator.set_truncation"></a>
+    
+            <div class="docstring"><p>Replace the truncation pipeline (accepts the same forms as the
+constructor's <code>truncation</code>). The current schedule is preserved.</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliSurrogatePropagator.truncators" class="classattr">
+                                <div class="attr variable">
+            <span class="name">truncators</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogatePropagator.truncators"></a>
+    
+            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliSurrogatePropagator.schedule" class="classattr">
+                                <div class="attr variable">
+            <span class="name">schedule</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogatePropagator.schedule"></a>
+    
+            <div class="docstring"><p>The flush/merge schedule.</p>
+</div>
+
+
+                            </div>
+                </section>
+                <section id="MajoranaSurrogatePropagator">
+                    <div class="attr class">
+            
+    <span class="def">class</span>
+    <span class="name">MajoranaSurrogatePropagator</span>:
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogatePropagator"></a>
+    
+            <div class="docstring"><p>Back-propagates Majorana observables symbolically.</p>
+</div>
+
+
+                            <div id="MajoranaSurrogatePropagator.build" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">build</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">circuit</span>, </span><span class="param"><span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogatePropagator.build"></a>
+    
+    
+
+                            </div>
+                            <div id="MajoranaSurrogatePropagator.set_truncation" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">set_truncation</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">truncation</span><span class="o">=</span><span class="kc">None</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogatePropagator.set_truncation"></a>
+    
+            <div class="docstring"><p>Replace the truncation pipeline (accepts the same forms as the
+constructor's <code>truncation</code>). The current schedule is preserved.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaSurrogatePropagator.truncators" class="classattr">
+                                <div class="attr variable">
+            <span class="name">truncators</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogatePropagator.truncators"></a>
+    
+            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaSurrogatePropagator.schedule" class="classattr">
+                                <div class="attr variable">
+            <span class="name">schedule</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogatePropagator.schedule"></a>
+    
+            <div class="docstring"><p>The flush/merge schedule.</p>
 </div>
 
 
