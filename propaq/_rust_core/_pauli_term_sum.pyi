@@ -66,7 +66,7 @@ class PauliTermSum:
         Stream terms from a file and merge them into this sum one at a time.
 
         Coefficients are accumulated for strings already present (same semantics as merge()).
-        Unlike from_file(), this does not allocate a temporary map — terms are inserted
+        Unlike from_file(), this does not allocate a temporary map, rather terms are inserted
         directly as they are read.
 
         Arguments:

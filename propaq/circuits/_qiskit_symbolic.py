@@ -1,12 +1,5 @@
-"""Shared helpers for converting parameterized Qiskit gate angles into chains of
-propaq surrogate rotations sharing a single generator.
-
-A gate angle that is an affine (real-linear) combination of Qiskit `Parameter`s,
-e.g. `2*theta + phi + 1`, can be split into a chain of rotations about the *same*
-generator `G`, since `exp(-i(a+b)G) = exp(-iaG) * exp(-ibG)` for any `a`, `b`.
-`SurrogateRotation.param_index` has no per-rotation scale factor, so each term of
-that chain (one per free Parameter, plus one for the constant residual) gets its
-own parameter slot; identical `(Parameter, scale)` pairs reuse the same slot.
+"""
+Helpers for qiskit conversion
 """
 
 from dataclasses import dataclass
@@ -115,21 +108,9 @@ def expand_affine_rotation(
     if not terms and offset == 0.0:
         return []
 
-    # One (param_index, angle) spec per rotation in the chain. Each free-Parameter
-    # component becomes a *symbolic* rotation (its value is resolved at evaluate
-    # time); the constant residual becomes a *numeric* rotation baked in now.
     specs: list[tuple[int | None, float | None]] = [
         (pool.index_for(parameter, slope), None) for parameter, slope in terms
     ]
-    # The constant residual must be numeric, NOT a symbolic parameter slot. A
-    # symbolic factor is written into every monomial's mask and counts toward its
-    # frequency; a numeric angle is folded straight into the scalar, leaving the
-    # mask untouched. Turning constants (and therefore whole purely-numeric gates,
-    # which are offset-only) into symbolic slots makes every fixed rotation branch
-    # combinatorially with distinct masks that never deduplicate — memory explodes
-    # even though nothing about the term is actually parameterized. Emit it when
-    # nonzero, or when there is no symbolic component at all (a pure numeric gate
-    # must still act).
     if offset != 0.0 or not specs:
         specs.append((None, offset))
 

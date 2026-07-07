@@ -155,27 +155,6 @@ from .models import (
 from .noise import (
     FrequencyTruncationPolicy as FrequencyTruncationPolicy,
 )
-from .truncation import (
-    Truncator as Truncator,
-)
-from .truncation import (
-    FlushSchedule as FlushSchedule,
-)
-from .truncation import (
-    FrequencyTruncator as FrequencyTruncator,
-)
-from .truncation import (
-    CoefficientTruncator as CoefficientTruncator,
-)
-from .truncation import (
-    WeightTruncator as WeightTruncator,
-)
-from .truncation import (
-    TermBudget as TermBudget,
-)
-from .truncation import (
-    MonomialBudget as MonomialBudget,
-)
 from .propagators import (
     MajoranaPropagator as MajoranaPropagator,
 )
@@ -187,4 +166,25 @@ from .propagators import (
 )
 from .propagators import (
     PauliSurrogatePropagator as PauliSurrogatePropagator,
+)
+from .truncation import (
+    CoefficientTruncator as CoefficientTruncator,
+)
+from .truncation import (
+    FlushSchedule as FlushSchedule,
+)
+from .truncation import (
+    FrequencyTruncator as FrequencyTruncator,
+)
+from .truncation import (
+    MonomialBudget as MonomialBudget,
+)
+from .truncation import (
+    TermBudget as TermBudget,
+)
+from .truncation import (
+    Truncator as Truncator,
+)
+from .truncation import (
+    WeightTruncator as WeightTruncator,
 )

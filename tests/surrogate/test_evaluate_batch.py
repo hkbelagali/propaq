@@ -1,8 +1,5 @@
-"""Batch evaluation of compiled surrogate models: `evaluate_batch` must agree
-with per-assignment `evaluate`, both on the raw Rust models and through
-`VariationalSurrogateModel`.
-
-All imports come from the public Python API (propaq.*) only.
+"""
+Batch evaluation of compiled surrogate models
 """
 
 import pytest

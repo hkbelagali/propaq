@@ -1,3 +1,6 @@
+///
+/// Legacy frequency truncation policy
+///
 use pyo3::prelude::*;
 
 use propaq_core::truncators::{
@@ -7,31 +10,13 @@ use propaq_core::truncators::{
 const DEFAULT_MAX_TERMS: usize = 10_000_000;
 const DEFAULT_MAX_MONOMIALS: usize = 10_000_000;
 const DEFAULT_MIN_MONOMIALS: usize = 5_000_000;
-/// Default finer merge cadence: once this many terms accumulate in the outboxes
+/// Default finer merge cadence - once this many terms accumulate in the outboxes
 /// since the last flush, do a lossless merge (dedup duplicate Pauli strings into
 /// the maps) without truncating. Smaller than the truncation window (default
 /// `DEFAULT_MAX_TERMS` = 10M) so several merges happen per truncation, keeping
 /// within-window peak near the unique-term count instead of the path count.
-///
-/// The mechanism was validated in `cluster_bench` (28-thread Xeon, 22 qubits,
-/// monomial-only truncation): enabling the finer cadence cut peak RSS ~3×
-/// (≈1.54 GB → ≈0.53 GB) and wall time ~30% at identical monomial count, since
-/// the collapsed duplicate Pauli strings never blow up into the path count.
-/// 2M is calibrated for the design-scale 10M window; assign
-/// `policy.merge_max_terms = None` to disable.
 const DEFAULT_MERGE_MAX_TERMS: usize = 2_000_000;
 
-/// Legacy all-in-one truncation policy for surrogate propagation, kept for
-/// backward compatibility. New code should use the composable truncator list
-/// (`FrequencyTruncator`/`CoefficientTruncator`/`WeightTruncator`/`TermBudget`/
-/// `MonomialBudget`) + `FlushSchedule`; this policy `decompose`s into exactly
-/// that internally.
-///
-/// - `max_frequency` → `FrequencyTruncator`
-/// - `weight_cutoff` → `WeightTruncator`
-/// - `truncation_range` (min_terms, max_terms) → `TermBudget`
-/// - `monomial_range` (min_monomials, max_monomials) → `MonomialBudget`
-/// - `merge_max_terms` → `FlushSchedule`
 #[pyclass(module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct FrequencyTruncationPolicy {

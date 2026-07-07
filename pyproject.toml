@@ -61,7 +61,7 @@ docs = [
 python-source = "."
 module-name = "propaq._rust_core"
 manifest-path = "crates/ext/Cargo.toml"
-features = ["pyo3/extension-module"]
+features = ["extension-module"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -109,4 +109,3 @@ show_missing = true
 
 [tool.pdoc]
 docformat = "google"
-

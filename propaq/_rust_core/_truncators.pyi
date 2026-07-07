@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 class FlushSchedule:
     """Flush/merge scheduling (the cadence half of truncation).
 
@@ -18,7 +17,7 @@ class FlushSchedule:
 class FrequencyTruncator:
     """Drop monomials whose frequency (trig-factor count) exceeds ``frequency``.
 
-    Surrogate-only — the numerical propagator rejects it. ``None`` = no limit.
+    Surrogate-only, the numerical propagator rejects it. ``None`` = no limit.
     """
 
     frequency: int | None

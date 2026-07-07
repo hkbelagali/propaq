@@ -40,7 +40,7 @@ class MajoranaPropagator:
         Arguments:
             noise: Optional noise model. Use UniformNoiseModel for depolarising noise, or
                 wrap a custom duck-typed model in GateNoiseModel.
-            truncation: The truncation pipeline — a list of truncators
+            truncation: The truncation pipeline, a list of truncators
                 (WeightTruncator/CoefficientTruncator/TermBudget), a single such
                 truncator, a legacy TruncationPolicy (decomposed), or None. The
                 symbolic-only FrequencyTruncator/MonomialBudget are rejected.

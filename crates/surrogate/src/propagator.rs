@@ -1,3 +1,45 @@
+///
+/// impl for the surrogate/symbolic propagator! 
+/// 
+/// This propagator features specific design on top of 
+/// the existing shard-based multithreading. Specifically, 
+/// it employs nested parallelism, to process terms across 
+/// threads, and parallely within each thread.
+///
+/// The major difference between symbolic and numerical propagator 
+/// is the combinatorial explostion of terms in the symbolic propagator. 
+/// This is because we can merge the same term with different numerical 
+/// coefficients, but naively merging symbolic coefficients is not possible 
+/// because they might consist of different paths. 
+///
+/// Symbolic coefficients can be compactly represented as 
+///             \sum_i c_i \prod_j sin(\theta_j)^{a_j} cos(\theta_j)^{b_j}
+/// 
+/// The coefficients c_i are numerical, and the monomial attributes 
+/// j, a_j and b_j fit into a u32. These are stored in a SoA 
+/// (structure of arrays) format, and coefficients lie in a shared arena. 
+///
+/// In order to alleviate the combinatorial explosion of distinct paths, 
+/// the monomials are factored into their support (parameters they touch) 
+/// and exponents. This reveals an invariant - the support is always 
+/// an ascending list of parameter indices, and ideally stored as a 
+/// trie. This mitigates the combinatorial explosion of distinct paths, 
+/// and allows for efficient merging. The support is interned into 
+/// the trie, and the exponents are stored in pairs in a separate 
+/// container. Therefore, a global trie is maintained for the entire 
+/// propagation, shared across threads. It is updated at every flush, 
+/// during which the monomials are reconciled into a new generation of the 
+/// trie. This must be done serially, but the subsequent deduplication of 
+/// the coefficients is done in parallel.
+///
+/// For circuits with primarily numerical parameters and a few symbolic 
+/// parameters, deep-copying the symbolic history of the coefficients 
+/// is wasteful and unnecessary, since the history is unchanged from the 
+/// action of an anticommuting numerical gate. Therefore, the propagator 
+/// involves a deferred realization scheme, in which the symbolic history
+/// is only realized in memory when a term anticommutes with a symbolic 
+/// gate. By doing so, the propagator can avoid significant memory overhead.
+///
 use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
 
@@ -104,11 +146,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
     }
 
     /// Advance the interning generation: fold every live coefficient's extension
-    /// into a fresh generation, replacing base ids and clearing extensions. The
-    /// caller must have already flushed outboxes into the partition maps, so all
-    /// live coefficients are reachable. Interning is single-threaded (one shared
-    /// generation, via `for_each_coeff_mut`); the follow-up per-coefficient dedup
-    /// is independent and runs in parallel (via `par_for_each_coeff_mut`).
+    /// into a fresh generation, replacing base ids and clearing extensions. 
     fn reconcile(&mut self) {
         let old = std::mem::take(&mut self.generation);
         let mut new = Generation::new();
@@ -232,8 +270,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 layer.iter().map(|rot_obj| -> PyResult<(M, GateParam, bool, Option<usize>)> {
                     let rot = rot_obj.bind(py);
                     let generator: M = rot.getattr("generator")?.extract()?;
-                    // Inject the look-ahead cap into symbolic params; numeric
-                    // rotations never change frequency, so they're left as-is.
+                    // Inject the look-ahead cap into symbolic params
                     let param = match SymbolicCoeff::extract_gate_param(rot)? {
                         GateParam::Symbolic { param, .. } => {
                             GateParam::Symbolic { param, prune_freq }
@@ -434,51 +471,6 @@ pub struct TruncationOutcome {
 }
 
 /// Apply the resolved truncation config to `propagator`'s current live state.
-/// Assumes the caller has already flushed outboxes into partition maps
-/// (`AbstractPropagator::flush_outboxes_to_maps`) if that's needed. This
-/// only touches what's already live in `propagator`'s maps.
-///
-/// Two independent stages:
-///
-/// 1. Dedup, plus (once term count reaches `truncation_range.0`) an
-///    optional `max_frequency` trim and `weight_cutoff` term retain.
-/// 2. Independently, if a `monomial_range` is configured and the live
-///    monomial count still exceeds `monomial_range.1` (`max`) after stage 1,
-///    remove monomials at the single highest frequency currently present,
-//     never anything lower. The *target* is `max`, not `monomial_range.0`
-///    (`min`): the top-frequency bucket is removed in full only if doing so
-///    doesn't remove more than needed to reach `max`; otherwise only enough
-///    of it is removed (an arbitrary subset of the tied top frequency,
-///    since frequency alone, and not scalar magnitude, is this crate's
-///    existing pruning signal; see `trim_high_frequency`) to land exactly
-///    at `max`. `min` is not a target here (see `monomial_removal_budget`);
-///    a `min > max` policy is rejected by a `debug_assert` rather than
-///    handled at runtime. If the whole top-frequency bucket is itself smaller
-///    than what's needed to reach `max`, it's still removed in full. Not
-///    gated behind stage 1's term-count floor: monomial count can explode
-///    with comparatively few live terms, so it needs its own trigger.
-///
-///    This deliberately only ever erodes one frequency level per call
-///    rather than searching for a cutoff that reaches the floor in one
-///    shot: a fast-growing run may need several consecutive flushes to
-///    fully erode a deep distribution, each cheap and predictable, rather
-///    than one large adaptive cut that might remove a lot of only
-///    moderately-high-frequency data along with the truly extreme end.
-///
-/// Extracted as a standalone function (rather than inlined in
-/// `SurrogatePropagator::flush_and_maybe_truncate`) so tooling that drives
-/// an `AbstractPropagator` directly, without going through the
-/// PyO3-circuit-driven `build()` entrypoint, e.g. `bin/cluster_bench`
-/// replicates the exact same flush behavior instead of a hand-rolled copy
-/// that could drift out of sync with it.
-///
-/// Number of monomials the monomial-range stage must remove to land at `max`,
-/// given `monomials_after > max`. `min_monomials` is not a target: a
-/// top-frequency bucket bigger than this amount only ever gets a partial,
-/// budgeted removal (see the caller's `budget >= n_top` branch), so truncation
-/// stops at `max` rather than eroding further toward `min`. The caller asserts
-/// `max >= min` (a `min > max` policy is a configuration error, not a runtime
-/// case to accommodate), so `min` never enters this computation.
 #[inline]
 fn monomial_removal_budget(monomials_after: usize, max: usize) -> usize {
     monomials_after.saturating_sub(max)
@@ -518,23 +510,7 @@ fn boundary_from_histogram(hist: &[u64], budget: usize) -> (usize, usize) {
     (0, 0)
 }
 
-/// Run the truncation pipeline against `propagator`'s current live state (the
-/// caller must have flushed outboxes into maps first). Order of operations:
-///
-/// 1. A single fused per-coefficient pass: optional `frequency` trim, the
-///    always-on lossless dedup (merge identical monomials, drop exact zeros),
-///    then the optional `coefficient` trim (run *after* dedup so it sees merged
-///    scalars); plus a per-term `weight` retain. These lossy operators are gated
-///    by the `TermBudget`'s `min_terms`, below it, only dedup runs.
-/// 2. If a `MonomialBudget` (`max_monomials`) is present and the live monomial
-///    count still exceeds it, an importance-ranked removal keyed by
-///    `(frequency desc, |scalar| asc)` down to `max_monomials`. Not gated by
-///    `min_terms`: a monomial explosion with few terms still needs cutting.
-///
-/// Takes a resolved config (Copy) so the caller can drop its borrow of the
-/// truncator list before mutating the propagator. Standalone (not inlined) so
-/// tooling that drives an `AbstractPropagator` directly (e.g. `bin/cluster_bench`)
-/// reuses the exact same flush behavior.
+/// Run the truncation pipeline against `propagator`'s current live state.
 pub fn apply_truncation_policy<M: AbstractTerm>(
     propagator: &mut AbstractPropagator<M, SymbolicCoeff>,
     cfg: &ResolvedConfig,
@@ -658,7 +634,7 @@ use propaq_majorana::termsum::MajoranaTermSum;
 ///         MonomialBudget) applied at each flush, a single such truncator, a
 ///         legacy FrequencyTruncationPolicy (decomposed automatically), or None.
 ///     schedule: Optional FlushSchedule controlling flush/merge cadence. Omitted
-///         → sensible defaults when any truncator is given, or "flush only at the
+///         -> sensible defaults when any truncator is given, or "flush only at the
 ///         end" when truncation is also None. A legacy policy supplies its own
 ///         schedule unless one is passed explicitly here.
 ///     n_threads: Number of worker threads. Defaults to the system thread count.
@@ -930,6 +906,7 @@ mod numeric_history_dedup_tests {
     }
 }
 
+#[cfg(test)]
 mod shared_parameter_dedup_tests {
     use super::*;
     use propaq_core::bitset::Bitset;
@@ -942,19 +919,6 @@ mod shared_parameter_dedup_tests {
         PauliString { x: xb, z: zb, n_qubits, weight }
     }
 
-    /// A UCJ/LUCJ-style circuit reuses each parameter across many gates. The
-    /// gate-indexed scheme this replaced stored one factor per *gate*, so a
-    /// monomial's distinct-factor count grew with the number of gates branched
-    /// up to `2^gates` live monomials for a fully-anticommuting history,
-    /// exactly the blowup (1.8B monomials) reported against a real UCJ
-    /// ansatz. The parameter-space scheme instead accumulates a reused
-    /// parameter into cos/sin *powers*: for `N_PARAMS` distinct parameters,
-    /// the number of distinct `(cos_pow, sin_pow)` combinations any one
-    /// term's coefficient can hold is bounded by `product_p(times_p_branched
-    /// + 1)` polynomial in the gate count, not exponential. This test
-    /// drives far more gates than `2^gates` could ever let fit in memory, and
-    /// checks live monomials stay within that polynomial bound at every
-    /// merge.
     #[test]
     fn symbolic_gates_on_few_shared_parameters_keep_monomials_polynomial_not_exponential() {
         const N_QUBITS: usize = 8;
@@ -991,16 +955,11 @@ mod shared_parameter_dedup_tests {
             let live_monomials = prop.sum_coeffs(|c| c.monomial_count());
             peak_live_monomials = peak_live_monomials.max(live_monomials);
 
-            // Upper bound on any single term's monomial count: the product,
-            // over the few distinct parameters, of (times branched so far +
-            // 1) — the count of distinct cos/sin power splits reachable for
-            // that parameter. Live monomials (summed across all live terms)
-            // must never exceed that bound times the term count.
             let max_monomials_per_term: usize = param_counts.iter().map(|&k| k + 1).product();
             assert!(
                 live_monomials <= max_monomials_per_term * live_terms.max(1),
                 "round {round}: live monomials {live_monomials} exceeded the polynomial \
-                 bound {max_monomials_per_term} * {live_terms} terms — same-parameter \
+                 bound {max_monomials_per_term} * {live_terms} terms,  same-parameter \
                  branches were not collapsing into trig powers",
             );
         }

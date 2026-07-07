@@ -1,29 +1,28 @@
-"""Correctness tests for the surrogate Pauli propagator.
-
-All imports come from the public Python API (propaq.*) only.
+"""
+Correctness tests for the surrogate Pauli propagator.
 """
 
 import math
-import tempfile
 import os
+import tempfile
 
 import pytest
 
 from propaq import (
-    PauliTermSum,
-    PauliString,
-    PauliPropagator,
-    PauliSurrogatePropagator,
-    PauliSurrogateModel,
-    FrequencyTruncationPolicy,
-    FlushSchedule,
-    Truncator,
-    FrequencyTruncator,
     CoefficientTruncator,
-    WeightTruncator,
-    TermBudget,
+    FlushSchedule,
+    FrequencyTruncationPolicy,
+    FrequencyTruncator,
     MonomialBudget,
+    PauliPropagator,
+    PauliString,
+    PauliSurrogateModel,
+    PauliSurrogatePropagator,
+    PauliTermSum,
     SurrogatePauliCircuit,
+    TermBudget,
+    Truncator,
+    WeightTruncator,
 )
 from propaq.circuits.pauli import PauliCircuit
 from propaq.circuits.pauli.rotation import PauliRotation

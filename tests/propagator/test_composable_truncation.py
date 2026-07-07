@@ -3,13 +3,13 @@
 import pytest
 
 from propaq import (
-    Truncator,
-    WeightTruncator,
     CoefficientTruncator,
-    TermBudget,
+    FlushSchedule,
     FrequencyTruncator,
     MonomialBudget,
-    FlushSchedule,
+    TermBudget,
+    Truncator,
+    WeightTruncator,
 )
 from propaq.circuits import PauliCircuit
 from propaq.circuits.pauli.rotation import PauliRotation

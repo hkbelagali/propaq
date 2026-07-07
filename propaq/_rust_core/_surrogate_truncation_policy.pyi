@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 class FrequencyTruncationPolicy:
     """
     Truncation policy for surrogate propagation.

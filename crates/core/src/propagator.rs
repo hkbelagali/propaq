@@ -319,10 +319,10 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         let scratch_new_terms = &mut self.scratch_new_terms;
         let scratch_snap = &mut self.scratch_snap;
 
-        /// Collect all of the terms, both in the partition map and in the 
-        /// outboxes, that anticommute with the generator. 
-        /// Apply the gate to each of these terms, and place the results 
-        /// in the appropriate outboxes.
+        // Collect all of the terms, both in the partition map and in the 
+        // outboxes, that anticommute with the generator. 
+        // Apply the gate to each of these terms, and place the results 
+        // in the appropriate outboxes.
         pool.install(|| {
             thread_maps
                 .par_iter_mut()
@@ -332,7 +332,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                 .map(|(((local_map, outbox_row), new_terms), snap)| {
                     new_terms.clear();
                     
-                    /// If the workload is high, then sub-threads are spawned to process the partition in parallel.
+                    // If the workload is high, then sub-threads are spawned to process the partition in parallel.
                     if local_map.len() >= gate_par_min_len() {
                         new_terms.par_extend(
                             local_map
@@ -347,7 +347,8 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                                     Some((dst, new_term, new_coeff))
                                 }),
                         );
-                    } else { /// Defer to the serial loop  (per-thread) for smaller partitions to avoid unnecessary parallel overhead
+                    } else {
+                        // Defer to the serial loop (per-thread) for smaller partitions to avoid unnecessary parallel overhead.
                         for (term, coeff) in local_map.iter_mut() {
                             if !term.commutes_with(generator) {
                                 let (phase, new_term) = generator.matmul_internal(term);
@@ -445,7 +446,7 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
 
     /// Apply uniform per-weight noise damping to all live terms and outbox items.
     pub fn apply_uniform_noise_inplace(&mut self, damping: f64) {
-        /// We store the exponential of the damping factor 
+        // We store the exponential of the damping factor 
         // for each weight in an LUT to avoid repeatedly
         // computing the same thing over and over.
         let exp_lut: Vec<f64> = (0..=EXP_LUT_SIZE).map(|w| (-damping * w as f64).exp()).collect();

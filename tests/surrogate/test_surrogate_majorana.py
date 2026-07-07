@@ -2,19 +2,18 @@
 Correctness tests for the surrogate Majorana propagator.
 """
 
-import math
-import tempfile
 import os
+import tempfile
 
 import pytest
 
 from propaq import (
-    MajoranaMonomial,
-    MajoranaTermSum,
-    MajoranaPropagator,
-    MajoranaSurrogatePropagator,
-    MajoranaSurrogateModel,
     FrequencyTruncationPolicy,
+    MajoranaMonomial,
+    MajoranaPropagator,
+    MajoranaSurrogateModel,
+    MajoranaSurrogatePropagator,
+    MajoranaTermSum,
     SurrogateMajoranaCircuit,
 )
 from propaq.circuits.majorana import MajoranaCircuit

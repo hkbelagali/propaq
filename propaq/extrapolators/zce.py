@@ -11,20 +11,20 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 from scipy.optimize import curve_fit
-
-from propaq.circuits.majorana.circuit import MajoranaCircuit
-from propaq.circuits.pauli.circuit import PauliCircuit
-from propaq.datatypes import AbstractTermSum
-from propaq.propagators import AbstractPropagator
-from propaq.truncation import CoefficientTruncator, WeightTruncator
 
 # The propagator's ``truncators`` getter returns bare Rust instances, so match
 # against the Rust base classes (the Python wrappers subclass them).
 from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
 from propaq._rust_core import WeightTruncator as _RustWeightTruncator
+from propaq.circuits.majorana.circuit import MajoranaCircuit
+from propaq.circuits.pauli.circuit import PauliCircuit
+from propaq.datatypes import AbstractTermSum
+from propaq.propagators import AbstractPropagator
+from propaq.truncation import CoefficientTruncator, WeightTruncator
 
 
 @dataclass
@@ -61,21 +61,21 @@ class ZeroCutoffExtrapolator(ABC):
         self.cutoff_values = list(cutoff_values)
 
     @abstractmethod
-    def _rust_cls(self) -> type:
+    def _rust_cls(self) -> type[object]:
         """The Rust truncator base class this extrapolator sweeps."""
         ...
 
     @abstractmethod
-    def _read(self, truncator) -> float | int | None:
+    def _read(self, truncator: object) -> float | int | None:
         """Read the cutoff value out of a matching truncator."""
         ...
 
     @abstractmethod
-    def _build(self, cutoff: float | int | None):
+    def _build(self, cutoff: float | int | None) -> object:
         """Build a fresh truncator carrying the given cutoff (None = no cutoff)."""
         ...
 
-    def _find(self, propagator: AbstractPropagator):
+    def _find(self, propagator: AbstractPropagator) -> object | None:
         """The first matching truncator in the pipeline, or None."""
         for t in propagator.truncators:
             if isinstance(t, self._rust_cls()):
@@ -115,7 +115,7 @@ class ZeroCutoffExtrapolator(ABC):
         Returns:
             A ZCEResult containing the extrapolated zero-cutoff value and fit details.
         """
-        # Save the scalar cutoff, not a truncator reference — _set_cutoff rebuilds
+        # Save the scalar cutoff, not a truncator reference,  _set_cutoff rebuilds
         # the pipeline, so a reference would go stale.
         original_cutoff = self._get_cutoff(propagator)
 
@@ -127,7 +127,7 @@ class ZeroCutoffExtrapolator(ABC):
                 expectation_values.append(result.expectation_value)
         finally:
             # Restore only if a matching truncator is still present (nothing to
-            # restore into otherwise — e.g. the first _set_cutoff already raised).
+            # restore into otherwise, e.g. the first _set_cutoff already raised).
             if self._find(propagator) is not None:
                 self._set_cutoff(propagator, original_cutoff)
 
@@ -147,11 +147,11 @@ class ZeroCutoffExtrapolator(ABC):
 class WeightCutoffExtrapolator(ZeroCutoffExtrapolator):
     """Zero weight-cutoff extrapolation via curve fitting."""
 
-    def _rust_cls(self) -> type:
+    def _rust_cls(self) -> type[object]:
         return _RustWeightTruncator
 
-    def _read(self, truncator) -> int | None:
-        return truncator.weight
+    def _read(self, truncator: object) -> int | None:
+        return cast(int | None, getattr(truncator, "weight"))
 
     def _build(self, cutoff: float | int | None) -> WeightTruncator:
         return WeightTruncator(int(cutoff) if cutoff is not None else None)
@@ -159,11 +159,11 @@ class WeightCutoffExtrapolator(ZeroCutoffExtrapolator):
 class CoefficientCutoffExtrapolator(ZeroCutoffExtrapolator):
     """Zero coefficient-cutoff extrapolation via curve fitting."""
 
-    def _rust_cls(self) -> type:
+    def _rust_cls(self) -> type[object]:
         return _RustCoefficientTruncator
 
-    def _read(self, truncator) -> float | None:
-        return truncator.coefficient
+    def _read(self, truncator: object) -> float | None:
+        return cast(float | None, getattr(truncator, "coefficient"))
 
     def _build(self, cutoff: float | int | None) -> CoefficientTruncator:
         return CoefficientTruncator(float(cutoff) if cutoff is not None else None)

@@ -1,3 +1,13 @@
+///
+/// The symbolic coefficient representation.
+///
+/// Symbolic coefficients can be compactly represented as 
+///             \sum_i c_i \prod_j sin(\theta_j)^{a_j} cos(\theta_j)^{b_j}
+/// 
+/// The coefficients c_i are numerical, and the monomial attributes 
+/// j, a_j and b_j fit into a u32. These are stored in a SoA 
+/// (structure of arrays) format, and coefficients lie in a shared arena. 
+///
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -11,7 +21,7 @@ use crate::interning::Generation;
 
 /// A trig factor is packed into a single `u32`:
 /// `[param:16 | cos_pow:8 | sin_pow:8]`. The **parameter index** lives in the
-/// high 16 bits, so a plain ascending `u32` sort orders factors by parameter —
+/// high 16 bits, so a plain ascending `u32` sort orders factors by parameter,
 /// which is what makes a monomial's factor run canonical (see `SymbolicCoeff`).
 const PARAM_SHIFT: u32 = 16;
 const COS_SHIFT: u32 = 8;
@@ -45,12 +55,6 @@ pub(crate) fn factor_sin(f: u32) -> u32 {
 /// per-split overhead only pays off for genuinely large terms. Overridable once
 /// at process start via `PROPAQ_EVALUATE_PAR_MIN_LEN` for threshold sweeps (read
 /// cached in a `LazyLock`; one relaxed load per `evaluate` call).
-///
-/// Set to 8192 from a sweep (28-thread Xeon, `grown_coeff` inputs in
-/// `benches/surrogate_bench.rs`): at this `min_len` a ~4k-monomial coefficient
-/// stays serial (≈184µs vs ≈237µs when split) while a ~64k one parallelizes
-/// with coarse, cache-friendly chunks (≈1.13ms vs ≈1.73ms at min_len 1024 and
-/// ≈3.42ms serial). Cluster-specific tuning may differ — hence the env override.
 const EVALUATE_PAR_MIN_LEN_DEFAULT: usize = 8192;
 
 #[inline]
@@ -66,8 +70,7 @@ fn evaluate_par_min_len() -> usize {
 
 /// Whether numeric-branch coefficient sharing (copy-on-write via `Arc`) is on.
 /// Default on; set `PROPAQ_DISABLE_COEFF_SHARING=1` to force an immediate copy at
-/// every numeric branch (the pre-sharing baseline) — used to A/B the memory win
-/// and as a safety escape hatch. Read once, cached.
+/// every numeric branch.
 #[inline]
 fn coeff_sharing_enabled() -> bool {
     static V: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
@@ -76,10 +79,7 @@ fn coeff_sharing_enabled() -> bool {
     *V
 }
 
-/// A monomial's "frequency" (symbolic branch degree): the total trig power it
-/// carries, `Σ (cos_pow + sin_pow)` over its factors. This is the number of
-/// symbolic gates that branched the path (multiplicities included), matching the
-/// `(1/2)^ℓ` average-magnitude physics that drives frequency truncation.
+/// A monomial's "frequency" (symbolic branch degree)
 #[inline]
 fn run_frequency(factors: &[u32]) -> usize {
     factors.iter().map(|&f| (factor_cos(f) + factor_sin(f)) as usize).sum()
@@ -119,11 +119,7 @@ fn run_is_canonical(factors: &[u32]) -> bool {
 /// Copy `run` into `dst`, folding one more `cos`/`sin` branch on parameter
 /// `param` into it. `run` is sorted ascending by parameter; if `param` is
 /// already present its matching power is incremented, otherwise a fresh factor
-/// is inserted at the sorted position. `O(#factors)`, and the result stays
-/// canonical. This increment on a *repeated* parameter is the collapse mechanism
-/// that keeps parameter-reusing ansätze (UCJ/LUCJ) from exploding: two paths
-/// that reach the same `(param -> powers)` map produce identical runs and merge
-/// under `deduplicate`.
+/// is inserted at the sorted position. 
 #[inline]
 fn write_incremented(dst: &mut Vec<u32>, run: &[u32], param: u32, is_sin: bool) {
     let mut i = 0usize;
@@ -184,30 +180,7 @@ fn merge_runs(dst: &mut Vec<u32>, a: &[u32], b: &[u32]) {
     dst.extend_from_slice(&b[j..]);
 }
 
-/// Per-monomial header for the support⊗exponent factored representation.
-///
-/// A monomial's full factor run is split into a **base** (the history interned
-/// into a frozen [`Generation`](crate::interning::Generation) before the last
-/// flush) plus an **extension** (the factors appended since, stored inline in
-/// the owning coefficient's `factors` arena). The full run is
-/// `generation.decode(base_support, base_exp) ++ factors[start..end]`.
-///
-/// `scalar` is real, not complex: `apply_rotation` is only ever invoked on
-/// anticommuting (generator, term) pairs, and for Hermitian, involutory
-/// operators the commutator phase in that case is always purely imaginary
-/// (`±i`); multiplying by the explicit `i` in `apply_rotation` cancels it,
-/// leaving a real result at every step. Given a real (Hermitian) seed
-/// observable, every monomial's scalar stays real by induction.
-///
-/// `base_support`/`base_exp` are opaque ids into the current frozen generation's
-/// support trie / exponent dictionary (`(0, 0)` = empty base, before any
-/// reconciliation). `base_freq` caches the base's `Σ` powers so the hot path
-/// recovers a monomial's frequency as `base_freq + Σ extension powers` **without
-/// dereferencing the tables**. `end` is a `u32` factor-count offset of this
-/// monomial's *extension* in the arena (its start is the previous header's
-/// `end`, or 0 for the first). The extension only ever holds factors branched
-/// since the last flush (reconcile clears it), so it never approaches the `u32`
-/// range.
+/// Per-monomial header for the support * exponent factored representation.
 #[derive(Clone, Copy, Debug)]
 struct MonoHead {
     scalar: f64,
@@ -225,14 +198,7 @@ impl MonoHead {
     }
 }
 
-/// Per-thread free-list of previously-live `(heads, factors)` buffer pairs,
-/// recycled by `apply_rotation`'s branch construction and `deduplicate`'s
-/// rebuild instead of round-tripping through the global allocator — both are
-/// the hottest per-gate/per-flush allocation sites for `SymbolicCoeff`. Scoped
-/// per OS thread (not passed explicitly) so this needs no change to
-/// `CoeffRepr` or any caller: `AbstractPropagator`'s worker threads are
-/// long-lived for a whole `build()` run, so buffers recycle across many
-/// gates/flushes on the same thread.
+/// Per-thread free-list of previously-live `(heads, factors)` buffer pairs.
 const BUFFER_POOL_CAP: usize = 64;
 
 thread_local! {
@@ -281,37 +247,6 @@ fn return_order(mut order: Vec<u32>) {
 
 /// A sum of monomials `scalar * product(trig factors)`: a symbolic
 /// coefficient accumulated during surrogate propagation.
-///
-/// Each monomial stores its branch factors in **parameter space**: one `u32`
-/// per distinct parameter it touched, packed `[param:16 | cos_pow:8 |
-/// sin_pow:8]` and sorted ascending by parameter. A symbolic gate on parameter
-/// `p` multiplies the monomial by `cos(θ_p)` (or `sin(θ_p)`), which increments
-/// `p`'s cos/sin power (inserting the factor if `p` is new) — so a parameter
-/// reused across many gates accumulates into powers rather than spawning a
-/// distinct factor per gate. A commuting gate contributes nothing; a
-/// numeric-angle gate is folded into the scalar and stores nothing. Storage is
-/// O(#distinct params) per monomial.
-///
-/// The key property over a gate-indexed scheme: two paths that pick up the same
-/// parameters to the same total powers (e.g. `cos(θ_p)·sin(θ_p)` reached via
-/// gate-A-cos/gate-B-sin vs gate-A-sin/gate-B-cos on the same parameter)
-/// produce **identical** runs, so `deduplicate` merges them. For ansätze that
-/// reuse parameters this collapses the monomial count dramatically.
-///
-/// Stored in CSR/SoA form — one 16-byte header per monomial plus a single
-/// shared `u32` arena — instead of one owning object per monomial. At the design
-/// scale (hundreds of millions of monomials) the per-monomial representation
-/// was the dominant cost: every clone/grow/merge did one allocator round-trip
-/// *per monomial*. Here every operation is a streaming pass over two flat
-/// buffers with at most one buffer rebuild per call.
-///
-/// Runs are canonical (ascending params, nonzero powers), so two monomials with
-/// the same parameter/power map compare equal word-for-word. `add_assign` simply
-/// appends monomials (and flags the coefficient dirty); call `deduplicate` to
-/// merge identical runs and drop near-zero terms before evaluation.
-
-/// An immutable, already-deduplicated monomial arena, shared behind an `Arc` by
-/// the parent and child of a numeric branch. See `SymbolicCoeff::shared`.
 #[derive(Default)]
 struct Inner {
     heads: Vec<MonoHead>,
@@ -322,22 +257,9 @@ struct Inner {
 pub struct SymbolicCoeff {
     heads: Vec<MonoHead>,
     factors: Vec<u32>,
-    /// Whether identical runs may exist across monomials. Only `add_assign`
-    /// can introduce duplicates (rotations preserve pairwise distinctness,
-    /// scaling doesn't touch factors), so `deduplicate` skips clean coefficients
-    /// entirely — the common case at a flush, where most live terms received no
-    /// inbox merges since the last one.
+    /// Whether identical runs may exist across monomials.
     dirty: bool,
-    /// Copy-on-write structural sharing. When `Some((inner, mult))`, the owned
-    /// `heads`/`factors` are empty and the logical value is `mult · inner` — a
-    /// shared, immutable, canonical arena. Created only at a **numeric** branch
-    /// (`apply_rotation_numeric`), where parent and child are the same arena up
-    /// to a scalar; this makes numeric branching O(1) instead of copying the
-    /// whole arena. Any *structural* mutation (`realize`) materializes it back to
-    /// the owned representation, folding `mult` into each scalar. A shared value
-    /// is always clean (its `inner` was deduplicated when wrapped), so
-    /// `deduplicate`/`post_merge` are no-ops on it — it survives the merge cadence
-    /// unrealized, which is the whole point for numeric-heavy circuits.
+    /// Copy-on-write structural sharing. 
     shared: Option<(Arc<Inner>, f64)>,
 }
 
@@ -353,10 +275,7 @@ impl SymbolicCoeff {
         }
     }
 
-    /// `(heads, factors, mult)` view over the effective monomials — the owned
-    /// buffers with `mult = 1`, or the shared arena with its multiplier. Read-only
-    /// operations use this so they transparently handle a shared value without
-    /// realizing it (which would collapse the sharing).
+    /// `(heads, factors, mult)` view over the effective monomials
     #[inline]
     fn view(&self) -> (&[MonoHead], &[u32], f64) {
         match &self.shared {
@@ -366,8 +285,7 @@ impl SymbolicCoeff {
     }
 
     /// Identity of the shared arena (its `Arc` pointer address), or `None` if the
-    /// value is owned. Distinct terms that share one arena report the same id;
-    /// used by `cluster_bench` to measure the terms-per-arena ratio.
+    /// value is owned. 
     pub fn arena_ptr(&self) -> Option<usize> {
         self.shared.as_ref().map(|(inner, _)| Arc::as_ptr(inner) as usize)
     }
@@ -434,13 +352,6 @@ impl SymbolicCoeff {
 
     /// Iterate `(scalar, extension run)` per monomial, in storage order. Scalars
     /// are scaled by the shared multiplier when the value is shared.
-    ///
-    /// This yields only the **extension** — the factors appended since the last
-    /// reconciliation. When the base is empty (every monomial `(0, 0)`, e.g. a
-    /// freshly-built or deserialized-flat coefficient) that *is* the full run,
-    /// which is how the tests and the flat serialization path use it. Callers
-    /// that must see the full run of a base-populated coefficient decode the
-    /// base against the generation explicitly (see `evaluate` / reconciliation).
     pub fn iter_monomials(&self) -> impl Iterator<Item = (f64, &[u32])> + '_ {
         let (heads, factors, mult) = self.view();
         let mut start = 0usize;
@@ -453,9 +364,7 @@ impl SymbolicCoeff {
     }
 
     /// Iterate `(scalar, base_support, base_exp, extension run)` per monomial,
-    /// in storage order, scaling scalars by the shared multiplier. The
-    /// serialization path uses this to write each monomial's base ids (which
-    /// reference the model's generation) plus any residual extension.
+    /// in storage order, scaling scalars by the shared multiplier.
     pub(crate) fn iter_factored(&self) -> impl Iterator<Item = (f64, u32, u32, &[u32])> + '_ {
         let (heads, factors, mult) = self.view();
         let mut start = 0usize;
@@ -467,9 +376,7 @@ impl SymbolicCoeff {
         })
     }
 
-    /// Append one monomial with an empty base. `run` must be a canonical factor
-    /// run (params ascending, powers nonzero) — this is the deserialization/test
-    /// construction entry point, and it writes the whole run into the extension.
+    /// Append one monomial with an empty base.
     pub fn push_monomial(&mut self, scalar: f64, run: &[u32]) {
         debug_assert!(run_is_canonical(run), "factor run must be canonical (ascending params)");
         self.realize();
@@ -509,18 +416,7 @@ impl SymbolicCoeff {
     /// Advance this coefficient into a new generation: fold every monomial's
     /// full run (its base decoded against `old` merged with its extension) into
     /// `new`'s interning tables, replacing the base ids and clearing the
-    /// extension. `old` must be the generation the current base ids reference.
-    ///
-    /// After this, every monomial has an empty extension and a base id pair into
-    /// `new`. Because re-interning is content-addressed, two monomials that
-    /// reached the same full run via different base/extension splits now share
-    /// one base id, so a `deduplicate` merges them (the cross-lineage merge the
-    /// mid-window dedup defers). Realizes a shared value first.
-    ///
-    /// Interns and then deduplicates. `reconcile()` uses `reconcile_into_deferred`
-    /// directly so it can batch the (independent, per-coefficient) dedup into a
-    /// parallel pass after the serial interning loop; this wrapper preserves the
-    /// intern-then-collapse contract for the unit tests (its only callers).
+    /// extension. 
     #[cfg(test)]
     pub(crate) fn reconcile_into(&mut self, old: &Generation, new: &mut Generation) {
         self.reconcile_into_deferred(old, new);
@@ -529,10 +425,7 @@ impl SymbolicCoeff {
 
     /// Interning half of `reconcile_into`: fold every monomial's full run into
     /// `new` and replace the base ids, leaving the coefficient marked `dirty`
-    /// **without** collapsing cross-lineage duplicates. The caller must run
-    /// `deduplicate` afterwards (see `SurrogatePropagator::reconcile`, which does
-    /// so in a parallel pass since each coefficient's dedup is independent and
-    /// touches no shared state).
+    /// **without** collapsing cross-lineage duplicates. 
     pub(crate) fn reconcile_into_deferred(&mut self, old: &Generation, new: &mut Generation) {
         self.realize();
         if self.heads.is_empty() {
@@ -588,11 +481,7 @@ impl SymbolicCoeff {
     }
 
     /// In-place compaction keeping monomials for which `keep(frequency,
-    /// scalar)` holds. Writes never overtake reads (removal only shrinks), so
-    /// both buffers are rewritten in one forward pass with zero allocation.
-    /// Realizes a shared value first (monomial-level removal must mutate the
-    /// arena; this is where a shared value's sharing is lost under monomial-level
-    /// truncation — term-level truncation drops whole terms instead).
+    /// scalar)` holds. 
     fn compact(&mut self, mut keep: impl FnMut(usize, f64) -> bool) {
         self.realize();
         let mut w_head = 0usize;
@@ -617,15 +506,7 @@ impl SymbolicCoeff {
         self.factors.truncate(w_fac);
     }
 
-    /// Merge monomials with identical runs and drop near-zero results. Skips
-    /// clean coefficients outright (see the `dirty` field docs); a consequence
-    /// is that near-zero scalars are only pruned on dirty coefficients — which
-    /// matches where they can arise, since destructive cancellation requires a
-    /// merge in the first place.
-    ///
-    /// Sorts an index permutation (comparing arena slices) and merges adjacent
-    /// equal runs (`O(k log k)`), rebuilding the two flat buffers once; there is
-    /// no per-monomial allocation.
+    /// Merge monomials with identical runs and drop near-zero results. 
     pub fn deduplicate(&mut self) {
         if !self.dirty || self.heads.len() <= 1 {
             self.dirty = false;
@@ -674,18 +555,7 @@ impl SymbolicCoeff {
 
     /// Evaluate against a flat LUT indexed by `2 * param` (`cos`) /
     /// `2 * param + 1` (`sin`). Each monomial walks its factor run once, raising
-    /// each parameter's `cos`/`sin` to the recorded powers (`powi`) — the
-    /// parameter index is stored directly in the factor, so there is no
-    /// gate→param indirection at evaluate time.
-    ///
-    /// `SurrogateModel::evaluate` already parallelizes across terms, which
-    /// covers the common case; but a handful of terms can carry the
-    /// overwhelming majority of monomials, leaving other threads idle while one
-    /// churns through a huge single-term monomial list serially. `with_min_len`
-    /// lets rayon's splitter fall back to a single sequential chunk for
-    /// ordinary (small) terms while still splitting (and letting idle threads
-    /// steal via the outer per-term `par_iter`) once a term's monomial count is
-    /// large enough to be worth it.
+    /// each parameter's `cos`/`sin` to the recorded powers (`powi`).
     pub fn evaluate(&self, gen: &Generation, lut: &[f64]) -> f64 {
         let (heads, factors, mult) = self.view();
         (0..heads.len())
@@ -718,9 +588,7 @@ impl SymbolicCoeff {
     }
 
     /// Highest frequency present and how many monomials sit at exactly that
-    /// frequency; `(0, 0)` if empty. Parallel over monomial chunks (same skew
-    /// rationale as `evaluate`) so one giant coefficient doesn't serialize the
-    /// truncation pass that calls this per live term.
+    /// frequency
     pub fn top_frequency_and_count(&self) -> (usize, usize) {
         const PAR_MIN_LEN: usize = 65_536;
         let (heads, factors, _mult) = self.view();
@@ -756,11 +624,6 @@ impl SymbolicCoeff {
     /// Remove monomials whose frequency equals exactly `freq`, claiming
     /// removals from a `remaining` budget shared across every coefficient
     /// processed in the same pass. Returns how many were removed.
-    ///
-    /// Counts this coefficient's own hits first (a local, read-only scan),
-    /// then claims `min(hits, remaining)` in a single compare-exchange loop:
-    /// one atomic operation per coefficient that actually has a hit, not per
-    /// monomial.
     pub fn remove_at_frequency_budgeted(&mut self, freq: usize, remaining: &AtomicUsize) -> usize {
         self.realize();
         let mut hits = 0usize;
@@ -837,16 +700,11 @@ impl SymbolicCoeff {
     /// - every monomial with `frequency > f_star` is removed (the buckets above
     ///   the boundary, all less important than anything at the boundary);
     /// - within `frequency == f_star`, monomials with `|scalar| < s_star` are
-    ///   removed unconditionally (they are the smallest, and — by the
-    ///   `select_nth` that produced `s_star` — globally fewer than the boundary
-    ///   budget, so removing all of them never overshoots);
+    ///   removed unconditionally.
     /// - the `|scalar| == s_star` ties are removed only while the shared
     ///   `tie_budget` allows, so the pass lands exactly at the target count.
     ///
-    /// Returns the number of monomials removed. Ties are claimed once per
-    /// coefficient (count locally, then a single compare-exchange), mirroring
-    /// `remove_at_frequency_budgeted`. `s_star = INFINITY` removes the whole
-    /// boundary bucket (used when the budget consumes it entirely).
+    /// Returns the number of monomials removed.
     pub fn remove_by_rank_budgeted(&mut self, f_star: usize, s_star: f64, tie_budget: &AtomicUsize) -> usize {
         self.realize();
         let mut tie_hits = 0usize;
@@ -905,35 +763,15 @@ impl SymbolicCoeff {
     /// Symbolic rotation on parameter `param`: records that every monomial's path
     /// branched on this parameter, picking up `cos` (kept in place on `self`) or
     /// `sin` (returned as the new anticommuted term). The parameter index is
-    /// written directly into the run — evaluation reads it straight from the
-    /// factor, with no gate→param table.
-    ///
-    /// Both branches stream each monomial's existing factors into a fresh arena,
-    /// folding one more `cos`/`sin` power on `param` (see `write_incremented`):
-    /// if the monomial already touched `param` its power is bumped in place,
-    /// otherwise a factor is inserted at the sorted position. A repeated
-    /// parameter therefore grows a power instead of adding a factor — the
-    /// collapse mechanism for parameter-reusing ansätze. Both branches remain
-    /// pairwise distinct (the increment is injective), so no dedup is forced.
-    ///
-    /// `prune_freq` enables look-ahead pruning: the sin child's frequency is its
-    /// parent's + 1 (one more unit of total power), so a parent already at
-    /// `>= cap` would produce a child a lossy `max_frequency` flush discards.
-    /// When set, such children are never generated. The cos branch is left
-    /// untouched (it stays in an existing term, trimmed at the next flush as
-    /// before). The propagator only passes `Some` when this is provably
-    /// equivalent to the deferred trim.
+    /// written directly into the run.
     fn apply_rotation_symbolic(&mut self, param: u32, prune_freq: Option<u32>, phase: Complex64) -> Self {
-        // sin branch scalar: * (i * phase). `phase` is always ±i here (only
-        // called on anticommuting generator/term pairs), so `i * phase` is
-        // always real — see the `MonoHead::scalar` doc comment.
+        // sin branch scalar
         let branch_phase = Complex64::new(0.0, 1.0) * phase;
         debug_assert!(branch_phase.im.abs() < 1e-9, "expected real branch phase: {branch_phase:?}");
         let branch_phase = branch_phase.re;
 
         // A symbolic gate folds a factor into every monomial, so the shared
-        // immutable arena can't be reused — materialize first. (Rare for the
-        // numeric-heavy workload this sharing targets.)
+        // immutable arena can't be reused
         self.realize();
         let n = self.heads.len();
 
@@ -990,21 +828,11 @@ impl SymbolicCoeff {
 
     /// Numeric-angle rotation: `cos`/`sin` of `angle` are computed immediately
     /// (mirrors `Complex64::apply_rotation` exactly). Numeric gates carry no
-    /// symbolic information — no factor is written — so parent (cos branch) and
-    /// child (sin branch) are the *same* monomial arena up to a scalar multiple.
-    ///
-    /// Rather than deep-copying the arena, this **shares** it: `self` is wrapped
-    /// into an immutable `Arc` once (`ensure_shared`), then the cos branch scales
-    /// `self`'s multiplier and the sin branch returns a new value referencing the
-    /// same arena. Both branches are O(1). The copy is deferred to `realize`,
-    /// which only fires on a structural mutation — for a numeric-heavy circuit
-    /// that means the *rare* symbolic gate, so a whole numeric sub-tree of
-    /// distinct terms shares one arena. See the `shared` field.
+    /// symbolic information
     fn apply_rotation_numeric(&mut self, angle: f64, phase: Complex64) -> Self {
         let cos_t = angle.cos();
         let sin_t = angle.sin();
-        // Mirrors `apply_rotation_symbolic`'s `branch_phase`, scaled by
-        // `sin_t`: `phase` is always ±i here, so `sin_t * (i * phase)` is real.
+        // Mirrors `apply_rotation_symbolic`'s `branch_phase`
         let branch_phase = Complex64::new(0.0, sin_t) * phase;
         debug_assert!(branch_phase.im.abs() < 1e-9, "expected real branch phase: {branch_phase:?}");
         let branch_phase = branch_phase.re;
@@ -1036,11 +864,6 @@ impl SymbolicCoeff {
 /// baked in immediately (mirrors `Complex64::apply_rotation`'s math and never
 /// touches the run).
 ///
-/// `Symbolic` carries `param` (the parameter index behind this gate — written
-/// directly into every branching monomial's run) and the optional look-ahead
-/// `prune_freq` cap (injected by the propagator after extraction). `Numeric`
-/// carries only its `angle` — a numeric rotation never grows a monomial's
-/// frequency and stores nothing.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GateParam {
     Symbolic { param: u32, prune_freq: Option<u32> },
@@ -1081,9 +904,7 @@ impl CoeffRepr for SymbolicCoeff {
         if other.shared.is_none() && other.heads.is_empty() {
             return;
         }
-        // Same shared arena — the common case for two numeric-branch siblings
-        // that merged onto one Pauli string: O(1), just add the multipliers, no
-        // realize (the shared arena stays shared).
+        // Same shared arena
         if let (Some((ai, am)), Some((bi, bm))) = (&mut self.shared, &other.shared) {
             if Arc::ptr_eq(ai, bi) {
                 *am += *bm;
@@ -1115,8 +936,7 @@ impl CoeffRepr for SymbolicCoeff {
 
     #[inline]
     fn scale_real(&mut self, factor: f64) {
-        // Scaling a shared value is O(1) — just the multiplier; it stays shared,
-        // so uniform noise between symbolic gates never forces a realize.
+        // Scaling a shared value is O(1)
         if let Some((_, mult)) = &mut self.shared {
             *mult *= factor;
             return;
@@ -1127,12 +947,7 @@ impl CoeffRepr for SymbolicCoeff {
     }
 
     /// Collapse monomials with identical runs that `add_assign` just
-    /// juxtaposed. Without this, a periodic outbox merge only dedupes at the
-    /// term-key level — runs that happen to coincide (every monomial from a
-    /// purely-numeric gate history shares the same empty run) pile up as
-    /// separate entries until the next full truncation flush. `deduplicate`
-    /// already no-ops on a clean (non-`dirty`) coefficient, so this costs
-    /// nothing when `add_assign` had nothing new to fold in.
+    /// juxtaposed. 
     #[inline]
     fn post_merge(&mut self) {
         self.deduplicate();
@@ -1148,7 +963,7 @@ impl CoeffRepr for SymbolicCoeff {
     #[inline]
     fn prefetch_read(&self) {
         #[cfg(target_arch = "x86_64")]
-        // SAFETY: prefetch has no memory effects; the pointers are this
+        // SAFETY: prefetch has no memory effects, the pointers are this
         // coefficient's own live (or shared) buffers.
         unsafe {
             use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
@@ -1188,8 +1003,6 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    /// Encode a set of `(param, is_sin)` branches into a canonical factor run:
-    /// cos/sin powers per parameter accumulated, sorted ascending by parameter.
     fn enc(branches: &[(u32, bool)]) -> Vec<u32> {
         let mut map: BTreeMap<u32, (u32, u32)> = BTreeMap::new();
         for &(p, is_sin) in branches {
@@ -1203,8 +1016,6 @@ mod tests {
         map.into_iter().map(|(p, (c, s))| make_factor(p, c, s)).collect()
     }
 
-    /// Build a coefficient from raw `(scalar, [(param, is_sin)])` monomials.
-    /// Flagged dirty like a real post-merge coefficient.
     fn coeff(monomials: &[(f64, &[(u32, bool)])]) -> SymbolicCoeff {
         let mut c = SymbolicCoeff::default();
         for &(scalar, branches) in monomials {
@@ -1214,9 +1025,6 @@ mod tests {
         c
     }
 
-    /// Coefficient of monomials with exactly the given `(scalar, frequency,
-    /// tag)` specs: `frequency` distinct cos branches, at parameter positions
-    /// made unique per tag so summed frequency equals `freq` directly.
     fn coeff_with_freqs(specs: &[(f64, usize, u32)]) -> SymbolicCoeff {
         let mut c = SymbolicCoeff::default();
         for &(scalar, freq, tag) in specs {
@@ -1226,7 +1034,6 @@ mod tests {
         c
     }
 
-    /// Reference evaluation independent of `evaluate`'s parallel path.
     fn naive_evaluate(c: &SymbolicCoeff, lut: &[f64]) -> f64 {
         c.iter_monomials()
             .map(|(scalar, run)| {
@@ -1270,7 +1077,6 @@ mod tests {
             c.iter_monomials().map(|(s, run)| (s, run.to_vec())).collect();
         assert_eq!(collected.len(), 3);
         assert_eq!(collected[0].0, 1.5);
-        // param 0 sin, param 1 cos, in ascending-param canonical order.
         assert_eq!(collected[0].1, vec![make_factor(0, 0, 1), make_factor(1, 1, 0)]);
         assert_eq!(collected[1].1, vec![make_factor(3, 1, 0)]);
         assert!(collected[2].1.is_empty());
@@ -1281,13 +1087,11 @@ mod tests {
     fn apply_rotation_matches_trig_identity_and_keeps_runs_canonical() {
         let lut = make_lut(8);
         let mut c = SymbolicCoeff::from_scalar(0.75);
-        // Distinct parameter indices.
         for param in [0u32, 1, 2, 5, 7] {
             let before = naive_evaluate(&c, &lut);
             let sin_branch = c.apply_rotation(&GateParam::symbolic(param), Complex64::new(0.0, -1.0));
             let (cos_t, sin_t) = (lut[(param << 1) as usize], lut[((param << 1) | 1) as usize]);
             assert!((naive_evaluate(&c, &lut) - cos_t * before).abs() < 1e-12);
-            // branch_phase = (i * -i).re = 1.0
             assert!((naive_evaluate(&sin_branch, &lut) - sin_t * before).abs() < 1e-12);
             for (_, run) in c.iter_monomials().chain(sin_branch.iter_monomials()) {
                 assert!(run_is_canonical(run), "factor run must stay canonical (ascending params)");
@@ -1297,10 +1101,6 @@ mod tests {
 
     #[test]
     fn same_parameter_at_two_gates_multiplies_as_a_power_and_collapses() {
-        // Two rotations on the SAME parameter (two gates behind one theta, as in
-        // UCJ/LUCJ): the cos branch accumulates into a single cos^2 factor — one
-        // monomial, not two — which is the whole point of the parameter-space
-        // representation over the gate-indexed scheme.
         let lut = make_lut(1);
         let mut c = SymbolicCoeff::from_scalar(1.0);
         let _ = c.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
@@ -1315,13 +1115,7 @@ mod tests {
 
     #[test]
     fn two_paths_through_same_parameter_dedup_to_one_monomial() {
-        // The collapse the gate-indexed scheme could not do: cos·sin on one
-        // parameter reached two ways (gate A cos / gate B sin, and gate A sin /
-        // gate B cos, both on param 0) yields the SAME factor run, so after
-        // add_assign + deduplicate the two paths merge into a single monomial.
         let lut = make_lut(1);
-        // The two branch orderings, each already accumulated into one factor by
-        // enc, land on the same run and sum under deduplicate.
         let mut c = coeff(&[
             (1.0, &[(0, false), (0, true)]), // cos·sin via A-cos, B-sin
             (1.0, &[(0, true), (0, false)]), // cos·sin via A-sin, B-cos
@@ -1428,7 +1222,7 @@ mod tests {
     #[test]
     fn numeric_branch_shares_one_arena() {
         // A numeric branch makes the cos branch (self) and the returned sin
-        // branch reference the *same* immutable arena — O(1), no copy.
+        // branch reference the *same* immutable arena
         let mut c = coeff(&[(1.0, &[(0, false)]), (2.0, &[(1, true)])]);
         let sin = c.apply_rotation(&GateParam::Numeric { angle: 0.7 }, Complex64::new(0.0, -1.0));
         let a = c.shared.as_ref().expect("cos branch is shared");
@@ -1600,15 +1394,6 @@ mod tests {
         assert!(!a.dirty);
     }
 
-    /// Reproduces the pattern that motivated `CoeffRepr::post_merge`: a term
-    /// receives several outbox entries whose lineage is purely numeric (every
-    /// monomial has the same empty run, `dirty == false`, exactly like the
-    /// output of `apply_rotation_numeric`). Mirrors `flush_outboxes_to_maps`'s
-    /// `entry.add_assign(coeff); entry.post_merge();` sequence one push at a
-    /// time. Without `post_merge` these would pile up as separate (but
-    /// identical) monomials until the next truncation flush; with it, the
-    /// coefficient collapses back to a single monomial after every merge that
-    /// actually combined something.
     #[test]
     fn post_merge_collapses_repeated_numeric_history_pushes() {
         let fresh_numeric_push = |scalar: f64| {
