@@ -117,6 +117,12 @@ from .circuits import (
 from .circuits import (
     PauliRotation as PauliRotation,
 )
+from .circuits import (
+    SurrogateMajoranaCircuit as SurrogateMajoranaCircuit,
+)
+from .circuits import (
+    SurrogatePauliCircuit as SurrogatePauliCircuit,
+)
 from .datatypes import (
     MajoranaMonomial as MajoranaMonomial,
 )
@@ -134,9 +140,51 @@ from .extrapolators import ZNEResult as ZNEResult
 from .log_parser import GateEvent as GateEvent
 from .log_parser import LogParser as LogParser
 from .log_parser import TruncationEvent as TruncationEvent
+from .models import (
+    MajoranaSurrogateModel as MajoranaSurrogateModel,
+)
+from .models import (
+    ParamSource as ParamSource,
+)
+from .models import (
+    PauliSurrogateModel as PauliSurrogateModel,
+)
+from .models import (
+    VariationalSurrogateModel as VariationalSurrogateModel,
+)
+from .noise import (
+    FrequencyTruncationPolicy as FrequencyTruncationPolicy,
+)
 from .propagators import (
     MajoranaPropagator as MajoranaPropagator,
 )
 from .propagators import (
+    MajoranaSurrogatePropagator as MajoranaSurrogatePropagator,
+)
+from .propagators import (
     PauliPropagator as PauliPropagator,
+)
+from .propagators import (
+    PauliSurrogatePropagator as PauliSurrogatePropagator,
+)
+from .truncation import (
+    CoefficientTruncator as CoefficientTruncator,
+)
+from .truncation import (
+    FlushSchedule as FlushSchedule,
+)
+from .truncation import (
+    FrequencyTruncator as FrequencyTruncator,
+)
+from .truncation import (
+    MonomialBudget as MonomialBudget,
+)
+from .truncation import (
+    TermBudget as TermBudget,
+)
+from .truncation import (
+    Truncator as Truncator,
+)
+from .truncation import (
+    WeightTruncator as WeightTruncator,
 )

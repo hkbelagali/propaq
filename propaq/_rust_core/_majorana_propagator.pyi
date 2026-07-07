@@ -6,9 +6,15 @@ from ._logger import Logger
 from ._majorana_term_sum import MajoranaTermSum
 from ._noise import GateNoiseModel, UniformNoiseModel
 from ._truncation_policy import TruncationPolicy
+from ._truncators import CoefficientTruncator, FlushSchedule, TermBudget, WeightTruncator
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from propaq.circuits import MajoranaCircuit
+
+# Truncators the numerical propagator honors (symbolic-only ones are rejected).
+_NumericalTruncator = WeightTruncator | CoefficientTruncator | TermBudget
 
 class PropagationResult:
     n_terms: list[int]
@@ -19,7 +25,11 @@ class MajoranaPropagator:
     def __init__(
         self,
         noise: UniformNoiseModel | GateNoiseModel | None = None,
-        truncation: TruncationPolicy | None = None,
+        truncation: _NumericalTruncator
+        | Sequence[_NumericalTruncator]
+        | TruncationPolicy
+        | None = None,
+        schedule: FlushSchedule | None = None,
         n_threads: int | None = None,
         progress_bar: bool = False,
         logger: Logger | None = None,
@@ -29,15 +39,15 @@ class MajoranaPropagator:
 
         Arguments:
             noise: Optional noise model. Use UniformNoiseModel for depolarising noise, or
-                wrap a custom duck-typed model in GateNoiseModel. Custom models trigger a
-                Python callback per layer, which may hurt performance.
-            truncation: Optional truncation policy. Pass a TruncationPolicy with
-                ``truncation_range=(min, max)`` to control when truncation fires.
+                wrap a custom duck-typed model in GateNoiseModel.
+            truncation: The truncation pipeline, a list of truncators
+                (WeightTruncator/CoefficientTruncator/TermBudget), a single such
+                truncator, a legacy TruncationPolicy (decomposed), or None. The
+                symbolic-only FrequencyTruncator/MonomialBudget are rejected.
+            schedule: Optional FlushSchedule controlling the lossless merge cadence.
             n_threads: Number of worker threads. Defaults to the number of logical CPU cores.
             progress_bar: If True, display a tqdm progress bar over circuit gates.
-            logger: Optional Logger instance. When provided, emits JSONL events to the
-                configured file: per-gate state (map_terms, outbox_terms) and truncation
-                events (terms_before, terms_after, discarded_coeff_l1, etc.).
+            logger: Optional Logger instance for JSONL event logging.
         """
         ...
 
@@ -46,8 +56,18 @@ class MajoranaPropagator:
     def set_noise(self, noise: UniformNoiseModel | GateNoiseModel | None = None) -> None: ...
 
     @property
-    def truncation(self) -> TruncationPolicy | None: ...
-    def set_truncation(self, truncation: TruncationPolicy | None = None) -> None: ...
+    def truncators(self) -> list[_NumericalTruncator]: ...
+    @property
+    def schedule(self) -> FlushSchedule: ...
+    @schedule.setter
+    def schedule(self, schedule: FlushSchedule) -> None: ...
+    def set_truncation(
+        self,
+        truncation: _NumericalTruncator
+        | Sequence[_NumericalTruncator]
+        | TruncationPolicy
+        | None = None,
+    ) -> None: ...
 
     def propagate(self, observable: MajoranaTermSum, circuit: MajoranaCircuit, filename: str | None = None) -> MajoranaTermSum:
         """

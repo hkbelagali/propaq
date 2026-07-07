@@ -104,7 +104,7 @@ def test_truncation_removes_heavy_terms():
         assert term.weight <= 1
 
 def test_n_threads_single_thread():
-    obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 0.5j})
+    obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 0.5})
     generator = mon(0b1111)
     circuit = MajoranaCircuit([MajoranaRotation(generator, 0.3)], N)
     prop1 = MajoranaPropagator(n_threads=1)
@@ -121,7 +121,7 @@ def test_n_threads_does_not_raise():
     prop.propagate(obs, empty_circuit())
 
 def test_propagate_filename_saves_file(tmp_path):
-    obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 0.5j})
+    obs = MajoranaTermSum({mon(0b0011): 1.0, mon(0b1100): 0.5})
     generator = mon(0b1111)
     circuit = MajoranaCircuit([MajoranaRotation(generator, 0.3)], N)
     prop = MajoranaPropagator()
@@ -151,10 +151,10 @@ def test_expectation_value_filename_saves_file(tmp_path):
 
 def test_roundtrip_preserves_all_terms_and_coefficients(tmp_path):
     obs = MajoranaTermSum({
-        mon(0b0011): 1.0 + 0.5j,
-        mon(0b1100): -0.3 + 0.7j,
+        mon(0b0011): 1.0,
+        mon(0b1100): -0.3,
         mon(0b0110): 2.0,
-        mon(0b1001): -1.0j,
+        mon(0b1001): -1.0,
     })
     generator = mon(0b1111)
     circuit = MajoranaCircuit([MajoranaRotation(generator, math.pi / 6)], N)
@@ -186,8 +186,8 @@ def test_from_file_no_information_lost_with_noise(tmp_path):
 
 def test_termsum_save_and_from_file_roundtrip(tmp_path):
     obs = MajoranaTermSum({
-        mon(0b0011): 3.14 - 2.71j,
-        mon(0b1100): 0.0 + 1.0j,
+        mon(0b0011): 3.14,
+        mon(0b1100): -2.71,
     })
     out = tmp_path / "direct.bin.gz"
     obs.save(str(out))

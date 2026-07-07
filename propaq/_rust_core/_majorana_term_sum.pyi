@@ -1,5 +1,3 @@
-from qiskit.quantum_info import SparsePauliOp
-
 from ._majorana_monomial import MajoranaMonomial
 from ._majorana_term_streamer import MajoranaTermStreamer
 from ._noise import GateNoiseModel, UniformNoiseModel
@@ -110,22 +108,11 @@ class MajoranaTermSum:
         Stream terms from a file and merge them into this sum one at a time.
 
         Coefficients are accumulated for monomials already present (same semantics as merge()).
-        Unlike from_file(), this does not allocate a temporary map — terms are inserted
+        Unlike from_file(), this does not allocate a temporary map, rather terms are inserted
         directly as they are read.
 
         Arguments:
             streamer: A MajoranaTermStreamer opened with MajoranaTermStreamer.from_file().
-        """
-        ...
-    def to_sparse_pauli_op(self) -> SparsePauliOp:
-        """
-        Convert this MajoranaTermSum back to a Qiskit SparsePauliOp via the inverse
-        Jordan-Wigner transform.
-
-        Raises ValueError if the term sum is empty (n_qubits cannot be inferred).
-
-        Returns:
-            The equivalent SparsePauliOp with simplified (deduplicated) terms.
         """
         ...
 

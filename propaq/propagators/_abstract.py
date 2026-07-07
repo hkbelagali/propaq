@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from propaq._rust_core import (
         GateNoiseModel,
         PropagationResult,
@@ -26,12 +28,15 @@ class AbstractPropagator(ABC):
 
     @property
     @abstractmethod
-    def truncation(self) -> TruncationPolicy | None:
-        """The current truncation policy, or None."""
+    def truncators(self) -> list[object]:
+        """The current truncation pipeline."""
 
     @abstractmethod
-    def set_truncation(self, truncation: TruncationPolicy | None = None) -> None:
-        """Replace the truncation policy."""
+    def set_truncation(
+        self,
+        truncation: object | Sequence[object] | TruncationPolicy | None = None,
+    ) -> None:
+        """Replace the truncation pipeline."""
 
     @abstractmethod
     def propagate(self, observable, circuit, filename=None):

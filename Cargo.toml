@@ -1,11 +1,16 @@
 [workspace]
 members = [
-    "crates/propaq-core",
-    "crates/propaq-majorana",
-    "crates/propaq-pauli",
-    "crates/propaq-ext",
+    "crates/core",
+    "crates/majorana",
+    "crates/pauli",
+    "crates/surrogate",
+    "crates/ext",
 ]
 resolver = "2"
+
+[profile.release]
+lto = "thin" 
+codegen-units = 1
 
 [profile.flamegraph]
 inherits = "release"

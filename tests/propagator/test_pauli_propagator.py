@@ -117,7 +117,7 @@ def test_truncation_removes_heavy_terms():
 
 
 def test_n_threads_single_thread():
-    obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b0010): 0.5j})
+    obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b0010): 0.5})
     generator = ps(0b1111, 0)  # X_0 X_1 X_2 X_3
     circuit = PauliCircuit([PauliRotation(generator, 0.3)])
     prop1 = PauliPropagator(n_threads=1)
@@ -135,7 +135,7 @@ def test_n_threads_does_not_raise():
     prop.propagate(obs, empty_circuit())
 
 def test_propagate_filename_saves_file(tmp_path):
-    obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0b0001, 0): 0.5j})
+    obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0b0001, 0): 0.5})
     generator = ps(0b0011, 0)
     circuit = PauliCircuit([PauliRotation(generator, 0.3)])
     prop = PauliPropagator()
@@ -164,12 +164,12 @@ def test_expectation_value_filename_saves_file(tmp_path):
 
 
 def test_roundtrip_preserves_all_terms_and_coefficients(tmp_path):
-    # Build a term sum with multiple terms and complex coefficients.
+    # Build a term sum with multiple terms and real coefficients.
     obs = PauliTermSum({
-        ps(0, 0b0001): 1.0 + 0.5j,
-        ps(0, 0b0010): -0.3 + 0.7j,
+        ps(0, 0b0001): 1.0,
+        ps(0, 0b0010): -0.3,
         ps(0b0001, 0b0001): 2.0,
-        ps(0b0010, 0b0010): -1.0j,
+        ps(0b0010, 0b0010): -1.0,
     })
     generator = ps(0b1111, 0)
     circuit = PauliCircuit([PauliRotation(generator, math.pi / 6)])
@@ -202,8 +202,8 @@ def test_from_file_no_information_lost_with_noise(tmp_path):
 def test_termsum_save_and_from_file_roundtrip(tmp_path):
     # Test the standalone save/from_file methods without going through propagation.
     obs = PauliTermSum({
-        ps(0, 0b0001): 3.14 - 2.71j,
-        ps(0b0010, 0b0001): 0.0 + 1.0j,
+        ps(0, 0b0001): 3.14,
+        ps(0b0010, 0b0001): -2.71,
     })
     out = tmp_path / "direct.bin.gz"
     obs.save(str(out))

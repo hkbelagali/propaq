@@ -17,7 +17,7 @@ def test_loschmidt_echo():
     obs = MajoranaTermSum() 
     for i in range(10):
         gen = MajoranaMonomial(np.random.randint(0, 8), 8)
-        coeff = np.random.rand() + 1j * np.random.rand()
+        coeff = float(np.random.rand())
         obs[gen] = coeff
 
     # Construct a random MajoranaCircuit.

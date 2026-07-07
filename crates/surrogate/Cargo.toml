@@ -1,0 +1,26 @@
+[package]
+name = "propaq-surrogate"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "propaq_surrogate"
+crate-type = ["lib"]
+
+[dependencies]
+propaq-core = { path = "../core" }
+propaq-pauli = { path = "../pauli" }
+propaq-majorana = { path = "../majorana" }
+pyo3 = { version = "0.23", features = ["num-complex"] }
+num-complex = "0.4"
+rayon = "1.10"
+rustc-hash = "2"
+flate2 = "1"
+mimalloc = "0.1.52"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "surrogate_bench"
+harness = false

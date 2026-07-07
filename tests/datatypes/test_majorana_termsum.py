@@ -16,21 +16,21 @@ def mon(modes_int: int) -> MajoranaMonomial:
 def test_add_and_len_items():
     ts = MajoranaTermSum()
     t = mon(0b01)
-    ts.add(t, 1 + 0j)
-    ts.add(t, 2 + 0j)
+    ts.add(t, 1.0)
+    ts.add(t, 2.0)
     assert len(ts) == 1
     items = list(ts.items())
-    assert items[0][1] == pytest.approx(3 + 0j)
+    assert items[0][1] == pytest.approx(3.0)
 
 
 def test_scale_and_norm_squared():
     ts = MajoranaTermSum()
     a = mon(0b01)
     b = mon(0b10)
-    ts.add(a, 1 + 1j)
-    ts.add(b, 0.5 + 0j)
+    ts.add(a, 1.0)
+    ts.add(b, 0.5)
     orig = ts.norm_squared()
-    factor = 2 + 0j
+    factor = 2.0
     ts.scale(factor)
     assert pytest.approx(ts.norm_squared(), rel=1e-9) == (abs(factor) ** 2) * orig
 
@@ -75,18 +75,18 @@ def test_truncate_keeps_heavy_above_cutoff():
 def test_apply_damping_uses_noise_model():
     ts = MajoranaTermSum()
     t = mon(0b00000011)
-    ts.add(t, 2 + 0j)
+    ts.add(t, 2.0)
     noise = UniformNoiseModel(0.0)  # zero damping → coefficients unchanged
     ts.apply_damping(noise, active_modes=0)
     _, coeff = list(ts.items())[0]
-    assert coeff == pytest.approx(2 + 0j)
+    assert coeff == pytest.approx(2.0)
 
 def test_constructor_with_dict():
     t = mon(0b01)
-    ts = MajoranaTermSum({t: 2.5 + 0j})
+    ts = MajoranaTermSum({t: 2.5})
     assert len(ts) == 1
     _, coeff = list(ts.items())[0]
-    assert coeff == pytest.approx(2.5 + 0j)
+    assert coeff == pytest.approx(2.5)
 
 def test_constructor_empty_dict():
     ts = MajoranaTermSum({})
@@ -94,14 +94,14 @@ def test_constructor_empty_dict():
 
 def test_constructor_multi_term_dict():
     a, b = mon(0b0001), mon(0b0010)
-    ts = MajoranaTermSum({a: 1.0, b: -1.0j})
+    ts = MajoranaTermSum({a: 1.0, b: -1.0})
     assert len(ts) == 2
 
 def test_setitem_and_getitem():
     ts = MajoranaTermSum()
     t = mon(0b01)
-    ts[t] = 3.0 + 0j
-    assert ts[t] == pytest.approx(3.0 + 0j)
+    ts[t] = 3.0
+    assert ts[t] == pytest.approx(3.0)
 
 def test_setitem_overwrites():
     ts = MajoranaTermSum()
@@ -120,11 +120,11 @@ def test_merge_overlapping_accumulates():
     a = mon(0b0001)
     ts1 = MajoranaTermSum()
     ts2 = MajoranaTermSum()
-    ts1.add(a, 1.0 + 0j)
-    ts2.add(a, 2.0 + 0j)
+    ts1.add(a, 1.0)
+    ts2.add(a, 2.0)
     ts1.merge(ts2)
     assert len(ts1) == 1
-    assert ts1[a] == pytest.approx(3.0 + 0j)
+    assert ts1[a] == pytest.approx(3.0)
 
 def test_merge_mixed_overlap_and_new():
     a, b = mon(0b0001), mon(0b0010)
@@ -160,9 +160,9 @@ class ConstantDampingNoise:
 
 def test_apply_damping_custom_python_noise():
     t = mon(0b00000011)
-    ts = MajoranaTermSum({t: 4.0 + 0j})
+    ts = MajoranaTermSum({t: 4.0})
     ts.apply_damping(ConstantDampingNoise(0.25), active_modes=0)
-    assert ts[t] == pytest.approx(1.0 + 0j)  # 4.0 * 0.25
+    assert ts[t] == pytest.approx(1.0)  # 4.0 * 0.25
 
 def _ref(modes_int: int, n_modes: int) -> MajoranaMonomial:
     """Reference monomial for lookup; equality uses only mode bits."""
@@ -246,7 +246,7 @@ def test_from_sparse_pauli_op_linear_combination():
 
 def test_streamer_round_trip_single_term(tmp_path):
     a = mon(0b0001)
-    ts = MajoranaTermSum({a: 3.0 + 1j})
+    ts = MajoranaTermSum({a: 3.0})
     path = str(tmp_path / "ts.gz")
     ts.save(path)
 
@@ -255,20 +255,20 @@ def test_streamer_round_trip_single_term(tmp_path):
     assert len(pairs) == 1
     term, coeff = pairs[0]
     assert term == a
-    assert coeff == pytest.approx(3.0 + 1j)
+    assert coeff == pytest.approx(3.0)
 
 
 def test_streamer_round_trip_multi_term(tmp_path):
     a, b, c = mon(0b0001), mon(0b0010), mon(0b0100)
-    ts = MajoranaTermSum({a: 1.0, b: 2.0 + 0.5j, c: -1j})
+    ts = MajoranaTermSum({a: 1.0, b: 2.0, c: -1.0})
     path = str(tmp_path / "ts.gz")
     ts.save(path)
 
     result = {term: coeff for term, coeff in MajoranaTermStreamer.from_file(path)}
     assert len(result) == 3
     assert result[a] == pytest.approx(1.0)
-    assert result[b] == pytest.approx(2.0 + 0.5j)
-    assert result[c] == pytest.approx(-1j)
+    assert result[b] == pytest.approx(2.0)
+    assert result[c] == pytest.approx(-1.0)
 
 
 def test_streamer_empty_file(tmp_path):
@@ -282,7 +282,7 @@ def test_streamer_empty_file(tmp_path):
 
 def test_merge_from_file_matches_from_file(tmp_path):
     a, b = mon(0b0001), mon(0b0010)
-    ts = MajoranaTermSum({a: 1.5, b: -2.0 + 1j})
+    ts = MajoranaTermSum({a: 1.5, b: -2.0})
     path = str(tmp_path / "ts.gz")
     ts.save(path)
 

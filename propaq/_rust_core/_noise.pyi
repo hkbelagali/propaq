@@ -26,13 +26,13 @@ class UniformNoiseModel:
         """
         ...
 
-    def apply_noise(self, term_sum: MajoranaTermSum) -> None: 
+    def apply_noise(self, term_sum: MajoranaTermSum | PauliTermSum) -> None:
         """
-        This is not called by Rust code. Instead, it is triggered 
+        This is not called by Rust code. Instead, it is triggered
         during callbacks for custom noise models.
 
         Arguments:
-            term_sum: The Majorana term sum to which noise should be applied.
+            term_sum: The term sum to which noise should be applied.
         """
         ...
 

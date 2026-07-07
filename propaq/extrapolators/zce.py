@@ -1,24 +1,30 @@
-""" 
-Zero cutoff extrapolation via curve fitting. 
+"""
+Zero cutoff extrapolation via curve fitting.
 
-Similar to zero-noise extrapolation, but instead of sweeping over 
-noise levels, we sweep over cutoff values in the propagator. 
+Similar to zero-noise extrapolation, but instead of sweeping over
+noise levels, we sweep over cutoff values in the propagator.
 This could be either a weight cutoff or a coefficient cutoff,
-which both inherit from the same base class. 
+both of which are individual truncators in the propagator's pipeline.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 from scipy.optimize import curve_fit
 
+# The propagator's ``truncators`` getter returns bare Rust instances, so match
+# against the Rust base classes (the Python wrappers subclass them).
+from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
+from propaq._rust_core import WeightTruncator as _RustWeightTruncator
 from propaq.circuits.majorana.circuit import MajoranaCircuit
 from propaq.circuits.pauli.circuit import PauliCircuit
 from propaq.datatypes import AbstractTermSum
 from propaq.propagators import AbstractPropagator
+from propaq.truncation import CoefficientTruncator, WeightTruncator
 
 
 @dataclass
@@ -35,30 +41,66 @@ class ZCEResult:
     fit_covariance: np.ndarray
     """Covariance matrix of the fitted parameters."""
 
-class ZeroCutoffExtrapolator(ABC): 
+class ZeroCutoffExtrapolator(ABC):
     """
     Zero cutoff extrapolation via curve fitting.
+
+    A concrete subclass targets one truncator kind (weight or coefficient) that
+    must already be present in the propagator's truncation pipeline; the sweep
+    replaces that truncator's cutoff value in place and restores it afterward.
     """
 
-    fitting_fn: Callable 
+    fitting_fn: Callable
     """Function to fit to the cutoff vs. expectation value data, passed to scipy.optimize.curve_fit."""
 
     cutoff_values: list[float]
     """Cutoff values to sweep over for the extrapolation."""
 
-    def __init__(self, fitting_fn: Callable, cutoff_values: list[float]) -> None: 
-        self.fitting_fn = fitting_fn 
+    def __init__(self, fitting_fn: Callable, cutoff_values: list[float]) -> None:
+        self.fitting_fn = fitting_fn
         self.cutoff_values = list(cutoff_values)
 
-    @abstractmethod 
-    def _get_cutoff(self, propagator: AbstractPropagator) -> float | int | None: 
-        """Get the cutoff value from the propagator."""
-        pass 
+    @abstractmethod
+    def _rust_cls(self) -> type[object]:
+        """The Rust truncator base class this extrapolator sweeps."""
+        ...
 
     @abstractmethod
+    def _read(self, truncator: object) -> float | int | None:
+        """Read the cutoff value out of a matching truncator."""
+        ...
+
+    @abstractmethod
+    def _build(self, cutoff: float | int | None) -> object:
+        """Build a fresh truncator carrying the given cutoff (None = no cutoff)."""
+        ...
+
+    def _find(self, propagator: AbstractPropagator) -> object | None:
+        """The first matching truncator in the pipeline, or None."""
+        for t in propagator.truncators:
+            if isinstance(t, self._rust_cls()):
+                return t
+        return None
+
+    def _get_cutoff(self, propagator: AbstractPropagator) -> float | int | None:
+        """The current cutoff value, or None if no matching truncator is present."""
+        t = self._find(propagator)
+        return self._read(t) if t is not None else None
+
     def _set_cutoff(self, propagator: AbstractPropagator, cutoff: float | int | None) -> None:
-        """Set the cutoff value in the propagator.  A value of None restores the field to its unset state."""
-        pass
+        """Replace the matching truncator's cutoff value in place.
+
+        Raises ValueError if the propagator has no truncation policy for this
+        cutoff (no matching truncator in its pipeline).
+        """
+        truncators = list(propagator.truncators)
+        idx = next(
+            (i for i, t in enumerate(truncators) if isinstance(t, self._rust_cls())), None
+        )
+        if idx is None:
+            raise ValueError("Propagator has no truncation policy for this cutoff.")
+        truncators[idx] = self._build(cutoff)
+        propagator.set_truncation(truncators)
 
     def run(self, propagator: AbstractPropagator, observable: AbstractTermSum, circuit: MajoranaCircuit | PauliCircuit, initial_state: int = 0, **curve_fit_kwargs) -> ZCEResult:
         """Sweep cutoff values, fit, and extrapolate to zero cutoff.
@@ -73,8 +115,8 @@ class ZeroCutoffExtrapolator(ABC):
         Returns:
             A ZCEResult containing the extrapolated zero-cutoff value and fit details.
         """
-        # Save the scalar value, not the object reference — _set_cutoff mutates
-        # the TruncationPolicy in place, so a reference would capture the mutated state.
+        # Save the scalar cutoff, not a truncator reference,  _set_cutoff rebuilds
+        # the pipeline, so a reference would go stale.
         original_cutoff = self._get_cutoff(propagator)
 
         try:
@@ -84,9 +126,11 @@ class ZeroCutoffExtrapolator(ABC):
                 result = propagator.expectation_value(observable, circuit, initial_state=initial_state)
                 expectation_values.append(result.expectation_value)
         finally:
-            if propagator.truncation is not None:
+            # Restore only if a matching truncator is still present (nothing to
+            # restore into otherwise, e.g. the first _set_cutoff already raised).
+            if self._find(propagator) is not None:
                 self._set_cutoff(propagator, original_cutoff)
-        
+
         popt, pcov = curve_fit(
             self.fitting_fn, self.cutoff_values, expectation_values, **curve_fit_kwargs
         )
@@ -101,53 +145,25 @@ class ZeroCutoffExtrapolator(ABC):
         )
 
 class WeightCutoffExtrapolator(ZeroCutoffExtrapolator):
-    """
-    Zero weight cutoff extrapolation via curve fitting.
-    """
+    """Zero weight-cutoff extrapolation via curve fitting."""
 
-    fitting_fn: Callable
-    """Function to fit to the weight cutoff vs. expectation value data, passed to scipy.optimize.curve_fit."""
+    def _rust_cls(self) -> type[object]:
+        return _RustWeightTruncator
 
-    cutoff_values: list[float]
-    """Weight cutoff values to sweep over for the extrapolation."""
+    def _read(self, truncator: object) -> int | None:
+        return cast(int | None, getattr(truncator, "weight"))
 
-    def __init__(self, fitting_fn: Callable, cutoff_values: list[float]) -> None:
-        super().__init__(fitting_fn, cutoff_values)
-
-    def _get_cutoff(self, propagator: AbstractPropagator) -> int | None:
-        """Get the weight cutoff value from the propagator."""
-        t = propagator.truncation
-        return t.weight_cutoff if t is not None else None
-    
-    def _set_cutoff(self, propagator: AbstractPropagator, cutoff: float | int | None) -> None:
-        """Set the weight cutoff value in the propagator.  None removes the weight cutoff."""
-        t = propagator.truncation
-        if t is None:
-            raise ValueError("Propagator has no truncation policy set.")
-        t.weight_cutoff = int(cutoff) if cutoff is not None else None
+    def _build(self, cutoff: float | int | None) -> WeightTruncator:
+        return WeightTruncator(int(cutoff) if cutoff is not None else None)
 
 class CoefficientCutoffExtrapolator(ZeroCutoffExtrapolator):
-    """
-    Zero coefficient cutoff extrapolation via curve fitting.
-    """
+    """Zero coefficient-cutoff extrapolation via curve fitting."""
 
-    fitting_fn: Callable
-    """Function to fit to the coefficient cutoff vs. expectation value data, passed to scipy.optimize.curve_fit."""
+    def _rust_cls(self) -> type[object]:
+        return _RustCoefficientTruncator
 
-    cutoff_values: list[float]
-    """Coefficient cutoff values to sweep over for the extrapolation."""
+    def _read(self, truncator: object) -> float | None:
+        return cast(float | None, getattr(truncator, "coefficient"))
 
-    def __init__(self, fitting_fn: Callable, cutoff_values: list[float]) -> None:
-        super().__init__(fitting_fn, cutoff_values)
-
-    def _get_cutoff(self, propagator: AbstractPropagator) -> float | None:
-        """Get the coefficient cutoff value from the propagator."""
-        t = propagator.truncation
-        return t.coeff_cutoff if t is not None else None
-    
-    def _set_cutoff(self, propagator: AbstractPropagator, cutoff: float | int | None) -> None:
-        """Set the coefficient cutoff value in the propagator."""
-        t = propagator.truncation
-        if t is None:
-            raise ValueError("Propagator has no truncation policy set.")
-        t.coeff_cutoff = float(cutoff) if cutoff is not None else 0.0
+    def _build(self, cutoff: float | int | None) -> CoefficientTruncator:
+        return CoefficientTruncator(float(cutoff) if cutoff is not None else None)

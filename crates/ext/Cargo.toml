@@ -1,0 +1,20 @@
+[package]
+name = "propaq"
+version = "0.1.1"
+edition = "2021"
+
+[lib]
+name = "_rust_core"
+crate-type = ["cdylib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+propaq-core = { path = "../core" }
+propaq-majorana = { path = "../majorana" }
+propaq-pauli = { path = "../pauli" }
+propaq-surrogate = { path = "../surrogate" }
+pyo3 = { version = "0.23", features = ["num-complex"] }
+mimalloc = "0.1.52"

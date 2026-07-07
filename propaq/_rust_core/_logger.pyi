@@ -11,7 +11,7 @@ class Logger:
 
         Two event types are emitted:
 
-        ``"gate"`` — sampled every ``log_every`` gates::
+        ``"gate"``: sampled every ``log_every`` gates::
 
             {"event":"gate","gate_idx":5,"layer_idx":2,"qiskit_gate_idx":3,"map_terms":1200,"outbox_terms":340,"avg_ms_per_gate":0.042}
 
@@ -25,7 +25,7 @@ class Logger:
         ``qiskit_gate_idx``. Emitted as ``null`` for circuits not constructed via
         ``from_qiskit``.
 
-        ``"truncation"`` — emitted on every flush that applies a TruncationPolicy,
+        ``"truncation"``: emitted on every flush that applies a TruncationPolicy,
         regardless of ``log_every``::
 
             {"event":"truncation","gate_idx":5,"layer_idx":2,"qiskit_gate_idx":3,"trigger":"threshold",

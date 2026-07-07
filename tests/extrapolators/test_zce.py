@@ -24,20 +24,19 @@ def trunc(weight_cutoff=None, coeff_cutoff=0.0):
 
 def test_truncation_getter_default_none():
     prop = MajoranaPropagator()
-    assert prop.truncation is None
+    assert prop.truncators == []
 
 
 def test_truncation_setter_roundtrip():
     prop = MajoranaPropagator()
     prop.set_truncation(trunc(weight_cutoff=4))
-    assert prop.truncation is not None
-    assert prop.truncation.weight_cutoff == 4
+    assert WeightCutoffExtrapolator(lambda w, a, b: a, [])._get_cutoff(prop) == 4
 
 
 def test_truncation_setter_restore_none():
     prop = MajoranaPropagator(truncation=trunc(coeff_cutoff=0.01))
     prop.set_truncation(None)
-    assert prop.truncation is None
+    assert prop.truncators == []
 
 def test_zce_coeff_result_fields():
     obs = MajoranaTermSum({mon(0b11): 1.0})
@@ -135,12 +134,10 @@ def test_zce_coeff_restores_original_truncation():
     original = trunc(coeff_cutoff=0.001)
     prop = MajoranaPropagator(truncation=original)
 
-    CoefficientCutoffExtrapolator(
-        lambda eps, a, b: a + b * eps, [0.002, 0.004]
-    ).run(prop, obs, circuit)
+    extrapolator = CoefficientCutoffExtrapolator(lambda eps, a, b: a + b * eps, [0.002, 0.004])
+    extrapolator.run(prop, obs, circuit)
 
-    assert prop.truncation is not None
-    assert prop.truncation.coeff_cutoff == pytest.approx(0.001)
+    assert extrapolator._get_cutoff(prop) == pytest.approx(0.001)
 
 
 def test_zce_weight_restores_original_truncation():
@@ -148,12 +145,10 @@ def test_zce_weight_restores_original_truncation():
     circuit = one_gate_circuit()
     prop = MajoranaPropagator(truncation=trunc(weight_cutoff=6))
 
-    WeightCutoffExtrapolator(
-        lambda w, a, b: a + b / (w + 1), [3, 4, 5]
-    ).run(prop, obs, circuit)
+    extrapolator = WeightCutoffExtrapolator(lambda w, a, b: a + b / (w + 1), [3, 4, 5])
+    extrapolator.run(prop, obs, circuit)
 
-    assert prop.truncation is not None
-    assert prop.truncation.weight_cutoff == 6
+    assert extrapolator._get_cutoff(prop) == 6
 
 
 def test_zce_coeff_restores_when_original_truncation_is_none():
@@ -172,7 +167,7 @@ def test_zce_coeff_restores_when_original_truncation_is_none():
     with pytest.raises(ValueError):
         extrapolator.run(prop, obs, circuit)
 
-    assert prop.truncation is None
+    assert prop.truncators == []
 
 def test_zce_coeff_set_cutoff_raises_when_no_truncation():
     prop = MajoranaPropagator()
