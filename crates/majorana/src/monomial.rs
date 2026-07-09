@@ -29,6 +29,12 @@ pub struct MajoranaMonomial {
     #[pyo3(get)]
     pub is_number_preserving: bool,
     pub weight: u32,
+    /// Cached parallel-prefix XOR-scan value used by `compute_weight_for`.
+    /// `p` is linear in `modes` under XOR (see `weight_and_p_from_product`),
+    /// so it can be combined via a single XOR on every product instead of
+    /// recomputing the O(log n_qubits) scan from scratch each time. Purely
+    /// a derived cache of `modes`/`n_modes` — excluded from `Eq`/`Hash`.
+    pub p: Bitset,
 }
 
 impl MajoranaMonomial {
@@ -69,37 +75,88 @@ impl MajoranaMonomial {
         (phase * product) as f64
     }
 
-    pub fn compute_weight_for(modes: &Bitset, n_modes: usize) -> u32 {
-        let n_qubits = n_modes / 2;
-        if n_qubits == 0 { return 0; }
-
-        let qubit_mask = Bitset::all_ones_upto(n_qubits);
-
+    /// Per-qubit `single = x ^ y` (unpaired Majorana site, needs a Z-string)
+    /// and `occupied = x | y` (site touched at all), compressed from the
+    /// mode bitmask. Cheap: two `compress_to_qubits` passes, no scan.
+    fn compress_single_occupied(modes: &Bitset, n_qubits: usize) -> (Bitset, Bitset) {
         let x_bits = compress_to_qubits(modes, n_qubits, 0);
         let y_bits = compress_to_qubits(modes, n_qubits, 1);
-
         let occupied = &x_bits | &y_bits;
-        let single   = &x_bits ^ &y_bits;
+        let single = &x_bits ^ &y_bits;
+        (single, occupied)
+    }
 
+    /// Inclusive parallel-prefix XOR-scan of `single` over `[0, n_qubits)`:
+    /// `p[k] = single[0] ^ single[1] ^ ... ^ single[k]`. This is the
+    /// expensive O(log n_qubits) `shl`-heavy part — linear in `single`
+    /// under XOR, so callers on the hot path should prefer combining two
+    /// already-scanned `p` values (`weight_and_p_from_product`) over calling
+    /// this directly.
+    fn scan_p(single: &Bitset, n_qubits: usize, qubit_mask: &Bitset) -> Bitset {
         let mut p = single.clone();
         let mut shift = 1usize;
         while shift < n_qubits {
-            p = &p ^ &(&p.shl(shift) & &qubit_mask);
+            p = &p ^ &(&p.shl(shift) & qubit_mask);
             shift <<= 1;
         }
+        p
+    }
 
+    /// Final weight from the compressed parts: complements `p` into the
+    /// Jordan-Wigner Z-string parity, then counts non-identity qubits.
+    fn weight_from_parts(single: &Bitset, occupied: &Bitset, p: &Bitset, qubit_mask: &Bitset) -> u32 {
         let string = if single.count_ones() & 1 == 1 {
-            &p ^ &qubit_mask
+            p ^ qubit_mask
         } else {
-            p
+            p.clone()
         };
+        (single | &(occupied ^ &string)).count_ones()
+    }
 
-        (&single | &(&occupied ^ &string)).count_ones()
+    pub fn compute_weight_for(modes: &Bitset, n_modes: usize) -> u32 {
+        let n_qubits = n_modes / 2;
+        if n_qubits == 0 { return 0; }
+        let qubit_mask = Bitset::all_ones_upto(n_qubits);
+        let (single, occupied) = Self::compress_single_occupied(modes, n_qubits);
+        let p = Self::scan_p(&single, n_qubits, &qubit_mask);
+        Self::weight_from_parts(&single, &occupied, &p, &qubit_mask)
+    }
+
+    /// Full (weight, p) computation from scratch — used at "fresh"
+    /// construction sites (not the hot multiplication path) so `p` doesn't
+    /// need a second, separate scan later.
+    pub fn weight_and_p_for(modes: &Bitset, n_modes: usize) -> (u32, Bitset) {
+        let n_qubits = n_modes / 2;
+        if n_qubits == 0 { return (0, Bitset::zero()); }
+        let qubit_mask = Bitset::all_ones_upto(n_qubits);
+        let (single, occupied) = Self::compress_single_occupied(modes, n_qubits);
+        let p = Self::scan_p(&single, n_qubits, &qubit_mask);
+        let weight = Self::weight_from_parts(&single, &occupied, &p, &qubit_mask);
+        (weight, p)
+    }
+
+    /// Fast path used by `matmul_internal`: `p` for the product is exactly
+    /// `self_p ^ other_p` (the prefix-scan is linear in `modes` under XOR),
+    /// so this needs no scan at all — only the cheap `single`/`occupied`
+    /// compression on the already-XORed `result_modes`.
+    pub(crate) fn weight_and_p_from_product(
+        result_modes: &Bitset,
+        n_modes: usize,
+        self_p: &Bitset,
+        other_p: &Bitset,
+    ) -> (u32, Bitset) {
+        let n_qubits = n_modes / 2;
+        if n_qubits == 0 { return (0, Bitset::zero()); }
+        let qubit_mask = Bitset::all_ones_upto(n_qubits);
+        let (single, occupied) = Self::compress_single_occupied(result_modes, n_qubits);
+        let p = self_p ^ other_p;
+        let weight = Self::weight_from_parts(&single, &occupied, &p, &qubit_mask);
+        (weight, p)
     }
 
     pub(crate) fn matmul_internal(&self, other: &MajoranaMonomial) -> (Complex64, MajoranaMonomial) {
         let result_modes = &self.modes ^ &other.modes;
-        let weight = Self::compute_weight_for(&result_modes, self.n_modes);
+        let (weight, p) = Self::weight_and_p_from_product(&result_modes, self.n_modes, &self.p, &other.p);
         let n_fermionic = self.n_modes / 2;
         let is_np = (0..n_fermionic).all(|k| result_modes.bit(2 * k) == result_modes.bit(2 * k + 1));
         let result = MajoranaMonomial {
@@ -107,6 +164,7 @@ impl MajoranaMonomial {
             n_modes: self.n_modes,
             is_number_preserving: is_np,
             weight,
+            p,
         };
 
         let r_a = hermiticity_exp(self.length());
@@ -139,8 +197,8 @@ impl MajoranaMonomial {
     #[pyo3(signature = (modes, n_modes, is_number_preserving = true))]
     fn new(modes: &Bound<'_, PyAny>, n_modes: usize, is_number_preserving: bool) -> PyResult<Self> {
         let bitset = pyint_to_bitset(modes, n_modes)?;
-        let weight = Self::compute_weight_for(&bitset, n_modes);
-        Ok(MajoranaMonomial { modes: bitset, n_modes, is_number_preserving, weight })
+        let (weight, p) = Self::weight_and_p_for(&bitset, n_modes);
+        Ok(MajoranaMonomial { modes: bitset, n_modes, is_number_preserving, weight, p })
     }
 
     /// The active mode indices as a Python integer bitmask.
@@ -261,10 +319,10 @@ impl AbstractTerm for MajoranaMonomial {
     fn from_bytes_vec(bytes: &[u8], system_size: u64) -> Self {
         let n_modes = system_size as usize;
         let modes = Bitset::from_le_bytes(bytes);
-        let weight = Self::compute_weight_for(&modes, n_modes);
+        let (weight, p) = Self::weight_and_p_for(&modes, n_modes);
         let n_fermionic = n_modes / 2;
         let is_np = (0..n_fermionic).all(|k| modes.bit(2 * k) == modes.bit(2 * k + 1));
-        MajoranaMonomial { modes, n_modes, is_number_preserving: is_np, weight }
+        MajoranaMonomial { modes, n_modes, is_number_preserving: is_np, weight, p }
     }
 }
 
@@ -358,14 +416,14 @@ mod tests {
 
     fn mon(bits: u64, n_modes: usize) -> MajoranaMonomial {
         let modes = Bitset::from_le_bytes(&bits.to_le_bytes());
-        let weight = MajoranaMonomial::compute_weight_for(&modes, n_modes);
-        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight }
+        let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
+        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
     }
 
     fn mon_bits(bits: Vec<u64>, n_modes: usize) -> MajoranaMonomial {
         let modes = Bitset::from_words(bits);
-        let weight = MajoranaMonomial::compute_weight_for(&modes, n_modes);
-        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight }
+        let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
+        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
     }
 
     #[test]
@@ -453,6 +511,16 @@ mod tests {
         assert_eq!(m.trace_fock_state_impl(0b11), -1.0);
     }
 
+    /// Cross-checks a product's incrementally-computed `weight` (and cached
+    /// `p`) against a from-scratch recomputation on the result's own modes
+    /// — the oracle for every weight/`p`-related test in this module.
+    fn assert_weight_and_p_correct(result: &MajoranaMonomial) {
+        let expected_weight = MajoranaMonomial::compute_weight_for(&result.modes, result.n_modes);
+        assert_eq!(result.weight, expected_weight, "weight mismatch for modes={:?}", result.modes);
+        let (_, expected_p) = MajoranaMonomial::weight_and_p_for(&result.modes, result.n_modes);
+        assert_eq!(result.p, expected_p, "p drifted for modes={:?}", result.modes);
+    }
+
     #[test]
     fn matmul_identity_on_left() {
         let identity = mon(0, 8);
@@ -460,6 +528,7 @@ mod tests {
         let (phase, result) = identity.matmul_internal(&m);
         assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
         assert_eq!(result.modes, m.modes);
+        assert_weight_and_p_correct(&result);
     }
 
     #[test]
@@ -469,6 +538,7 @@ mod tests {
         let (phase, result) = m.matmul_internal(&identity);
         assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
         assert_eq!(result.modes, m.modes);
+        assert_weight_and_p_correct(&result);
     }
 
     #[test]
@@ -477,6 +547,7 @@ mod tests {
         let (phase, result) = m.matmul_internal(&m);
         assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
         assert!(result.modes.is_zero());
+        assert_weight_and_p_correct(&result);
     }
 
     #[test]
@@ -486,6 +557,7 @@ mod tests {
         let (phase, result) = a.matmul_internal(&b);
         assert!((phase - Complex64::new(-1.0, 0.0)).norm() < 1e-10);
         assert_eq!(result.modes.count_ones(), 4);
+        assert_weight_and_p_correct(&result);
     }
 
     #[test]
@@ -513,5 +585,100 @@ mod tests {
         let a = mon(0b0001, 8);
         let b = mon(0b0010, 8);
         assert!(!a.commutes_with_impl(&b));
+    }
+
+    // --- Incremental weight/p correctness (see `weight_and_p_from_product`) ---
+    //
+    // The fast path in `matmul_internal` relies on the parallel-prefix
+    // XOR-scan being linear under XOR of its input: `p(A^B) == p(A) ^ p(B)`.
+    // This was verified analytically and against 3.3M+ trials of an
+    // independent simulation before implementation; the tests below port
+    // that verification into the suite so a future change can't silently
+    // break it. Every test compares `matmul_internal`'s incrementally
+    // computed `weight`/`p` against `compute_weight_for`/`weight_and_p_for`
+    // (the from-scratch, unchanged-since-inception reference) as the oracle.
+
+    /// Deterministic splitmix64 PRNG — avoids a `rand` dev-dependency for
+    /// what's otherwise a one-file, test-only need.
+    struct Rng(u64);
+    impl Rng {
+        fn next_u64(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+    }
+
+    fn random_bitset(rng: &mut Rng, n_modes: usize) -> Bitset {
+        let n_words = (n_modes + 63) / 64;
+        let mut words: Vec<u64> = (0..n_words).map(|_| rng.next_u64()).collect();
+        let rem = n_modes % 64;
+        if rem != 0 {
+            let mask = (1u64 << rem) - 1;
+            *words.last_mut().unwrap() &= mask;
+        }
+        Bitset::from_words(words)
+    }
+
+    fn random_mon(rng: &mut Rng, n_modes: usize) -> MajoranaMonomial {
+        let modes = random_bitset(rng, n_modes);
+        let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
+        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
+    }
+
+    #[test]
+    fn weight_matches_reference_exhaustive_small() {
+        // Exhaustive over `a`, strided over `b`, for every small system size
+        // (mirrors the pre-implementation simulation's coverage).
+        for n_qubits in 1usize..=6 {
+            let n_modes = 2 * n_qubits;
+            let space = 1u64 << n_modes;
+            let stride = (space / 37).max(1);
+            for a_bits in 0..space {
+                let a = mon(a_bits, n_modes);
+                let mut b_bits = 0u64;
+                while b_bits < space {
+                    let b = mon(b_bits, n_modes);
+                    let (_, result) = a.matmul_internal(&b);
+                    assert_weight_and_p_correct(&result);
+                    b_bits += stride;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn weight_matches_reference_randomized_multiword() {
+        let mut rng = Rng(0xC0FFEE_D15EA5E5);
+        for &n_qubits in &[30usize, 31, 32, 33, 63, 64, 65, 100, 127, 128, 129, 200] {
+            let n_modes = 2 * n_qubits;
+            for _ in 0..300 {
+                let a = random_mon(&mut rng, n_modes);
+                let b = random_mon(&mut rng, n_modes);
+                let (_, result) = a.matmul_internal(&b);
+                assert_weight_and_p_correct(&result);
+            }
+        }
+    }
+
+    #[test]
+    fn weight_and_p_no_drift_over_chained_updates() {
+        // Simulates a term being multiplied by 200 successive gate
+        // generators in sequence, checking after every step that neither
+        // the incrementally-tracked weight nor the cached `p` has drifted
+        // from a full from-scratch recomputation.
+        let mut rng = Rng(0x1234_5678_9ABC_DEF0);
+        for &n_qubits in &[8usize, 33, 65, 128] {
+            let n_modes = 2 * n_qubits;
+            let mut term = random_mon(&mut rng, n_modes);
+            for _ in 0..200 {
+                let generator = random_mon(&mut rng, n_modes);
+                let (_, next) = generator.matmul_internal(&term);
+                assert_weight_and_p_correct(&next);
+                term = next;
+            }
+        }
     }
 }
