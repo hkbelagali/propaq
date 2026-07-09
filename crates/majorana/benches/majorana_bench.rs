@@ -1,13 +1,15 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use propaq_core::bitset::Bitset;
+use propaq_core::propagator::{AbstractPropagator, GATE_BATCH_SIZE};
 use propaq_core::termsum::AbstractTermSum;
 use propaq_core::traits::AbstractTerm;
+use propaq_core::truncators::FlushSchedule;
 use propaq_majorana::monomial::MajoranaMonomial;
 
 fn make_mon(bits: u64, n_modes: usize) -> MajoranaMonomial {
     let modes = Bitset::from_le_bytes(&bits.to_le_bytes());
-    let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
-    MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
+    let (weight, p, is_np) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
+    MajoranaMonomial { modes, n_modes, is_number_preserving: is_np, weight, p }
 }
 
 fn build_termsum(n_terms: usize, n_modes: usize) -> AbstractTermSum<MajoranaMonomial> {
@@ -45,6 +47,63 @@ fn bench_matmul(c: &mut Criterion) {
         let b = make_mon(0b1100, n_modes);
         group.bench_with_input(BenchmarkId::from_parameter(n_modes), &n_modes, |bench, _| {
             bench.iter(|| black_box(AbstractTerm::matmul_internal(black_box(&a), black_box(&b))))
+        });
+    }
+    group.finish();
+}
+
+/// A full `GATE_BATCH_SIZE`-sized batch through `AbstractTerm::matmul_batch`,
+/// swept over the same `n_modes` as `bench_matmul` for direct comparison:
+/// `GATE_BATCH_SIZE * bench_matmul_batch`'s per-batch time vs.
+/// `GATE_BATCH_SIZE * bench_matmul`'s per-call time is the batching win at
+/// the term-algebra level, isolated from `apply_gate_inplace`'s surrounding
+/// parallelism/flush machinery (see `bench_apply_gate_inplace` for that).
+fn bench_matmul_batch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("MajoranaMonomial/matmul_batch");
+    for n_modes in [8usize, 40, 80, 128] {
+        let generator = make_mon(0b0011, n_modes);
+        let ctx = generator.prepare_gate_ctx();
+        // Distinct, varied terms (not all identical) so the commute test
+        // isn't trivially uniform across the batch.
+        let terms: Vec<MajoranaMonomial> = (0..GATE_BATCH_SIZE)
+            .map(|i| make_mon(0b1100u64.wrapping_add((i as u64) << 2), n_modes))
+            .collect();
+        let term_refs: Vec<&MajoranaMonomial> = terms.iter().collect();
+        group.bench_with_input(BenchmarkId::from_parameter(n_modes), &n_modes, |bench, _| {
+            let mut out = Vec::new();
+            bench.iter(|| {
+                generator.matmul_batch(black_box(&ctx), black_box(&term_refs), &mut out);
+                black_box(&out);
+            })
+        });
+    }
+    group.finish();
+}
+
+/// `apply_gate_inplace`-level bench (real rayon parallelism, real
+/// `GateBatch` dispatch, real flush machinery) at partition sizes crossing
+/// `gate_par_min_len()` — validates the win at the level that actually
+/// matters for real propagation, not just the isolated `matmul_batch` call.
+fn bench_apply_gate_inplace(c: &mut Criterion) {
+    let mut group = c.benchmark_group("MajoranaMonomial/apply_gate_inplace");
+    let n_modes = 128;
+    for n_terms in [300usize, 1000, 4000] {
+        let generator = make_mon(0b0011, n_modes);
+        group.bench_with_input(BenchmarkId::from_parameter(n_terms), &n_terms, |bench, &n| {
+            bench.iter_batched(
+                || {
+                    let mut prop: AbstractPropagator<MajoranaMonomial, f64> =
+                        AbstractPropagator::new(None, FlushSchedule::none(), Vec::new(), Some(4), false, None)
+                            .expect("propagator construction");
+                    prop.initialize_from(&build_termsum(n, n_modes));
+                    prop
+                },
+                |mut prop| {
+                    black_box(prop.apply_gate_inplace(black_box(&generator), black_box(0.37)));
+                    prop
+                },
+                BatchSize::SmallInput,
+            )
         });
     }
     group.finish();
@@ -117,6 +176,8 @@ criterion_group!(
     benches,
     bench_commutes_with,
     bench_matmul,
+    bench_matmul_batch,
+    bench_apply_gate_inplace,
     bench_compute_weight_for,
     bench_termsum_add,
     bench_termsum_merge,

@@ -1,7 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use propaq_core::bitset::Bitset;
+use propaq_core::propagator::AbstractPropagator;
 use propaq_core::termsum::AbstractTermSum;
 use propaq_core::traits::AbstractTerm;
+use propaq_core::truncators::FlushSchedule;
 use propaq_pauli::string::PauliString;
 
 fn make_pauli(x: u64, z: u64, n: usize) -> PauliString {
@@ -102,6 +104,41 @@ fn bench_termsum_norm_squared(c: &mut Criterion) {
     group.finish();
 }
 
+/// `PauliString::SUPPORTS_BATCHING` is `false` (the default) — `apply_gate_inplace`
+/// never touches `GateBatch`/`matmul_batch` for it, so this benchmark's job is
+/// to confirm that the `AbstractTerm::matmul_batch`/`GateCtx` trait extension
+/// added for `MajoranaMonomial`'s batching didn't regress Pauli's unbatched
+/// code path at all. Partition size is chosen to cross `gate_par_min_len()`
+/// (default 256), exercising the same (const-gated, textually unchanged)
+/// branch real propagation runs use. Compare before/after this change with
+/// `git stash` on `crates/core/src/propagator.rs`/`crates/core/src/traits.rs`
+/// (the only files touched that could affect Pauli) — expect **zero**
+/// statistically significant delta; any delta signals a codegen issue.
+fn bench_apply_gate_inplace(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PauliString/apply_gate_inplace");
+    let n_qubits = 64;
+    for n_terms in [300usize, 1000, 4000] {
+        let generator = make_pauli(0b11, 0, n_qubits);
+        group.bench_with_input(BenchmarkId::from_parameter(n_terms), &n_terms, |bench, &n| {
+            bench.iter_batched(
+                || {
+                    let mut prop: AbstractPropagator<PauliString, f64> =
+                        AbstractPropagator::new(None, FlushSchedule::none(), Vec::new(), Some(4), false, None)
+                            .expect("propagator construction");
+                    prop.initialize_from(&build_termsum(n, n_qubits));
+                    prop
+                },
+                |mut prop| {
+                    black_box(prop.apply_gate_inplace(black_box(&generator), black_box(0.37)));
+                    prop
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_commutes_with,
@@ -109,5 +146,6 @@ criterion_group!(
     bench_termsum_add,
     bench_termsum_merge,
     bench_termsum_norm_squared,
+    bench_apply_gate_inplace,
 );
 criterion_main!(benches);

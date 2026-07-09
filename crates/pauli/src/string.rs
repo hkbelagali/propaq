@@ -214,6 +214,14 @@ impl AbstractTerm for PauliString {
         let weight = (&xb | &zb).count_ones();
         PauliString { x: xb, z: zb, n_qubits, weight }
     }
+
+    // `SUPPORTS_BATCHING` stays at its default (`false`) and `matmul_batch`
+    // stays at its default implementation — Pauli's weight computation is
+    // already O(n_words) with no scan to amortize, so there's nothing here
+    // worth batching. `GateCtx = ()` is the required minimum to satisfy the
+    // trait.
+    type GateCtx = ();
+    fn prepare_gate_ctx(&self) -> Self::GateCtx {}
 }
 
 impl PartialEq for PauliString {
