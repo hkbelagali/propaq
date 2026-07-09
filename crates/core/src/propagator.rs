@@ -24,7 +24,6 @@
 ///
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use num_complex::Complex64;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -77,88 +76,6 @@ unsafe impl<T> Send for SendPtr<T> {}
 unsafe impl<T> Sync for SendPtr<T> {}
 impl<T> SendPtr<T> {
     unsafe fn offset(&self, idx: usize) -> *mut T { self.0.add(idx) }
-}
-
-/// Batch size for `apply_gate_inplace`'s `M::SUPPORTS_BATCHING` code path.
-/// Compile-time constant since term types that batch (currently only
-/// `MajoranaMonomial`) size fixed-shape columnar scratch buffers to it.
-pub const GATE_BATCH_SIZE: usize = 64;
-
-/// Batch accumulator used by `apply_gate_inplace`'s batched code path
-/// (`M::SUPPORTS_BATCHING == true`). Gathers up to `GATE_BATCH_SIZE` terms
-/// from either a `HashMap` iterator (`local_map`) or a slice iterator
-/// (`outbox_row`'s buckets), calls `M::matmul_batch` once per full batch
-/// (or once more for a partial tail via `finish`), and applies the
-/// per-item coefficient rotation only to survivors.
-///
-/// `.fold()` rather than `.chunks()`/`.par_chunks_mut()` is the mechanism
-/// because `hashbrown::HashMap`'s `ParIterMut` implements only
-/// `ParallelIterator`, not `IndexedParallelIterator` — `.chunks()` isn't
-/// available on it. `.fold()` is available on any `ParallelIterator`: rayon's
-/// work-stealing splitter calls the identity closure once per leaf, then
-/// drives the fold closure sequentially over that leaf's items — exactly the
-/// granularity a batch accumulator that flushes when full needs. Using the
-/// same mechanism for the outbox slice scan too (even though slices do
-/// support `.chunks()`) keeps one `GateBatch` type serving both call sites.
-struct GateBatch<'g, 'm, M: AbstractTerm, C: CoeffRepr> {
-    generator: &'g M,
-    ctx: &'g M::GateCtx,
-    param: &'g C::GateParam,
-    log2_n: u32,
-    terms: Vec<&'m M>,
-    coeffs: Vec<&'m mut C>,
-    scratch_out: Vec<(usize, Complex64, M)>,
-    results: Vec<(usize, M, C)>,
-}
-
-impl<'g, 'm, M: AbstractTerm, C: CoeffRepr> GateBatch<'g, 'm, M, C> {
-    fn new(generator: &'g M, ctx: &'g M::GateCtx, param: &'g C::GateParam, log2_n: u32) -> Self {
-        GateBatch {
-            generator,
-            ctx,
-            param,
-            log2_n,
-            terms: Vec::with_capacity(GATE_BATCH_SIZE),
-            coeffs: Vec::with_capacity(GATE_BATCH_SIZE),
-            scratch_out: Vec::new(),
-            results: Vec::new(),
-        }
-    }
-
-    /// Accumulate one `(term, coeff)` pair. No commute pre-filtering here —
-    /// `M::matmul_batch` decides, per item, whether it survives; pre-filtering
-    /// would just be duplicating logic `matmul_batch` already has to do
-    /// internally to batch the commute test itself.
-    fn push(&mut self, term: &'m M, coeff: &'m mut C) {
-        self.terms.push(term);
-        self.coeffs.push(coeff);
-        if self.terms.len() == GATE_BATCH_SIZE {
-            self.flush();
-        }
-    }
-
-    fn flush(&mut self) {
-        if self.terms.is_empty() {
-            return;
-        }
-        self.generator.matmul_batch(self.ctx, &self.terms, &mut self.scratch_out);
-        // `local_idx` in `scratch_out` indexes into `self.coeffs`/`self.terms`
-        // as they stood for *this* batch — must be fully consumed here,
-        // before `terms`/`coeffs` are cleared below for the next batch.
-        for &(local_idx, phase, ref new_term) in &self.scratch_out {
-            let new_coeff = self.coeffs[local_idx].apply_rotation(self.param, phase);
-            let dst = owner_of(new_term, self.log2_n);
-            self.results.push((dst, new_term.clone(), new_coeff));
-        }
-        self.terms.clear();
-        self.coeffs.clear();
-    }
-
-    /// Flush any partial trailing batch and return all accumulated results.
-    fn finish(mut self) -> Vec<(usize, M, C)> {
-        self.flush();
-        self.results
-    }
 }
 
 /// Result returned by `expectation_value`: per-gate term counts and the final expectation value.
@@ -401,14 +318,10 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         let outboxes = &mut self.outboxes;
         let scratch_new_terms = &mut self.scratch_new_terms;
         let scratch_snap = &mut self.scratch_snap;
-        // Computed once for the whole gate (not per term/batch) — read-only,
-        // shared across every parallel task below. `()` for term types that
-        // don't override `SUPPORTS_BATCHING`.
-        let ctx = generator.prepare_gate_ctx();
 
-        // Collect all of the terms, both in the partition map and in the
-        // outboxes, that anticommute with the generator.
-        // Apply the gate to each of these terms, and place the results
+        // Collect all of the terms, both in the partition map and in the 
+        // outboxes, that anticommute with the generator. 
+        // Apply the gate to each of these terms, and place the results 
         // in the appropriate outboxes.
         pool.install(|| {
             thread_maps
@@ -418,46 +331,22 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                 .zip(scratch_snap.par_iter_mut())
                 .map(|(((local_map, outbox_row), new_terms), snap)| {
                     new_terms.clear();
-
+                    
                     // If the workload is high, then sub-threads are spawned to process the partition in parallel.
                     if local_map.len() >= gate_par_min_len() {
-                        if M::SUPPORTS_BATCHING {
-                            new_terms.par_extend(
-                                local_map
-                                    .par_iter_mut()
-                                    .fold(
-                                        || GateBatch::new(generator, &ctx, &param, log2_n),
-                                        |mut batch, (term, coeff)| {
-                                            batch.push(term, coeff);
-                                            batch
-                                        },
-                                    )
-                                    .flat_map_iter(GateBatch::finish),
-                            );
-                        } else {
-                            // Textually identical to the pre-batching code —
-                            // no behavior or perf change for non-batching term types.
-                            new_terms.par_extend(
-                                local_map
-                                    .par_iter_mut()
-                                    .filter_map(|(term, coeff)| {
-                                        if term.commutes_with(generator) {
-                                            return None;
-                                        }
-                                        let (phase, new_term) = generator.matmul_internal(term);
-                                        let new_coeff = coeff.apply_rotation(&param, phase);
-                                        let dst = owner_of(&new_term, log2_n);
-                                        Some((dst, new_term, new_coeff))
-                                    }),
-                            );
-                        }
-                    } else if M::SUPPORTS_BATCHING {
-                        // Defer to the serial loop (per-thread) for smaller partitions to avoid unnecessary parallel overhead.
-                        let mut batch = GateBatch::new(generator, &ctx, &param, log2_n);
-                        for (term, coeff) in local_map.iter_mut() {
-                            batch.push(term, coeff);
-                        }
-                        new_terms.extend(batch.finish());
+                        new_terms.par_extend(
+                            local_map
+                                .par_iter_mut()
+                                .filter_map(|(term, coeff)| {
+                                    if term.commutes_with(generator) {
+                                        return None;
+                                    }
+                                    let (phase, new_term) = generator.matmul_internal(term);
+                                    let new_coeff = coeff.apply_rotation(&param, phase);
+                                    let dst = owner_of(&new_term, log2_n);
+                                    Some((dst, new_term, new_coeff))
+                                }),
+                        );
                     } else {
                         // Defer to the serial loop (per-thread) for smaller partitions to avoid unnecessary parallel overhead.
                         for (term, coeff) in local_map.iter_mut() {
@@ -475,48 +364,25 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
                     // happens after both loops complete) are not re-processed.
                     snap.clear();
                     snap.extend(outbox_row.iter().map(|v| v.len()));
-                    if M::SUPPORTS_BATCHING {
-                        new_terms.par_extend(
-                            outbox_row
-                                .par_iter_mut()
-                                .zip(snap.par_iter())
-                                .flat_map(|(bucket, &take)| {
-                                    bucket[..take]
-                                        .par_iter_mut()
-                                        .with_min_len(gate_par_min_len())
-                                        .fold(
-                                            || GateBatch::new(generator, &ctx, &param, log2_n),
-                                            |mut batch, (term, coeff)| {
-                                                batch.push(term, coeff);
-                                                batch
-                                            },
-                                        )
-                                        .flat_map_iter(GateBatch::finish)
-                                }),
-                        );
-                    } else {
-                        // Textually identical to the pre-batching code — no
-                        // behavior or perf change for non-batching term types.
-                        new_terms.par_extend(
-                            outbox_row
-                                .par_iter_mut()
-                                .zip(snap.par_iter())
-                                .flat_map(|(bucket, &take)| {
-                                    bucket[..take]
-                                        .par_iter_mut()
-                                        .with_min_len(gate_par_min_len())
-                                        .filter_map(|(term, coeff)| {
-                                            if term.commutes_with(generator) {
-                                                return None;
-                                            }
-                                            let (phase, new_term) = generator.matmul_internal(term);
-                                            let new_coeff = coeff.apply_rotation(&param, phase);
-                                            let new_dst = owner_of(&new_term, log2_n);
-                                            Some((new_dst, new_term, new_coeff))
-                                        })
-                                }),
-                        );
-                    }
+                    new_terms.par_extend(
+                        outbox_row
+                            .par_iter_mut()
+                            .zip(snap.par_iter())
+                            .flat_map(|(bucket, &take)| {
+                                bucket[..take]
+                                    .par_iter_mut()
+                                    .with_min_len(gate_par_min_len())
+                                    .filter_map(|(term, coeff)| {
+                                        if term.commutes_with(generator) {
+                                            return None;
+                                        }
+                                        let (phase, new_term) = generator.matmul_internal(term);
+                                        let new_coeff = coeff.apply_rotation(&param, phase);
+                                        let new_dst = owner_of(&new_term, log2_n);
+                                        Some((new_dst, new_term, new_coeff))
+                                    })
+                            }),
+                    );
 
                     let count = new_terms.len();
                     let mut size = 0usize;

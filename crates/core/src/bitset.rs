@@ -76,15 +76,6 @@ impl Bitset {
         &self.words
     }
 
-    /// Word at index `i`, zero if `i` is beyond this value's own (possibly
-    /// `normalize()`-shortened) length — consistent with the canonical
-    /// representation treating missing high words as zero. Used by
-    /// batch-gather code that needs a fixed, system-wide word count
-    /// regardless of any individual value's own length.
-    pub fn word_at(&self, i: usize) -> u64 {
-        self.words.get(i).copied().unwrap_or(0)
-    }
-
     /// Bits set at positions 0 through n-1 (dense prefix mask).
     pub fn all_ones_upto(n: usize) -> Self {
         if n == 0 { return Self::zero(); }
