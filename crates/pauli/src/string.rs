@@ -230,170 +230,6 @@ impl Hash for PauliString {
     }
 }
 
-/// One of `gen`'s (at most two) touched-qubit positions, located once per
-/// `commutes`/`product` call by `classify_gen` — see `GenShape`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct GenSite {
-    word: usize,
-    /// Exactly one bit set: the qubit's position within `word`.
-    mask: u64,
-    gx: bool,
-    gz: bool,
-}
-
-/// Structural classification of `gen`'s support (`popcount(gen.x | gen.z)`),
-/// computed fresh at the top of `commutes`/`product`. `gen` is fixed for an
-/// entire `soa::kernels::apply_rotation` call (the same generator is checked
-/// against every live term), so real circuits — which emit weight-1
-/// (`Rz`-shaped) or weight-2 (`XX+YY`/`CP`-shaped) generators for essentially
-/// every gate (see `propaq/datatypes/pauli/termsum.py`) — hit `Weight1`/
-/// `Weight2` on every call, letting `commutes_fast`/`product_fast` replace
-/// the generic multi-word popcount/XOR reductions with O(1) bit tests at the
-/// known site(s). Wider generators fall back to the unchanged generic path.
-#[derive(Debug, PartialEq)]
-enum GenShape {
-    Identity,
-    Weight1(GenSite),
-    Weight2(GenSite, GenSite),
-    Wide,
-}
-
-/// Single fused pass: accumulates `gen`'s weight and locates up to two set
-/// bits at once (never a separate popcount-then-locate pass, so a narrow
-/// generator touching a late word costs no more than the weight scan alone
-/// already would).
-#[inline]
-fn classify_gen(gen: [&[u64]; 2]) -> GenShape {
-    let mut weight: u32 = 0;
-    let mut site0: Option<GenSite> = None;
-    let mut site1: Option<GenSite> = None;
-    for (word, (&gx_w, &gz_w)) in gen[0].iter().zip(gen[1]).enumerate() {
-        let combined = gx_w | gz_w;
-        weight += combined.count_ones();
-        if weight > 2 {
-            return GenShape::Wide;
-        }
-        let mut remaining = combined;
-        while remaining != 0 {
-            let mask = 1u64 << remaining.trailing_zeros();
-            let site = GenSite { word, mask, gx: gx_w & mask != 0, gz: gz_w & mask != 0 };
-            if site0.is_none() {
-                site0 = Some(site);
-            } else {
-                site1 = Some(site);
-            }
-            remaining &= remaining - 1;
-        }
-    }
-    match (site0, site1) {
-        (None, None) => GenShape::Identity,
-        (Some(s), None) => GenShape::Weight1(s),
-        (Some(a), Some(b)) => GenShape::Weight2(a, b),
-        (None, Some(_)) => unreachable!("a site is only ever recorded as site1 after site0"),
-    }
-}
-
-/// Whether `term` anticommutes with `gen` *at this one site only* —
-/// `(tx & gz) ^ (tz & gx)`, restricted to `gen`'s zero-elsewhere support this
-/// is the whole anticommutator parity contribution from this site.
-#[inline]
-fn site_anticommutes(term: [&[u64]; 2], site: &GenSite) -> bool {
-    let tx = term[0][site.word] & site.mask != 0;
-    let tz = term[1][site.word] & site.mask != 0;
-    (tx && site.gz) ^ (tz && site.gx)
-}
-
-/// This site's contribution to the product's mod-4 phase exponent (see the
-/// derivation in the design plan: `txz`/`nxz`'s difference telescopes to a
-/// sum over `gen`'s touched sites alone, and `i^(sum) = product of i^(term)`,
-/// so each site's exponent can be summed independently and reduced mod 4
-/// once at the end).
-#[inline]
-fn site_phase_exponent(term: [&[u64]; 2], site: &GenSite) -> i32 {
-    let tx = (term[0][site.word] & site.mask != 0) as i32;
-    let tz = (term[1][site.word] & site.mask != 0) as i32;
-    let gx = site.gx as i32;
-    let gz = site.gz as i32;
-    let ox = gx ^ tx;
-    let oz = gz ^ tz;
-    gx * gz + tx * tz - ox * oz + 2 * gz * tx
-}
-
-/// Fast commute check for `Identity`/`Weight1`/`Weight2` shapes; `None` for
-/// `Wide` (caller falls back to `commutes_generic`).
-#[inline]
-fn commutes_fast(term: [&[u64]; 2], shape: &GenShape) -> Option<bool> {
-    match shape {
-        GenShape::Identity => Some(true),
-        GenShape::Weight1(s) => Some(!site_anticommutes(term, s)),
-        GenShape::Weight2(a, b) => Some(!(site_anticommutes(term, a) ^ site_anticommutes(term, b))),
-        GenShape::Wide => None,
-    }
-}
-
-/// Fast product for `Identity`/`Weight1`/`Weight2` shapes: `out` is built via
-/// `copy_from_slice` (not a full XOR loop) plus targeted XORs at the ≤2
-/// touched words, and the phase is a sum of ≤2 independent per-site
-/// exponents. `None` for `Wide` (caller falls back to `product_generic`,
-/// which writes `out` itself).
-#[inline]
-fn product_fast(
-    term: [&[u64]; 2],
-    gen: [&[u64]; 2],
-    shape: &GenShape,
-    out: [&mut [u64]; 2],
-) -> Option<Complex64> {
-    let sites: [Option<GenSite>; 2] = match *shape {
-        GenShape::Identity => [None, None],
-        GenShape::Weight1(s) => [Some(s), None],
-        GenShape::Weight2(a, b) => [Some(a), Some(b)],
-        GenShape::Wide => return None,
-    };
-
-    out[0].copy_from_slice(term[0]);
-    out[1].copy_from_slice(term[1]);
-    let mut phase_exp = 0i32;
-    for site in sites.into_iter().flatten() {
-        out[0][site.word] ^= gen[0][site.word] & site.mask;
-        out[1][site.word] ^= gen[1][site.word] & site.mask;
-        phase_exp += site_phase_exponent(term, &site);
-    }
-    Some(match phase_exp.rem_euclid(4) {
-        0 => Complex64::new(1.0, 0.0),
-        1 => Complex64::new(0.0, 1.0),
-        2 => Complex64::new(-1.0, 0.0),
-        3 => Complex64::new(0.0, -1.0),
-        _ => unreachable!(),
-    })
-}
-
-fn commutes_generic(term: [&[u64]; 2], gen: [&[u64]; 2]) -> bool {
-    // Anticommutator parity = popcount(term.x & gen.z) + popcount(term.z & gen.x) mod 2.
-    let xz: u32 = term[0].iter().zip(gen[1]).map(|(a, b)| (a & b).count_ones()).sum();
-    let zx: u32 = term[1].iter().zip(gen[0]).map(|(a, b)| (a & b).count_ones()).sum();
-    (xz + zx) % 2 == 0
-}
-
-fn product_generic(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64 {
-    // gen @ term, matching `matmul_impl(self=gen, other=term)`.
-    for i in 0..out[0].len() {
-        out[0][i] = gen[0][i] ^ term[0][i];
-        out[1][i] = gen[1][i] ^ term[1][i];
-    }
-    let gxz: u32 = gen[0].iter().zip(gen[1]).map(|(a, b)| (a & b).count_ones()).sum();
-    let txz: u32 = term[0].iter().zip(term[1]).map(|(a, b)| (a & b).count_ones()).sum();
-    let nxz: u32 = out[0].iter().zip(out[1].iter()).map(|(a, b)| (a & b).count_ones()).sum();
-    let gzx: u32 = gen[1].iter().zip(term[0]).map(|(a, b)| (a & b).count_ones()).sum();
-    let p = (gxz as i32 + txz as i32 - nxz as i32 + 2 * gzx as i32).rem_euclid(4);
-    match p {
-        0 => Complex64::new(1.0, 0.0),
-        1 => Complex64::new(0.0, 1.0),
-        2 => Complex64::new(-1.0, 0.0),
-        3 => Complex64::new(0.0, -1.0),
-        _ => unreachable!(),
-    }
-}
-
 /// SoA engine seam for Pauli strings: the same symplectic algebra as
 /// `commutes_with_impl`/`matmul_impl`/`trace_fock_state_impl` above, applied
 /// directly to the `x`/`z` word planes of `SoaTermSum<C>` instead of a pair
@@ -405,36 +241,30 @@ impl SoaBasis for PauliBasis {
     type Term = PauliString;
 
     fn commutes(term: [&[u64]; 2], gen: [&[u64]; 2]) -> bool {
-        let shape = classify_gen(gen);
-        if let Some(fast) = commutes_fast(term, &shape) {
-            debug_assert_eq!(
-                fast, commutes_generic(term, gen),
-                "PauliBasis::commutes fast/generic mismatch"
-            );
-            return fast;
-        }
-        commutes_generic(term, gen)
+        // Anticommutator parity = popcount(term.x & gen.z) + popcount(term.z & gen.x) mod 2.
+        let xz: u32 = term[0].iter().zip(gen[1]).map(|(a, b)| (a & b).count_ones()).sum();
+        let zx: u32 = term[1].iter().zip(gen[0]).map(|(a, b)| (a & b).count_ones()).sum();
+        (xz + zx) % 2 == 0
     }
 
     fn product(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64 {
-        let [ox, oz] = out;
-        let shape = classify_gen(gen);
-        if let Some(phase) = product_fast(term, gen, &shape, [&mut *ox, &mut *oz]) {
-            #[cfg(debug_assertions)]
-            {
-                let mut ref_x = vec![0u64; ox.len()];
-                let mut ref_z = vec![0u64; oz.len()];
-                let ref_phase = product_generic(term, gen, [&mut ref_x, &mut ref_z]);
-                debug_assert!(
-                    (phase - ref_phase).norm() < 1e-9,
-                    "PauliBasis::product fast/generic phase mismatch"
-                );
-                debug_assert_eq!(*ox, ref_x[..], "PauliBasis::product fast/generic x mismatch");
-                debug_assert_eq!(*oz, ref_z[..], "PauliBasis::product fast/generic z mismatch");
-            }
-            return phase;
+        // gen @ term, matching `matmul_impl(self=gen, other=term)`.
+        for i in 0..out[0].len() {
+            out[0][i] = gen[0][i] ^ term[0][i];
+            out[1][i] = gen[1][i] ^ term[1][i];
         }
-        product_generic(term, gen, [ox, oz])
+        let gxz: u32 = gen[0].iter().zip(gen[1]).map(|(a, b)| (a & b).count_ones()).sum();
+        let txz: u32 = term[0].iter().zip(term[1]).map(|(a, b)| (a & b).count_ones()).sum();
+        let nxz: u32 = out[0].iter().zip(out[1].iter()).map(|(a, b)| (a & b).count_ones()).sum();
+        let gzx: u32 = gen[1].iter().zip(term[0]).map(|(a, b)| (a & b).count_ones()).sum();
+        let p = (gxz as i32 + txz as i32 - nxz as i32 + 2 * gzx as i32).rem_euclid(4);
+        match p {
+            0 => Complex64::new(1.0, 0.0),
+            1 => Complex64::new(0.0, 1.0),
+            2 => Complex64::new(-1.0, 0.0),
+            3 => Complex64::new(0.0, -1.0),
+            _ => unreachable!(),
+        }
     }
 
     fn weight(term: [&[u64]; 2], _n_units: usize) -> u32 {
@@ -587,13 +417,7 @@ mod tests {
     }
 
     fn assert_basis_matches(a: &PauliString, b: &PauliString) {
-        assert_basis_matches_at(a, b, 1);
-    }
-
-    /// Generalizes `assert_basis_matches` over `stride` so the fast-path
-    /// tests below can exercise multi-word (`stride > 1`) placements — the
-    /// existing exhaustive test only ever needs `stride = 1`.
-    fn assert_basis_matches_at(a: &PauliString, b: &PauliString, stride: usize) {
+        let stride = 1;
         let (ax, az) = planes_of(a, stride);
         let (bx, bz) = planes_of(b, stride);
         let a_planes = [ax.as_slice(), az.as_slice()];
@@ -662,136 +486,5 @@ mod tests {
             "key_eq strings must key_hash equally (merge's parallel-batch correctness depends on this)",
         );
         assert!(!PauliBasis::key_eq([&ax, &az], [&cx, &cz]), "distinct strings must not be key_eq");
-    }
-
-    // --- Narrow-generator fast path (`classify_gen`/`commutes_fast`/
-    // `product_fast`): the exhaustive test above already exercises the
-    // dispatch at `stride=1`; these target what it can't reach — multi-word
-    // placements, including the qubit-63/64 word boundary, the
-    // wide-generator fallback at `stride>1`, and a large randomized sweep.
-
-    fn multiword_pauli(x_words: &[u64], z_words: &[u64], n: usize) -> PauliString {
-        let x = Bitset::from_words(x_words.to_vec());
-        let z = Bitset::from_words(z_words.to_vec());
-        let weight = (&x | &z).count_ones();
-        PauliString { x, z, n_qubits: n, weight }
-    }
-
-    #[test]
-    fn classify_gen_locates_sites_correctly() {
-        const N: usize = 192;
-        let stride = PauliBasis::stride_words(N);
-
-        let (gx, gz) = planes_of(&multiword_pauli(&[], &[], N), stride);
-        assert_eq!(classify_gen([gx.as_slice(), gz.as_slice()]), GenShape::Identity);
-
-        // Weight 1: a lone Z at qubit 130 (word 2, bit 2).
-        let (gx, gz) = planes_of(&multiword_pauli(&[0, 0, 0], &[0, 0, 1 << 2], N), stride);
-        assert_eq!(
-            classify_gen([gx.as_slice(), gz.as_slice()]),
-            GenShape::Weight1(GenSite { word: 2, mask: 1 << 2, gx: false, gz: true }),
-        );
-
-        // Weight 2, same word: X at qubit 128 (word 2, bit 0), Z at qubit 130 (word 2, bit 2).
-        let (gx, gz) = planes_of(&multiword_pauli(&[0, 0, 1], &[0, 0, 1 << 2], N), stride);
-        assert_eq!(
-            classify_gen([gx.as_slice(), gz.as_slice()]),
-            GenShape::Weight2(
-                GenSite { word: 2, mask: 1, gx: true, gz: false },
-                GenSite { word: 2, mask: 1 << 2, gx: false, gz: true },
-            ),
-        );
-
-        // Weight 3: falls back to Wide.
-        let (gx, gz) = planes_of(&multiword_pauli(&[0, 0, 0b111], &[0, 0, 0], N), stride);
-        assert_eq!(classify_gen([gx.as_slice(), gz.as_slice()]), GenShape::Wide);
-    }
-
-    #[test]
-    fn pauli_basis_fast_path_weight1_high_word() {
-        const N: usize = 192;
-        let stride = PauliBasis::stride_words(N);
-        let gen = multiword_pauli(&[0, 0, 0], &[0, 0, 1 << 2], N); // Z at qubit 130
-        let backgrounds = [
-            multiword_pauli(&[0, 0, 0], &[0, 0, 0], N),
-            multiword_pauli(&[u64::MAX, u64::MAX, u64::MAX], &[u64::MAX, u64::MAX, u64::MAX], N),
-            multiword_pauli(&[0xAAAA_AAAA_AAAA_AAAA, 0, 0], &[0x5555_5555_5555_5555, 0, 0], N),
-            multiword_pauli(&[0, 0, 1 << 2], &[0, 0, 1 << 2], N), // Y at the exact touched qubit
-        ];
-        for term in &backgrounds {
-            assert_basis_matches_at(&gen, term, stride);
-        }
-    }
-
-    #[test]
-    fn pauli_basis_fast_path_weight2_same_late_word() {
-        const N: usize = 192;
-        let stride = PauliBasis::stride_words(N);
-        let gen = multiword_pauli(&[0, 0, 1], &[0, 0, 1 << 5], N); // X at qubit 128, Z at qubit 133
-        let term = multiword_pauli(&[0, 0, 0b1010_1010], &[0, 0, 0b0101_0101], N);
-        assert_basis_matches_at(&gen, &term, stride);
-    }
-
-    #[test]
-    fn pauli_basis_fast_path_weight2_split_words() {
-        const N: usize = 128;
-        let stride = PauliBasis::stride_words(N);
-        // Qubit 63 (word 0, top bit) and qubit 64 (word 1, bottom bit) — the
-        // exact word boundary, the likeliest off-by-one spot.
-        let gen = multiword_pauli(&[1u64 << 63, 1], &[0, 0], N);
-        let backgrounds = [
-            multiword_pauli(&[0, 0], &[0, 0], N),
-            multiword_pauli(&[u64::MAX, u64::MAX], &[u64::MAX, u64::MAX], N),
-            multiword_pauli(&[1u64 << 63, 1], &[1u64 << 63, 1], N), // Y at both touched qubits
-            multiword_pauli(&[1u64 << 63, 0], &[0, 1], N),
-        ];
-        for term in &backgrounds {
-            assert_basis_matches_at(&gen, term, stride);
-        }
-    }
-
-    #[test]
-    fn pauli_basis_fast_path_wide_gen_multiword_matches_generic() {
-        const N: usize = 192;
-        let stride = PauliBasis::stride_words(N);
-        let gen = multiword_pauli(&[0xFFFF, 0, 0], &[0x0F0F, 0, 0], N); // weight > 2
-        let term = multiword_pauli(&[0x1234, 0x5678, 0x9ABC], &[0xDEF0, 0x1111, 0x2222], N);
-        assert_basis_matches_at(&gen, &term, stride);
-    }
-
-    #[test]
-    fn pauli_basis_fast_path_randomized_cross_word() {
-        const N: usize = 256;
-        let stride = PauliBasis::stride_words(N);
-        let mut seed = 0x243F_6A88_85A3_08D3u64;
-        let mut next_u64 = move || {
-            seed = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = seed;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        };
-
-        for _ in 0..10_000 {
-            // gen: weight 0-2 at random (possibly cross-word) positions.
-            let gen_weight = next_u64() % 3;
-            let mut gx = vec![0u64; stride];
-            let mut gz = vec![0u64; stride];
-            for _ in 0..gen_weight {
-                let bit = (next_u64() as usize) % (stride * 64);
-                if next_u64() % 2 == 0 {
-                    gx[bit / 64] |= 1u64 << (bit % 64);
-                } else {
-                    gz[bit / 64] |= 1u64 << (bit % 64);
-                }
-            }
-            let gen = multiword_pauli(&gx, &gz, N);
-
-            let tx: Vec<u64> = (0..stride).map(|_| next_u64()).collect();
-            let tz: Vec<u64> = (0..stride).map(|_| next_u64()).collect();
-            let term = multiword_pauli(&tx, &tz, N);
-
-            assert_basis_matches_at(&gen, &term, stride);
-        }
     }
 }

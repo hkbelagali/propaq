@@ -66,15 +66,7 @@ impl MajoranaMonomial {
                 return 0.0;
             }
             if low == 1 {
-                // `fock_state` is a plain `u64`, so it only ever encodes the
-                // occupation of qubits `0..64`; a qubit index at or beyond
-                // that is implicitly unoccupied (matching `MajoranaBasis::trace`,
-                // the SoA version, which already treats every fock word past
-                // the first as zero for the same reason) — without this
-                // guard, systems with more than 64 fermionic modes panic here
-                // (shift overflow) whenever a long run of paired qubits
-                // reaches index 64.
-                let n_k = if k < 64 { ((fock_state >> k) & 1) as i32 } else { 0 };
+                let n_k = ((fock_state >> k) & 1) as i32;
                 product *= 2 * n_k - 1;
                 p += 1;
             }
@@ -345,273 +337,6 @@ impl Hash for MajoranaMonomial {
     fn hash<H: Hasher>(&self, state: &mut H) { self.modes.hash(state); }
 }
 
-/// One of `gen`'s (at most two) touched-mode positions in the `modes` plane,
-/// located once per `commutes`/`product` call by `classify_gen`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct GenSite {
-    word: usize,
-    /// Exactly one bit set: the mode's position within `word`.
-    mask: u64,
-}
-
-#[inline]
-fn site_bit_pos(site: &GenSite) -> usize {
-    site.word * 64 + site.mask.trailing_zeros() as usize
-}
-
-#[inline]
-fn site_bit(modes: &[u64], site: &GenSite) -> bool {
-    modes[site.word] & site.mask != 0
-}
-
-/// Structural classification of `gen.modes`'s support
-/// (`popcount(gen.modes)`), computed fresh at the top of `commutes`/
-/// `product`. Unlike `PauliBasis`'s analogous fast path, real Majorana
-/// generators aren't always narrow (an `_xx_plus_yy_terms` gate between
-/// distant qubits spans a wide Jordan-Wigner string), so `Wide` still keeps
-/// an exact `gen_len` (needed by both `commutes_fast` and `product_fast`
-/// regardless of width) rather than discarding it the way `PauliBasis`'s
-/// `Wide` does.
-#[derive(Debug, PartialEq)]
-enum GenShape {
-    Identity,
-    Weight1(GenSite),
-    Weight2(GenSite, GenSite),
-    Wide,
-}
-
-/// Single fused pass: accumulates `gen`'s full weight (needed even when
-/// `Wide`) while opportunistically locating up to two set bits. Never a
-/// separate popcount-then-locate pass, so a narrow generator touching a
-/// late word costs no more than the weight scan alone already would, and a
-/// wide generator costs exactly what the original unconditional scan cost.
-#[inline]
-fn classify_gen(gen: [&[u64]; 2]) -> (u32, GenShape) {
-    let mut gen_len: u32 = 0;
-    let mut site0: Option<GenSite> = None;
-    let mut site1: Option<GenSite> = None;
-    let mut wide = false;
-    for (word, &w) in gen[0].iter().enumerate() {
-        gen_len += w.count_ones();
-        if wide {
-            continue;
-        }
-        if gen_len > 2 {
-            wide = true;
-            continue;
-        }
-        let mut remaining = w;
-        while remaining != 0 {
-            let mask = 1u64 << remaining.trailing_zeros();
-            let site = GenSite { word, mask };
-            if site0.is_none() {
-                site0 = Some(site);
-            } else {
-                site1 = Some(site);
-            }
-            remaining &= remaining - 1;
-        }
-    }
-    let shape = if wide {
-        GenShape::Wide
-    } else {
-        match (site0, site1) {
-            (None, None) => GenShape::Identity,
-            (Some(s), None) => GenShape::Weight1(s),
-            (Some(a), Some(b)) => GenShape::Weight2(a, b),
-            (None, Some(_)) => unreachable!("a site is only ever recorded as site1 after site0"),
-        }
-    };
-    (gen_len, shape)
-}
-
-/// The cached `p`-plane's shape for a classified `gen`, derived from the
-/// *qubit* relationship of its touched site(s) — **narrow `modes` does not
-/// imply narrow `p`**. `single_k = modes[2k] ^ modes[2k+1]` and `p` is
-/// `single`'s inclusive prefix-XOR-scan, so: two touched bits at the *same*
-/// qubit (a number/Z-type term) cancel in `single` and give an all-zero `p`;
-/// two touched bits at *adjacent* qubits give a `p` with exactly one set bit
-/// (the pulse `[q1, q2)` collapses to one position when `q2 == q1 + 1`); a
-/// lone touched bit (e.g. `from_x` on qubit 0) gives a `p` that is a
-/// **suffix** from that qubit to the end of the register — genuinely wide,
-/// not narrow, even though `modes` itself is weight-1. Two touched bits at
-/// non-adjacent qubits give a `p` pulse spanning the gap — also wide here
-/// (a further optimization could special-case a bounded run, but isn't
-/// implemented — see the module-level design note).
-#[derive(Debug, PartialEq)]
-enum PPlaneShape {
-    Zero,
-    SingleBit { word: usize, mask: u64 },
-    Wide,
-}
-
-#[inline]
-fn classify_p_shape(shape: &GenShape) -> PPlaneShape {
-    match shape {
-        GenShape::Identity => PPlaneShape::Zero,
-        GenShape::Weight1(_) => PPlaneShape::Wide,
-        GenShape::Weight2(a, b) => {
-            let qa = site_bit_pos(a) / 2;
-            let qb = site_bit_pos(b) / 2;
-            if qa == qb {
-                PPlaneShape::Zero
-            } else {
-                let lo = qa.min(qb);
-                let hi = qa.max(qb);
-                if hi == lo + 1 {
-                    PPlaneShape::SingleBit { word: lo / 64, mask: 1u64 << (lo % 64) }
-                } else {
-                    PPlaneShape::Wide
-                }
-            }
-        }
-        GenShape::Wide => PPlaneShape::Wide,
-    }
-}
-
-/// Fast commute check: `(term_len * gen_len + overlap) % 2 == 0` collapses
-/// to `overlap % 2 == 0` whenever `gen_len` is even (`even * anything` is
-/// even), meaning `term_len` never needs to be computed. Real generators
-/// (`_rz_terms`/`_cp_terms`/`_xx_plus_yy_terms`/`from_swap`) are always
-/// even-weight; `from_x` is the one real odd-weight generator, handled by
-/// falling back to `commutes_generic` (which needs `term_len`). `overlap`
-/// itself is O(1) for narrow shapes, a full scan for `Wide` (this still
-/// saves `term_len`'s scan even when `gen` is wide).
-#[inline]
-fn commutes_fast(term: [&[u64]; 2], gen: [&[u64]; 2], gen_len: u32, shape: &GenShape) -> Option<bool> {
-    if gen_len % 2 != 0 {
-        return None;
-    }
-    let overlap: u32 = match shape {
-        GenShape::Identity => 0,
-        GenShape::Weight1(s) => site_bit(term[0], s) as u32,
-        GenShape::Weight2(a, b) => site_bit(term[0], a) as u32 + site_bit(term[0], b) as u32,
-        GenShape::Wide => term[0].iter().zip(gen[0]).map(|(a, b)| (a & b).count_ones()).sum(),
-    };
-    Some(overlap % 2 == 0)
-}
-
-/// Fast product. Always succeeds (no generic fallback needed) because the
-/// `result_len = gen_len + term_len - 2*overlap` identity (an unconditional
-/// symmetric-difference cardinality fact, no even/odd precondition) and the
-/// `gen_len`/`overlap` pass-fusion apply regardless of `gen`'s width —
-/// `Wide` still benefits (one fused pass over `gen[0]`/`term[0]` instead of
-/// three separate reductions, plus `result_len`'s scan of `out` eliminated
-/// entirely), just without the O(1) narrow-site shortcuts for `overlap`/
-/// `out[0]`'s construction. `term_len` is the one quantity that can never be
-/// avoided — a genuinely global property of an arbitrary term. `out[1]` (the
-/// `p`-plane) is handled separately via `classify_p_shape`, since its
-/// locality doesn't follow from `modes`'s narrowness (see `PPlaneShape`).
-#[inline]
-fn product_fast(
-    term: [&[u64]; 2],
-    gen: [&[u64]; 2],
-    gen_len: u32,
-    shape: &GenShape,
-    out: [&mut [u64]; 2],
-) -> Complex64 {
-    let (term_len, overlap): (u32, u32) = match shape {
-        GenShape::Identity => {
-            out[0].copy_from_slice(term[0]);
-            (term[0].iter().map(|w| w.count_ones()).sum(), 0)
-        }
-        GenShape::Weight1(s) => {
-            out[0].copy_from_slice(term[0]);
-            out[0][s.word] ^= s.mask;
-            (term[0].iter().map(|w| w.count_ones()).sum(), site_bit(term[0], s) as u32)
-        }
-        GenShape::Weight2(a, b) => {
-            out[0].copy_from_slice(term[0]);
-            out[0][a.word] ^= a.mask;
-            out[0][b.word] ^= b.mask;
-            let overlap = site_bit(term[0], a) as u32 + site_bit(term[0], b) as u32;
-            (term[0].iter().map(|w| w.count_ones()).sum(), overlap)
-        }
-        GenShape::Wide => {
-            let mut term_len = 0u32;
-            let mut overlap = 0u32;
-            for i in 0..out[0].len() {
-                let g = gen[0][i];
-                let t = term[0][i];
-                out[0][i] = g ^ t;
-                term_len += t.count_ones();
-                overlap += (g & t).count_ones();
-            }
-            (term_len, overlap)
-        }
-    };
-
-    match classify_p_shape(shape) {
-        PPlaneShape::Zero => out[1].copy_from_slice(term[1]),
-        PPlaneShape::SingleBit { word, mask } => {
-            out[1].copy_from_slice(term[1]);
-            out[1][word] ^= mask;
-        }
-        PPlaneShape::Wide => {
-            for i in 0..out[1].len() {
-                out[1][i] = gen[1][i] ^ term[1][i];
-            }
-        }
-    }
-
-    // Exact identity, no even/odd precondition: |gen △ term| = |gen| + |term| - 2|gen ∩ term|.
-    let result_len = (gen_len as i64 + term_len as i64 - 2 * overlap as i64) as usize;
-    let r_a = hermiticity_exp(gen_len as usize);
-    let r_b = hermiticity_exp(term_len as usize);
-    let r_c = hermiticity_exp(result_len);
-    let total_parity = resorting_parity(gen[0], term[0]);
-    let phase_exp = (r_a + r_b - r_c + 2 * (total_parity as i32)).rem_euclid(4);
-    match phase_exp {
-        0 => Complex64::new(1.0, 0.0),
-        1 => Complex64::new(0.0, 1.0),
-        2 => Complex64::new(-1.0, 0.0),
-        3 => Complex64::new(0.0, -1.0),
-        _ => unreachable!(),
-    }
-}
-
-fn commutes_generic(term: [&[u64]; 2], gen: [&[u64]; 2]) -> bool {
-    // Mirrors `commutes_with_impl(self=term, other=gen)`.
-    if term[0] == gen[0] {
-        return true;
-    }
-    let overlap: u32 = term[0].iter().zip(gen[0]).map(|(a, b)| (a & b).count_ones()).sum();
-    let term_len: usize = term[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
-    let gen_len: usize = gen[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
-    (term_len * gen_len + overlap as usize) % 2 == 0
-}
-
-// Unlike `commutes_generic` (a real fallback for odd-`gen_len` generators in
-// release builds too), `product_fast` always succeeds — this is only used by
-// `product`'s debug-mode differential cross-check, so it's genuinely dead in
-// release builds; gate it accordingly rather than warn on every build.
-#[cfg(debug_assertions)]
-fn product_generic(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64 {
-    // gen @ term, matching `matmul_internal(self=gen, other=term)`. `p`
-    // combines by a plain XOR (linear in `modes`, see
-    // `weight_and_p_from_product`) — no rescan needed, so unlike
-    // `weight`/`term_from_planes` this needs no `n_units`.
-    for i in 0..out[0].len() {
-        out[0][i] = gen[0][i] ^ term[0][i];
-        out[1][i] = gen[1][i] ^ term[1][i];
-    }
-    let gen_len = gen[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
-    let term_len = term[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
-    let result_len = out[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
-    let r_a = hermiticity_exp(gen_len);
-    let r_b = hermiticity_exp(term_len);
-    let r_c = hermiticity_exp(result_len);
-    let total_parity = resorting_parity(gen[0], term[0]);
-    let phase_exp = (r_a + r_b - r_c + 2 * (total_parity as i32)).rem_euclid(4);
-    match phase_exp {
-        0 => Complex64::new(1.0, 0.0),
-        1 => Complex64::new(0.0, 1.0),
-        2 => Complex64::new(-1.0, 0.0),
-        3 => Complex64::new(0.0, -1.0),
-        _ => unreachable!(),
-    }
-}
-
 /// SoA engine seam for Majorana monomials. Plane 0 is `modes` (the term's
 /// identity); plane 1 is the cached prefix-XOR-scan `p` — not part of
 /// identity (`key_hash`/`key_eq` ignore it), but it must travel with a term
@@ -624,34 +349,40 @@ impl SoaBasis for MajoranaBasis {
     type Term = MajoranaMonomial;
 
     fn commutes(term: [&[u64]; 2], gen: [&[u64]; 2]) -> bool {
-        let (gen_len, shape) = classify_gen(gen);
-        if let Some(fast) = commutes_fast(term, gen, gen_len, &shape) {
-            debug_assert_eq!(
-                fast, commutes_generic(term, gen),
-                "MajoranaBasis::commutes fast/generic mismatch"
-            );
-            return fast;
+        // Mirrors `commutes_with_impl(self=term, other=gen)`.
+        if term[0] == gen[0] {
+            return true;
         }
-        commutes_generic(term, gen)
+        let overlap: u32 = term[0].iter().zip(gen[0]).map(|(a, b)| (a & b).count_ones()).sum();
+        let term_len: usize = term[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        let gen_len: usize = gen[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        (term_len * gen_len + overlap as usize) % 2 == 0
     }
 
     fn product(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64 {
-        let [o0, o1] = out;
-        let (gen_len, shape) = classify_gen(gen);
-        let phase = product_fast(term, gen, gen_len, &shape, [&mut *o0, &mut *o1]);
-        #[cfg(debug_assertions)]
-        {
-            let mut ref_0 = vec![0u64; o0.len()];
-            let mut ref_1 = vec![0u64; o1.len()];
-            let ref_phase = product_generic(term, gen, [&mut ref_0, &mut ref_1]);
-            debug_assert!(
-                (phase - ref_phase).norm() < 1e-9,
-                "MajoranaBasis::product fast/generic phase mismatch"
-            );
-            debug_assert_eq!(*o0, ref_0[..], "MajoranaBasis::product fast/generic modes mismatch");
-            debug_assert_eq!(*o1, ref_1[..], "MajoranaBasis::product fast/generic p mismatch");
+        // gen @ term, matching `matmul_internal(self=gen, other=term)`. `p`
+        // combines by a plain XOR (linear in `modes`, see
+        // `weight_and_p_from_product`) — no rescan needed, so unlike
+        // `weight`/`term_from_planes` this needs no `n_units`.
+        for i in 0..out[0].len() {
+            out[0][i] = gen[0][i] ^ term[0][i];
+            out[1][i] = gen[1][i] ^ term[1][i];
         }
-        phase
+        let gen_len = gen[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        let term_len = term[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        let result_len = out[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        let r_a = hermiticity_exp(gen_len);
+        let r_b = hermiticity_exp(term_len);
+        let r_c = hermiticity_exp(result_len);
+        let total_parity = resorting_parity(gen[0], term[0]);
+        let phase_exp = (r_a + r_b - r_c + 2 * (total_parity as i32)).rem_euclid(4);
+        match phase_exp {
+            0 => Complex64::new(1.0, 0.0),
+            1 => Complex64::new(0.0, 1.0),
+            2 => Complex64::new(-1.0, 0.0),
+            3 => Complex64::new(0.0, -1.0),
+            _ => unreachable!(),
+        }
     }
 
     fn weight(term: [&[u64]; 2], n_units: usize) -> u32 {
@@ -1166,237 +897,5 @@ mod tests {
         let c = mon(0b1111, 8);
         let (c0, c1) = planes_of(&c, stride);
         assert!(!MajoranaBasis::key_eq([&a0, &a1], [&c0, &c1]));
-    }
-
-    // --- Narrow/even-generator fast path (`classify_gen`/`classify_p_shape`/
-    // `commutes_fast`/`product_fast`): the exhaustive/randomized tests above
-    // already exercise the dispatch (they call `MajoranaBasis::commutes`/
-    // `product` directly), but only up to `n_qubits=128` with fully random
-    // bitmasks. These target the realistic gate shapes specifically —
-    // same-qubit, adjacent-qubit, the qubit-63/64 boundary, non-adjacent
-    // (`p`-wide) pairs, a real wide-even `_xx_plus_yy_terms` pattern, and
-    // `from_x`'s real odd-weight pattern — plus a dedicated large randomized
-    // sweep and a standalone check of the `result_len` identity.
-
-    fn set_bit(words: &mut [u64], bit: usize) {
-        words[bit / 64] |= 1u64 << (bit % 64);
-    }
-
-    #[test]
-    fn classify_gen_locates_sites_correctly() {
-        const N_MODES: usize = 200;
-        let stride = MajoranaBasis::stride_words(N_MODES);
-
-        let (g0, g1) = planes_of(&mon_bits(vec![0u64; stride], N_MODES), stride);
-        assert_eq!(classify_gen([g0.as_slice(), g1.as_slice()]), (0, GenShape::Identity));
-
-        // Weight 1: mode bit 130 (word 2, bit 2; qubit 65).
-        let mut words = vec![0u64; stride];
-        set_bit(&mut words, 130);
-        let (g0, g1) = planes_of(&mon_bits(words, N_MODES), stride);
-        assert_eq!(
-            classify_gen([g0.as_slice(), g1.as_slice()]),
-            (1, GenShape::Weight1(GenSite { word: 2, mask: 1 << 2 })),
-        );
-
-        // Weight 2, same qubit: mode bits 130 and 131 (both qubit 65).
-        let mut words = vec![0u64; stride];
-        set_bit(&mut words, 130);
-        set_bit(&mut words, 131);
-        let (g0, g1) = planes_of(&mon_bits(words, N_MODES), stride);
-        assert_eq!(
-            classify_gen([g0.as_slice(), g1.as_slice()]),
-            (2, GenShape::Weight2(GenSite { word: 2, mask: 1 << 2 }, GenSite { word: 2, mask: 1 << 3 })),
-        );
-
-        // Weight 3: falls back to Wide, but `gen_len` is still exact.
-        let mut words = vec![0u64; stride];
-        set_bit(&mut words, 130);
-        set_bit(&mut words, 131);
-        set_bit(&mut words, 132);
-        let (g0, g1) = planes_of(&mon_bits(words, N_MODES), stride);
-        assert_eq!(classify_gen([g0.as_slice(), g1.as_slice()]), (3, GenShape::Wide));
-    }
-
-    #[test]
-    fn classify_p_shape_matches_qubit_adjacency() {
-        // Same qubit -> Zero.
-        let same = GenShape::Weight2(GenSite { word: 2, mask: 1 << 2 }, GenSite { word: 2, mask: 1 << 3 });
-        assert_eq!(classify_p_shape(&same), PPlaneShape::Zero);
-
-        // Adjacent qubits (63 and 64: mode bits 127 and 128) -> SingleBit at qubit 63.
-        let adjacent = GenShape::Weight2(GenSite { word: 1, mask: 1u64 << 63 }, GenSite { word: 2, mask: 1 });
-        assert_eq!(classify_p_shape(&adjacent), PPlaneShape::SingleBit { word: 0, mask: 1u64 << 63 });
-
-        // Non-adjacent qubits -> Wide.
-        let gap = GenShape::Weight2(GenSite { word: 0, mask: 1 << 4 }, GenSite { word: 0, mask: 1 << 8 });
-        assert_eq!(classify_p_shape(&gap), PPlaneShape::Wide);
-
-        // Weight1 / Wide always fall back for the p-plane.
-        assert_eq!(classify_p_shape(&GenShape::Weight1(GenSite { word: 0, mask: 1 })), PPlaneShape::Wide);
-        assert_eq!(classify_p_shape(&GenShape::Wide), PPlaneShape::Wide);
-        assert_eq!(classify_p_shape(&GenShape::Identity), PPlaneShape::Zero);
-    }
-
-    #[test]
-    fn result_len_identity_matches_symmetric_difference_cardinality() {
-        for gen_bits in 0u32..64 {
-            for term_bits in 0u32..64 {
-                let gen_len = gen_bits.count_ones() as i64;
-                let term_len = term_bits.count_ones() as i64;
-                let overlap = (gen_bits & term_bits).count_ones() as i64;
-                let expected = (gen_bits ^ term_bits).count_ones() as i64;
-                assert_eq!(
-                    gen_len + term_len - 2 * overlap, expected,
-                    "gen={gen_bits:#08b} term={term_bits:#08b}",
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn majorana_fast_path_weight1_high_word() {
-        let n_qubits = 100;
-        let n_modes = 2 * n_qubits;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        let mut gwords = vec![0u64; stride];
-        set_bit(&mut gwords, 130); // qubit 65's even mode, alone (from_x-on-qubit-65-shaped)
-        let gen = mon_bits(gwords, n_modes);
-        assert_eq!(gen.modes.count_ones() % 2, 1);
-
-        assert_majorana_basis_matches(&gen, &mon_bits(vec![0u64; stride], n_modes), stride);
-        let mut rng = Rng(0x1111_2222_3333_4444);
-        for _ in 0..30 {
-            let term = random_mon(&mut rng, n_modes);
-            assert_majorana_basis_matches(&gen, &term, stride);
-        }
-    }
-
-    #[test]
-    fn majorana_fast_path_weight2_same_qubit_late_word() {
-        let n_qubits = 100;
-        let n_modes = 2 * n_qubits;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        let mut gwords = vec![0u64; stride];
-        set_bit(&mut gwords, 130); // qubit 65, both modes (an _rz_terms/_cp_terms-shaped number term)
-        set_bit(&mut gwords, 131);
-        let gen = mon_bits(gwords, n_modes);
-        assert_eq!(gen.modes.count_ones() % 2, 0);
-
-        let mut rng = Rng(0x5555_6666_7777_8888);
-        for _ in 0..30 {
-            let term = random_mon(&mut rng, n_modes);
-            assert_majorana_basis_matches(&gen, &term, stride);
-        }
-    }
-
-    #[test]
-    fn majorana_fast_path_weight2_adjacent_qubit_boundary() {
-        let n_qubits = 100;
-        let n_modes = 2 * n_qubits;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        // Qubit 63 (modes 126,127) and qubit 64 (modes 128,129) straddle
-        // both the qubit-63/64 boundary and a mode-bit word boundary (bit
-        // 127 is word 1's top bit; bit 128 is word 2's bottom bit) — an
-        // `_xx_plus_yy_terms`/`from_swap`-shaped adjacent-qubit hop.
-        let mut gwords = vec![0u64; stride];
-        set_bit(&mut gwords, 127);
-        set_bit(&mut gwords, 128);
-        let gen = mon_bits(gwords, n_modes);
-
-        let mut rng = Rng(0x9999_AAAA_BBBB_CCCC);
-        for _ in 0..30 {
-            let term = random_mon(&mut rng, n_modes);
-            assert_majorana_basis_matches(&gen, &term, stride);
-        }
-    }
-
-    #[test]
-    fn majorana_fast_path_weight2_nonadjacent_qubit_p_wide_fallback() {
-        let n_qubits = 100;
-        let n_modes = 2 * n_qubits;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        // Qubit 10 and qubit 20: not currently emitted by the compiler, but
-        // must stay correct defensively (`out[1]` must fall back to Wide).
-        let mut gwords = vec![0u64; stride];
-        set_bit(&mut gwords, 20);
-        set_bit(&mut gwords, 40);
-        let gen = mon_bits(gwords, n_modes);
-
-        let mut rng = Rng(0xDDDD_EEEE_FFFF_0001);
-        for _ in 0..30 {
-            let term = random_mon(&mut rng, n_modes);
-            assert_majorana_basis_matches(&gen, &term, stride);
-        }
-    }
-
-    #[test]
-    fn majorana_fast_path_wide_even_xx_plus_yy_shaped_multiword() {
-        // Reproduces `_xx_plus_yy_terms`'s real bit pattern (endpoints + the
-        // full JW string between) for distant qubits spanning multiple
-        // words: always even-weight, but wide (not narrow).
-        let n_qubits = 80;
-        let n_modes = 2 * n_qubits;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        let (lo, hi) = (5usize, 70usize);
-        let mut gwords = vec![0u64; stride];
-        set_bit(&mut gwords, 2 * lo);
-        for k in (lo + 1)..hi {
-            set_bit(&mut gwords, 2 * k);
-            set_bit(&mut gwords, 2 * k + 1);
-        }
-        set_bit(&mut gwords, 2 * hi + 1);
-        let gen = mon_bits(gwords, n_modes);
-        assert_eq!(gen.modes.count_ones() % 2, 0, "xx_plus_yy-shaped generators are always even-weight");
-
-        let mut rng = Rng(0xA5A5_5A5A_1234_9876);
-        for _ in 0..20 {
-            let term = random_mon(&mut rng, n_modes);
-            assert_majorana_basis_matches(&gen, &term, stride);
-        }
-    }
-
-    #[test]
-    fn majorana_fast_path_from_x_odd_weight_matches_generic() {
-        // `from_x`'s exact pattern: `modes = (1 << (2*i+1)) - 1`, always
-        // odd-weight — the one real generator that exercises `commutes`'s
-        // odd-`gen_len` fallback, for `i=0` (a real Weight1 shape) and
-        // `i=50` (a wide odd shape).
-        let n_qubits = 128;
-        let n_modes = 2 * n_qubits;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        let mut rng = Rng(0x0FF5_E7BA_DC0F_FEED);
-        for &i in &[0usize, 50] {
-            let mut gwords = vec![0u64; stride];
-            for b in 0..(2 * i + 1) {
-                set_bit(&mut gwords, b);
-            }
-            let gen = mon_bits(gwords, n_modes);
-            assert_eq!(gen.modes.count_ones() % 2, 1, "from_x generators are always odd-weight");
-            for _ in 0..20 {
-                let term = random_mon(&mut rng, n_modes);
-                assert_majorana_basis_matches(&gen, &term, stride);
-            }
-        }
-    }
-
-    #[test]
-    fn majorana_fast_path_randomized_cross_word() {
-        let n_qubits = 128;
-        let n_modes = 2 * n_qubits;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        let mut rng = Rng(0x1357_9BDF_2468_ACE0);
-
-        for _ in 0..10_000 {
-            let gen_weight = (rng.next_u64() % 4) as usize;
-            let mut gwords = vec![0u64; stride];
-            for _ in 0..gen_weight {
-                let bit = (rng.next_u64() as usize) % n_modes;
-                set_bit(&mut gwords, bit);
-            }
-            let gen = mon_bits(gwords, n_modes);
-            let term = random_mon(&mut rng, n_modes);
-            assert_majorana_basis_matches(&gen, &term, stride);
-        }
     }
 }
