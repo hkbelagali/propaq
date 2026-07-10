@@ -144,6 +144,12 @@ class TestNumericalAgreement:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
 class TestFrequencyTruncation:
+    """`FrequencyTruncator`/`max_frequency` are monomial-level and not yet
+    supported by the Phase A surrogate (see `propaq.MD`'s staged-rollout
+    notes): the DAG coefficient representation defers all monomial-level
+    truncation to Phase B. Building with one configured must raise a clear
+    error rather than silently doing nothing or misbehaving."""
+
     def _circuit_and_obs(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
@@ -152,44 +158,17 @@ class TestFrequencyTruncation:
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
         return obs, sc, circ, angles
 
-    def test_max_frequency_zero_drops_all_non_constant(self):
-        """freq=0 keeps only monomials with no trig factors (constant terms)."""
+    def test_max_frequency_is_rejected_in_phase_a(self):
         obs, sc, circ, angles = self._circuit_and_obs()
-        model = PauliSurrogatePropagator(
-            truncation=FrequencyTruncationPolicy(max_frequency=0)
-        ).build(obs, sc, initial_state=0)
-        # may have 0 terms or only constant-factor terms
-        assert model.n_terms >= 0
-
-    def test_increasing_frequency_reduces_error(self):
-        obs, sc, circ, angles = self._circuit_and_obs()
-        n_rots = 3
-        numerical = numerical_ev(obs, circ)
-        prev_err = float("inf")
-        for freq in range(0, n_rots + 1):
-            model = PauliSurrogatePropagator(
-                truncation=FrequencyTruncationPolicy(max_frequency=freq)
+        with pytest.raises(ValueError, match="not yet supported"):
+            PauliSurrogatePropagator(
+                truncation=FrequencyTruncationPolicy(max_frequency=1)
             ).build(obs, sc, initial_state=0)
-            err = abs(model.evaluate(angles) - numerical)
-            assert err <= prev_err + 1e-12, (
-                f"Error did not decrease monotonically at freq={freq}: "
-                f"prev={prev_err:.3e}, curr={err:.3e}"
-            )
-            prev_err = err
-
-    def test_exact_at_n_rotations(self):
-        """At max_frequency >= n_rotations, the result must be exact."""
-        obs, sc, circ, angles = self._circuit_and_obs()
-        n_rots = 3
-        model = PauliSurrogatePropagator(
-            truncation=FrequencyTruncationPolicy(max_frequency=n_rots)
-        ).build(obs, sc, initial_state=0)
-        numerical = numerical_ev(obs, circ)
-        assert model.evaluate(angles) == pytest.approx(numerical, rel=1e-9)
 
 
 class TestMonomialRangeTruncation:
-    """Exercise the importance-ranking (frequency desc, |scalar| asc) path."""
+    """`MonomialBudget`/`monomial_range` are monomial-level and not yet
+    supported by the Phase A surrogate; see `TestFrequencyTruncation`."""
 
     def _circuit_and_obs(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
@@ -199,23 +178,22 @@ class TestMonomialRangeTruncation:
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
         return obs, sc, circ, angles
 
-    def test_generous_monomial_range_is_exact(self):
-        """A monomial_range far above the live count never truncates -> exact."""
-        obs, sc, circ, angles = self._circuit_and_obs()
-        policy = FrequencyTruncationPolicy()
-        policy.monomial_range = (1_000, 1_000_000)
-        model = PauliSurrogatePropagator(truncation=policy).build(obs, sc, initial_state=0)
-        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
-
-    def test_tight_monomial_range_runs_and_stays_finite(self):
-        """A tiny monomial_range forces the importance-ranking removal path."""
+    def test_monomial_range_is_rejected_in_phase_a(self):
         obs, sc, circ, angles = self._circuit_and_obs()
         policy = FrequencyTruncationPolicy()
         policy.monomial_range = (1, 2)
-        model = PauliSurrogatePropagator(truncation=policy).build(obs, sc, initial_state=0)
-        val = model.evaluate(angles)
-        assert math.isfinite(val)
-        assert model.n_terms >= 0
+        with pytest.raises(ValueError, match="not yet supported"):
+            PauliSurrogatePropagator(truncation=policy).build(obs, sc, initial_state=0)
+
+    def test_default_policy_monomial_range_is_also_rejected(self):
+        """`FrequencyTruncationPolicy`'s `monomial_range` defaults to a
+        non-`(None, None)` bound even with no arguments given, so it is
+        rejected too unless explicitly disabled."""
+        obs, sc, circ, angles = self._circuit_and_obs()
+        with pytest.raises(ValueError, match="not yet supported"):
+            PauliSurrogatePropagator(truncation=FrequencyTruncationPolicy()).build(
+                obs, sc, initial_state=0
+            )
 
 
 class TestMergeCadence:
@@ -233,13 +211,16 @@ class TestMergeCadence:
         obs, sc, circ, angles = self._circuit_and_obs()
         exact = numerical_ev(obs, circ)
 
-        # Force a merge after essentially every branching gate.
-        eager = FrequencyTruncationPolicy()
+        # Force a merge after essentially every branching gate. `monomial_range`
+        # is disabled explicitly since its non-`(None, None)` default triggers
+        # Phase A's MonomialBudget rejection; this test only exercises merge
+        # cadence, which doesn't need it.
+        eager = FrequencyTruncationPolicy(monomial_range=(None, None))
         eager.merge_max_terms = 1
         m_eager = PauliSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
 
         # Disable the finer cadence entirely (merge only at truncation flushes).
-        off = FrequencyTruncationPolicy()
+        off = FrequencyTruncationPolicy(monomial_range=(None, None))
         off.merge_max_terms = None
         m_off = PauliSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
 
@@ -275,43 +256,34 @@ class TestParameterReuseDedup:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
     def test_merge_cadence_matches_with_shared_parameters(self):
-        """Forcing a merge after every gate (which triggers `post_merge` /
-        `deduplicate` on the parameter-space runs) must not change the result
-        relative to deferring every merge to the final truncation flush."""
+        """Forcing a merge after every gate (which triggers `post_merge` on
+        the DAG's `Add` accumulation) must not change the result relative to
+        deferring every merge to the final truncation flush. `monomial_range`
+        is disabled explicitly to avoid Phase A's MonomialBudget rejection --
+        this test only exercises merge cadence."""
         obs, sc, circ, params = self._reused_param_circuit()
         exact = numerical_ev(obs, circ)
 
-        eager = FrequencyTruncationPolicy()
+        eager = FrequencyTruncationPolicy(monomial_range=(None, None))
         eager.merge_max_terms = 1
         m_eager = PauliSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
 
-        off = FrequencyTruncationPolicy()
+        off = FrequencyTruncationPolicy(monomial_range=(None, None))
         off.merge_max_terms = None
         m_off = PauliSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
 
         assert m_eager.evaluate(params) == pytest.approx(exact, rel=1e-9)
         assert m_eager.evaluate(params) == pytest.approx(m_off.evaluate(params), rel=1e-12)
 
-    def test_frequency_truncation_monotonic_with_shared_parameters(self):
-        """`max_frequency` caps total trig *power*, not gate count; with a
-        parameter reused across gates that cap must still be exact once it
-        reaches the number of rotations, and error must shrink monotonically
-        below that."""
+    def test_frequency_truncation_is_rejected_in_phase_a(self):
+        """`max_frequency` is monomial-level and not yet supported by the
+        Phase A surrogate, even with parameters reused across gates; see
+        `TestFrequencyTruncation`."""
         obs, sc, circ, params = self._reused_param_circuit()
-        n_rots = 4
-        numerical = numerical_ev(obs, circ)
-        prev_err = float("inf")
-        for freq in range(0, n_rots + 1):
-            model = PauliSurrogatePropagator(
-                truncation=FrequencyTruncationPolicy(max_frequency=freq)
+        with pytest.raises(ValueError, match="not yet supported"):
+            PauliSurrogatePropagator(
+                truncation=FrequencyTruncationPolicy(max_frequency=1)
             ).build(obs, sc, initial_state=0)
-            err = abs(model.evaluate(params) - numerical)
-            assert err <= prev_err + 1e-12, (
-                f"error did not decrease monotonically at freq={freq}: "
-                f"prev={prev_err:.3e}, curr={err:.3e}"
-            )
-            prev_err = err
-        assert prev_err < 1e-9
 
     def test_many_reuses_of_one_parameter_matches_numerical(self):
         """A single parameter driving five separate gates: the trig-power
@@ -340,34 +312,28 @@ class TestComposableTruncation:
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
         return obs, sc, circ, angles
 
-    def test_list_of_truncators_frequency_exact(self):
+    def test_frequency_and_coefficient_truncators_are_rejected_in_phase_a(self):
+        """`FrequencyTruncator`/`CoefficientTruncator` are monomial-level and
+        not yet supported by the Phase A surrogate, whether given alone, in a
+        list, or mixed with a still-supported operator; see
+        `TestFrequencyTruncation`."""
         obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[FrequencyTruncator(3), CoefficientTruncator(1e-15)]
-        ).build(obs, sc, initial_state=0)
-        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+        for truncation in [
+            [FrequencyTruncator(3), CoefficientTruncator(1e-15)],
+            FrequencyTruncator(3),
+            [CoefficientTruncator(1e-15)],
+            [CoefficientTruncator(1e9)],
+        ]:
+            with pytest.raises(ValueError, match="not yet supported"):
+                PauliSurrogatePropagator(truncation=truncation).build(obs, sc, initial_state=0)
 
     def test_single_truncator_accepted(self):
+        """A bare truncator (not wrapped in a list) is accepted directly."""
         obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(truncation=FrequencyTruncator(3)).build(
+        model = PauliSurrogatePropagator(truncation=WeightTruncator(3)).build(
             obs, sc, initial_state=0
         )
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
-
-    def test_coefficient_truncator_tiny_threshold_is_exact(self):
-        obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[CoefficientTruncator(1e-15)]
-        ).build(obs, sc, initial_state=0)
-        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
-
-    def test_coefficient_truncator_huge_threshold_prunes_everything(self):
-        obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[CoefficientTruncator(1e9)]
-        ).build(obs, sc, initial_state=0)
-        # |scalar| < 1e9 for every real monomial, so all get pruned at the flush.
-        assert model.evaluate(angles) == pytest.approx(0.0, abs=1e-12)
 
     def test_weight_truncator_matches_legacy_weight_cutoff(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
@@ -378,8 +344,10 @@ class TestComposableTruncation:
         m_list = PauliSurrogatePropagator(truncation=[WeightTruncator(1)]).build(
             obs, sc, initial_state=0
         )
+        # `monomial_range` is disabled explicitly to avoid Phase A's
+        # MonomialBudget rejection; this test only compares weight cutoffs.
         m_legacy = PauliSurrogatePropagator(
-            truncation=FrequencyTruncationPolicy(weight_cutoff=1)
+            truncation=FrequencyTruncationPolicy(weight_cutoff=1, monomial_range=(None, None))
         ).build(obs, sc, initial_state=0)
         assert m_list.n_terms == m_legacy.n_terms
 
@@ -387,27 +355,27 @@ class TestComposableTruncation:
         obs, sc, circ, angles = self._circ()
         sched = FlushSchedule(merge_max_terms=500_000)
         model = PauliSurrogatePropagator(
-            schedule=sched, truncation=[FrequencyTruncator(3), TermBudget(max_terms=1_000_000)]
+            schedule=sched, truncation=[WeightTruncator(4), TermBudget(max_terms=1_000_000)]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
-    def test_monomial_budget_operator_runs(self):
+    def test_monomial_budget_operator_is_rejected_in_phase_a(self):
         obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[MonomialBudget(min_monomials=1, max_monomials=2)]
-        ).build(obs, sc, initial_state=0)
-        assert math.isfinite(model.evaluate(angles))
+        with pytest.raises(ValueError, match="not yet supported"):
+            PauliSurrogatePropagator(
+                truncation=[MonomialBudget(min_monomials=1, max_monomials=2)]
+            ).build(obs, sc, initial_state=0)
 
     def test_schedule_and_truncators_getters(self):
         prop = PauliSurrogatePropagator(
-            truncation=[FrequencyTruncator(3), WeightTruncator(2)]
+            truncation=[TermBudget(max_terms=10), WeightTruncator(2)]
         )
         trs = prop.truncators
         assert len(trs) == 2
         assert isinstance(prop.schedule, FlushSchedule)
         assert prop.schedule.merge_max_terms is not None  # default-on cadence
         # set_truncation preserves the schedule and replaces operators
-        prop.set_truncation([CoefficientTruncator(1e-8)])
+        prop.set_truncation([WeightTruncator(5)])
         assert len(prop.truncators) == 1
 
     def test_none_truncation_is_lossless_exact(self):
@@ -425,10 +393,21 @@ class TestComposableTruncation:
         ]:
             assert isinstance(op, Truncator)
 
-    def test_none_valued_truncators_are_noop_exact(self):
+    def test_none_valued_frequency_and_coefficient_truncators_are_still_rejected(self):
+        """Phase A's rejection is unconditional on the truncator *type*, not
+        its configured value -- a `FrequencyTruncator(None)`/
+        `CoefficientTruncator(None)` (which would be a no-op if it ran) is
+        still rejected, since a lazy DAG has no monomial-level machinery to
+        run it against at all."""
+        obs, sc, circ, angles = self._circ()
+        for truncation in [[FrequencyTruncator(None)], [CoefficientTruncator(None)]]:
+            with pytest.raises(ValueError, match="not yet supported"):
+                PauliSurrogatePropagator(truncation=truncation).build(obs, sc, initial_state=0)
+
+    def test_none_valued_weight_truncator_is_noop_exact(self):
         obs, sc, circ, angles = self._circ()
         model = PauliSurrogatePropagator(
-            truncation=[FrequencyTruncator(None), CoefficientTruncator(None), WeightTruncator(None)]
+            truncation=[WeightTruncator(None)]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
@@ -589,8 +568,10 @@ class TestNTermsFiltering:
         circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1])
         model_full = PauliSurrogatePropagator().build(obs, sc, initial_state=0)
+        # `monomial_range` disabled explicitly to avoid Phase A's
+        # MonomialBudget rejection; this test only exercises weight_cutoff.
         model_cut = PauliSurrogatePropagator(
-            truncation=FrequencyTruncationPolicy(weight_cutoff=1)
+            truncation=FrequencyTruncationPolicy(weight_cutoff=1, monomial_range=(None, None))
         ).build(obs, sc, initial_state=0)
         assert model_cut.n_terms <= model_full.n_terms
         

@@ -1,28 +1,25 @@
 //! Benchmarks for the surrogate propagation hot paths: gate application
-//! (including its behavior under skewed per-term coefficient sizes), symbolic
-//! coefficient growth, deduplication (both the sort- and hash-merge paths),
-//! parallel evaluation, and the fused flush/truncation pass. Run with
-//! `cargo bench -p propaq-surrogate`.
+//! (including its behavior under skewed per-term coefficient sizes), the
+//! per-gate cost of `SymbolicCoeff::apply_rotation` as a function of prior
+//! history size, compiled-tape evaluation, and the flush/truncation pass.
+//! Run with `cargo bench -p propaq-surrogate`.
 //!
-//! Like the numerical propagators, gate application here runs through
-//! `propaq_core::soa::kernels` over a `SoaTermSum<SymbolicCoeff>` rather than
-//! the old `AbstractPropagator<M, SymbolicCoeff>` hash-partition engine (which
-//! has been retired). `SymbolicCoeff`'s monomial storage is still
-//! crate-private by design, so all coefficient data here is built through the
-//! public `SymbolicCoeff`/`CoeffRepr` API rather than constructed directly.
-//! `apply_rotation` is what real propagation uses to grow coefficients, so
-//! building benchmark inputs the same way keeps them representative instead
-//! of synthetic.
+//! Gate application runs through `propaq_core::soa::kernels` over a
+//! `SoaTermSum<SymbolicCoeff>`, the same as the numerical propagators.
+//! `SymbolicCoeff` (`crate::symcoeff`) represents a coefficient as a
+//! persistent DAG built via `Arc`, not an expanded monomial list -- every gate
+//! application and every merge is O(1) regardless of how large a
+//! coefficient's prior history already is. The key confirmation of that
+//! property is `bench_apply_rotation_by_prior_history`: unlike the earlier
+//! CSR/trie design (where this cost scaled with live monomial count), it
+//! should come out flat across `steps`.
 //!
-//! Threshold sweep: `SymbolicCoeff::evaluate`'s parallel-split threshold is
-//! read once from the environment (cached in a `LazyLock`), so sweep it by
-//! running a fresh process per setting, e.g.
-//!   `PROPAQ_EVALUATE_PAR_MIN_LEN=8192 cargo bench -p propaq-surrogate -- \
-//!      "SymbolicCoeff/evaluate"`
-//! and compare the boundary-size rows (`.../4096`, `.../65536`). Gate
-//! application here goes through `soa::kernels::apply_rotation`, whose
-//! parallel-split threshold (`PAR_MIN_LEN`) is a fixed constant, not
-//! env-overridable — it's shared with every other kernel, not surrogate-only.
+//! `SymbolicCoeff`'s internal node representation is crate-private by design,
+//! so all coefficient data here is built through the public
+//! `SymbolicCoeff`/`CoeffRepr` API (`from_real`, `apply_rotation`,
+//! `add_assign`) rather than constructed directly -- `apply_rotation` is what
+//! real propagation uses to grow coefficients, so building benchmark inputs
+//! the same way keeps them representative instead of synthetic.
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use num_complex::Complex64;
@@ -31,7 +28,6 @@ use propaq_core::coeff::CoeffRepr;
 use propaq_core::soa::kernels;
 use propaq_core::soa::{SoaBasis, SoaTermSum};
 use propaq_pauli::string::{PauliBasis, PauliString};
-use propaq_surrogate::interning::Generation;
 use propaq_surrogate::symcoeff::{GateParam, SymbolicCoeff};
 
 /// Small, dependency-free xorshift PRNG. Benchmarks need varied-but-deterministic
@@ -123,7 +119,7 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
                 let mut rng = Xorshift64(0xBADF00D);
                 // Grow only the terms overlapping a narrow qubit band before
                 // timing starts, so a handful of terms enter the timed region
-                // carrying far more monomials than the rest, while every
+                // carrying far more prior history than the rest, while every
                 // other term is untouched by this burst and stays at its seed
                 // size. Left un-merged deliberately: the appended rows are
                 // reprocessed by `apply_rotation` on every subsequent gate
@@ -158,11 +154,13 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
     group.finish();
 }
 
-/// Grows a `SymbolicCoeff` from a single scalar monomial to `2^steps`
-/// monomials via real `apply_rotation` calls (cos branch mutates in place,
-/// sin branch is added back in), each step also lengthening every monomial's
-/// factor list by one. This is the same combinatorial growth real propagation
-/// produces, just replayed directly instead of driven by a propagator.
+/// Grows a `SymbolicCoeff` from a single scalar leaf through `steps` real
+/// `apply_rotation` calls (cos branch mutates in place, sin branch is added
+/// back in), each step wrapping the existing history in one more DAG node.
+/// This is the same growth real propagation produces, just replayed directly
+/// instead of driven by a propagator -- and, unlike the old CSR/trie design's
+/// monomial list, each step here is O(1) regardless of `steps` so far, which
+/// is exactly what `bench_apply_rotation_by_prior_history` below confirms.
 fn grown_coeff(steps: u32) -> SymbolicCoeff {
     let mut c = SymbolicCoeff::from_real(1.0);
     for i in 0..steps {
@@ -172,11 +170,20 @@ fn grown_coeff(steps: u32) -> SymbolicCoeff {
     c
 }
 
-/// Cost of one more `apply_rotation` call (the cos-mutate-in-place plus
-/// sin-branch-allocate step) at varying pre-existing monomial counts,
-/// spanning inline (<=16 factors), just-past-spill, and large sizes.
-fn bench_apply_rotation_by_size(c: &mut Criterion) {
-    let mut group = c.benchmark_group("SymbolicCoeff/apply_rotation");
+/// The core hypothesis behind the DAG rewrite: cost of one more
+/// `apply_rotation` call must stay flat as a function of how much prior
+/// history (`steps`, spanning three orders of magnitude of pre-dedup
+/// monomial-instance count) a coefficient already carries, since every gate
+/// application only ever wraps the existing `Arc<Node>` in one new node --
+/// it never touches, copies, or re-walks the coefficient's existing history.
+/// Under the earlier CSR/trie design this cost scaled with the live monomial
+/// count instead (an O(n) `for head in &self.heads` scan per gate), which was
+/// the confirmed root cause of the allocator/thread-contention overhead in a
+/// real-workload profile (see `propaq.MD`/project memory). A regression here
+/// (the curve developing a slope with `steps`) would mean that hypothesis no
+/// longer holds.
+fn bench_apply_rotation_by_prior_history(c: &mut Criterion) {
+    let mut group = c.benchmark_group("SymbolicCoeff/apply_rotation_by_prior_history");
     for steps in [8u32, 12, 17, 20] {
         group.bench_with_input(BenchmarkId::from_parameter(1u64 << steps), &steps, |bench, &steps| {
             bench.iter_batched(
@@ -189,73 +196,34 @@ fn bench_apply_rotation_by_size(c: &mut Criterion) {
     group.finish();
 }
 
-/// `repeats` exact copies of the same `2^steps`-monomial coefficient, summed
-/// together, which collapses to exactly `2^steps` unique factor patterns after
-/// dedup, giving a known, controllable duplication ratio instead of relying
-/// on incidental collisions.
-fn build_with_duplication(steps: u32, repeats: usize) -> SymbolicCoeff {
-    let mut total = grown_coeff(steps);
-    for _ in 1..repeats {
-        total.add_assign(grown_coeff(steps));
-    }
-    total
-}
-
-/// The sort-merge and hash-merge dedup paths trade off differently depending
-/// on how much exact duplication is present (see `SymbolicCoeff::deduplicate`);
-/// benchmarking both a heavily-duplicated and an undeduplicated input at
-/// comparable total sizes tracks regressions in either path independently.
-fn bench_deduplicate(c: &mut Criterion) {
-    let mut group = c.benchmark_group("SymbolicCoeff/deduplicate");
-
-    for (steps, repeats) in [(10u32, 10usize), (10, 200)] {
-        let total = (1usize << steps) * repeats;
-        group.bench_with_input(
-            BenchmarkId::new("high_duplication", total),
-            &(steps, repeats),
-            |bench, &(steps, repeats)| {
-                bench.iter_batched(
-                    || build_with_duplication(steps, repeats),
-                    |mut coeff| {
-                        coeff.deduplicate();
-                        black_box(coeff)
-                    },
-                    BatchSize::LargeInput,
-                )
-            },
-        );
-    }
-
-    // No duplication at all: every monomial's factor pattern is unique, so
-    // dedup can only sort/hash-bucket, never actually collapse anything.
-    for steps in [10u32, 17] {
-        let total = 1usize << steps;
-        group.bench_with_input(BenchmarkId::new("no_duplication", total), &steps, |bench, &steps| {
-            bench.iter_batched(
-                || grown_coeff(steps),
-                |mut coeff| {
-                    coeff.deduplicate();
-                    black_box(coeff)
-                },
-                BatchSize::LargeInput,
-            )
+/// `compile()`'s cost (a one-time, memoized flatten into a flat op tape) as a
+/// function of prior history size -- run once per term at build end, not per
+/// gate, so unlike `apply_rotation` this is expected to grow with `steps`
+/// (there's no way to evaluate a coefficient without visiting its distinct
+/// nodes at least once); the benchmark tracks that growth stays linear in
+/// distinct node count, not exponential, even though each `grown_coeff(steps)`
+/// call here builds a single linear chain (no shared subtrees) -- the
+/// dedicated `compile_memoizes_shared_subtrees_polynomial_not_exponential`
+/// unit test in `symcoeff.rs` is what actually exercises memoization.
+fn bench_compile_by_size(c: &mut Criterion) {
+    let mut group = c.benchmark_group("SymbolicCoeff/compile");
+    for steps in [8u32, 12, 16, 20] {
+        let coeff = grown_coeff(steps);
+        group.bench_with_input(BenchmarkId::from_parameter(1u64 << steps), &steps, |bench, _| {
+            bench.iter(|| black_box(coeff.compile()))
         });
     }
-
     group.finish();
 }
 
-/// `evaluate` parallelizes within a single coefficient's monomial list above
-/// a length threshold (see `EVALUATE_PAR_MIN_LEN`); benchmarking sizes on
-/// both sides of that threshold tracks regressions in the fallback itself,
-/// not just the parallel path. `grown_coeff` never reconciles into a shared
-/// generation, so every monomial's base is the trivial empty one; a fresh
-/// `Generation` is enough to resolve it.
+/// `CompiledCoeff::evaluate` (a linear scan over the flattened tape) as a
+/// function of tape size -- this is what a VQE optimizer's inner loop calls
+/// repeatedly (`evaluate_batch`), so its cost per call is what actually
+/// matters for optimization wall time, not `compile()`'s one-time cost above.
 fn bench_evaluate_by_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("SymbolicCoeff/evaluate");
-    let generation = Generation::new();
     for steps in [8u32, 12, 16, 20] {
-        let coeff = grown_coeff(steps);
+        let compiled = grown_coeff(steps).compile();
         let lut: Vec<f64> = (0..steps)
             .flat_map(|i| {
                 let t = 0.1 * (i as f64 + 1.0);
@@ -263,15 +231,15 @@ fn bench_evaluate_by_size(c: &mut Criterion) {
             })
             .collect();
         group.bench_with_input(BenchmarkId::from_parameter(1u64 << steps), &steps, |bench, _| {
-            bench.iter(|| black_box(coeff.evaluate(black_box(&generation), black_box(&lut))))
+            bench.iter(|| black_box(compiled.evaluate(black_box(&lut))))
         });
     }
     group.finish();
 }
 
 /// `SurrogateModel::evaluate_batch` parallelizes across parameter sets on top
-/// of the per-set term/monomial parallelism `evaluate` already has; this
-/// tracks that the batch path amortizes rather than regresses.
+/// of the per-set term parallelism `evaluate` already has; this tracks that
+/// the batch path amortizes rather than regresses.
 fn bench_evaluate_batch(c: &mut Criterion) {
     use propaq_core::bitset::Bitset;
     use propaq_surrogate::model::{SurrogateModel, SurrogateTerm};
@@ -289,7 +257,7 @@ fn bench_evaluate_batch(c: &mut Criterion) {
         .map(|i| SurrogateTerm {
             term: make_pauli(0, 1 << (i % N_QUBITS as u64), N_QUBITS),
             overlap: 1.0,
-            coeff: grown_coeff(14),
+            coeff: grown_coeff(14).compile(),
         })
         .collect();
     let model = SurrogateModel::new(terms, n_params);
@@ -305,14 +273,15 @@ fn bench_evaluate_batch(c: &mut Criterion) {
     group.finish();
 }
 
-/// The flush path: dedup plus an optional frequency trim and weight-based
-/// term retain, fused into one pass and parallelized down to individual
-/// entries (see `soa::kernels::map_retain`). Timed on a term set built by a
-/// real (untimed) gate-application burst plus a merge, so the coefficient-size
-/// distribution going into the flush is realistic rather than uniform.
+/// The Phase A flush path: a weight-based term retain, parallelized down to
+/// individual entries (see `soa::kernels::map_retain`). Timed on a term set
+/// built by a real (untimed) gate-application burst plus a merge, so the
+/// live-term distribution going into the flush is realistic rather than
+/// uniform. Monomial-level trimming (frequency/coefficient-magnitude) is
+/// deferred to Phase B and isn't part of this pass; see `propaq.MD`.
 fn bench_flush_and_retain(c: &mut Criterion) {
     let mut group = c.benchmark_group("SoaTermSum/flush_and_retain_surrogate");
-    group.bench_function("dedup_trim_weight_retain", |bench| {
+    group.bench_function("weight_retain", |bench| {
         bench.iter_batched(
             || {
                 let mut ts = build_termsum(N_TERMS, N_QUBITS, 0x5EED);
@@ -330,15 +299,11 @@ fn bench_flush_and_retain(c: &mut Criterion) {
                 ts
             },
             |mut ts| {
-                let max_freq = 12usize;
                 let weight_cutoff = 8u32;
                 let n_units = ts.n_units;
                 let monomials_after = kernels::map_retain::<PauliBasis, SymbolicCoeff, _, _>(
                     &mut ts,
-                    |c: &mut SymbolicCoeff| {
-                        c.trim_high_frequency(max_freq);
-                        c.deduplicate();
-                    },
+                    |_c: &mut SymbolicCoeff| {},
                     |term: [&[u64]; 2], c: &SymbolicCoeff| {
                         PauliBasis::weight(term, n_units) <= weight_cutoff && !c.is_empty()
                     },
@@ -354,8 +319,8 @@ fn bench_flush_and_retain(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_apply_gate_inplace,
-    bench_apply_rotation_by_size,
-    bench_deduplicate,
+    bench_apply_rotation_by_prior_history,
+    bench_compile_by_size,
     bench_evaluate_by_size,
     bench_evaluate_batch,
     bench_flush_and_retain,

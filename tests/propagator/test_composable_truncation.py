@@ -87,18 +87,40 @@ class TestNumericalListAPI:
 class TestCrossPropagator:
     """The same truncator objects drive both propagators."""
 
-    def test_shared_weight_and_coeff_truncators(self):
+    def test_shared_weight_and_term_budget_truncators(self):
+        from propaq import PauliSurrogatePropagator, SurrogatePauliCircuit
+
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        circ = PauliCircuit([PauliRotation(ps(0b0001, 0), 0.3)])
+        # `CoefficientTruncator` is left out of the shared set: it's
+        # monomial-level and not yet supported by the Phase A surrogate (see
+        # `test_surrogate_rejects_coefficient_truncator_in_phase_a` below),
+        # even though the numerical propagator honors it fine.
+        ops = [WeightTruncator(4), TermBudget(max_terms=5_000_000)]
+
+        # Numerical: honored, runs fine.
+        num = PauliPropagator(truncation=ops).expectation_value(obs, circ, initial_state=0)
+        assert isinstance(num.expectation_value, float)
+
+        # Surrogate: the same objects are accepted (term-level truncators are
+        # a subset it honors too).
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
+        model = PauliSurrogatePropagator(truncation=ops).build(obs, sc, initial_state=0)
+        assert isinstance(model.evaluate([0.3]), float)
+
+    def test_surrogate_rejects_coefficient_truncator_in_phase_a(self):
+        """Unlike the numerical propagator, the Phase A surrogate rejects
+        `CoefficientTruncator` (monomial-level truncation is deferred to
+        Phase B; see `propaq.MD`)."""
         from propaq import PauliSurrogatePropagator, SurrogatePauliCircuit
 
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         circ = PauliCircuit([PauliRotation(ps(0b0001, 0), 0.3)])
         ops = [WeightTruncator(4), CoefficientTruncator(1e-9), TermBudget(max_terms=5_000_000)]
 
-        # Numerical: honored, runs fine.
         num = PauliPropagator(truncation=ops).expectation_value(obs, circ, initial_state=0)
         assert isinstance(num.expectation_value, float)
 
-        # Surrogate: the same objects are accepted (it honors a superset).
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
-        model = PauliSurrogatePropagator(truncation=ops).build(obs, sc, initial_state=0)
-        assert isinstance(model.evaluate([0.3]), float)
+        with pytest.raises(ValueError, match="not yet supported"):
+            PauliSurrogatePropagator(truncation=ops).build(obs, sc, initial_state=0)

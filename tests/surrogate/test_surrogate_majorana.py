@@ -108,6 +108,12 @@ class TestNumericalAgreement:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
 class TestFrequencyTruncation:
+    """`FrequencyTruncator`/`max_frequency` are monomial-level and not yet
+    supported by the Phase A surrogate (see `propaq.MD`'s staged-rollout
+    notes): the DAG coefficient representation defers all monomial-level
+    truncation to Phase B. Building with one configured must raise a clear
+    error rather than silently doing nothing or misbehaving."""
+
     def _circuit_and_obs(self):
         obs = MajoranaTermSum({mm(0b0011): 1.0})
         gens = [mm(0b0110), mm(0b1001), mm(0b0101)]
@@ -118,26 +124,12 @@ class TestFrequencyTruncation:
         sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[0, 1, 2])
         return obs, sc, circ, angles
 
-    def test_increasing_frequency_reduces_error(self):
+    def test_max_frequency_is_rejected_in_phase_a(self):
         obs, sc, circ, angles = self._circuit_and_obs()
-        numerical = numerical_ev(obs, circ)
-        prev_err = float("inf")
-        for freq in range(0, 4):
-            model = MajoranaSurrogatePropagator(
-                truncation=FrequencyTruncationPolicy(max_frequency=freq)
+        with pytest.raises(ValueError, match="not yet supported"):
+            MajoranaSurrogatePropagator(
+                truncation=FrequencyTruncationPolicy(max_frequency=1)
             ).build(obs, sc, initial_state=0)
-            err = abs(model.evaluate(angles) - numerical)
-            assert err <= prev_err + 1e-12
-            prev_err = err
-
-    def test_exact_at_n_rotations(self):
-        obs, sc, circ, angles = self._circuit_and_obs()
-        n_rots = 3
-        model = MajoranaSurrogatePropagator(
-            truncation=FrequencyTruncationPolicy(max_frequency=n_rots)
-        ).build(obs, sc, initial_state=0)
-        numerical = numerical_ev(obs, circ)
-        assert model.evaluate(angles) == pytest.approx(numerical, rel=1e-9)
 
 class TestParameterReuseDedup:
     """Targeted coverage for the parameter-space merge/dedup logic, mirrored
@@ -164,17 +156,19 @@ class TestParameterReuseDedup:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
     def test_merge_cadence_matches_with_shared_parameters(self):
-        """Forcing a merge after every gate (which triggers `post_merge` /
-        `deduplicate` on the parameter-space runs) must not change the result
-        relative to deferring every merge to the final truncation flush."""
+        """Forcing a merge after every gate (which triggers `post_merge` on
+        the DAG's `Add` accumulation) must not change the result relative to
+        deferring every merge to the final truncation flush. `monomial_range`
+        is disabled explicitly to avoid Phase A's MonomialBudget rejection --
+        this test only exercises merge cadence."""
         obs, sc, circ, params = self._reused_param_circuit()
         exact = numerical_ev(obs, circ)
 
-        eager = FrequencyTruncationPolicy()
+        eager = FrequencyTruncationPolicy(monomial_range=(None, None))
         eager.merge_max_terms = 1
         m_eager = MajoranaSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
 
-        off = FrequencyTruncationPolicy()
+        off = FrequencyTruncationPolicy(monomial_range=(None, None))
         off.merge_max_terms = None
         m_off = MajoranaSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
 
@@ -242,8 +236,10 @@ class TestNTermsFiltering:
         circ = MajoranaCircuit([MajoranaRotation(g, a) for g, a in zip(gens, angles)], n_modes=N_MODES)
         sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[0, 1])
         model_full = MajoranaSurrogatePropagator().build(obs, sc, initial_state=0)
+        # `monomial_range` disabled explicitly to avoid Phase A's
+        # MonomialBudget rejection; this test only exercises weight_cutoff.
         model_cut = MajoranaSurrogatePropagator(
-            truncation=FrequencyTruncationPolicy(weight_cutoff=2)
+            truncation=FrequencyTruncationPolicy(weight_cutoff=2, monomial_range=(None, None))
         ).build(obs, sc, initial_state=0)
         assert model_cut.n_terms <= model_full.n_terms
 

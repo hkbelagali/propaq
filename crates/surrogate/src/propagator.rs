@@ -1,53 +1,31 @@
 ///
 /// impl for the surrogate/symbolic propagator!
 ///
-/// This propagator now runs on the same columnar SoA engine as the
-/// numerical propagators (`propaq_core::soa`), rather than the
-/// hash-partition/outbox engine (`propaq_core::propagator::AbstractPropagator`)
-/// it originally shared with them — this crate was the last consumer of
-/// that engine, which has since been retired. Every gate application is a
+/// This propagator runs on the same columnar SoA engine as the numerical
+/// propagators (`propaq_core::soa`): every gate application is a
 /// `soa::kernels::apply_rotation` call over a `SoaTermSum<SymbolicCoeff>`;
-/// merging/truncation reuse `soa::kernels::merge`/new generic `map_retain`/
-/// `fold_coeffs`/`sum_coeffs` primitives instead of the old engine's
-/// per-partition equivalents. None of the symbolic coefficient math below
-/// changed — `SymbolicCoeff`/`Generation`/`SupportTrie`/`ExponentDict`
-/// already did their interning work at flush time (not per-gate), so they
-/// needed no redesign to sit under a columnar container instead of a
-/// sharded hashmap.
+/// merging/truncation reuse `soa::kernels::merge`/`map_retain` the same way
+/// the numerical propagators do.
 ///
-/// The major difference between symbolic and numerical propagation
-/// is the combinatorial explosion of terms in the symbolic propagator.
-/// This is because we can merge the same term with different numerical
-/// coefficients, but naively merging symbolic coefficients is not possible
-/// because they might consist of different paths.
+/// `SymbolicCoeff` (`crate::symcoeff`) represents a coefficient as a
+/// persistent DAG (`Scalar`/`Add`/`Scale`/`Cos`/`Sin` nodes, built via `Arc`),
+/// not an expanded monomial list — every gate application and every merge is
+/// O(1) regardless of how large a coefficient's prior history already is, no
+/// monomial ever touched on the hot path. This replaced an earlier CSR/trie
+/// design (interned support/exponent tables reconciled at every flush) after
+/// real profiling showed that design's per-gate cost scaling with live
+/// monomial count was the dominant source of allocator/thread-contention
+/// overhead in practice (see `propaq.MD`/project memory for the diagnosis
+/// and the ProPauli reference design this port is based on).
 ///
-/// Symbolic coefficients can be compactly represented as
-///             \sum_i c_i \prod_j sin(\theta_j)^{a_j} cos(\theta_j)^{b_j}
-///
-/// The coefficients c_i are numerical, and the monomial attributes
-/// j, a_j and b_j fit into a u32. These are stored in a SoA
-/// (structure of arrays) format, and coefficients lie in a shared arena.
-///
-/// In order to alleviate the combinatorial explosion of distinct paths,
-/// the monomials are factored into their support (parameters they touch)
-/// and exponents. This reveals an invariant - the support is always
-/// an ascending list of parameter indices, and ideally stored as a
-/// trie. This mitigates the combinatorial explosion of distinct paths,
-/// and allows for efficient merging. The support is interned into
-/// the trie, and the exponents are stored in pairs in a separate
-/// container. Therefore, a global trie is maintained for the entire
-/// propagation, shared across threads. It is updated at every flush,
-/// during which the monomials are reconciled into a new generation of the
-/// trie. This must be done serially, but the subsequent deduplication of
-/// the coefficients is done in parallel.
-///
-/// For circuits with primarily numerical parameters and a few symbolic
-/// parameters, deep-copying the symbolic history of the coefficients
-/// is wasteful and unnecessary, since the history is unchanged from the
-/// action of an anticommuting numerical gate. Therefore, the propagator
-/// involves a deferred realization scheme, in which the symbolic history
-/// is only realized in memory when a term anticommutes with a symbolic
-/// gate. By doing so, the propagator can avoid significant memory overhead.
+/// **Staged rollout, Phase A (current):** monomial-level truncation
+/// (`FrequencyTruncator`/`CoefficientTruncator`/`MonomialBudget`, all of
+/// which need an expanded per-monomial view a lazy DAG doesn't have) is not
+/// yet supported — configuring one raises a clear error rather than being
+/// silently ignored. Only term-level truncation (`WeightTruncator`,
+/// `TermBudget`) is honored. Phase B (not yet implemented) restores
+/// monomial-level truncation via a flush-time expand-to-monomials +
+/// truncate + rebuild-the-DAG mechanism.
 ///
 use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
@@ -55,7 +33,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use pyo3::prelude::*;
-use rayon::prelude::*;
 
 use propaq_core::coeff::CoeffRepr;
 use propaq_core::logger::Logger;
@@ -65,7 +42,6 @@ use propaq_core::soa::{SoaBasis, SoaTermSum};
 use propaq_core::traits::AbstractTerm;
 
 use crate::symcoeff::{GateParam, SymbolicCoeff};
-use crate::interning::Generation;
 use crate::truncation::FrequencyTruncationPolicy;
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
 use propaq_core::truncators::{
@@ -73,11 +49,35 @@ use propaq_core::truncators::{
     Truncator,
 };
 
+/// `FrequencyTruncator`/`CoefficientTruncator`/`MonomialBudget` all need a
+/// per-monomial view of a symbolic coefficient's history, which Phase A's
+/// DAG representation doesn't expose (deferred to Phase B's flush-time
+/// expand+rebuild mechanism). Rejected explicitly rather than silently
+/// ignored, mirroring `propaq_core::truncators::reject_surrogate_only`'s
+/// pattern for the numerical propagator's analogous rejection of
+/// surrogate-only operators.
+fn reject_phase_a_unsupported(truncators: &[Truncator]) -> PyResult<()> {
+    if truncators.iter().any(|t| {
+        matches!(t, Truncator::Frequency(_) | Truncator::Coefficient(_) | Truncator::MonomialBudget(_))
+    }) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "FrequencyTruncator, CoefficientTruncator, and MonomialBudget are not yet supported by \
+             the surrogate propagator (monomial-level truncation is being redesigned around a new \
+             coefficient representation); use WeightTruncator / TermBudget for now. Note that the \
+             legacy FrequencyTruncationPolicy configures a MonomialBudget by default even with no \
+             arguments (its `monomial_range` default), so it is also rejected unless you set \
+             `monomial_range=(None, None)` and leave `max_frequency=None`.",
+        ));
+    }
+    Ok(())
+}
+
 /// Resolve the flexible `truncation` constructor argument into `(FlushSchedule,
 /// [Truncator])`. The surrogate additionally accepts the legacy
 /// `FrequencyTruncationPolicy` (decomposed here); everything else, such as a list, a
 /// single truncator, a core `TruncationPolicy`, or `None`, is delegated to the
-/// shared `propaq_core` resolver.
+/// shared `propaq_core` resolver. Either path rejects Phase-A-unsupported
+/// (monomial-level) truncators -- see `reject_phase_a_unsupported`.
 fn resolve_truncation(
     truncation: Option<&Bound<'_, PyAny>>,
     schedule: Option<FlushSchedule>,
@@ -85,10 +85,13 @@ fn resolve_truncation(
     if let Some(obj) = truncation {
         if let Ok(legacy) = obj.extract::<PyRef<FrequencyTruncationPolicy>>() {
             let (decomposed, ops) = legacy.decompose();
+            reject_phase_a_unsupported(&ops)?;
             return Ok((schedule.unwrap_or(decomposed), ops));
         }
     }
-    core_resolve_truncation(truncation, schedule)
+    let (schedule, ops) = core_resolve_truncation(truncation, schedule)?;
+    reject_phase_a_unsupported(&ops)?;
+    Ok((schedule, ops))
 }
 
 /// Surrogate propagator: drives a `SoaTermSum<SymbolicCoeff>` directly via
@@ -115,11 +118,6 @@ pub struct SurrogatePropagator<B: SoaBasis> {
     /// gate would require a full O(total_terms) pass, unlike the O(1)
     /// term-count read via `SoaTermSum::len`).
     total_monomials: usize,
-    /// The current frozen support/exponent interning generation. Coefficients'
-    /// base ids reference it between flushes; `reconcile` advances it (folding
-    /// each live coefficient's extension into a fresh generation) at flush
-    /// barriers, and it is handed to the compiled model at the end.
-    generation: Generation,
     _marker: PhantomData<B>,
 }
 
@@ -162,75 +160,8 @@ where
             last_log_gate_idx: 0,
             current_qiskit_gate_idx: None,
             total_monomials: 0,
-            generation: Generation::new(),
             _marker: PhantomData,
         })
-    }
-
-    /// Advance the interning generation: fold every live coefficient's extension
-    /// into a fresh generation, replacing base ids and clearing extensions.
-    ///
-    /// Interning used to run as one serial pass over every coefficient
-    /// against a single shared `Generation` (real profiling on a 300M+
-    /// monomial workload showed this loop alone at ~47% of total propagation
-    /// time — bigger than `deduplicate`'s sort). It's serial only because
-    /// `Generation::intern_run` mutates shared trie/dict state; that
-    /// constraint doesn't apply *within* a shard if each shard gets its own
-    /// from-scratch generation to intern into. So this is now three passes:
-    /// (1) partition live coefficients into `n_shards` chunks, each shard
-    /// reconciling its own coefficients into its own local `Generation` fully
-    /// in parallel (no shared mutable state at all); (2) `Generation::union`
-    /// folds the `n_shards` small tries/dicts into one final generation,
-    /// serially, but bounded by *distinct* structure across shards rather
-    /// than total live monomials — the whole reason interning exists is that
-    /// distinct structure is much smaller than monomial count under
-    /// parameter reuse; (3) a parallel remap pass rewrites each coefficient's
-    /// base ids from its shard's local numbering into the unioned numbering
-    /// (`SymbolicCoeff::remap_base_ids` — plain array lookups, no hashing).
-    /// The final per-coefficient `deduplicate` is unchanged: independent,
-    /// parallel, reads no generation state.
-    fn reconcile(&mut self, evolved: &mut SoaTermSum<SymbolicCoeff>) {
-        let old = std::mem::take(&mut self.generation);
-        let n = evolved.len();
-        if n == 0 {
-            self.generation = Generation::new();
-            return;
-        }
-
-        let n_shards = self.pool.current_num_threads().max(1);
-        let chunk_len = n.div_ceil(n_shards);
-        let mut local_gens: Vec<Generation> = (0..n_shards).map(|_| Generation::new()).collect();
-
-        let coeffs = &mut evolved.coeffs[..n];
-        self.pool.install(|| {
-            coeffs
-                .par_chunks_mut(chunk_len)
-                .zip(local_gens.par_iter_mut())
-                .for_each(|(chunk, gen)| {
-                    for c in chunk {
-                        c.reconcile_into_deferred(&old, gen);
-                    }
-                });
-        });
-
-        let (merged, remaps) = Generation::union(local_gens);
-
-        self.pool.install(|| {
-            coeffs
-                .par_chunks_mut(chunk_len)
-                .zip(remaps.par_iter())
-                .for_each(|(chunk, remap)| {
-                    for c in chunk {
-                        c.remap_base_ids(remap);
-                    }
-                });
-        });
-
-        self.generation = merged;
-        // Parallel: each coefficient's dedup is independent and reads no shared
-        // state (it never dereferences the generation), so lift it off the
-        // serial interning critical path onto all worker threads.
-        self.pool.install(|| coeffs.par_iter_mut().for_each(|c| c.deduplicate()));
     }
 
     fn open_log(&mut self) -> PyResult<()> {
@@ -270,11 +201,6 @@ where
         let outcome = pool.install(|| apply_truncation_policy::<B>(evolved, &cfg));
         self.total_monomials = outcome.monomials_after;
 
-        // Compact the survivors: fold their extensions into a fresh interning
-        // generation. Runs after truncation so only surviving structure is
-        // re-interned (dead nodes are dropped with the old generation).
-        self.reconcile(evolved);
-
         if self.verbose_log.is_some() {
             let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
             let qki = match self.current_qiskit_gate_idx {
@@ -313,29 +239,15 @@ where
         n_params: usize,
     ) -> PyResult<SurrogateModel<B::Term>> {
         self.open_log()?;
-        // Fresh interning generation for this build (the previous build's was
-        // moved into its model, but reset defensively in case one errored out).
-        self.generation = Generation::new();
 
         // Resolve the truncation pipeline once (Copy config). The flush triggers
         // (`max_terms`/`max_monomials`) and the `min_terms` gate come from the
         // `TermBudget`/`MonomialBudget` operators; the merge cadence from the
-        // schedule.
+        // schedule. Phase A rejects `MonomialBudget` at construction time
+        // (`reject_phase_a_unsupported`), so `cfg.max_monomials` is always `None`
+        // here; the monomial-count triggers below are dead in Phase A and will
+        // be revived once Phase B restores monomial-level truncation.
         let cfg = resolve_config(&self.truncators);
-
-        // Look-ahead frequency-pruning cap for symbolic rotations. Skipping a
-        // doomed sin-branch monomial at generation time is exactly equivalent to
-        // trimming it at the next flush only when *every* flush applies the
-        // frequency cap, i.e. when the `min_terms` gate is 0/None so
-        // `apply_lossy` in `apply_truncation_policy` is always true. With a
-        // nonzero `min_terms`, trimming is deferred, so eager pruning could
-        // diverge; fall back to `None` (no look-ahead) there. Requires a
-        // `FrequencyTruncator` in the pipeline to supply the cap.
-        let prune_freq: Option<u32> = if cfg.min_terms.unwrap_or(0) == 0 {
-            cfg.frequency.map(|f| f as u32)
-        } else {
-            None
-        };
 
         let n_units = evolved.n_units;
         let stride = evolved.stride;
@@ -353,13 +265,7 @@ where
                 layer.iter().map(|rot_obj| -> PyResult<_> {
                     let rot = rot_obj.bind(py);
                     let generator: B::Term = rot.getattr("generator")?.extract()?;
-                    // Inject the look-ahead cap into symbolic params
-                    let param = match SymbolicCoeff::extract_gate_param(rot)? {
-                        GateParam::Symbolic { param, .. } => {
-                            GateParam::Symbolic { param, prune_freq }
-                        }
-                        numeric => numeric,
-                    };
+                    let param = SymbolicCoeff::extract_gate_param(rot)?;
                     let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
                     let qiskit_gate_idx: Option<usize> = rot
                         .getattr("qiskit_gate_idx")
@@ -535,25 +441,23 @@ where
 
         // Compile: collect terms with nonzero structural overlap, reading
         // straight out of the final SoA columns (no hashmap drain — the
-        // container is already flat).
+        // container is already flat). Each surviving coefficient's DAG is
+        // compiled once here into a flat evaluation tape (`CompiledCoeff`) —
+        // this is the only point in Phase A where a coefficient's structure
+        // is walked/flattened.
         let n = evolved.len();
         let mut raw: Vec<SurrogateTerm<B::Term>> = Vec::new();
         for i in 0..n {
             let overlap = B::trace(evolved.term_planes(i), evolved.n_units, initial_state);
             if overlap.abs() > 1e-15 {
                 // Take rather than clone: `evolved` isn't reused after this build.
-                let mut coeff = std::mem::take(&mut evolved.coeffs[i]);
-                coeff.deduplicate();
+                let coeff = std::mem::take(&mut evolved.coeffs[i]).compile();
                 let term = B::term_from_planes(evolved.term_planes(i), evolved.n_units);
                 raw.push(SurrogateTerm { term, overlap, coeff });
             }
         }
 
-        // The final `flush_and_maybe_truncate("final")` above reconciled the
-        // survivors, so every coefficient's base ids reference `self.generation`.
-        // Hand it to the model.
-        let generation = std::mem::take(&mut self.generation);
-        Ok(SurrogateModel::with_generation(raw, n_params, generation))
+        Ok(SurrogateModel::new(raw, n_params))
     }
 }
 
@@ -567,14 +471,20 @@ pub struct TruncationOutcome {
     pub coefficient: Option<f64>,
 }
 
-/// Apply the resolved truncation config to `propagator`'s current live state.
+/// How many monomials must be removed to bring `monomials_after` down to
+/// `max`. Kept as a pure function, ready for Phase B's flush-time
+/// expand+truncate+rebuild mechanism, which is the only place it (and the
+/// histogram/boundary-rank helpers below) will be called from again.
 #[inline]
+#[allow(dead_code)]
 fn monomial_removal_budget(monomials_after: usize, max: usize) -> usize {
     monomials_after.saturating_sub(max)
 }
 
 /// Elementwise-add two frequency histograms, reconciling lengths. Combine step
-/// for the parallel `fold_coeffs` that builds the global histogram.
+/// for a parallel histogram fold. Unused in Phase A (no monomial-level
+/// truncation); kept for Phase B.
+#[allow(dead_code)]
 fn combine_histograms(mut a: Vec<u64>, b: Vec<u64>) -> Vec<u64> {
     if a.len() < b.len() {
         a.resize(b.len(), 0);
@@ -591,7 +501,9 @@ fn combine_histograms(mut a: Vec<u64>, b: Vec<u64>) -> Vec<u64> {
 /// fully removing every higher-frequency bucket). `remove_in_boundary` is always
 /// `<= hist[f*]`; it equals `hist[f*]` exactly when the whole boundary bucket is
 /// consumed. Returns `(0, 0)` only when `budget` meets or exceeds every monomial
-/// present (caller then removes everything at/above frequency 0).
+/// present (caller then removes everything at/above frequency 0). Unused in
+/// Phase A; kept for Phase B.
+#[allow(dead_code)]
 fn boundary_from_histogram(hist: &[u64], budget: usize) -> (usize, usize) {
     let mut remaining = budget as u64;
     for f in (0..hist.len()).rev() {
@@ -608,6 +520,14 @@ fn boundary_from_histogram(hist: &[u64], budget: usize) -> (usize, usize) {
 }
 
 /// Run the truncation pipeline against `evolved`'s current live state.
+///
+/// Phase A scope only: term-level `WeightTruncator` (operator weight) and the
+/// always-on lossless dedup (`SymbolicCoeff::add_assign`/`is_empty` via
+/// `merge`, already applied by the caller before this runs). Monomial-level
+/// truncation (`FrequencyTruncator`, symbolic `CoefficientTruncator`,
+/// `MonomialBudget`) is rejected at construction time
+/// (`reject_phase_a_unsupported`), so `cfg.max_monomials` is always `None`
+/// here in Phase A.
 pub fn apply_truncation_policy<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     cfg: &ResolvedConfig,
@@ -617,96 +537,17 @@ pub fn apply_truncation_policy<B: SoaBasis>(
     let n_units = evolved.n_units;
 
     // Deferred like the numerical propagator: below min_terms, skip the lossy
-    // filters and only run the lossless dedup.
+    // filters.
     let apply_lossy = total_before >= min_terms;
 
-    let mut monomials_after = kernels::map_retain::<B, SymbolicCoeff, _, _>(
+    let monomials_after = kernels::map_retain::<B, SymbolicCoeff, _, _>(
         evolved,
-        |c: &mut SymbolicCoeff| {
-            if apply_lossy {
-                if let Some(mf) = cfg.frequency {
-                    c.trim_high_frequency(mf);
-                }
-            }
-            c.deduplicate();
-            if apply_lossy {
-                if let Some(coeff) = cfg.coefficient {
-                    c.trim_small_scalars(coeff);
-                }
-            }
-        },
+        |_c: &mut SymbolicCoeff| {},
         |term: [&[u64]; 2], c: &SymbolicCoeff| {
             let weight_ok = !apply_lossy || cfg.weight.map_or(true, |w| B::weight(term, n_units) <= w);
             weight_ok && !c.is_empty()
         },
     );
-
-    if let Some(max) = cfg.max_monomials {
-        debug_assert!(
-            max >= cfg.min_monomials.unwrap_or(0),
-            "MonomialBudget misconfigured: min_monomials must not exceed max_monomials",
-        );
-        if monomials_after > max {
-            let budget = monomial_removal_budget(monomials_after, max);
-            if budget > 0 {
-                // 1. Global frequency histogram in one parallel fold. Frequency
-                //    is a small bounded int, so a per-worker `Vec<u64>` keyed by
-                //    frequency is cheap and exact.
-                let hist: Vec<u64> = kernels::fold_coeffs(
-                    evolved,
-                    Vec::new,
-                    |mut h, c: &SymbolicCoeff| {
-                        c.add_freq_histogram(&mut h);
-                        h
-                    },
-                    combine_histograms,
-                );
-
-                // 2. Boundary frequency f* (importance = frequency desc) and how
-                //    many monomials must come out of it after every higher bucket
-                //    is removed in full.
-                let (f_star, remove_in_boundary) = boundary_from_histogram(&hist, budget);
-
-                // 3. Secondary key |scalar| asc, applied only within the boundary
-                //    bucket. If the whole bucket is consumed, s* = INFINITY drops
-                //    all of it; otherwise a single `select_nth` over the boundary
-                //    bucket's |scalar| picks the cutoff, and the exact-s* ties are
-                //    budget-limited so the cut lands precisely at `max`.
-                let full_bucket = f_star < hist.len() && remove_in_boundary as u64 >= hist[f_star];
-                let (s_star, tie_budget) = if remove_in_boundary == 0 || full_bucket {
-                    (f64::INFINITY, 0usize)
-                } else {
-                    let mut scalars: Vec<f64> = kernels::fold_coeffs(
-                        evolved,
-                        Vec::new,
-                        |mut v, c: &SymbolicCoeff| {
-                            c.collect_boundary_scalars(f_star, &mut v);
-                            v
-                        },
-                        |mut a, mut b| {
-                            a.append(&mut b);
-                            a
-                        },
-                    );
-                    let k = remove_in_boundary.min(scalars.len());
-                    scalars.select_nth_unstable_by(k - 1, |a, b| a.total_cmp(b));
-                    let s = scalars[k - 1];
-                    let n_below = scalars.iter().filter(|&&x| x < s).count();
-                    (s, k.saturating_sub(n_below))
-                };
-
-                // 4. One importance-ranked removal pass.
-                let tie_remaining = std::sync::atomic::AtomicUsize::new(tie_budget);
-                monomials_after = kernels::map_retain::<B, SymbolicCoeff, _, _>(
-                    evolved,
-                    |c: &mut SymbolicCoeff| {
-                        c.remove_by_rank_budgeted(f_star, s_star, &tie_remaining);
-                    },
-                    |_term, c: &SymbolicCoeff| !c.is_empty(),
-                );
-            }
-        }
-    }
 
     let total_after = evolved.len();
     TruncationOutcome {
@@ -942,6 +783,8 @@ mod monomial_removal_budget_tests {
 mod numeric_history_dedup_tests {
     use super::*;
     use propaq_core::soa::SoaTermSum;
+    use propaq_pauli::string::PauliString;
+    use std::collections::HashMap;
 
     fn planes_of(x: u64, z: u64, stride: usize) -> (Vec<u64>, Vec<u64>) {
         let mut gx = vec![0u64; stride];
@@ -951,59 +794,76 @@ mod numeric_history_dedup_tests {
         (gx, gz)
     }
 
-    /// A purely-numeric gate history produces only empty-mask monomials, so the
-    /// live monomial count must never exceed the live term count once a merge
-    /// has run (each term collapses to a single monomial). This is the regime
-    /// the user reported: dozens of terms but the monomial count exploding into
-    /// the millions because the lossless merge only deduped term keys, never the
-    /// identical monomials `add_assign` piled up inside each coefficient. With
-    /// `CoeffRepr::post_merge` calling `deduplicate` at the merge, live
-    /// monomials track live terms exactly.
+    /// Read every live term's key (via `PauliBasis::term_from_planes`) and its
+    /// `f64` coefficient into a map, for comparing two independently-evolved
+    /// `SoaTermSum`s by term identity rather than by row order (`merge`/
+    /// `apply_rotation` don't guarantee the two representations end up in the
+    /// same row order even when driven by an identical gate sequence).
+    fn f64_values(terms: &SoaTermSum<f64>) -> HashMap<PauliString, f64> {
+        (0..terms.len())
+            .map(|i| (PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units), *terms.coeff(i)))
+            .collect()
+    }
+
+    fn symbolic_values(terms: &SoaTermSum<SymbolicCoeff>, lut: &[f64]) -> HashMap<PauliString, f64> {
+        (0..terms.len())
+            .map(|i| {
+                let key = PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units);
+                (key, terms.coeff(i).compile().evaluate(lut))
+            })
+            .collect()
+    }
+
+    /// A purely-numeric gate history: `SymbolicCoeff`'s `Scale` nodes are
+    /// exactly the same arithmetic as `f64`'s own `apply_rotation` (see
+    /// `symcoeff.rs`'s `apply_rotation_numeric_scalar_matches_f64_apply_rotation`
+    /// unit test for the single-gate version of this same property). This
+    /// drives the real kernels (`apply_rotation`/`merge`) through a whole
+    /// brick-wall circuit on both a plain-`f64` `SoaTermSum` and a
+    /// `SymbolicCoeff` one and checks every surviving term's compiled/evaluated
+    /// value agrees with the trusted numeric engine's own accumulation --
+    /// i.e. that `add_assign`/`Scale` compose correctly end-to-end, not just
+    /// for one gate in isolation.
     #[test]
-    fn numeric_gates_keep_live_monomials_bounded_by_term_count() {
+    fn numeric_gate_history_matches_the_plain_f64_engine() {
         const N_QUBITS: usize = 8;
-        let mut evolved: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+        let mut numeric: SoaTermSum<f64> = SoaTermSum::new(N_QUBITS, 1);
+        let mut symbolic: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
 
-        // Seed a single weight-1 Z on qubit 0.
         let (gx, gz) = planes_of(0, 1, 1);
-        evolved.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
+        numeric.push([&gx, &gz], 1.0);
+        symbolic.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
 
-        // Brick-wall of two-qubit generators, all with *numeric* angles, with a
-        // lossless merge every few gates (mirrors `merge_max_terms` firing).
         let mut gate_idx = 0u32;
-        let mut peak_live_monomials = 0usize;
         for round in 0..24 {
             let offset = round % 2;
             for q in (offset..N_QUBITS - 1).step_by(2) {
-                // A weight-2 generator that anticommutes with Z-type terms on
-                // these qubits (X components), so branches are actually created.
                 let (genx, genz) = planes_of((1 << q) | (1 << (q + 1)), 0, 1);
                 let angle = 0.3 + 0.1 * gate_idx as f64;
+                kernels::apply_rotation::<PauliBasis, f64>(&mut numeric, [&genx, &genz], &angle, false);
                 kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
-                    &mut evolved,
+                    &mut symbolic,
                     [&genx, &genz],
                     &GateParam::Numeric { angle },
                     false,
                 );
                 gate_idx += 1;
             }
-            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut evolved);
-
-            // After a merge, every coefficient is deduplicated; with only empty
-            // masks in play, that is at most one monomial per live term.
-            let live_terms = evolved.len();
-            let live_monomials = kernels::sum_coeffs(&evolved, |c| c.monomial_count());
-            peak_live_monomials = peak_live_monomials.max(live_monomials);
-            assert!(
-                live_monomials <= live_terms,
-                "round {round}: live monomials {live_monomials} exceeded live terms {live_terms} \
-                 , numeric-history monomials were not deduplicated at the merge",
-            );
+            kernels::merge::<PauliBasis, f64>(&mut numeric);
+            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut symbolic);
         }
 
-        // Sanity floor: the run actually exercised real branching (non-trivial
-        // term count), so the bound above wasn't vacuously true on an empty map.
-        assert!(peak_live_monomials > 1, "test did not exercise any branching");
+        let expected = f64_values(&numeric);
+        let got = symbolic_values(&symbolic, &[]);
+        assert_eq!(got.len(), expected.len(), "live term sets diverged between the two engines");
+        assert!(expected.len() > 1, "test did not exercise any branching");
+        for (key, &want) in &expected {
+            let have = got.get(key).expect("term missing from symbolic result");
+            assert!(
+                (have - want).abs() < 1e-9 * want.abs().max(1.0),
+                "symbolic {have} vs f64 reference {want}",
+            );
+        }
     }
 }
 
@@ -1011,6 +871,8 @@ mod numeric_history_dedup_tests {
 mod shared_parameter_dedup_tests {
     use super::*;
     use propaq_core::soa::SoaTermSum;
+    use propaq_pauli::string::PauliString;
+    use std::collections::HashMap;
 
     fn planes_of(x: u64, z: u64, stride: usize) -> (Vec<u64>, Vec<u64>) {
         let mut gx = vec![0u64; stride];
@@ -1020,55 +882,76 @@ mod shared_parameter_dedup_tests {
         (gx, gz)
     }
 
+    fn f64_values(terms: &SoaTermSum<f64>) -> HashMap<PauliString, f64> {
+        (0..terms.len())
+            .map(|i| (PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units), *terms.coeff(i)))
+            .collect()
+    }
+
+    fn symbolic_values(terms: &SoaTermSum<SymbolicCoeff>, lut: &[f64]) -> HashMap<PauliString, f64> {
+        (0..terms.len())
+            .map(|i| {
+                let key = PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units);
+                (key, terms.coeff(i).compile().evaluate(lut))
+            })
+            .collect()
+    }
+
+    /// Symbolic gates reusing a handful of shared parameters across many gates
+    /// must evaluate identically to running the same circuit with each
+    /// parameter's angle fixed as a concrete number throughout -- exercising
+    /// `Cos`/`Sin`/`Add` composing correctly under heavy subtree sharing (the
+    /// same parameter's `Arc<Node>` reused by dozens of gates), not just a
+    /// bound on monomial count.
     #[test]
-    fn symbolic_gates_on_few_shared_parameters_keep_monomials_polynomial_not_exponential() {
+    fn shared_parameter_history_matches_f64_engine_under_fixed_angles() {
         const N_QUBITS: usize = 8;
         const N_PARAMS: usize = 3;
-        let mut evolved: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+        let fixed_angles: [f64; N_PARAMS] = [0.41, 1.13, 2.02];
+
+        let mut numeric: SoaTermSum<f64> = SoaTermSum::new(N_QUBITS, 1);
+        let mut symbolic: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
 
         let (gx, gz) = planes_of(0, 1, 1);
-        evolved.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
+        numeric.push([&gx, &gz], 1.0);
+        symbolic.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
 
-        // Brick-wall of two-qubit generators, all *symbolic*, cycling through
-        // only `N_PARAMS` distinct parameter indices every parameter is
-        // reused dozens of times over the run.
         let mut gate_idx: u32 = 0;
-        let mut param_counts = [0usize; N_PARAMS];
-        let mut peak_live_monomials = 0usize;
         for round in 0..30 {
             let offset = round % 2;
             for q in (offset..N_QUBITS - 1).step_by(2) {
                 let (genx, genz) = planes_of((1 << q) | (1 << (q + 1)), 0, 1);
                 let param = gate_idx as usize % N_PARAMS;
-                kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
-                    &mut evolved,
+                kernels::apply_rotation::<PauliBasis, f64>(
+                    &mut numeric,
                     [&genx, &genz],
-                    &GateParam::Symbolic { param: param as u32, prune_freq: None },
+                    &fixed_angles[param],
                     false,
                 );
-                param_counts[param] += 1;
+                kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
+                    &mut symbolic,
+                    [&genx, &genz],
+                    &GateParam::Symbolic { param: param as u32 },
+                    false,
+                );
                 gate_idx += 1;
             }
-            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut evolved);
-
-            let live_terms = evolved.len();
-            let live_monomials = kernels::sum_coeffs(&evolved, |c| c.monomial_count());
-            peak_live_monomials = peak_live_monomials.max(live_monomials);
-
-            let max_monomials_per_term: usize = param_counts.iter().map(|&k| k + 1).product();
-            assert!(
-                live_monomials <= max_monomials_per_term * live_terms.max(1),
-                "round {round}: live monomials {live_monomials} exceeded the polynomial \
-                 bound {max_monomials_per_term} * {live_terms} terms,  same-parameter \
-                 branches were not collapsing into trig powers",
-            );
+            kernels::merge::<PauliBasis, f64>(&mut numeric);
+            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut symbolic);
         }
 
-        // Sanity floor: real branching happened, and the run went through far
-        // more gates than `2^gate_idx` monomials (the old scheme's bound)
-        // could ever let fit in memory, yet stayed within the polynomial
-        // bound above throughout.
-        assert!(peak_live_monomials > 1, "test did not exercise any branching");
+        let lut: Vec<f64> = fixed_angles.iter().flat_map(|&t| [t.cos(), t.sin()]).collect();
+        let expected = f64_values(&numeric);
+        let got = symbolic_values(&symbolic, &lut);
+        assert_eq!(got.len(), expected.len(), "live term sets diverged between the two engines");
+        assert!(expected.len() > 1, "test did not exercise any branching");
         assert!(gate_idx as usize > 4 * N_PARAMS, "test should reuse each parameter many times");
+        for (key, &want) in &expected {
+            let have = got.get(key).expect("term missing from symbolic result");
+            assert!(
+                (have - want).abs() < 1e-8 * want.abs().max(1.0),
+                "symbolic {have} vs f64 reference {want}",
+            );
+        }
     }
 }
