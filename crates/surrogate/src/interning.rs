@@ -364,6 +364,69 @@ impl Generation {
     }
 }
 
+/// Per-shard translation from a locally-built [`Generation`]'s ids into the
+/// ids of the [`Generation`] produced by [`Generation::union`]. One of these
+/// is handed back per input shard, in the same order.
+pub struct GenerationRemap {
+    /// `support[local_id]` = the unioned generation's support id.
+    support: Vec<u32>,
+    /// `exp[local_id]` = the unioned generation's exponent-pattern id.
+    exp: Vec<u32>,
+}
+
+impl GenerationRemap {
+    #[inline]
+    pub fn support_id(&self, local: u32) -> u32 {
+        self.support[local as usize]
+    }
+
+    #[inline]
+    pub fn exp_id(&self, local: u32) -> u32 {
+        self.exp[local as usize]
+    }
+}
+
+impl Generation {
+    /// Union many independently-built generations into one, returning a
+    /// per-shard [`GenerationRemap`] translating that shard's local ids into
+    /// the unioned result's ids (same order as `shards`).
+    ///
+    /// This is what lets reconciliation be parallelized: each worker interns
+    /// its own coefficients into its own from-scratch `Generation` (no shared
+    /// mutable state, so fully independent), and this function does the one
+    /// remaining serial step — folding the `n_shards` small trie/dict
+    /// structures into one. Node/pattern ids are always assigned in
+    /// topological order within a shard (a node's parent, or a pattern's
+    /// prefix, always has a strictly smaller id — both tables are built by
+    /// pure appends), so each shard's remap can be built in a single forward
+    /// pass with no recursion. Content-addressing (`intern_append`/`intern`)
+    /// means identical structure contributed by *different* shards still
+    /// collapses to one id in the union, exactly as it would have if all
+    /// shards had interned into one shared generation serially — sharding
+    /// changes only which thread does the hashing, not the result.
+    pub fn union(shards: Vec<Generation>) -> (Generation, Vec<GenerationRemap>) {
+        let mut merged = Generation::new();
+        let mut remaps = Vec::with_capacity(shards.len());
+        for shard in &shards {
+            let mut support_remap = vec![0u32; shard.support.node_count()];
+            for id in 1..shard.support.node_count() {
+                let node = shard.support.nodes[id];
+                let final_parent = support_remap[node.parent as usize];
+                support_remap[id] = merged.support.intern_append(final_parent, node.param);
+            }
+
+            let mut exp_remap = vec![0u32; shard.exp.pattern_count()];
+            for id in 1..shard.exp.pattern_count() {
+                let pattern = shard.exp.pattern(id as u32);
+                exp_remap[id] = merged.exp.intern(pattern);
+            }
+
+            remaps.push(GenerationRemap { support: support_remap, exp: exp_remap });
+        }
+        (merged, remaps)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,6 +560,117 @@ mod tests {
         }).collect();
         for (r, &(s, e)) in runs.iter().zip(&ids) {
             assert_eq!(&g.decode_run(s, e), r);
+        }
+    }
+
+    #[test]
+    fn union_of_one_shard_reconstructs_the_same_runs() {
+        let runs = [
+            run(&[]),
+            run(&[(0, 1, 0)]),
+            run(&[(0, 1, 0), (2, 1, 1)]),
+            run(&[(5, 3, 0)]),
+        ];
+        let mut shard = Generation::new();
+        let ids: Vec<(u32, u32)> =
+            runs.iter().map(|r| { let (s, e, _) = shard.intern_run(r); (s, e) }).collect();
+
+        let (merged, remaps) = Generation::union(vec![shard]);
+        assert_eq!(remaps.len(), 1);
+        for (r, &(s, e)) in runs.iter().zip(&ids) {
+            let (fs, fe) = (remaps[0].support_id(s), remaps[0].exp_id(e));
+            assert_eq!(&merged.decode_run(fs, fe), r);
+        }
+    }
+
+    #[test]
+    fn union_collapses_identical_structure_contributed_by_different_shards() {
+        let shared_run = run(&[(0, 1, 0), (3, 2, 1)]);
+        let mut shard_a = Generation::new();
+        let (sa, ea, _) = shard_a.intern_run(&shared_run);
+        let mut shard_b = Generation::new();
+        let (sb, eb, _) = shard_b.intern_run(&shared_run);
+        // Also give shard_b some unrelated structure, to be sure the loop
+        // handles more than one pattern/node per shard.
+        let (_, _, _) = shard_b.intern_run(&run(&[(9, 1, 0)]));
+
+        let (merged, remaps) = Generation::union(vec![shard_a, shard_b]);
+        let (fsa, fea) = (remaps[0].support_id(sa), remaps[0].exp_id(ea));
+        let (fsb, feb) = (remaps[1].support_id(sb), remaps[1].exp_id(eb));
+        assert_eq!(fsa, fsb, "identical support from different shards shares one final id");
+        assert_eq!(fea, feb, "identical exponent pattern from different shards shares one final id");
+        assert_eq!(&merged.decode_run(fsa, fea), &shared_run);
+    }
+
+    #[test]
+    fn sharded_reconcile_matches_single_generation_reconcile() {
+        use crate::symcoeff::SymbolicCoeff;
+
+        // Seed several coefficients with distinct histories, some sharing
+        // parameters, against a common "old" generation (as `reconcile_into`
+        // would receive mid-propagation).
+        let mut old = Generation::new();
+        let bases: Vec<(u32, u32, u32)> = vec![
+            old.intern_run(&run(&[(0, 1, 0)])),
+            old.intern_run(&run(&[(1, 2, 0)])),
+            old.intern_run(&run(&[])),
+        ];
+        let make_coeff = |base_idx: usize, ext: &[(u32, u32, u32)]| {
+            let (bs, be, bf) = bases[base_idx];
+            let mut c = SymbolicCoeff::from_scalar(1.0);
+            c.push_factored(2.0, bs, be, bf, &run(ext));
+            c
+        };
+        let ext_a = [(2u32, 1u32, 0u32)];
+        let ext_b = [(2u32, 1u32, 0u32)]; // same extension as `a`, different base
+        let ext_c: [(u32, u32, u32); 0] = [];
+        let ext_d = [(4u32, 0u32, 1u32)];
+        let coeffs_seed = vec![
+            make_coeff(0, &ext_a),
+            make_coeff(1, &ext_b),
+            make_coeff(2, &ext_c),
+            make_coeff(0, &ext_d),
+        ];
+
+        // Reference: reconcile all of them serially into one shared generation.
+        let mut reference = coeffs_seed.clone();
+        let mut ref_gen = Generation::new();
+        for c in &mut reference {
+            c.reconcile_into_deferred(&old, &mut ref_gen);
+            c.deduplicate();
+        }
+
+        // Sharded: split into two shards, each with its own local generation,
+        // then union + remap + dedup, mirroring `SurrogatePropagator::reconcile`.
+        let mut sharded = coeffs_seed;
+        let (chunk_a, chunk_b) = sharded.split_at_mut(2);
+        let mut gen_a = Generation::new();
+        let mut gen_b = Generation::new();
+        for c in chunk_a.iter_mut() {
+            c.reconcile_into_deferred(&old, &mut gen_a);
+        }
+        for c in chunk_b.iter_mut() {
+            c.reconcile_into_deferred(&old, &mut gen_b);
+        }
+        let (merged, remaps) = Generation::union(vec![gen_a, gen_b]);
+        for c in chunk_a.iter_mut() {
+            c.remap_base_ids(&remaps[0]);
+        }
+        for c in chunk_b.iter_mut() {
+            c.remap_base_ids(&remaps[1]);
+        }
+        for c in sharded.iter_mut() {
+            c.deduplicate();
+        }
+
+        assert_eq!(reference.len(), sharded.len());
+        let lut = make_lut(8);
+        for (r, s) in reference.iter().zip(sharded.iter()) {
+            assert_eq!(r.monomial_count(), s.monomial_count());
+            assert!(
+                (r.evaluate(&ref_gen, &lut) - s.evaluate(&merged, &lut)).abs() < 1e-12,
+                "sharded reconcile+union must evaluate identically to a single shared generation"
+            );
         }
     }
 }

@@ -169,19 +169,68 @@ where
 
     /// Advance the interning generation: fold every live coefficient's extension
     /// into a fresh generation, replacing base ids and clearing extensions.
+    ///
+    /// Interning used to run as one serial pass over every coefficient
+    /// against a single shared `Generation` (real profiling on a 300M+
+    /// monomial workload showed this loop alone at ~47% of total propagation
+    /// time — bigger than `deduplicate`'s sort). It's serial only because
+    /// `Generation::intern_run` mutates shared trie/dict state; that
+    /// constraint doesn't apply *within* a shard if each shard gets its own
+    /// from-scratch generation to intern into. So this is now three passes:
+    /// (1) partition live coefficients into `n_shards` chunks, each shard
+    /// reconciling its own coefficients into its own local `Generation` fully
+    /// in parallel (no shared mutable state at all); (2) `Generation::union`
+    /// folds the `n_shards` small tries/dicts into one final generation,
+    /// serially, but bounded by *distinct* structure across shards rather
+    /// than total live monomials — the whole reason interning exists is that
+    /// distinct structure is much smaller than monomial count under
+    /// parameter reuse; (3) a parallel remap pass rewrites each coefficient's
+    /// base ids from its shard's local numbering into the unioned numbering
+    /// (`SymbolicCoeff::remap_base_ids` — plain array lookups, no hashing).
+    /// The final per-coefficient `deduplicate` is unchanged: independent,
+    /// parallel, reads no generation state.
     fn reconcile(&mut self, evolved: &mut SoaTermSum<SymbolicCoeff>) {
         let old = std::mem::take(&mut self.generation);
-        let mut new = Generation::new();
         let n = evolved.len();
-        // Serial: interning mutates one shared generation.
-        for c in &mut evolved.coeffs[..n] {
-            c.reconcile_into_deferred(&old, &mut new);
+        if n == 0 {
+            self.generation = Generation::new();
+            return;
         }
-        self.generation = new;
+
+        let n_shards = self.pool.current_num_threads().max(1);
+        let chunk_len = n.div_ceil(n_shards);
+        let mut local_gens: Vec<Generation> = (0..n_shards).map(|_| Generation::new()).collect();
+
+        let coeffs = &mut evolved.coeffs[..n];
+        self.pool.install(|| {
+            coeffs
+                .par_chunks_mut(chunk_len)
+                .zip(local_gens.par_iter_mut())
+                .for_each(|(chunk, gen)| {
+                    for c in chunk {
+                        c.reconcile_into_deferred(&old, gen);
+                    }
+                });
+        });
+
+        let (merged, remaps) = Generation::union(local_gens);
+
+        self.pool.install(|| {
+            coeffs
+                .par_chunks_mut(chunk_len)
+                .zip(remaps.par_iter())
+                .for_each(|(chunk, remap)| {
+                    for c in chunk {
+                        c.remap_base_ids(remap);
+                    }
+                });
+        });
+
+        self.generation = merged;
         // Parallel: each coefficient's dedup is independent and reads no shared
         // state (it never dereferences the generation), so lift it off the
         // serial interning critical path onto all worker threads.
-        self.pool.install(|| evolved.coeffs[..n].par_iter_mut().for_each(|c| c.deduplicate()));
+        self.pool.install(|| coeffs.par_iter_mut().for_each(|c| c.deduplicate()));
     }
 
     fn open_log(&mut self) -> PyResult<()> {

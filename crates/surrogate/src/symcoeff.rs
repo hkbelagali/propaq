@@ -17,7 +17,7 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use propaq_core::coeff::CoeffRepr;
 
-use crate::interning::Generation;
+use crate::interning::{Generation, GenerationRemap};
 
 /// A trig factor is packed into a single `u32`:
 /// `[param:16 | cos_pow:8 | sin_pow:8]`. The **parameter index** lives in the
@@ -459,6 +459,27 @@ impl SymbolicCoeff {
         // Cross-lineage duplicates now share base ids; a later `deduplicate`
         // (deferred to the parallel pass in `reconcile`) collapses them.
         self.dirty = true;
+    }
+
+    /// Translate every monomial's base ids from a shard-local generation's
+    /// numbering into the numbering of the generation produced by
+    /// [`Generation::union`] (see `SurrogatePropagator::reconcile`, which
+    /// parallelizes `reconcile_into_deferred` across shards precisely so this
+    /// remap step — and `deduplicate` afterward — are the only work left that
+    /// needs the *unioned* ids). Must run after `reconcile_into_deferred`
+    /// against that same shard's local generation (so `self.shared` is
+    /// already `None` and every head's ids are local ids to remap) and before
+    /// `deduplicate`/`evaluate`/serialization see the coefficient again.
+    ///
+    /// `base_freq` is left untouched: a pattern's frequency (`Σ` trig powers)
+    /// is a pure function of its content, identical in every generation that
+    /// interns it, so the value computed during the shard-local reconcile is
+    /// already correct.
+    pub(crate) fn remap_base_ids(&mut self, remap: &GenerationRemap) {
+        for h in &mut self.heads {
+            h.base_support = remap.support_id(h.base_support);
+            h.base_exp = remap.exp_id(h.base_exp);
+        }
     }
 
     /// Drop monomials with frequency (total trig power) > max_freq, compacting
