@@ -1,15 +1,16 @@
 ///
-/// impl for the Majorana propagator, which works with observables 
-/// represented in the Majorana operator basis. The propagator is 
-/// just a wrapper around the generic `AbstractPropagator`, incorporating 
-/// the Majorana algebra and the Majorana monomial representation.
+/// impl for the Majorana propagator, which works with observables
+/// represented in the Majorana operator basis. The propagator is
+/// just a wrapper around the generic `SoaPropagator`, incorporating
+/// the Majorana algebra via `MajoranaBasis`.
 ///
 use pyo3::prelude::*;
 
-use propaq_core::propagator::{AbstractPropagator, PropagationResult};
+use propaq_core::propagator::{save_terms_to_file, PropagationResult};
+use propaq_core::soa::propagator::SoaPropagator;
 use propaq_core::truncators::{reject_surrogate_only, resolve_truncation, FlushSchedule};
 
-use crate::monomial::MajoranaMonomial;
+use crate::monomial::MajoranaBasis;
 use crate::termsum::MajoranaTermSum;
 
 /// Back-propagates Majorana observables through quantum circuits in the Heisenberg picture.
@@ -26,7 +27,7 @@ use crate::termsum::MajoranaTermSum;
 ///     logger: Optional Logger for verbose JSON Lines event logging.
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaPropagator {
-    inner: AbstractPropagator<MajoranaMonomial, f64>,
+    inner: SoaPropagator<MajoranaBasis>,
 }
 
 #[pymethods]
@@ -45,7 +46,7 @@ impl MajoranaPropagator {
         let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
         reject_surrogate_only(&truncators)?;
         Ok(MajoranaPropagator {
-            inner: AbstractPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
+            inner: SoaPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
         })
     }
 
@@ -64,8 +65,11 @@ impl MajoranaPropagator {
         filename: Option<String>,
     ) -> PyResult<MajoranaTermSum> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_propagate(py, &mut evolved, circuit, filename.as_deref())?;
-        Ok(MajoranaTermSum { inner: evolved })
+        self.inner.run_propagate(py, &mut evolved, circuit)?;
+        if let Some(path) = filename.as_deref() {
+            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        }
+        Ok(MajoranaTermSum::from_soa(evolved))
     }
 
     /// Compute the expectation value of *observable* in the state prepared by *circuit*.
@@ -85,7 +89,11 @@ impl MajoranaPropagator {
         filename: Option<String>,
     ) -> PyResult<PropagationResult> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state, filename.as_deref())
+        let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state)?;
+        if let Some(path) = filename.as_deref() {
+            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        }
+        Ok(result)
     }
 
     #[getter]

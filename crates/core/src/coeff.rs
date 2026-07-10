@@ -77,10 +77,36 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// flush merge loop a few entries ahead of use, so buffer cache misses
     /// overlap with the current entry's work. No-op by default (scalar
     /// coefficients have no out-of-line data).
-    /// 
+    ///
     /// `SymbolicCoeff` overrides this to prefetch its monomial vector.
     #[inline]
     fn prefetch_read(&self) {}
+
+    /// Whether this coefficient survives a term-level coefficient-magnitude
+    /// cutoff. `true` by default (no-op): a whole-term magnitude cutoff isn't
+    /// well-defined for a symbolic coefficient carrying many monomials at
+    /// once (that's a per-monomial cutoff, handled separately by the
+    /// surrogate's own truncation pass). `f64` overrides this with
+    /// `self.abs() >= cutoff`.
+    #[inline]
+    fn passes_coeff_cutoff(&self, _cutoff: f64) -> bool { true }
+
+    /// A term-level scalar magnitude, used only for the verbose log's
+    /// discarded-coefficient statistics. `0.0` by default (meaningless for a
+    /// symbolic coefficient carrying many monomials); `f64` overrides this
+    /// with `self.abs()`.
+    #[inline]
+    fn magnitude(&self) -> f64 { 0.0 }
+
+    /// Whether `param` puts `apply_rotation`'s cos branch within `eps` of
+    /// exactly zero, so `soa::kernels::apply_rotation` can overwrite the
+    /// original term in place instead of appending (see
+    /// `soa::propagator::CLIFFORD_COS_EPS`). `false` by default: this
+    /// in-place fast path only applies to the numerical `f64` angle, where
+    /// `cos(theta)` vanishing at `theta = pi/2 + k*pi` is a plain numerical
+    /// fact; the surrogate's parameter index carries no angle to test.
+    #[inline]
+    fn is_clifford_param(_param: &Self::GateParam, _eps: f64) -> bool { false }
 
     /// Extract the gate parameter from a Python rotation object.
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
@@ -120,5 +146,20 @@ impl CoeffRepr for f64 {
 
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
         obj.getattr("angle")?.extract()
+    }
+
+    #[inline]
+    fn passes_coeff_cutoff(&self, cutoff: f64) -> bool {
+        self.abs() >= cutoff
+    }
+
+    #[inline]
+    fn magnitude(&self) -> f64 {
+        self.abs()
+    }
+
+    #[inline]
+    fn is_clifford_param(angle: &f64, eps: f64) -> bool {
+        angle.cos().abs() < eps
     }
 }

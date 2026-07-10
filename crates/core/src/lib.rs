@@ -12,6 +12,7 @@ pub mod termsum;
 pub mod propagator;
 pub mod logger;
 pub mod streamer;
+pub mod soa;
 
 pub use coeff::CoeffRepr;
 pub use truncation::TruncationPolicy;

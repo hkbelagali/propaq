@@ -1,25 +1,33 @@
 ///
-/// The main propagator implementation. 
+/// The hash-partition propagator engine (`AbstractPropagator<M, C>`).
 ///
-/// The propagator employs a merging-BFS strategy to exploit 
-/// multithreading. Each thread is responsible for a disjoint 
-/// partition of the term space, and each thread maintains a 
-/// hashmap of terms in its partition, as well as a set of 
+/// The numerical Pauli/Majorana propagators no longer use this engine — they
+/// run on the columnar `soa::propagator::SoaPropagator` instead, which has no
+/// partitions or outboxes. This file's generic engine is kept only because
+/// the surrogate propagator (`propaq_surrogate::propagator::SurrogatePropagator`)
+/// still runs on it; porting the surrogate onto `SoaTermSum`/`soa::kernels`
+/// (interning/reconcile, monomial-budget truncation, model build) is staged
+/// for a later pass (see `// TODO(soa)` markers in `propaq_surrogate`).
+///
+/// The propagator employs a merging-BFS strategy to exploit
+/// multithreading. Each thread is responsible for a disjoint
+/// partition of the term space, and each thread maintains a
+/// hashmap of terms in its partition, as well as a set of
 /// outboxes for terms belonging to other partitions.
 ///
-/// When a gate is applied, each thread iterates over its terms 
+/// When a gate is applied, each thread iterates over its terms
 /// (both in its partition and in the outboxes) to apply the gate.
 /// The resulting terms are placed in the appropriate outboxes.
 ///
-/// Truncation demands uniqueness of terms in the containers, so 
-/// prior to a truncation step, the outboxes are merged into the 
-/// partition maps. This is done using a parallel transpose 
-/// operation, where each destination thread drains its 
+/// Truncation demands uniqueness of terms in the containers, so
+/// prior to a truncation step, the outboxes are merged into the
+/// partition maps. This is done using a parallel transpose
+/// operation, where each destination thread drains its
 /// column of outboxes into its own partition map.
 ///
-/// This deferred merge strategy aims to prevent lock contention 
-/// while preventing unnecessary memory allocation for duplicate 
-/// threads. The outbox flush becomes a bottleneck, 
+/// This deferred merge strategy aims to prevent lock contention
+/// while preventing unnecessary memory allocation for duplicate
+/// threads. The outbox flush becomes a bottleneck,
 /// but the cost is amortized over the propagation run.
 ///
 use pyo3::prelude::*;
@@ -35,7 +43,7 @@ use flate2::Compression;
 
 use crate::termsum::AbstractTermSum;
 use crate::noise::UniformNoiseModel;
-use crate::truncators::{resolve_config, FlushSchedule, ResolvedConfig, Truncator};
+use crate::truncators::{FlushSchedule, Truncator};
 use crate::traits::AbstractTerm;
 use crate::coeff::CoeffRepr;
 use crate::logger::Logger;
@@ -96,6 +104,53 @@ impl PropagationResult {
             self.n_terms.len()
         )
     }
+}
+
+/// tqdm progress bar helpers, shared by the hash-partition and SoA engines.
+/// These claim and release the GIL since they are called from the main thread.
+pub fn make_progress_bar(
+    py: Python<'_>,
+    enabled: bool,
+    total: usize,
+) -> PyResult<(Option<Py<PyAny>>, Option<Py<PyAny>>)> {
+    if !enabled {
+        return Ok((None, None));
+    }
+    py.import("warnings")?.call_method1(
+        "warn",
+        ("propaq: the progress bar term count stays stale between truncation \
+          flushes. Reduce `truncation_threshold` for more frequent updates.",),
+    )?;
+    let tqdm = py.import("tqdm.auto")?;
+    let postfix = pyo3::types::PyDict::new(py);
+    let kwargs = pyo3::types::PyDict::new(py);
+    kwargs.set_item("total", total)?;
+    kwargs.set_item("desc", "Propagating through gates")?;
+    let pbar = tqdm.call_method("tqdm", (), Some(&kwargs))?;
+    Ok((Some(pbar.into()), Some(postfix.into())))
+}
+
+pub fn tick_progress_bar(
+    py: Python<'_>,
+    pbar: &Option<Py<PyAny>>,
+    postfix: &Option<Py<PyAny>>,
+    n_terms: usize,
+) -> PyResult<()> {
+    if let (Some(pbar), Some(postfix)) = (pbar, postfix) {
+        let pbar = pbar.bind(py);
+        let postfix = postfix.bind(py);
+        postfix.set_item("terms", n_terms)?;
+        pbar.call_method("set_postfix", (), Some(postfix.downcast()?))?;
+        pbar.call_method0("update")?;
+    }
+    Ok(())
+}
+
+pub fn close_progress_bar(py: Python<'_>, pbar: &Option<Py<PyAny>>) -> PyResult<()> {
+    if let Some(pbar) = pbar {
+        pbar.bind(py).call_method0("close")?;
+    }
+    Ok(())
 }
 
 /// Serialize `terms` to a gzip-compressed binary file at `path`.
@@ -497,28 +552,14 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
     }
 
     /// Helper functions for using tqdm progress bars in Python.
-    /// These claim and release the GIL since they are called 
-    /// from the main thread. 
+    /// These claim and release the GIL since they are called
+    /// from the main thread.
     pub fn make_progress_bar(
         &self,
         py: Python<'_>,
         total: usize,
     ) -> PyResult<(Option<Py<PyAny>>, Option<Py<PyAny>>)> {
-        if !self.progress_bar {
-            return Ok((None, None));
-        }
-        py.import("warnings")?.call_method1(
-            "warn",
-            ("propaq: the progress bar term count stays stale between truncation \
-              flushes. Reduce `truncation_threshold` for more frequent updates.",),
-        )?;
-        let tqdm = py.import("tqdm.auto")?;
-        let postfix = pyo3::types::PyDict::new(py);
-        let kwargs = pyo3::types::PyDict::new(py);
-        kwargs.set_item("total", total)?;
-        kwargs.set_item("desc", "Propagating through gates")?;
-        let pbar = tqdm.call_method("tqdm", (), Some(&kwargs))?;
-        Ok((Some(pbar.into()), Some(postfix.into())))
+        make_progress_bar(py, self.progress_bar, total)
     }
 
     pub fn tick_progress_bar(
@@ -527,21 +568,11 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
         postfix: &Option<Py<PyAny>>,
         n_terms: usize,
     ) -> PyResult<()> {
-        if let (Some(pbar), Some(postfix)) = (pbar, postfix) {
-            let pbar = pbar.bind(py);
-            let postfix = postfix.bind(py);
-            postfix.set_item("terms", n_terms)?;
-            pbar.call_method("set_postfix", (), Some(postfix.downcast()?))?;
-            pbar.call_method0("update")?;
-        }
-        Ok(())
+        tick_progress_bar(py, pbar, postfix, n_terms)
     }
 
     pub fn close_progress_bar(py: Python<'_>, pbar: &Option<Py<PyAny>>) -> PyResult<()> {
-        if let Some(pbar) = pbar {
-            pbar.bind(py).call_method0("close")?;
-        }
-        Ok(())
+        close_progress_bar(py, pbar)
     }
 
     /// Current number of live terms across all partitions.
@@ -714,343 +745,5 @@ impl<M: AbstractTerm, C: CoeffRepr> AbstractPropagator<M, C> {
 
     pub fn set_last_log_gate_idx(&mut self, idx: usize) {
         self.last_log_gate_idx = idx;
-    }
-}
-
-impl<M: AbstractTerm> AbstractPropagator<M, f64> {
-    /// Remove terms from thread_maps that fail the resolved weight/coefficient
-    /// cutoffs
-    fn retain_by_policy(&mut self, cfg: &ResolvedConfig) {
-        let wc = cfg.weight;
-        let cc = cfg.coefficient.unwrap_or(0.0);
-        let pool = Arc::clone(&self.pool);
-        let thread_maps = &mut self.thread_maps;
-        pool.install(|| {
-            thread_maps.par_iter_mut().for_each(|map| {
-                map.retain(|t, c| {
-                    wc.map_or(true, |w| t.weight() <= w) && c.abs() >= cc
-                });
-            });
-        });
-    }
-
-    /// Apply the resolved cutoffs only to threads where `mask[i]` is true.
-    fn retain_by_policy_masked(&mut self, cfg: &ResolvedConfig, mask: &[bool]) {
-        let wc = cfg.weight;
-        let cc = cfg.coefficient.unwrap_or(0.0);
-        let pool = Arc::clone(&self.pool);
-        let thread_maps = &mut self.thread_maps;
-        pool.install(|| {
-            thread_maps
-                .par_iter_mut()
-                .zip(mask.par_iter())
-                .for_each(|(map, &apply)| {
-                    if apply {
-                        map.retain(|t, c| wc.map_or(true, |w| t.weight() <= w) && c.abs() >= cc);
-                    }
-                });
-        });
-    }
-
-    /// Single parallel pass returning per-thread surviving counts and aggregate discard
-    /// statistics (discarded_coeff_l1, discarded_coeff_max).
-    fn collect_stats_and_count_surviving(&self, cfg: &ResolvedConfig) -> ((f64, f64), Vec<usize>) {
-        let wc = cfg.weight;
-        let cc = cfg.coefficient.unwrap_or(0.0);
-        let pool = Arc::clone(&self.pool);
-        let thread_maps = &self.thread_maps;
-        let per_thread: Vec<((f64, f64), usize)> = pool.install(|| {
-            thread_maps
-                .par_iter()
-                .map(|map| {
-                    let (mut dl1, mut dmax, mut surv) = (0.0f64, 0.0f64, 0usize);
-                    for (t, c) in map.iter() {
-                        if wc.map_or(true, |w| t.weight() <= w) && c.abs() >= cc {
-                            surv += 1;
-                        } else {
-                            let norm = c.abs();
-                            dl1 += norm;
-                            dmax = dmax.max(norm);
-                        }
-                    }
-                    ((dl1, dmax), surv)
-                })
-                .collect()
-        });
-        let (dl1, dmax) = per_thread.iter().fold((0.0f64, 0.0f64), |acc, ((dl1, dmax), _)| {
-            (acc.0 + dl1, acc.1.max(*dmax))
-        });
-        let surviving: Vec<usize> = per_thread.into_iter().map(|(_, s)| s).collect();
-        ((dl1, dmax), surviving)
-    }
-
-    fn flush_and_maybe_truncate(
-        &mut self,
-        cfg: Option<&ResolvedConfig>,
-        gate_idx: usize,
-        layer_idx: usize,
-        trigger: &str,
-    ) {
-        let t0 = std::time::Instant::now();
-
-        self.flush_outboxes_to_maps();
-        let total_before = self.total_terms;
-
-        // A weight or coefficient cutoff is the only lossy term-level filter for
-        // the numerical propagator; `None` cfg (a noise pre-flush) or a cfg with
-        // neither filter means "flush only".
-        if let Some(cfg) = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some()) {
-            let min_terms = cfg.min_terms.unwrap_or(0);
-            if total_before >= min_terms {
-                let need_surviving = min_terms > 0;
-                let need_stats = self.verbose_log.is_some();
-
-                let (disc_l1, disc_max, surviving) = if need_surviving || need_stats {
-                    let ((dl1, dmax), surv) = self.collect_stats_and_count_surviving(cfg);
-                    let (dl1, dmax) = if need_stats { (dl1, dmax) } else { (0.0, 0.0) };
-                    (dl1, dmax, surv)
-                } else {
-                    (0.0, 0.0, Vec::new())
-                };
-
-                if need_surviving {
-                    let total_surviving: usize = surviving.iter().sum();
-                    if total_surviving < min_terms {
-                        let mask: Vec<bool> = surviving.iter()
-                            .zip(self.thread_maps.iter())
-                            .map(|(&surv, map)| surv >= map.len() * min_terms / total_before)
-                            .collect();
-                        self.retain_by_policy_masked(cfg, &mask);
-                    } else {
-                        self.retain_by_policy(cfg);
-                    }
-                } else {
-                    self.retain_by_policy(cfg);
-                }
-
-                let total_after: usize = self.thread_maps.iter().map(|m| m.len()).sum();
-                self.total_terms = total_after;
-
-                if let Some(ref mut log) = self.verbose_log {
-                    let actual_discarded = total_before - total_after;
-                    let wc_str = cfg.weight
-                        .map_or_else(|| "null".to_string(), |w| w.to_string());
-                    let cc = cfg.coefficient.unwrap_or(0.0);
-                    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
-                    let qki = match self.current_qiskit_gate_idx {
-                        Some(v) => v.to_string(),
-                        None => "null".to_string(),
-                    };
-                    let _ = writeln!(
-                        log,
-                        r#"{{"event":"truncation","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"trigger":"{trigger}","terms_before":{total_before},"terms_after":{total_after},"terms_discarded":{actual_discarded},"discarded_coeff_l1":{disc_l1:.6e},"discarded_coeff_max":{disc_max:.6e},"weight_cutoff":{wc_str},"coeff_cutoff":{cc:.6e},"elapsed_ms":{elapsed_ms:.3e}}}"#
-                    );
-                }
-            }
-        }
-    }
-
-    /// Apply per-term damping to all live terms: thread_maps and outboxes alike.
-    fn apply_layer_noise(
-        &mut self,
-        py: Python<'_>,
-        damping: Option<f64>,
-        gate_idx: usize,
-        layer_idx: usize,
-    ) -> PyResult<()> {
-        if self.noise.is_none() {
-            return Ok(());
-        }
-
-        if let Some(d) = damping {
-            py.allow_threads(|| self.apply_uniform_noise_inplace(d));
-        } else {
-            // Generic Python noise: flush first, apply via Python callback, re-partition.
-            py.allow_threads(|| self.flush_and_maybe_truncate(None, gate_idx, layer_idx, "noise"));
-            let noise = self.noise.as_ref().unwrap().bind(py);
-            let mut tmp = AbstractTermSum::new();
-            self.finalize_to(&mut tmp);
-            tmp.apply_damping(noise, 0)?;
-            self.initialize_from(&tmp);
-        }
-        Ok(())
-    }
-
-    /// Reassemble `evolved.terms` from per-partition maps at the end of a run.
-    fn finalize_to(&self, evolved: &mut AbstractTermSum<M>) {
-        evolved.terms.clear();
-        evolved.terms.reserve(self.total_terms);
-        let pool = Arc::clone(&self.pool);
-        let thread_maps = &self.thread_maps;
-        let all_items: Vec<(M, f64)> = pool.install(|| {
-            thread_maps
-                .par_iter()
-                .flat_map_iter(|map| map.iter().map(|(k, v)| (k.clone(), *v)))
-                .collect()
-        });
-        evolved.terms.extend(all_items);
-    }
-
-    fn run_propagation_inner(
-        &mut self,
-        py: Python<'_>,
-        evolved: &mut AbstractTermSum<M>,
-        circuit: &Bound<'_, PyAny>,
-        collect_n_terms: bool,
-    ) -> PyResult<Vec<usize>>
-    where
-        M: for<'py> FromPyObject<'py>,
-    {
-        self.open_log()?;
-
-        let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
-
-        let circuit_data: Vec<Vec<(M, f64, bool, Option<usize>)>> = layers
-            .iter()
-            .map(|layer| {
-                layer.iter().map(|rot_obj| -> PyResult<(M, f64, bool, Option<usize>)> {
-                    let rot = rot_obj.bind(py);
-                    let generator: M = rot.getattr("generator")?.extract()?;
-                    let angle: f64 = rot.getattr("angle")?.extract()?;
-                    let is_intermediate: bool = rot.getattr("is_intermediate")?.extract()?;
-                    let qiskit_gate_idx: Option<usize> = rot
-                        .getattr("qiskit_gate_idx")
-                        .ok()
-                        .and_then(|v| v.extract::<Option<usize>>().ok())
-                        .flatten();
-                    Ok((generator, angle, is_intermediate, qiskit_gate_idx))
-                }).collect::<PyResult<_>>()
-            })
-            .collect::<PyResult<_>>()?;
-
-        // Resolve the truncation pipeline once (Copy config: the flush trigger
-        // and the weight/coefficient/min-terms cutoffs the numerical propagator
-        // honors). Symbolic-only operators are rejected at construction, so any
-        // present here are numerical-applicable.
-        let cfg = resolve_config(&self.truncators);
-        let max_terms: Option<usize> = cfg.max_terms;
-        let merge_max_terms: Option<usize> = self.schedule.merge_max_terms;
-
-        let mut n_terms: Vec<usize> = Vec::new();
-        let damping = self.uniform_damping(py);
-        let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
-        let (pbar, postfix) = self.make_progress_bar(py, total_rotations)?;
-
-        self.initialize_from(evolved);
-
-        let mut gate_idx: usize = 0;
-        let mut pending: usize = 0;
-        for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
-            self.apply_layer_noise(py, damping, gate_idx, layer_idx)?;
-
-            let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
-            for (idx, (generator, angle, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
-                let (added, _) = py.allow_threads(|| self.apply_gate_inplace(generator, *angle));
-                pending += added;
-
-                self.current_qiskit_gate_idx = *qiskit_gate_idx;
-
-                if self.verbose_log.is_some() && gate_idx % self.log_every == 0 {
-                    let now = std::time::Instant::now();
-                    let avg_ms_per_gate_str = match self.last_log_instant {
-                        Some(last) => {
-                            let gates = (gate_idx - self.last_log_gate_idx).max(1);
-                            format!("{:.6e}", last.elapsed().as_secs_f64() * 1000.0 / gates as f64)
-                        }
-                        None => "null".to_string(),
-                    };
-                    self.last_log_instant = Some(now);
-                    self.last_log_gate_idx = gate_idx;
-                    let outbox_terms: usize = self.outboxes.iter()
-                        .flat_map(|r| r.iter()).map(|v| v.len()).sum();
-                    let map_terms = self.total_terms;
-                    let qki = match qiskit_gate_idx {
-                        Some(v) => v.to_string(),
-                        None => "null".to_string(),
-                    };
-                    if let Some(ref mut log) = self.verbose_log {
-                        let _ = writeln!(
-                            log,
-                            r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"map_terms":{map_terms},"outbox_terms":{outbox_terms},"avg_ms_per_gate":{avg_ms_per_gate_str}}}"#
-                        );
-                    }
-                }
-
-                let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni, _)| *ni);
-                if !next_is_intermediate && max_terms.map_or(false, |max| self.total_terms + pending >= max) {
-                    py.allow_threads(|| self.flush_and_maybe_truncate(Some(&cfg), gate_idx, layer_idx, "threshold"));
-                    pending = 0;
-                } else if !next_is_intermediate && merge_max_terms.map_or(false, |m| pending >= m) {
-                    // Finer lossless merge cadence (shared with the surrogate):
-                    // collapse duplicate strings out of the outboxes without
-                    // truncating, curbing within-window path-count growth.
-                    py.allow_threads(|| self.flush_outboxes_to_maps());
-                    pending = 0;
-                }
-
-                if collect_n_terms {
-                    n_terms.push(self.total_terms);
-                }
-                Self::tick_progress_bar(py, &pbar, &postfix, self.total_terms)?;
-                gate_idx += 1;
-            }
-        }
-
-        Self::close_progress_bar(py, &pbar)?;
-
-        py.allow_threads(|| self.flush_and_maybe_truncate(Some(&cfg), gate_idx, circuit_data.len(), "final"));
-
-        self.finalize_to(evolved);
-
-        if let Some(ref mut log) = self.verbose_log {
-            let _ = log.flush();
-        }
-
-        Ok(n_terms)
-    }
-
-    pub fn run_propagate(
-        &mut self,
-        py: Python<'_>,
-        evolved: &mut AbstractTermSum<M>,
-        circuit: &Bound<'_, PyAny>,
-        filename: Option<&str>,
-    ) -> PyResult<()>
-    where
-        M: for<'py> FromPyObject<'py>,
-    {
-        self.run_propagation_inner(py, evolved, circuit, false)?;
-        if let Some(path) = filename {
-            save_terms_to_file(&evolved.terms, path)?;
-        }
-        Ok(())
-    }
-
-    pub fn run_expectation_value(
-        &mut self,
-        py: Python<'_>,
-        evolved: &mut AbstractTermSum<M>,
-        circuit: &Bound<'_, PyAny>,
-        fock_state: u64,
-        filename: Option<&str>,
-    ) -> PyResult<PropagationResult>
-    where
-        M: for<'py> FromPyObject<'py>,
-    {
-        let n_terms = self.run_propagation_inner(py, evolved, circuit, true)?;
-
-        let pool = Arc::clone(&self.pool);
-        let total: f64 = pool.install(|| {
-            evolved.terms
-                .par_iter()
-                .map(|(term, coeff)| *coeff * term.trace_with_fock_state(fock_state))
-                .sum()
-        });
-
-        if let Some(path) = filename {
-            save_terms_to_file(&evolved.terms, path)?;
-        }
-
-        Ok(PropagationResult { n_terms, expectation_value: total })
     }
 }

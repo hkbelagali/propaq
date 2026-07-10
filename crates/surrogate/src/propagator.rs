@@ -677,7 +677,15 @@ impl PauliSurrogatePropagator {
         initial_state: u64,
     ) -> PyResult<PauliSurrogateModel> {
         let n_params: usize = circuit.getattr("n_params")?.extract()?;
-        let evolved = observable.inner.copy();
+        // TODO(soa): the surrogate engine still runs on the hash-based
+        // `AbstractPropagator<M, SymbolicCoeff>` (see `SurrogatePropagator`
+        // above); only the numerical propagators moved onto `SoaTermSum` in
+        // this pass. Materializing the observable here is the seam where a
+        // future surrogate SoA port would instead pass `observable.inner`
+        // (a `SoaTermSum<f64>`) straight through.
+        let evolved = propaq_core::termsum::AbstractTermSum {
+            terms: propaq_pauli::termsum::materialize(&observable.inner),
+        };
         let model = self.inner.run_build(py, &evolved, circuit, initial_state, n_params)?;
         Ok(PauliSurrogateModel { inner: model })
     }
@@ -743,7 +751,10 @@ impl MajoranaSurrogatePropagator {
         initial_state: u64,
     ) -> PyResult<MajoranaSurrogateModel> {
         let n_params: usize = circuit.getattr("n_params")?.extract()?;
-        let evolved = observable.inner.copy();
+        // TODO(soa): see the matching comment in `PauliSurrogatePropagator::build`.
+        let evolved = propaq_core::termsum::AbstractTermSum {
+            terms: propaq_majorana::termsum::materialize(&observable.inner),
+        };
         let model = self.inner.run_build(py, &evolved, circuit, initial_state, n_params)?;
         Ok(MajoranaSurrogateModel { inner: model })
     }

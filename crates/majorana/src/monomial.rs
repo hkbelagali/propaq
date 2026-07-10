@@ -4,12 +4,14 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use num_complex::Complex64;
+use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
 
 use propaq_core::bitset::Bitset;
 use propaq_core::helpers::{pyint_to_bitset, bitset_to_pyint};
 use propaq_core::traits::AbstractTerm;
+use propaq_core::soa::SoaBasis;
 
 /// A Majorana monomial, a product of Majorana operators encoded as a mode bitmask.
 ///
@@ -170,7 +172,7 @@ impl MajoranaMonomial {
         let r_a = hermiticity_exp(self.length());
         let r_b = hermiticity_exp(other.length());
         let r_c = hermiticity_exp(result.length());
-        let total_parity = resorting_parity(&self.modes, &other.modes);
+        let total_parity = resorting_parity(self.modes.as_words(), other.modes.as_words());
         let phase_exp = (r_a + r_b - r_c + 2 * (total_parity as i32)).rem_euclid(4);
 
         let phase = match phase_exp {
@@ -336,6 +338,109 @@ impl Hash for MajoranaMonomial {
     fn hash<H: Hasher>(&self, state: &mut H) { self.modes.hash(state); }
 }
 
+/// SoA engine seam for Majorana monomials. Plane 0 is `modes` (the term's
+/// identity); plane 1 is the cached prefix-XOR-scan `p` — not part of
+/// identity (`key_cmp` ignores it), but it must travel with a term through
+/// sort/compaction/append the same way `modes` does, since it's what lets
+/// `weight`/`product` avoid an O(log n_qubits) rescan on every call (see the
+/// `p` field's doc comment on `MajoranaMonomial` above).
+pub struct MajoranaBasis;
+
+impl SoaBasis for MajoranaBasis {
+    type Term = MajoranaMonomial;
+
+    fn commutes(term: [&[u64]; 2], gen: [&[u64]; 2]) -> bool {
+        // Mirrors `commutes_with_impl(self=term, other=gen)`.
+        if term[0] == gen[0] {
+            return true;
+        }
+        let overlap: u32 = term[0].iter().zip(gen[0]).map(|(a, b)| (a & b).count_ones()).sum();
+        let term_len: usize = term[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        let gen_len: usize = gen[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        (term_len * gen_len + overlap as usize) % 2 == 0
+    }
+
+    fn product(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64 {
+        // gen @ term, matching `matmul_internal(self=gen, other=term)`. `p`
+        // combines by a plain XOR (linear in `modes`, see
+        // `weight_and_p_from_product`) — no rescan needed, so unlike
+        // `weight`/`term_from_planes` this needs no `n_units`.
+        for i in 0..out[0].len() {
+            out[0][i] = gen[0][i] ^ term[0][i];
+            out[1][i] = gen[1][i] ^ term[1][i];
+        }
+        let gen_len = gen[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        let term_len = term[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        let result_len = out[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
+        let r_a = hermiticity_exp(gen_len);
+        let r_b = hermiticity_exp(term_len);
+        let r_c = hermiticity_exp(result_len);
+        let total_parity = resorting_parity(gen[0], term[0]);
+        let phase_exp = (r_a + r_b - r_c + 2 * (total_parity as i32)).rem_euclid(4);
+        match phase_exp {
+            0 => Complex64::new(1.0, 0.0),
+            1 => Complex64::new(0.0, 1.0),
+            2 => Complex64::new(-1.0, 0.0),
+            3 => Complex64::new(0.0, -1.0),
+            _ => unreachable!(),
+        }
+    }
+
+    fn weight(term: [&[u64]; 2], n_units: usize) -> u32 {
+        let n_qubits = n_units / 2;
+        if n_qubits == 0 {
+            return 0;
+        }
+        let modes = Bitset::from_words(term[0].to_vec());
+        let p = Bitset::from_words(term[1].to_vec());
+        let qubit_mask = Bitset::all_ones_upto(n_qubits);
+        let (single, occupied) = MajoranaMonomial::compress_single_occupied(&modes, n_qubits);
+        MajoranaMonomial::weight_from_parts(&single, &occupied, &p, &qubit_mask)
+    }
+
+    fn trace(term: [&[u64]; 2], n_units: usize, fock: u64) -> f64 {
+        // `trace_fock_state_impl` only reads `modes`/`n_modes`; the other
+        // fields are irrelevant to it, so a throwaway monomial is fine here.
+        let modes = Bitset::from_words(term[0].to_vec());
+        let m = MajoranaMonomial {
+            modes,
+            n_modes: n_units,
+            is_number_preserving: false,
+            weight: 0,
+            p: Bitset::zero(),
+        };
+        m.trace_fock_state_impl(fock)
+    }
+
+    fn key_cmp(a: [&[u64]; 2], b: [&[u64]; 2]) -> Ordering {
+        a[0].cmp(b[0]) // only `modes` is identity; `p` is a derived cache.
+    }
+
+    fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> MajoranaMonomial {
+        let modes = Bitset::from_words(term[0].to_vec());
+        let p = Bitset::from_words(term[1].to_vec());
+        let n_qubits = n_units / 2;
+        let weight = if n_qubits == 0 {
+            0
+        } else {
+            let qubit_mask = Bitset::all_ones_upto(n_qubits);
+            let (single, occupied) = MajoranaMonomial::compress_single_occupied(&modes, n_qubits);
+            MajoranaMonomial::weight_from_parts(&single, &occupied, &p, &qubit_mask)
+        };
+        let is_np = (0..n_qubits).all(|k| modes.bit(2 * k) == modes.bit(2 * k + 1));
+        MajoranaMonomial { modes, n_modes: n_units, is_number_preserving: is_np, weight, p }
+    }
+
+    fn term_into_planes(term: &MajoranaMonomial, _n_units: usize, out: [&mut [u64]; 2]) {
+        let mw = term.modes.as_words();
+        out[0].fill(0);
+        out[0][..mw.len()].copy_from_slice(mw);
+        let pw = term.p.as_words();
+        out[1].fill(0);
+        out[1][..pw.len()].copy_from_slice(pw);
+    }
+}
+
 fn compress_to_qubits(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {
     #[cfg(target_arch = "x86_64")]
     if is_x86_feature_detected!("bmi2") {
@@ -380,13 +485,15 @@ fn hermiticity_exp(length: usize) -> i32 {
     if matches!(length % 4, 0 | 1) { 0 } else { 1 }
 }
 
-fn resorting_parity(a: &Bitset, b: &Bitset) -> bool {
-    let a_words = a.as_words();
-    let b_words = b.as_words();
-    if a_words.is_empty() || b_words.is_empty() {
-        return false;
-    }
-
+/// Operates directly on word slices (rather than `&Bitset`) so the SoA
+/// `MajoranaBasis::product` kernel can call it on `SoaTermSum` plane rows
+/// without allocating a temporary `Bitset` per call on the propagation hot
+/// path. Correct for slices of any (possibly unequal) length: an
+/// all-zero-valued `a` or `b` naturally drives every term in the sum to
+/// zero, so unlike the earlier `&Bitset` version this needs no empty-input
+/// short-circuit (`Bitset` could be zero-*length*; a fixed-stride slice
+/// never is, just possibly all-zero-*valued*).
+fn resorting_parity(a_words: &[u64], b_words: &[u64]) -> bool {
     let total: u64 = a_words.iter().map(|w| w.count_ones() as u64).sum();
     let mut running = 0u64;
     let mut count = 0u64;
@@ -437,28 +544,28 @@ mod tests {
     fn parity_disjoint_no_inversions() {
         let a = Bitset::from_le_bytes(&[0b0011]);
         let b = Bitset::from_le_bytes(&[0b1100]);
-        assert!(!resorting_parity(&a, &b));
+        assert!(!resorting_parity(a.as_words(), b.as_words()));
     }
 
     #[test]
     fn parity_single_inversion() {
         let a = Bitset::from_le_bytes(&[0b0010]);
         let b = Bitset::from_le_bytes(&[0b0001]);
-        assert!(resorting_parity(&a, &b));
+        assert!(resorting_parity(a.as_words(), b.as_words()));
     }
 
     #[test]
     fn parity_two_inversions_even() {
         let a = Bitset::from_le_bytes(&[0b1100]);
         let b = Bitset::from_le_bytes(&[0b0011]);
-        assert!(!resorting_parity(&a, &b));
+        assert!(!resorting_parity(a.as_words(), b.as_words()));
     }
 
     #[test]
     fn parity_empty_b_is_false() {
         let a = Bitset::from_le_bytes(&[0xFF]);
         let b = Bitset::zero();
-        assert!(!resorting_parity(&a, &b));
+        assert!(!resorting_parity(a.as_words(), b.as_words()));
     }
 
     #[test]
@@ -680,5 +787,100 @@ mod tests {
                 term = next;
             }
         }
+    }
+
+    // --- `MajoranaBasis` (SoA word-plane kernels) vs `MajoranaMonomial`
+    // (AoS, exhaustively tested above) cross-checks. This is the seam most
+    // at risk in the SoA rewrite, since `weight`/`product` depend on the
+    // cached `p` plane travelling correctly alongside `modes`.
+
+    fn planes_of(m: &MajoranaMonomial, stride: usize) -> (Vec<u64>, Vec<u64>) {
+        let mut g0 = vec![0u64; stride];
+        let mut g1 = vec![0u64; stride];
+        MajoranaBasis::term_into_planes(m, m.n_modes, [&mut g0, &mut g1]);
+        (g0, g1)
+    }
+
+    fn assert_majorana_basis_matches(a: &MajoranaMonomial, b: &MajoranaMonomial, stride: usize) {
+        let (a0, a1) = planes_of(a, stride);
+        let (b0, b1) = planes_of(b, stride);
+        let a_planes = [a0.as_slice(), a1.as_slice()];
+        let b_planes = [b0.as_slice(), b1.as_slice()];
+        let ctx = || format!("a.modes={a0:?} b.modes={b0:?}");
+
+        assert_eq!(
+            MajoranaBasis::commutes(a_planes, b_planes),
+            a.commutes_with_impl(b),
+            "commutes mismatch for {}", ctx(),
+        );
+        assert_eq!(MajoranaBasis::weight(a_planes, a.n_modes), a.weight, "weight mismatch for {}", ctx());
+
+        // gen=a, term=b => a @ b, matching `a.matmul_internal(b)`.
+        let (expected_phase, expected_result) = a.matmul_internal(b);
+        let mut out0 = vec![0u64; stride];
+        let mut out1 = vec![0u64; stride];
+        let phase = MajoranaBasis::product(b_planes, a_planes, [&mut out0, &mut out1]);
+        assert!((phase - expected_phase).norm() < 1e-10, "phase mismatch for {}", ctx());
+        let result = MajoranaBasis::term_from_planes([&out0, &out1], a.n_modes);
+        assert_eq!(result.modes, expected_result.modes, "product modes mismatch for {}", ctx());
+        assert_eq!(result.p, expected_result.p, "product p mismatch for {}", ctx());
+        assert_eq!(result.weight, expected_result.weight, "product weight mismatch for {}", ctx());
+
+        for fock in 0u64..16 {
+            assert_eq!(
+                MajoranaBasis::trace(a_planes, a.n_modes, fock),
+                a.trace_fock_state_impl(fock),
+                "trace mismatch for {} fock={fock}", ctx(),
+            );
+        }
+    }
+
+    #[test]
+    fn majorana_basis_matches_aos_exhaustive_small() {
+        for n_qubits in 1usize..=4 {
+            let n_modes = 2 * n_qubits;
+            let stride = MajoranaBasis::stride_words(n_modes);
+            let space = 1u64 << n_modes;
+            for a_bits in 0..space {
+                let a = mon(a_bits, n_modes);
+                for b_bits in 0..space {
+                    let b = mon(b_bits, n_modes);
+                    assert_majorana_basis_matches(&a, &b, stride);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn majorana_basis_matches_aos_randomized_multiword() {
+        let mut rng = Rng(0xFEED_FACE_C0FF_EE00);
+        for &n_qubits in &[30usize, 33, 64, 100, 128] {
+            let n_modes = 2 * n_qubits;
+            let stride = MajoranaBasis::stride_words(n_modes);
+            for _ in 0..100 {
+                let a = random_mon(&mut rng, n_modes);
+                let b = random_mon(&mut rng, n_modes);
+                assert_majorana_basis_matches(&a, &b, stride);
+            }
+        }
+    }
+
+    #[test]
+    fn majorana_basis_key_cmp_ignores_p_plane() {
+        // Two monomials with identical modes must compare equal under
+        // key_cmp regardless of what garbage sits in the (unused-for-
+        // identity) p plane.
+        let stride = 1;
+        let a = mon(0b0101, 8);
+        let (a0, a1) = planes_of(&a, stride);
+        let mut a1_garbage = a1.clone();
+        a1_garbage[0] ^= 0xDEAD_BEEF;
+        assert_eq!(
+            MajoranaBasis::key_cmp([&a0, &a1], [&a0, &a1_garbage]),
+            Ordering::Equal,
+        );
+        let c = mon(0b1111, 8);
+        let (c0, c1) = planes_of(&c, stride);
+        assert_ne!(MajoranaBasis::key_cmp([&a0, &a1], [&c0, &c1]), Ordering::Equal);
     }
 }

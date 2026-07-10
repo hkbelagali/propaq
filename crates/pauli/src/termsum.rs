@@ -3,20 +3,80 @@
 ///
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use rustc_hash::FxHashMap;
 
 use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
-use propaq_core::termsum::AbstractTermSum;
+use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_core::truncation::TruncationPolicy;
 
-use crate::string::PauliString;
+use crate::string::{PauliBasis, PauliString};
 use crate::streamer::PauliTermStreamer;
 
 /// A mutable, weighted sum of Pauli strings with real coefficients.
+///
+/// Backed by `SoaTermSum<f64>` (contiguous `x`/`z` bit-planes plus a
+/// coefficient column) rather than a hashmap. `add`/`__setitem__` still need
+/// O(1) accumulate-or-overwrite-by-key, so this wrapper keeps a small
+/// `PauliString -> row` index alongside the columns; the propagation hot
+/// path (`PauliPropagator`) never sees or needs this index, since a gate
+/// application only ever appends or mutates in place by row, not by key.
 ///
 /// Arguments:
 ///     terms: Optional initial mapping of PauliString to real coefficient.
 #[pyclass(subclass, module = "propaq._rust_core")]
 pub struct PauliTermSum {
-    pub inner: AbstractTermSum<PauliString>,
+    pub inner: SoaTermSum<f64>,
+    index: FxHashMap<PauliString, usize>,
+}
+
+/// If `inner` is still empty and hasn't been sized yet, (re)initialize it for
+/// `n_qubits`. A `PauliTermSum` holds one system throughout its life; the
+/// size is fixed by whichever term is inserted first (mirroring
+/// `save_terms_to_file`'s existing assumption that all keys share one
+/// `system_size`, taken from an arbitrary first entry).
+fn ensure_sized(inner: &mut SoaTermSum<f64>, n_qubits: usize) {
+    if inner.len() == 0 && inner.n_units != n_qubits {
+        *inner = SoaTermSum::new(n_qubits, PauliBasis::stride_words(n_qubits));
+    }
+}
+
+fn planes_of(term: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {
+    let mut gx = vec![0u64; stride];
+    let mut gz = vec![0u64; stride];
+    PauliBasis::term_into_planes(term, term.n_qubits, [&mut gx, &mut gz]);
+    (gx, gz)
+}
+
+/// Materialize the columnar storage into the flat map format the existing
+/// file I/O (`save_terms_to_file`/`load_terms_from_file`/`TermStreamer`) and
+/// `AbstractTerm` machinery already understand — those work directly against
+/// `PauliString`/`f64` and don't need to change for this rewrite. Also the
+/// seam the surrogate propagator uses to read a `PauliTermSum` observable
+/// (`propaq_surrogate::propagator`); its own hash-based `AbstractPropagator`
+/// engine is staged for a later SoA port (see `// TODO(soa)` there).
+pub fn materialize(terms: &SoaTermSum<f64>) -> FxHashMap<PauliString, f64> {
+    let n = terms.len();
+    let mut map = FxHashMap::default();
+    map.reserve(n);
+    for i in 0..n {
+        let term = PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units);
+        map.insert(term, *terms.coeff(i));
+    }
+    map
+}
+
+impl PauliTermSum {
+    /// Wrap a `SoaTermSum` produced by the propagator (or loaded from a
+    /// file), rebuilding the key index it doesn't carry itself.
+    pub fn from_soa(inner: SoaTermSum<f64>) -> Self {
+        let mut index = FxHashMap::default();
+        index.reserve(inner.len());
+        for i in 0..inner.len() {
+            let term = PauliBasis::term_from_planes(inner.term_planes(i), inner.n_units);
+            index.insert(term, i);
+        }
+        PauliTermSum { inner, index }
+    }
 }
 
 #[pymethods]
@@ -28,31 +88,51 @@ impl PauliTermSum {
     #[new]
     #[pyo3(signature = (terms=None))]
     fn new(terms: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
-        let mut inner = AbstractTermSum::new();
+        let mut inner = SoaTermSum::new(0, PauliBasis::stride_words(0));
+        let mut index = FxHashMap::default();
         if let Some(dict) = terms {
-            inner.terms.reserve(dict.len());
+            index.reserve(dict.len());
             for (k, v) in dict.iter() {
                 let key: PauliString = k.extract()?;
                 let val: f64 = v.extract()?;
-                inner.terms.insert(key, val);
+                ensure_sized(&mut inner, key.n_qubits);
+                let (gx, gz) = planes_of(&key, inner.stride);
+                let row = inner.len();
+                inner.push([&gx, &gz], val);
+                index.insert(key, row);
             }
         }
-        Ok(PauliTermSum { inner })
+        Ok(PauliTermSum { inner, index })
     }
 
     /// Add *coeff* × *term* to the sum, accumulating if the monomial is already present.
     fn add(&mut self, term: PauliString, coeff: f64) {
-        self.inner.add(term, coeff);
+        ensure_sized(&mut self.inner, term.n_qubits);
+        if let Some(&row) = self.index.get(&term) {
+            self.inner.coeffs[row] += coeff;
+            return;
+        }
+        let (gx, gz) = planes_of(&term, self.inner.stride);
+        let row = self.inner.len();
+        self.inner.push([&gx, &gz], coeff);
+        self.index.insert(term, row);
     }
 
     /// Multiply every coefficient by *factor* in-place.
     fn scale(&mut self, factor: f64) {
-        self.inner.scale(factor);
+        let n = self.inner.len();
+        for c in self.inner.coeffs[..n].iter_mut() {
+            *c *= factor;
+        }
     }
 
     /// Add all terms from *other* into this sum.
     fn merge(&mut self, other: &PauliTermSum) {
-        self.inner.merge(&other.inner);
+        let n = other.inner.len();
+        for i in 0..n {
+            let term = PauliBasis::term_from_planes(other.inner.term_planes(i), other.inner.n_units);
+            self.add(term, *other.inner.coeff(i));
+        }
     }
 
     /// Stream terms from a file and merge them into this sum one at a time,
@@ -61,44 +141,108 @@ impl PauliTermSum {
     /// Arguments:
     ///     streamer: A PauliTermStreamer opened with PauliTermStreamer.from_file().
     fn merge_from_file(&mut self, streamer: &mut PauliTermStreamer) -> PyResult<()> {
-        self.inner.merge_from_streamer(&mut streamer.inner)
+        for result in streamer.inner.by_ref() {
+            let (term, coeff) = result?;
+            self.add(term, coeff);
+        }
+        Ok(())
     }
 
-    /// Deduplicate and remove terms according to *policy*.
+    /// Deduplicate and remove terms according to *policy*. Not on the
+    /// propagation hot path (the propagator's internal truncation uses the
+    /// parallel `soa::kernels::truncate`), so this rebuilds the term sum with
+    /// a plain serial pass — the same order of work the old hashmap
+    /// `retain()` did, just without the retained entries' order being
+    /// hash-scattered.
     pub fn truncate(&mut self, policy: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.inner.truncate(policy)
+        let n = self.inner.len();
+        let stride = self.inner.stride;
+        let mut kept = SoaTermSum::new(self.inner.n_units, stride);
+
+        if let Ok(tp) = policy.extract::<PyRef<TruncationPolicy>>() {
+            let wc = tp.weight_cutoff;
+            let cc = tp.coeff_cutoff;
+            for i in 0..n {
+                let term = self.inner.term_planes(i);
+                let w = PauliBasis::weight(term, self.inner.n_units);
+                let c = *self.inner.coeff(i);
+                if wc.is_none_or(|ww| w <= ww) && c.abs() >= cc {
+                    kept.push(term, c);
+                }
+            }
+        } else {
+            for i in 0..n {
+                let term = self.inner.term_planes(i);
+                let w = PauliBasis::weight(term, self.inner.n_units);
+                let c = *self.inner.coeff(i);
+                let should_remove: bool =
+                    policy.call_method1("should_truncate", (w, c.abs()))?.extract()?;
+                if !should_remove {
+                    kept.push(term, c);
+                }
+            }
+        }
+
+        *self = PauliTermSum::from_soa(kept);
+        Ok(())
     }
 
     /// Apply noise damping to every coefficient.
     pub fn apply_damping(&mut self, noise: &Bound<'_, PyAny>, active_modes: u32) -> PyResult<()> {
-        self.inner.apply_damping(noise, active_modes)
+        use propaq_core::noise::UniformNoiseModel;
+        let n = self.inner.len();
+        if let Ok(unm) = noise.extract::<PyRef<UniformNoiseModel>>() {
+            let d = unm.damping;
+            for i in 0..n {
+                let w = PauliBasis::weight(self.inner.term_planes(i), self.inner.n_units);
+                self.inner.coeffs[i] *= (-d * w as f64).exp();
+            }
+            return Ok(());
+        }
+        for i in 0..n {
+            let w = PauliBasis::weight(self.inner.term_planes(i), self.inner.n_units);
+            let damping: f64 = noise.call_method1("damping_factor", (w, active_modes))?.extract()?;
+            self.inner.coeffs[i] *= damping;
+        }
+        Ok(())
     }
 
     /// Return the sum of |coefficient|² over all terms.
     fn norm_squared(&self) -> f64 {
-        self.inner.norm_squared()
+        self.inner.coeffs[..self.inner.len()].iter().map(|c| c * c).sum()
     }
 
     /// Return all (monomial, coefficient) pairs.
     fn items(&self) -> Vec<(PauliString, f64)> {
-        self.inner.terms.iter().map(|(k, v)| (k.clone(), *v)).collect()
+        let n = self.inner.len();
+        (0..n)
+            .map(|i| (PauliBasis::term_from_planes(self.inner.term_planes(i), self.inner.n_units), *self.inner.coeff(i)))
+            .collect()
     }
 
     fn __len__(&self) -> usize {
-        self.inner.terms.len()
+        self.inner.len()
     }
 
     fn __setitem__(&mut self, term: PauliString, coeff: f64) {
-        self.inner.terms.insert(term, coeff);
+        ensure_sized(&mut self.inner, term.n_qubits);
+        if let Some(&row) = self.index.get(&term) {
+            self.inner.coeffs[row] = coeff;
+            return;
+        }
+        let (gx, gz) = planes_of(&term, self.inner.stride);
+        let row = self.inner.len();
+        self.inner.push([&gx, &gz], coeff);
+        self.index.insert(term, row);
     }
 
     fn __getitem__(&self, term: &PauliString) -> f64 {
-        self.inner.terms.get(term).copied().unwrap_or_default()
+        self.index.get(term).map(|&row| self.inner.coeffs[row]).unwrap_or_default()
     }
 
     /// Return a shallow copy of this term sum.
     fn copy(&self) -> PauliTermSum {
-        PauliTermSum { inner: self.inner.copy() }
+        PauliTermSum { inner: self.inner.copy(), index: self.index.clone() }
     }
 
     /// Load a PauliTermSum from a gzip-compressed binary file saved by `propagate` or
@@ -108,8 +252,18 @@ impl PauliTermSum {
     ///     path: Path to the file written by the `filename` parameter.
     #[staticmethod]
     fn from_file(path: &str) -> PyResult<PauliTermSum> {
-        let terms = load_terms_from_file::<PauliString>(path)?;
-        Ok(PauliTermSum { inner: AbstractTermSum { terms } })
+        let map = load_terms_from_file::<PauliString>(path)?;
+        let n_qubits = map.keys().next().map_or(0, |t| t.n_qubits);
+        let mut inner = SoaTermSum::new(n_qubits, PauliBasis::stride_words(n_qubits));
+        let mut index = FxHashMap::default();
+        index.reserve(map.len());
+        for (term, coeff) in map {
+            let (gx, gz) = planes_of(&term, inner.stride);
+            let row = inner.len();
+            inner.push([&gx, &gz], coeff);
+            index.insert(term, row);
+        }
+        Ok(PauliTermSum { inner, index })
     }
 
     /// Save this term sum to a gzip-compressed binary file.
@@ -117,6 +271,6 @@ impl PauliTermSum {
     /// Arguments:
     ///     path: Destination file path.
     fn save(&self, path: &str) -> PyResult<()> {
-        save_terms_to_file(&self.inner.terms, path)
+        save_terms_to_file(&materialize(&self.inner), path)
     }
 }

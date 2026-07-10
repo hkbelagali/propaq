@@ -1,15 +1,16 @@
 ///
-/// impl for the Pauli propagator, which works with observables 
-/// represented in the Pauli operator basis. The propagator is 
-/// just a wrapper around the generic `AbstractPropagator`, incorporating 
-/// the Pauli algebra and the Pauli string representation.
+/// impl for the Pauli propagator, which works with observables
+/// represented in the Pauli operator basis. The propagator is
+/// just a wrapper around the generic `SoaPropagator`, incorporating
+/// the Pauli algebra via `PauliBasis`.
 ///
 use pyo3::prelude::*;
 
-use propaq_core::propagator::{AbstractPropagator, PropagationResult};
+use propaq_core::propagator::{save_terms_to_file, PropagationResult};
+use propaq_core::soa::propagator::SoaPropagator;
 use propaq_core::truncators::{reject_surrogate_only, resolve_truncation, FlushSchedule};
 
-use crate::string::PauliString;
+use crate::string::PauliBasis;
 use crate::termsum::PauliTermSum;
 
 /// Back-propagates Pauli observables through quantum circuits in the Heisenberg picture.
@@ -25,7 +26,7 @@ use crate::termsum::PauliTermSum;
 ///     logger: Optional Logger for verbose JSON Lines event logging.
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliPropagator {
-    inner: AbstractPropagator<PauliString, f64>,
+    inner: SoaPropagator<PauliBasis>,
 }
 
 #[pymethods]
@@ -44,7 +45,7 @@ impl PauliPropagator {
         let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
         reject_surrogate_only(&truncators)?;
         Ok(PauliPropagator {
-            inner: AbstractPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
+            inner: SoaPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
         })
     }
 
@@ -63,8 +64,11 @@ impl PauliPropagator {
         filename: Option<String>,
     ) -> PyResult<PauliTermSum> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_propagate(py, &mut evolved, circuit, filename.as_deref())?;
-        Ok(PauliTermSum { inner: evolved })
+        self.inner.run_propagate(py, &mut evolved, circuit)?;
+        if let Some(path) = filename.as_deref() {
+            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        }
+        Ok(PauliTermSum::from_soa(evolved))
     }
 
     /// Compute the expectation value of *observable* in the state prepared by *circuit*.
@@ -84,7 +88,11 @@ impl PauliPropagator {
         filename: Option<String>,
     ) -> PyResult<PropagationResult> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state, filename.as_deref())
+        let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state)?;
+        if let Some(path) = filename.as_deref() {
+            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        }
+        Ok(result)
     }
 
     /// The noise model used during propagation, if any.
