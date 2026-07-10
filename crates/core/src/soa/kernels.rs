@@ -15,10 +15,18 @@
 /// fields because it's a child module of `soa`.
 ///
 use rayon::prelude::*;
+use smallvec::{smallvec, SmallVec};
 
 use crate::coeff::CoeffRepr;
 use crate::soa::{SoaBasis, SoaTermSum};
 use crate::truncators::ResolvedConfig;
+
+/// Per-term product scratch: inline up to 256 qubits/modes (4 `u64` words),
+/// matching `Bitset`'s own inline capacity, so `apply_rotation`'s hot
+/// per-term loop doesn't heap-allocate for the overwhelming majority of
+/// realistic system sizes. Spills to the heap only beyond that, same as
+/// `Bitset`.
+type ProductScratch = SmallVec<[u64; 4]>;
 
 /// Wraps a raw pointer to allow moving it into a parallel closure. Safety
 /// relies on the caller only ever deriving disjoint offsets from it (see
@@ -187,10 +195,12 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
     // Sort a permutation of indices by key (leaves the columns untouched),
     // then gather into the auxiliary buffers in sorted order and swap them
     // into place — this makes the subsequent run-start scan a simple
-    // adjacent-element comparison over contiguous storage.
-    let mut perm: Vec<usize> = (0..n).collect();
+    // adjacent-element comparison over contiguous storage. `perm` is a
+    // persistent scratch buffer (reset to the identity permutation in
+    // place) rather than a fresh `(0..n).collect()` every call.
+    terms.reset_perm(n);
     {
-        let planes = &terms.planes;
+        let SoaTermSum { planes, perm, .. } = &mut *terms;
         perm.par_sort_unstable_by(|&a, &b| {
             let sa = a * stride;
             let sb = b * stride;
@@ -201,7 +211,7 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
         });
     }
     {
-        let SoaTermSum { planes, coeffs, aux_planes, aux_coeffs, .. } = &mut *terms;
+        let SoaTermSum { planes, coeffs, aux_planes, aux_coeffs, perm, .. } = &mut *terms;
         for (dst, &src) in perm.iter().enumerate() {
             for p in 0..2 {
                 let s = src * stride;
@@ -240,11 +250,18 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
 
     // Accumulate each run's coefficients into its start element in place.
     // Run ranges are disjoint across runs, so this is parallel over
-    // run-start indices.
-    let run_starts: Vec<usize> = (0..n).filter(|&i| terms.flags[i] != 0).collect();
-    if run_starts.len() >= PAR_MIN_LEN {
-        let ptr = SendPtr(terms.coeffs.as_mut_ptr());
-        (0..run_starts.len()).into_par_iter().for_each(|k| {
+    // run-start indices. `run_starts` is a persistent scratch buffer (see
+    // `perm` above) rather than a fresh `(0..n).filter(...).collect()`.
+    {
+        let SoaTermSum { flags, run_starts, .. } = &mut *terms;
+        run_starts.clear();
+        run_starts.extend((0..n).filter(|&i| flags[i] != 0));
+    }
+    let n_runs = terms.run_starts.len();
+    if n_runs >= PAR_MIN_LEN {
+        let SoaTermSum { coeffs, run_starts, .. } = &mut *terms;
+        let ptr = SendPtr(coeffs.as_mut_ptr());
+        (0..n_runs).into_par_iter().for_each(|k| {
             let start = run_starts[k];
             let end = run_starts.get(k + 1).copied().unwrap_or(n);
             // SAFETY: run ranges [start, end) are disjoint across `k` by
@@ -259,8 +276,8 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
             }
         });
     } else {
-        let coeffs = &mut terms.coeffs;
-        for k in 0..run_starts.len() {
+        let SoaTermSum { coeffs, run_starts, .. } = &mut *terms;
+        for k in 0..n_runs {
             let start = run_starts[k];
             let end = run_starts.get(k + 1).copied().unwrap_or(n);
             for j in (start + 1)..end {
@@ -337,8 +354,8 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
             if flags[i] == 0 {
                 return;
             }
-            let mut scratch0 = vec![0u64; stride];
-            let mut scratch1 = vec![0u64; stride];
+            let mut scratch0: ProductScratch = smallvec![0u64; stride];
+            let mut scratch1: ProductScratch = smallvec![0u64; stride];
             let phase = B::product([&*x_row, &*z_row], gen, [&mut scratch0, &mut scratch1]);
             // cos branch is ~0 for a pure pi/2 rotation; discard it and keep
             // only the sin-branch coefficient in place of the original term.
@@ -375,8 +392,8 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
             }
             let s = i * stride;
             let dst = n + index[i];
-            let mut scratch0 = vec![0u64; stride];
-            let mut scratch1 = vec![0u64; stride];
+            let mut scratch0: ProductScratch = smallvec![0u64; stride];
+            let mut scratch1: ProductScratch = smallvec![0u64; stride];
             let phase = {
                 // SAFETY: reading term `i` (in [0, n)) while writing to `dst`
                 // (in [n, new_len)) never aliases; `dst` is unique per

@@ -89,6 +89,13 @@ pub struct SoaTermSum<C: CoeffRepr> {
     /// Flag array `F` and index array `I`, reused across passes.
     flags: Vec<u32>,
     index: Vec<usize>,
+    /// `merge`'s sort permutation and run-start scratch, reused across
+    /// calls for the same reason `flags`/`index` are: these were previously
+    /// allocated fresh every `merge` call (`(0..n).collect()` /
+    /// `(0..n).filter(...).collect()`), which showed up as real allocator
+    /// traffic in real-workload profiling.
+    perm: Vec<usize>,
+    run_starts: Vec<usize>,
     len: usize,
     pub stride: usize,
     pub n_units: usize,
@@ -103,6 +110,8 @@ impl<C: CoeffRepr> SoaTermSum<C> {
             aux_coeffs: Vec::new(),
             flags: Vec::new(),
             index: Vec::new(),
+            perm: Vec::new(),
+            run_starts: Vec::new(),
             len: 0,
             stride,
             n_units,
@@ -220,6 +229,21 @@ impl<C: CoeffRepr> SoaTermSum<C> {
         }
     }
 
+    /// Reset `perm` to the identity permutation `[0, n)`, reusing its
+    /// existing allocation (only grows, never reallocates on repeat calls at
+    /// the same or smaller `n`). Returns a `&mut Vec<usize>` sized exactly
+    /// `n` for the caller to sort in place.
+    pub(crate) fn reset_perm(&mut self, n: usize) -> &mut Vec<usize> {
+        if self.perm.len() < n {
+            self.perm.resize(n, 0);
+        }
+        self.perm.truncate(n);
+        for (i, v) in self.perm.iter_mut().enumerate() {
+            *v = i;
+        }
+        &mut self.perm
+    }
+
     pub fn copy(&self) -> Self where C: Clone {
         let s = self.stride;
         SoaTermSum {
@@ -229,6 +253,8 @@ impl<C: CoeffRepr> SoaTermSum<C> {
             aux_coeffs: Vec::new(),
             flags: Vec::new(),
             index: Vec::new(),
+            perm: Vec::new(),
+            run_starts: Vec::new(),
             len: self.len,
             stride: self.stride,
             n_units: self.n_units,
