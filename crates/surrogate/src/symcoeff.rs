@@ -32,7 +32,7 @@
 /// walks.
 ///
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use num_complex::Complex64;
 use pyo3::prelude::*;
@@ -57,6 +57,61 @@ enum NodeKind {
     Scale(f64, Arc<Node>),
     Cos(u32, Arc<Node>),
     Sin(u32, Arc<Node>),
+}
+
+/// A trivial, shared leaf used only as a `mem::replace` placeholder in
+/// `Node`'s custom `Drop` below -- cloning it is a cheap refcount bump (never
+/// an allocation) since one canonical instance lives for the process's whole
+/// lifetime, so it's never the clone that brings a *real* subtree's count to
+/// zero.
+fn drop_placeholder() -> Arc<Node> {
+    static PLACEHOLDER: OnceLock<Arc<Node>> = OnceLock::new();
+    Arc::clone(PLACEHOLDER.get_or_init(|| Arc::new(Node { kind: NodeKind::Scalar(0.0), count: 1 })))
+}
+
+/// Without this, dropping a `Node` recurses into dropping its `Arc<Node>`
+/// children, which recurses into theirs, and so on -- for a coefficient
+/// whose history is as deep as the gate count that built it (the same
+/// "thousands deep" scenario `SymbolicCoeff::compile` is already iterative
+/// to avoid), the default derived drop stack-overflows. This walks the
+/// structure with an explicit stack instead: each node's real children are
+/// swapped out for a cheap shared placeholder (so the node's own recursive
+/// drop, triggered when it falls out of scope below, has nothing further to
+/// recurse into) and pushed onto the worklist; a child is only unwrapped
+/// (and thus queued for further unlinking) if this call is the one bringing
+/// its `Arc` refcount to zero, otherwise something else still holds it and
+/// touching only the `Arc`'s refcount is correct.
+impl Drop for Node {
+    fn drop(&mut self) {
+        let mut stack: Vec<Arc<Node>> = Vec::new();
+        match &mut self.kind {
+            NodeKind::Scalar(_) => {}
+            NodeKind::Add(a, b) => {
+                stack.push(std::mem::replace(a, drop_placeholder()));
+                stack.push(std::mem::replace(b, drop_placeholder()));
+            }
+            NodeKind::Scale(_, inner) | NodeKind::Cos(_, inner) | NodeKind::Sin(_, inner) => {
+                stack.push(std::mem::replace(inner, drop_placeholder()));
+            }
+        }
+        while let Some(arc) = stack.pop() {
+            if let Ok(mut node) = Arc::try_unwrap(arc) {
+                match &mut node.kind {
+                    NodeKind::Scalar(_) => {}
+                    NodeKind::Add(a, b) => {
+                        stack.push(std::mem::replace(a, drop_placeholder()));
+                        stack.push(std::mem::replace(b, drop_placeholder()));
+                    }
+                    NodeKind::Scale(_, inner) | NodeKind::Cos(_, inner) | NodeKind::Sin(_, inner) => {
+                        stack.push(std::mem::replace(inner, drop_placeholder()));
+                    }
+                }
+                // `node` falls out of scope here with only the placeholder
+                // left in its fields, so its own (recursive) drop call does
+                // O(1) work, not another full subtree walk.
+            }
+        }
+    }
 }
 
 impl Node {
@@ -714,5 +769,19 @@ mod tests {
 
         let lut = make_lut(8);
         assert!((restored.evaluate(&lut) - compiled.evaluate(&lut)).abs() < 1e-15);
+    }
+
+    #[test]
+    fn dropping_a_deep_chain_does_not_overflow_the_stack() {
+        // A real circuit's gate-chain can be thousands deep (see `compile`'s
+        // own doc comment); the default derived `Drop` would recurse to
+        // match, stack-overflowing. Regression guard for that (found via a
+        // real, non-toy-sized workload -- a moderate qubit count and gate
+        // count segfaulted before `Node` got a custom iterative `Drop`).
+        let mut c = SymbolicCoeff::from_scalar(1.0);
+        for p in 0..200_000u32 {
+            let _ = c.apply_rotation(&GateParam::symbolic(p), Complex64::new(0.0, -1.0));
+        }
+        drop(c);
     }
 }
