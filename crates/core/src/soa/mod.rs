@@ -66,6 +66,22 @@ pub trait SoaBasis: Send + Sync + 'static {
     /// adjacent under a sort so the merge pass can flag run boundaries.
     fn key_cmp(a: [&[u64]; 2], b: [&[u64]; 2]) -> Ordering;
 
+    /// A `u64` summary of `term` used only to bucket terms into coarse,
+    /// `key_cmp`-order-consistent groups before the full sort in
+    /// `soa::kernels::merge` (see `radix_bucket` there). Must agree with
+    /// `key_cmp` in the sense that a smaller `radix_key` never sorts *after*
+    /// a larger one — the default (`term[0][0]`, the most-significant word
+    /// of the most-significant plane under both bases' `key_cmp`) satisfies
+    /// this for any basis whose `key_cmp` compares plane 0 first. Getting
+    /// this "wrong" (e.g. a future basis overriding `key_cmp` to compare
+    /// plane 1 first without overriding this too) only costs performance,
+    /// never correctness: `merge` always finishes with a real `key_cmp`
+    /// sort *within* each bucket regardless of how well this predicts it.
+    #[inline]
+    fn radix_key(term: [&[u64]; 2]) -> u64 {
+        term[0][0]
+    }
+
     /// Build the per-basis Python term object from its plane words.
     fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> Self::Term;
 
@@ -229,19 +245,15 @@ impl<C: CoeffRepr> SoaTermSum<C> {
         }
     }
 
-    /// Reset `perm` to the identity permutation `[0, n)`, reusing its
-    /// existing allocation (only grows, never reallocates on repeat calls at
-    /// the same or smaller `n`). Returns a `&mut Vec<usize>` sized exactly
-    /// `n` for the caller to sort in place.
-    pub(crate) fn reset_perm(&mut self, n: usize) -> &mut Vec<usize> {
+    /// Resize (grow-only) `perm` to exactly `n`, reusing its existing
+    /// allocation. Doesn't fill it with anything — `radix_bucket` (in
+    /// `soa::kernels`) writes every one of its `n` slots exactly once via
+    /// its bucketing scatter, so there's nothing to initialize first.
+    pub(crate) fn ensure_perm_len(&mut self, n: usize) {
         if self.perm.len() < n {
             self.perm.resize(n, 0);
         }
         self.perm.truncate(n);
-        for (i, v) in self.perm.iter_mut().enumerate() {
-            *v = i;
-        }
-        &mut self.perm
     }
 
     pub fn copy(&self) -> Self where C: Clone {

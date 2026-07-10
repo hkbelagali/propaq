@@ -180,6 +180,165 @@ pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &Reso
     compact(terms, n, total);
 }
 
+/// Number of buckets in the `radix_bucket` pre-pass: one full byte of
+/// `SoaBasis::radix_key`.
+const RADIX_BUCKETS: usize = 256;
+
+/// Below this `n`, radix bucketing's fixed overhead (256-bucket histogram
+/// bookkeeping across chunks) isn't worth it relative to the size of the
+/// sort it would be saving — `merge` just runs the plain comparison sort.
+/// Overridable via `PROPAQ_RADIX_MIN_LEN` (same tunable-threshold pattern as
+/// `propagator::gate_par_min_len`).
+const RADIX_MIN_LEN_DEFAULT: usize = 8192;
+
+#[inline]
+fn radix_min_len() -> usize {
+    static V: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+        std::env::var("PROPAQ_RADIX_MIN_LEN")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(RADIX_MIN_LEN_DEFAULT)
+    });
+    *V
+}
+
+/// Parallel MSD radix bucketing pre-pass for `merge`'s sort: partitions all
+/// `n` row indices into up to 256 contiguous, `key_cmp`-order-consistent
+/// groups by the top byte of `SoaBasis::radix_key` — via a counting sort
+/// (histogram -> prefix-sum -> scatter), no comparisons — then sorts each
+/// bucket's slice by the real `key_cmp` in parallel across buckets (bucket
+/// ranges are disjoint, so `par_sort_unstable_by` nests cleanly within each
+/// one too, same shape as `apply_gate_inplace`'s nested parallelism keeping
+/// this robust to skewed bucket sizes). Leaves the result in `terms`'s
+/// `perm` scratch buffer, exactly like the plain sort it replaces.
+///
+/// This is *not* a full radix sort: it peels off one byte, then falls back
+/// to comparisons. A full byte-by-byte LSD radix sort over the whole key
+/// (which can be many words wide for large qubit/mode counts) costs
+/// `stride * 8` linear passes unconditionally — for wide keys that's more
+/// total work than a comparison sort that early-exits on typically-differing
+/// high words. One bucketing level shrinks what the comparison sort has to
+/// do without that risk, and degrades gracefully to the original plain sort
+/// if the data has no top-byte diversity (everything lands in one bucket).
+fn radix_bucket<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
+    let n = terms.len();
+    let stride = terms.stride;
+    let parallel = n >= PAR_MIN_LEN;
+    terms.ensure_perm_len(n);
+
+    let buckets: Vec<u8> = {
+        let planes = &terms.planes;
+        let bucket_of = |i: usize| -> u8 {
+            let s = i * stride;
+            let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
+            (B::radix_key(term) >> 56) as u8
+        };
+        if parallel {
+            (0..n).into_par_iter().map(bucket_of).collect()
+        } else {
+            (0..n).map(bucket_of).collect()
+        }
+    };
+
+    let n_chunks = if parallel { rayon::current_num_threads().max(1) } else { 1 };
+    let chunk_size = n.div_ceil(n_chunks).max(1);
+
+    // Per-chunk histogram: chunk_counts[c][b] = how many elements chunk c
+    // contributes to bucket b.
+    let chunk_counts: Vec<[u32; RADIX_BUCKETS]> = {
+        let histogram = |chunk: &[u8]| -> [u32; RADIX_BUCKETS] {
+            let mut counts = [0u32; RADIX_BUCKETS];
+            for &b in chunk {
+                counts[b as usize] += 1;
+            }
+            counts
+        };
+        if parallel {
+            buckets.par_chunks(chunk_size).map(histogram).collect()
+        } else {
+            buckets.chunks(chunk_size).map(histogram).collect()
+        }
+    };
+    let n_chunks_actual = chunk_counts.len();
+
+    // Global ascending bucket ranges: bucket b occupies
+    // perm[bucket_offsets[b]..bucket_offsets[b+1]].
+    let mut bucket_offsets = [0usize; RADIX_BUCKETS + 1];
+    for b in 0..RADIX_BUCKETS {
+        let total: usize = chunk_counts.iter().map(|c| c[b] as usize).sum();
+        bucket_offsets[b + 1] = bucket_offsets[b] + total;
+    }
+
+    // Per-(chunk, bucket) starting offset within that bucket's global range:
+    // bucket_offsets[b] plus every earlier chunk's contribution to bucket b.
+    let mut chunk_start: Vec<[usize; RADIX_BUCKETS]> = vec![[0usize; RADIX_BUCKETS]; n_chunks_actual];
+    for b in 0..RADIX_BUCKETS {
+        let mut running = bucket_offsets[b];
+        for c in 0..n_chunks_actual {
+            chunk_start[c][b] = running;
+            running += chunk_counts[c][b] as usize;
+        }
+    }
+
+    // Scatter: chunk c writes each of its rows using its own local per-bucket
+    // cursor (seeded from chunk_start[c]).
+    {
+        let ptr = SendPtr(terms.perm.as_mut_ptr());
+        let scatter_chunk = |c: usize| {
+            let start = c * chunk_size;
+            let end = (start + chunk_size).min(n);
+            let mut cursor = chunk_start[c];
+            for i in start..end {
+                let b = buckets[i] as usize;
+                let dst = cursor[b];
+                // SAFETY: `dst` ranges for distinct (chunk, bucket) pairs
+                // are disjoint by construction of `chunk_start` (a prefix
+                // sum of `chunk_counts` within each bucket), so concurrent
+                // writes across chunks never alias.
+                unsafe { *ptr.add(dst) = i; }
+                cursor[b] += 1;
+            }
+        };
+        if parallel {
+            (0..n_chunks_actual).into_par_iter().for_each(scatter_chunk);
+        } else {
+            (0..n_chunks_actual).for_each(scatter_chunk);
+        }
+    }
+
+    // Sort each bucket's slice of `perm` by the real key. Buckets are
+    // disjoint slices (via repeated `split_at_mut`), so this is safe without
+    // any unsafe code, and parallelizes across buckets on top of whatever
+    // internal parallelism `par_sort_unstable_by` gives a large bucket.
+    let planes = &terms.planes;
+    let key_cmp_at = |a: usize, b: usize| -> std::cmp::Ordering {
+        let sa = a * stride;
+        let sb = b * stride;
+        B::key_cmp(
+            [&planes[0][sa..sa + stride], &planes[1][sa..sa + stride]],
+            [&planes[0][sb..sb + stride], &planes[1][sb..sb + stride]],
+        )
+    };
+    let mut remaining = terms.perm.as_mut_slice();
+    let mut bucket_slices: Vec<&mut [usize]> = Vec::with_capacity(RADIX_BUCKETS);
+    for b in 0..RADIX_BUCKETS {
+        let len = bucket_offsets[b + 1] - bucket_offsets[b];
+        let (this_bucket, rest) = remaining.split_at_mut(len);
+        bucket_slices.push(this_bucket);
+        remaining = rest;
+    }
+    let sort_bucket = |slice: &mut &mut [usize]| {
+        if slice.len() > 1 {
+            slice.par_sort_unstable_by(|&a, &b| key_cmp_at(a, b));
+        }
+    };
+    if parallel {
+        bucket_slices.par_iter_mut().for_each(sort_bucket);
+    } else {
+        bucket_slices.iter_mut().for_each(sort_bucket);
+    }
+}
+
 /// Merge: sort by key (bringing duplicates adjacent), flag run starts,
 /// prefix-sum, then scatter the unique key of each run with its coefficients
 /// accumulated via `CoeffRepr::add_assign`/`post_merge`.
@@ -195,11 +354,20 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
     // Sort a permutation of indices by key (leaves the columns untouched),
     // then gather into the auxiliary buffers in sorted order and swap them
     // into place — this makes the subsequent run-start scan a simple
-    // adjacent-element comparison over contiguous storage. `perm` is a
-    // persistent scratch buffer (reset to the identity permutation in
-    // place) rather than a fresh `(0..n).collect()` every call.
-    terms.reset_perm(n);
-    {
+    // adjacent-element comparison over contiguous storage. Above
+    // `radix_min_len()`, `radix_bucket` pre-partitions by the key's top byte
+    // (counting sort, no comparisons) before the real sort, so the
+    // comparison sort below only has to run within each much-smaller bucket;
+    // below that size the bucketing overhead isn't worth it and this is
+    // just the plain sort. `perm` is a persistent scratch buffer rather
+    // than a fresh `(0..n).collect()` every call.
+    if n >= radix_min_len() {
+        radix_bucket::<B, C>(terms);
+    } else {
+        terms.ensure_perm_len(n);
+        for (i, v) in terms.perm.iter_mut().enumerate() {
+            *v = i;
+        }
         let SoaTermSum { planes, perm, .. } = &mut *terms;
         perm.par_sort_unstable_by(|&a, &b| {
             let sa = a * stride;
@@ -681,6 +849,103 @@ mod tests {
         let total = prefix_sum(&flags, &mut got);
         assert_eq!(total, acc);
         assert_eq!(got, expected);
+    }
+
+    // --- `radix_bucket` correctness: called directly (bypassing
+    // `radix_min_len()`) so both tiny and huge `n` exercise the actual
+    // bucketing + per-bucket-sort mechanism, not just whichever path
+    // `merge` picks by size.
+
+    fn assert_perm_is_fully_sorted<C: CoeffRepr>(terms: &SoaTermSum<C>) {
+        let n = terms.perm.len();
+        for w in terms.perm.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let sa = a * terms.stride;
+            let sb = b * terms.stride;
+            let cmp = TestBasis::key_cmp(
+                [&terms.planes[0][sa..sa + terms.stride], &terms.planes[1][sa..sa + terms.stride]],
+                [&terms.planes[0][sb..sb + terms.stride], &terms.planes[1][sb..sb + terms.stride]],
+            );
+            assert!(cmp != Ordering::Greater, "perm not sorted at rows {a},{b} (n={n})");
+        }
+        // Also a genuine permutation of 0..n (no lost/duplicated indices).
+        let mut sorted_perm = terms.perm.to_vec();
+        sorted_perm.sort_unstable();
+        assert_eq!(sorted_perm, (0..n).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn radix_bucket_handles_tiny_n() {
+        for n in [0usize, 1, 2, 3] {
+            let mut terms = make(4);
+            for i in 0..n {
+                terms.push([&[(n - i) as u64], &[0]], 1.0); // descending, forces reordering
+            }
+            radix_bucket::<TestBasis, f64>(&mut terms);
+            if n > 0 {
+                assert_perm_is_fully_sorted(&terms);
+            }
+        }
+    }
+
+    #[test]
+    fn radix_bucket_matches_plain_sort_on_diverse_keys_large() {
+        // Deterministic splitmix64-style scramble spanning the full u64
+        // range, so top-byte buckets are well exercised (not all zero).
+        let n = 50_000usize;
+        let mut terms = make(4);
+        let mut seed = 0x9E3779B97F4A7C15u64;
+        for _ in 0..n {
+            seed = seed.wrapping_add(0x9E3779B97F4A7C15);
+            let mut z = seed;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+            z ^= z >> 31;
+            terms.push([&[z], &[0]], 1.0);
+        }
+        // Reference: what a plain full comparison sort would produce.
+        let mut expected: Vec<usize> = (0..n).collect();
+        {
+            let planes = &terms.planes;
+            expected.sort_unstable_by(|&a, &b| {
+                TestBasis::key_cmp([&planes[0][a..a + 1], &planes[1][a..a + 1]], [&planes[0][b..b + 1], &planes[1][b..b + 1]])
+            });
+        }
+
+        radix_bucket::<TestBasis, f64>(&mut terms);
+        assert_perm_is_fully_sorted(&terms);
+        assert_eq!(terms.perm, expected.as_slice(), "radix_bucket must produce the same total order as a plain sort");
+    }
+
+    #[test]
+    fn radix_bucket_handles_all_identical_keys() {
+        // Degenerate case: every key shares the same top byte (in fact the
+        // same full key) — every row lands in one bucket.
+        let n = 20_000usize;
+        let mut terms = make(4);
+        for _ in 0..n {
+            terms.push([&[42u64], &[0]], 1.0);
+        }
+        radix_bucket::<TestBasis, f64>(&mut terms);
+        assert_perm_is_fully_sorted(&terms);
+    }
+
+    #[test]
+    fn merge_above_radix_threshold_still_dedups_and_accumulates_correctly() {
+        // n comfortably above RADIX_MIN_LEN_DEFAULT (8192), so `merge`
+        // actually exercises `radix_bucket`, not the plain-sort fallback.
+        let n = 20_000usize;
+        let mut terms = make(4);
+        for i in 0..n {
+            terms.push([&[(i % 137) as u64], &[0]], 1.0);
+        }
+        merge::<TestBasis, f64>(&mut terms);
+        assert_eq!(terms.len(), 137);
+        let v = values(&terms);
+        let counts: Vec<usize> = (0..137).map(|k| (k..n).step_by(137).count()).collect();
+        for (k, &expected_count) in counts.iter().enumerate() {
+            assert_eq!(v[&(k as u64)], expected_count as f64, "key {k} accumulated wrong");
+        }
     }
 
     #[test]
