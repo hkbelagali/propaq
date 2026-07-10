@@ -158,17 +158,15 @@ class TestParameterReuseDedup:
     def test_merge_cadence_matches_with_shared_parameters(self):
         """Forcing a merge after every gate (which triggers `post_merge` on
         the DAG's `Add` accumulation) must not change the result relative to
-        deferring every merge to the final truncation flush. `monomial_range`
-        is disabled explicitly to avoid Phase A's MonomialBudget rejection --
-        this test only exercises merge cadence."""
+        deferring every merge to the final truncation flush."""
         obs, sc, circ, params = self._reused_param_circuit()
         exact = numerical_ev(obs, circ)
 
-        eager = FrequencyTruncationPolicy(monomial_range=(None, None))
+        eager = FrequencyTruncationPolicy()
         eager.merge_max_terms = 1
         m_eager = MajoranaSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
 
-        off = FrequencyTruncationPolicy(monomial_range=(None, None))
+        off = FrequencyTruncationPolicy()
         off.merge_max_terms = None
         m_off = MajoranaSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
 
@@ -236,10 +234,8 @@ class TestNTermsFiltering:
         circ = MajoranaCircuit([MajoranaRotation(g, a) for g, a in zip(gens, angles)], n_modes=N_MODES)
         sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[0, 1])
         model_full = MajoranaSurrogatePropagator().build(obs, sc, initial_state=0)
-        # `monomial_range` disabled explicitly to avoid Phase A's
-        # MonomialBudget rejection; this test only exercises weight_cutoff.
         model_cut = MajoranaSurrogatePropagator(
-            truncation=FrequencyTruncationPolicy(weight_cutoff=2, monomial_range=(None, None))
+            truncation=FrequencyTruncationPolicy(weight_cutoff=2)
         ).build(obs, sc, initial_state=0)
         assert model_cut.n_terms <= model_full.n_terms
 

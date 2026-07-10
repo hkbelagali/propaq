@@ -18,14 +18,13 @@
 /// overhead in practice (see `propaq.MD`/project memory for the diagnosis
 /// and the ProPauli reference design this port is based on).
 ///
-/// **Staged rollout, Phase A (current):** monomial-level truncation
-/// (`FrequencyTruncator`/`CoefficientTruncator`/`MonomialBudget`, all of
-/// which need an expanded per-monomial view a lazy DAG doesn't have) is not
-/// yet supported — configuring one raises a clear error rather than being
+/// Monomial-level truncation (`FrequencyTruncator`/`CoefficientTruncator`,
+/// both of which need an expanded per-monomial view a lazy DAG doesn't have)
+/// is not supported — configuring one raises a clear error rather than being
 /// silently ignored. Only term-level truncation (`WeightTruncator`,
-/// `TermBudget`) is honored. Phase B (not yet implemented) restores
-/// monomial-level truncation via a flush-time expand-to-monomials +
-/// truncate + rebuild-the-DAG mechanism.
+/// `TermBudget`) is honored; there is no monomial-count-based budget
+/// (`MonomialBudget` was removed — judged unnecessary given `WeightTruncator`/
+/// `TermBudget` plus the now-default eager merge cadence).
 ///
 use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
@@ -49,24 +48,17 @@ use propaq_core::truncators::{
     Truncator,
 };
 
-/// `FrequencyTruncator`/`CoefficientTruncator`/`MonomialBudget` all need a
-/// per-monomial view of a symbolic coefficient's history, which Phase A's
-/// DAG representation doesn't expose (deferred to Phase B's flush-time
-/// expand+rebuild mechanism). Rejected explicitly rather than silently
-/// ignored, mirroring `propaq_core::truncators::reject_surrogate_only`'s
-/// pattern for the numerical propagator's analogous rejection of
-/// surrogate-only operators.
+/// `FrequencyTruncator`/`CoefficientTruncator` both need a per-monomial view
+/// of a symbolic coefficient's history, which the DAG representation doesn't
+/// expose. Rejected explicitly rather than silently ignored, mirroring
+/// `propaq_core::truncators::reject_surrogate_only`'s pattern for the
+/// numerical propagator's analogous rejection of surrogate-only operators.
 fn reject_phase_a_unsupported(truncators: &[Truncator]) -> PyResult<()> {
-    if truncators.iter().any(|t| {
-        matches!(t, Truncator::Frequency(_) | Truncator::Coefficient(_) | Truncator::MonomialBudget(_))
-    }) {
+    if truncators.iter().any(|t| matches!(t, Truncator::Frequency(_) | Truncator::Coefficient(_))) {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "FrequencyTruncator, CoefficientTruncator, and MonomialBudget are not yet supported by \
-             the surrogate propagator (monomial-level truncation is being redesigned around a new \
-             coefficient representation); use WeightTruncator / TermBudget for now. Note that the \
-             legacy FrequencyTruncationPolicy configures a MonomialBudget by default even with no \
-             arguments (its `monomial_range` default), so it is also rejected unless you set \
-             `monomial_range=(None, None)` and leave `max_frequency=None`.",
+            "FrequencyTruncator and CoefficientTruncator are not yet supported by the surrogate \
+             propagator (monomial-level truncation is being redesigned around a new coefficient \
+             representation); use WeightTruncator / TermBudget for now.",
         ));
     }
     Ok(())
@@ -240,13 +232,9 @@ where
     ) -> PyResult<SurrogateModel<B::Term>> {
         self.open_log()?;
 
-        // Resolve the truncation pipeline once (Copy config). The flush triggers
-        // (`max_terms`/`max_monomials`) and the `min_terms` gate come from the
-        // `TermBudget`/`MonomialBudget` operators; the merge cadence from the
-        // schedule. Phase A rejects `MonomialBudget` at construction time
-        // (`reject_phase_a_unsupported`), so `cfg.max_monomials` is always `None`
-        // here; the monomial-count triggers below are dead in Phase A and will
-        // be revived once Phase B restores monomial-level truncation.
+        // Resolve the truncation pipeline once (Copy config). The flush trigger
+        // (`max_terms`) and the `min_terms` gate come from the `TermBudget`
+        // operator; the merge cadence from the schedule.
         let cfg = resolve_config(&self.truncators);
 
         let n_units = evolved.n_units;
@@ -288,9 +276,8 @@ where
 
         let (pbar, postfix) = make_progress_bar(py, self.progress_bar, total_rotations)?;
 
-        // Flush triggers from the budgets; merge cadence from the schedule.
+        // Flush trigger from the budget; merge cadence from the schedule.
         let max_terms: Option<usize> = cfg.max_terms;
-        let max_monomials: Option<usize> = cfg.max_monomials;
         let merge_max_terms: Option<usize> = self.schedule.merge_max_terms;
 
         let mut gate_idx: usize = 0;
@@ -357,21 +344,7 @@ where
 
                 let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, _, ni, _)| *ni);
                 let terms_trigger = max_terms.map_or(false, |max| evolved.len() >= max);
-                // Term count is a poor proxy for a symbolic coefficient's actual
-                // size: a handful of terms can carry the overwhelming majority
-                // of monomials while term count barely moves. Watch monomial
-                // count directly so a flush still fires in that case.
-                let monomials_trigger = max_monomials
-                    .map_or(false, |max| self.total_monomials + pending_monomials >= max);
-                let threshold_trigger = if terms_trigger || monomials_trigger {
-                    Some(if monomials_trigger && !terms_trigger {
-                        "monomial_threshold"
-                    } else {
-                        "threshold"
-                    })
-                } else {
-                    None
-                };
+                let threshold_trigger = terms_trigger.then_some("threshold");
                 let pending_trigger = deferred_threshold_trigger.or(threshold_trigger);
                 if let Some(trigger) = pending_trigger {
                     if !next_is_intermediate {
@@ -471,63 +444,15 @@ pub struct TruncationOutcome {
     pub coefficient: Option<f64>,
 }
 
-/// How many monomials must be removed to bring `monomials_after` down to
-/// `max`. Kept as a pure function, ready for Phase B's flush-time
-/// expand+truncate+rebuild mechanism, which is the only place it (and the
-/// histogram/boundary-rank helpers below) will be called from again.
-#[inline]
-#[allow(dead_code)]
-fn monomial_removal_budget(monomials_after: usize, max: usize) -> usize {
-    monomials_after.saturating_sub(max)
-}
-
-/// Elementwise-add two frequency histograms, reconciling lengths. Combine step
-/// for a parallel histogram fold. Unused in Phase A (no monomial-level
-/// truncation); kept for Phase B.
-#[allow(dead_code)]
-fn combine_histograms(mut a: Vec<u64>, b: Vec<u64>) -> Vec<u64> {
-    if a.len() < b.len() {
-        a.resize(b.len(), 0);
-    }
-    for (slot, v) in a.iter_mut().zip(b.iter()) {
-        *slot += *v;
-    }
-    a
-}
-
-/// Walking a frequency histogram from the highest frequency down, find the
-/// boundary frequency `f*` at which a cumulative removal of `budget` monomials
-/// lands, and how many must be removed from within `f*` (the remainder after
-/// fully removing every higher-frequency bucket). `remove_in_boundary` is always
-/// `<= hist[f*]`; it equals `hist[f*]` exactly when the whole boundary bucket is
-/// consumed. Returns `(0, 0)` only when `budget` meets or exceeds every monomial
-/// present (caller then removes everything at/above frequency 0). Unused in
-/// Phase A; kept for Phase B.
-#[allow(dead_code)]
-fn boundary_from_histogram(hist: &[u64], budget: usize) -> (usize, usize) {
-    let mut remaining = budget as u64;
-    for f in (0..hist.len()).rev() {
-        let cnt = hist[f];
-        if cnt == 0 {
-            continue;
-        }
-        if remaining <= cnt {
-            return (f, remaining as usize);
-        }
-        remaining -= cnt;
-    }
-    (0, 0)
-}
-
 /// Run the truncation pipeline against `evolved`'s current live state.
 ///
-/// Phase A scope only: term-level `WeightTruncator` (operator weight) and the
-/// always-on lossless dedup (`SymbolicCoeff::add_assign`/`is_empty` via
-/// `merge`, already applied by the caller before this runs). Monomial-level
-/// truncation (`FrequencyTruncator`, symbolic `CoefficientTruncator`,
-/// `MonomialBudget`) is rejected at construction time
-/// (`reject_phase_a_unsupported`), so `cfg.max_monomials` is always `None`
-/// here in Phase A.
+/// Term-level only: `WeightTruncator` (operator weight) and the always-on
+/// lossless dedup (`SymbolicCoeff::add_assign`/`is_empty` via `merge`,
+/// already applied by the caller before this runs). Monomial-level
+/// truncation (`FrequencyTruncator`, symbolic `CoefficientTruncator`) is
+/// rejected at construction time (`reject_phase_a_unsupported`); there is no
+/// monomial-count budget at all (`MonomialBudget` was removed as
+/// unnecessary).
 pub fn apply_truncation_policy<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     cfg: &ResolvedConfig,
@@ -571,7 +496,7 @@ use propaq_majorana::termsum::MajoranaTermSum;
 /// Arguments:
 ///     truncation: A list of truncator objects
 ///         (FrequencyTruncator, CoefficientTruncator, WeightTruncator,
-///         MonomialBudget) applied at each flush, a single such truncator, a
+///         TermBudget) applied at each flush, a single such truncator, a
 ///         legacy FrequencyTruncationPolicy (decomposed automatically), or None.
 ///     schedule: Optional FlushSchedule controlling flush/merge cadence. Omitted
 ///         -> sensible defaults when any truncator is given, or "flush only at the
@@ -714,68 +639,6 @@ impl MajoranaSurrogatePropagator {
         self.inner.schedule = schedule;
         self.inner.truncators = truncators;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod monomial_removal_budget_tests {
-    use super::{boundary_from_histogram, combine_histograms, monomial_removal_budget};
-
-    #[test]
-    fn boundary_removes_higher_buckets_first_then_partial() {
-        // freq0=5, freq1=3, freq2=2. Budget 4 = all of freq2 (2) + 2 of freq1.
-        let hist = vec![5, 3, 2];
-        assert_eq!(boundary_from_histogram(&hist, 4), (1, 2));
-    }
-
-    #[test]
-    fn boundary_consuming_exactly_one_bucket_reports_full_bucket() {
-        let hist = vec![5, 3, 2];
-        // remove_in_boundary == hist[f*] signals a full-bucket removal to caller.
-        assert_eq!(boundary_from_histogram(&hist, 2), (2, 2));
-    }
-
-    #[test]
-    fn boundary_within_top_bucket() {
-        let hist = vec![5, 3, 2];
-        assert_eq!(boundary_from_histogram(&hist, 1), (2, 1));
-    }
-
-    #[test]
-    fn boundary_skips_empty_buckets() {
-        // freq3=2 removed in full, then 1 of freq0 (freq1/freq2 empty).
-        let hist = vec![5, 0, 0, 2];
-        assert_eq!(boundary_from_histogram(&hist, 3), (0, 1));
-    }
-
-    #[test]
-    fn boundary_budget_exceeds_all_returns_zero_zero() {
-        assert_eq!(boundary_from_histogram(&[2, 2], 10), (0, 0));
-        assert_eq!(boundary_from_histogram(&[], 5), (0, 0));
-    }
-
-    #[test]
-    fn combine_histograms_reconciles_lengths() {
-        assert_eq!(combine_histograms(vec![1, 2], vec![10, 20, 30]), vec![11, 22, 30]);
-        assert_eq!(combine_histograms(vec![1, 2, 3], vec![10]), vec![11, 2, 3]);
-    }
-
-    #[test]
-    fn budget_always_targets_max() {
-        // The budget is exactly `after - max`, landing precisely at max.
-        for (after, max) in [(100, 90), (100, 99), (1_000_000, 999_999), (11, 10)] {
-            assert_eq!(monomial_removal_budget(after, max), after - max);
-        }
-    }
-
-    #[test]
-    fn exactly_one_over_max_wants_a_budget_of_one() {
-        assert_eq!(monomial_removal_budget(91, 90), 1);
-    }
-
-    #[test]
-    fn max_equal_to_after_wants_zero() {
-        assert_eq!(monomial_removal_budget(999, 999), 0);
     }
 }
 

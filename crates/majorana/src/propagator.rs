@@ -20,7 +20,7 @@ use crate::termsum::MajoranaTermSum;
 ///     truncation: A list of truncators
 ///         (WeightTruncator, CoefficientTruncator, TermBudget), a single such
 ///         truncator, a legacy TruncationPolicy (decomposed), or None. The
-///         symbolic-only FrequencyTruncator/MonomialBudget are rejected.
+///         symbolic-only FrequencyTruncator is rejected.
 ///     schedule: Optional FlushSchedule controlling the lossless merge cadence.
 ///     n_threads: Number of worker threads. Defaults to the system thread count.
 ///     progress_bar: Display a tqdm progress bar during propagation.

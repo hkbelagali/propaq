@@ -43,7 +43,7 @@ class MajoranaPropagator:
             truncation: The truncation pipeline, a list of truncators
                 (WeightTruncator/CoefficientTruncator/TermBudget), a single such
                 truncator, a legacy TruncationPolicy (decomposed), or None. The
-                symbolic-only FrequencyTruncator/MonomialBudget are rejected.
+                symbolic-only FrequencyTruncator is rejected.
             schedule: Optional FlushSchedule controlling the lossless merge cadence.
             n_threads: Number of worker threads. Defaults to the number of logical CPU cores.
             progress_bar: If True, display a tqdm progress bar over circuit gates.

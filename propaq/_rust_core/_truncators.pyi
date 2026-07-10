@@ -5,7 +5,8 @@ class FlushSchedule:
 
     ``merge_max_terms``: once this many terms accumulate in the outboxes since
     the last flush, collapse duplicate strings into the maps without truncating.
-    Defaults to 2_000_000 (on); assign ``None`` after construction to disable.
+    Defaults to 1 (merge after every gate that adds a term); assign ``None``
+    after construction to disable.
     """
 
     merge_max_terms: int | None
@@ -60,22 +61,4 @@ class TermBudget:
     max_terms: int | None
 
     def __init__(self, max_terms: int | None = None, min_terms: int | None = None) -> None: ...
-    def __repr__(self) -> str: ...
-
-
-class MonomialBudget:
-    """Monomial-count budget (surrogate-only).
-
-    Once the live monomial count exceeds ``max_monomials``, remove monomials by
-    rank ``(frequency desc, |scalar| asc)`` down to ``max_monomials``.
-    ``min_monomials`` is a floor guarding a single oversized top bucket from
-    overshooting. Either side ``None`` disables that bound.
-    """
-
-    min_monomials: int | None
-    max_monomials: int | None
-
-    def __init__(
-        self, max_monomials: int | None = None, min_monomials: int | None = None
-    ) -> None: ...
     def __repr__(self) -> str: ...

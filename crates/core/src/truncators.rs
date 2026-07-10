@@ -12,10 +12,13 @@ use pyo3::prelude::*;
 
 use crate::truncation::TruncationPolicy;
 
-/// Default finer merge cadence (see `FlushSchedule`). Smaller than typical
-/// truncation windows so several lossless merges happen per truncation, keeping
-/// within-window peak near the unique-term count rather than the path count.
-pub const DEFAULT_MERGE_MAX_TERMS: usize = 2_000_000;
+/// Default finer merge cadence (see `FlushSchedule`). Merging is O(1) per
+/// term regardless of prior history under the DAG symbolic-coefficient
+/// representation (and was already cheap for the numerical propagator), so
+/// the default is to merge after every gate that adds a term, keeping live
+/// term count minimal at all times rather than drifting toward path count
+/// within a flush window.
+pub const DEFAULT_MERGE_MAX_TERMS: usize = 1;
 
 /// When to do the finer lossless merge. 
 ///
@@ -165,31 +168,6 @@ impl TermBudget {
     }
 }
 
-#[pyclass(subclass, module = "propaq._rust_core")]
-#[derive(Clone)]
-pub struct MonomialBudget {
-    #[pyo3(get, set)]
-    pub min_monomials: Option<usize>,
-    #[pyo3(get, set)]
-    pub max_monomials: Option<usize>,
-}
-
-#[pymethods]
-impl MonomialBudget {
-    #[new]
-    #[pyo3(signature = (max_monomials=None, min_monomials=None))]
-    pub fn new(max_monomials: Option<usize>, min_monomials: Option<usize>) -> Self {
-        MonomialBudget { min_monomials, max_monomials }
-    }
-    fn __repr__(&self) -> String {
-        let f = |v: Option<usize>| v.map_or_else(|| "None".to_string(), |x| x.to_string());
-        format!(
-            "MonomialBudget(min_monomials={}, max_monomials={})",
-            f(self.min_monomials), f(self.max_monomials),
-        )
-    }
-}
-
 /// One entry in a truncation pipeline. Extracted from a Python list of the
 /// individual truncator objects (`FromPyObject` tries each variant in turn); a
 /// Python wrapper subclass instance extracts as its Rust base.
@@ -199,7 +177,6 @@ pub enum Truncator {
     Coefficient(CoefficientTruncator),
     Weight(WeightTruncator),
     TermBudget(TermBudget),
-    MonomialBudget(MonomialBudget),
 }
 
 impl Truncator {
@@ -212,21 +189,20 @@ impl Truncator {
             Truncator::Coefficient(t) => t.clone().into_py_any(py),
             Truncator::Weight(t) => t.clone().into_py_any(py),
             Truncator::TermBudget(t) => t.clone().into_py_any(py),
-            Truncator::MonomialBudget(t) => t.clone().into_py_any(py),
         }
     }
 
     /// Whether this operator is only meaningful for surrogate (symbolic)
     /// propagation; the numerical propagator rejects these.
     pub fn is_surrogate_only(&self) -> bool {
-        matches!(self, Truncator::Frequency(_) | Truncator::MonomialBudget(_))
+        matches!(self, Truncator::Frequency(_))
     }
 }
 
 pub fn reject_surrogate_only(truncators: &[Truncator]) -> PyResult<()> {
     if truncators.iter().any(Truncator::is_surrogate_only) {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "FrequencyTruncator and MonomialBudget only apply to surrogate propagation; \
+            "FrequencyTruncator only applies to surrogate propagation; \
              use WeightTruncator / CoefficientTruncator / TermBudget with the numerical propagator",
         ));
     }
@@ -234,8 +210,8 @@ pub fn reject_surrogate_only(truncators: &[Truncator]) -> PyResult<()> {
 }
 
 /// The distinct truncation operations resolved from a pipeline. The list is
-/// collapsed into at most one of each kind. `None` disables. The pure filters commute, 
-/// and the budgets are always applied by the propagator at the appropriate stage, so 
+/// collapsed into at most one of each kind. `None` disables. The pure filters commute,
+/// and the budgets are always applied by the propagator at the appropriate stage, so
 /// list order is immaterial.
 #[derive(Default, Clone, Copy)]
 pub struct ResolvedConfig {
@@ -244,8 +220,6 @@ pub struct ResolvedConfig {
     pub weight: Option<u32>,
     pub min_terms: Option<usize>,
     pub max_terms: Option<usize>,
-    pub min_monomials: Option<usize>,
-    pub max_monomials: Option<usize>,
 }
 
 /// Collapse a truncator pipeline into a flat config (last-wins per field).
@@ -259,10 +233,6 @@ pub fn resolve_config(truncators: &[Truncator]) -> ResolvedConfig {
             Truncator::TermBudget(x) => {
                 r.min_terms = x.min_terms;
                 r.max_terms = x.max_terms;
-            }
-            Truncator::MonomialBudget(x) => {
-                r.min_monomials = x.min_monomials;
-                r.max_monomials = x.max_monomials;
             }
         }
     }
@@ -296,7 +266,7 @@ pub fn resolve_truncation(
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
         "truncation must be a truncator (FrequencyTruncator/CoefficientTruncator/\
-         WeightTruncator/TermBudget/MonomialBudget), a list of truncators, a \
+         WeightTruncator/TermBudget), a list of truncators, a \
          TruncationPolicy, or None",
     ))
 }
@@ -314,13 +284,11 @@ mod tests {
             Truncator::Weight(WeightTruncator { weight: Some(12) }),
             Truncator::Weight(WeightTruncator { weight: None }), // None disables
             Truncator::TermBudget(TermBudget { min_terms: Some(1), max_terms: Some(100) }),
-            Truncator::MonomialBudget(MonomialBudget { min_monomials: None, max_monomials: Some(50) }),
         ]);
         assert_eq!(cfg.frequency, Some(5));
         assert_eq!(cfg.coefficient, Some(1e-8));
         assert_eq!(cfg.weight, None);
         assert_eq!((cfg.min_terms, cfg.max_terms), (Some(1), Some(100)));
-        assert_eq!((cfg.min_monomials, cfg.max_monomials), (None, Some(50)));
     }
 
     #[test]
@@ -329,13 +297,11 @@ mod tests {
         assert_eq!(cfg.frequency, None);
         assert_eq!(cfg.weight, None);
         assert_eq!(cfg.max_terms, None);
-        assert_eq!(cfg.max_monomials, None);
     }
 
     #[test]
-    fn is_surrogate_only_flags_frequency_and_monomial_budget() {
+    fn is_surrogate_only_flags_frequency() {
         assert!(Truncator::Frequency(FrequencyTruncator { frequency: Some(3) }).is_surrogate_only());
-        assert!(Truncator::MonomialBudget(MonomialBudget { min_monomials: None, max_monomials: Some(5) }).is_surrogate_only());
         assert!(!Truncator::Weight(WeightTruncator { weight: Some(2) }).is_surrogate_only());
         assert!(!Truncator::TermBudget(TermBudget { min_terms: None, max_terms: Some(9) }).is_surrogate_only());
         assert!(!Truncator::Coefficient(CoefficientTruncator { coefficient: Some(1e-3) }).is_surrogate_only());

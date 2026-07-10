@@ -10,7 +10,6 @@ from ._truncators import (
     CoefficientTruncator,
     FlushSchedule,
     FrequencyTruncator,
-    MonomialBudget,
     TermBudget,
     WeightTruncator,
 )
@@ -20,10 +19,11 @@ if TYPE_CHECKING:
 
     from propaq.circuits.majorana.surrogate_circuit import SurrogateMajoranaCircuit
 
-# The surrogate honors every truncator, plus the legacy policies.
-_Truncator = (
-    FrequencyTruncator | CoefficientTruncator | WeightTruncator | TermBudget | MonomialBudget
-)
+# The surrogate currently only honors WeightTruncator/TermBudget (term-level);
+# FrequencyTruncator/CoefficientTruncator are accepted here but rejected at
+# construction time (monomial-level truncation isn't yet supported by the
+# symbolic DAG coefficient representation).
+_Truncator = FrequencyTruncator | CoefficientTruncator | WeightTruncator | TermBudget
 _Truncation = (
     _Truncator | Sequence[_Truncator] | FrequencyTruncationPolicy | TruncationPolicy | None
 )
@@ -84,7 +84,7 @@ class MajoranaSurrogatePropagator:
 
     Arguments:
         truncation: A list of truncators (FrequencyTruncator/CoefficientTruncator/
-            WeightTruncator/TermBudget/MonomialBudget), a single truncator, a legacy
+            WeightTruncator/TermBudget), a single truncator, a legacy
             FrequencyTruncationPolicy or TruncationPolicy (decomposed), or None.
         schedule: Optional FlushSchedule controlling the lossless merge cadence.
         n_threads: Number of worker threads. Defaults to the system thread count.
