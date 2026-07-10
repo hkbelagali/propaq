@@ -1,17 +1,17 @@
 ///
 /// Export the core Rust functionality to Python via PyO3.
-/// 
-/// The propagation (especially symbolic) will generate an
-/// enormous number of memory allocations. Due to the shard-based
-/// parallelism, the default allocator would likely suffer from 
-/// contention and fragmentation. Therefore, we use mimalloc 
-/// as the global allocator, which is designed for high-performance 
-/// multithreaded workloads.
-use mimalloc::MiMalloc;
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
-
+///
+/// No longer overrides the global allocator (mimalloc was removed): that
+/// was justified by the old shard-based propagator's cross-thread free
+/// pattern (a term allocated by one thread's `apply_gate_inplace` call,
+/// later freed by a different thread's outbox flush) — real-workload A/B
+/// testing after the SoA rewrite showed mimalloc measurably *slower* than
+/// the system allocator on the numerical propagators, which no longer have
+/// that pattern (columnar buffers grow rarely via amortized doubling; the
+/// hash-based merge's per-batch maps are allocated and dropped by the same
+/// thread). The surrogate propagator still uses the shard-based engine, but
+/// wasn't shown to depend on mimalloc either, and removing a global
+/// allocator override is the simpler default absent evidence it helps.
 use pyo3::prelude::*;
 
 use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};

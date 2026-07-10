@@ -40,8 +40,9 @@ fn planes_of(term: &MajoranaMonomial, stride: usize) -> (Vec<u64>, Vec<u64>) {
 }
 
 /// Materialize the columnar storage into the flat map format the existing
-/// file I/O and `AbstractTerm` machinery already understand, and the seam
-/// the surrogate propagator uses (see `propaq_pauli::termsum::materialize`).
+/// file I/O and `AbstractTerm` machinery already understand (see
+/// `propaq_pauli::termsum::materialize` for why the surrogate propagator no
+/// longer needs this as its bridge).
 pub fn materialize(terms: &SoaTermSum<f64>) -> FxHashMap<MajoranaMonomial, f64> {
     let n = terms.len();
     let mut map = FxHashMap::default();

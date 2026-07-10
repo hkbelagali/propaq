@@ -180,6 +180,89 @@ pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &Reso
     compact(terms, n, total);
 }
 
+/// Mutate every live coefficient in place via `map_fn`, then drop entries
+/// for which `keep` returns `false` — the SoA analogue of the old
+/// hash-partition engine's `map_and_retain_coeffs_inplace`. Used by the
+/// surrogate's truncation pass (trim-then-filter each coefficient in one
+/// traversal, e.g. `trim_high_frequency`/`deduplicate`/`trim_small_scalars`
+/// then a weight + non-empty check). Returns the summed
+/// `CoeffRepr::size_hint()` of the survivors (for the surrogate, the live
+/// monomial count after trimming).
+pub fn map_retain<B: SoaBasis, C: CoeffRepr, F, K>(terms: &mut SoaTermSum<C>, map_fn: F, keep: K) -> usize
+where
+    F: Fn(&mut C) + Sync,
+    K: Fn([&[u64]; 2], &C) -> bool + Sync,
+{
+    let n = terms.len();
+    if n == 0 {
+        return 0;
+    }
+    let stride = terms.stride;
+    terms.ensure_scratch_capacity(n);
+
+    {
+        let SoaTermSum { coeffs, .. } = &mut *terms;
+        if n >= PAR_MIN_LEN {
+            coeffs[..n].par_iter_mut().for_each(|c| map_fn(c));
+        } else {
+            coeffs[..n].iter_mut().for_each(|c| map_fn(c));
+        }
+    }
+
+    {
+        let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
+        let iskept = |i: usize| -> bool {
+            let s = i * stride;
+            let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
+            keep(term, &coeffs[i])
+        };
+        if n >= PAR_MIN_LEN {
+            flags[..n].par_iter_mut().enumerate().for_each(|(i, f)| *f = iskept(i) as u32);
+        } else {
+            for (i, f) in flags[..n].iter_mut().enumerate() { *f = iskept(i) as u32; }
+        }
+    }
+
+    let total = {
+        let SoaTermSum { flags, index, .. } = &mut *terms;
+        prefix_sum(&flags[..n], &mut index[..n])
+    };
+    compact(terms, n, total);
+
+    let survivors = &terms.coeffs[..total];
+    if total >= PAR_MIN_LEN {
+        survivors.par_iter().map(|c| c.size_hint()).sum()
+    } else {
+        survivors.iter().map(|c| c.size_hint()).sum()
+    }
+}
+
+/// Parallel per-coefficient fold across all live terms, merged via
+/// `combine` — the SoA analogue of the old hash-partition engine's
+/// `fold_coeffs`. Used by the surrogate's global frequency histogram and
+/// boundary-scalar collection during monomial-budget truncation.
+pub fn fold_coeffs<C: CoeffRepr, T, ID, F, R>(terms: &SoaTermSum<C>, identity: ID, fold: F, combine: R) -> T
+where
+    T: Send,
+    ID: Fn() -> T + Sync,
+    F: Fn(T, &C) -> T + Sync,
+    R: Fn(T, T) -> T + Sync,
+{
+    let n = terms.len();
+    terms.coeffs[..n].par_iter().fold(&identity, &fold).reduce(&identity, &combine)
+}
+
+/// Parallel sum of a per-coefficient quantity over all live terms — the SoA
+/// analogue of the old hash-partition engine's `sum_coeffs`. Used by the
+/// surrogate to recompute the live monomial count after a lossless merge.
+pub fn sum_coeffs<C: CoeffRepr, F>(terms: &SoaTermSum<C>, f: F) -> usize
+where
+    F: Fn(&C) -> usize + Sync,
+{
+    let n = terms.len();
+    terms.coeffs[..n].par_iter().map(&f).sum()
+}
+
 /// Merge: hash-based duplicate detection and coefficient accumulation,
 /// replacing an earlier sort-then-scan pass entirely (both a plain
 /// `key_cmp` sort and, before that, a radix-bucketed variant — both proved
@@ -605,6 +688,80 @@ mod tests {
         truncate::<TestBasis, f64>(&mut terms, &cfg);
         assert_eq!(terms.len(), 1);
         assert_eq!(values(&terms)[&1], 1e-3);
+    }
+
+    // --- `map_retain` / `fold_coeffs` / `sum_coeffs`: the generic
+    // primitives added for the surrogate's SoA port (they replace the old
+    // hash-partition engine's `map_and_retain_coeffs_inplace`/`fold_coeffs`/
+    // `sum_coeffs`, used by its monomial-budget truncation).
+
+    #[test]
+    fn map_retain_scales_then_filters_and_returns_size_hint_sum() {
+        let mut terms = make(4);
+        terms.push([&[1], &[0]], 1.0); // weight 1
+        terms.push([&[3], &[0]], 2.0); // weight 2
+        terms.push([&[7], &[0]], 3.0); // weight 3
+        // map: double every coefficient; keep: weight <= 2.
+        let total_size = map_retain::<TestBasis, f64, _, _>(
+            &mut terms,
+            |c| *c *= 2.0,
+            |term, _c| TestBasis::weight(term, 4) <= 2,
+        );
+        assert_eq!(terms.len(), 2);
+        assert_eq!(total_size, 2); // f64::size_hint() == 1 per survivor
+        let v = values(&terms);
+        assert_eq!(v[&1], 2.0);
+        assert_eq!(v[&3], 4.0);
+        assert!(!v.contains_key(&7));
+    }
+
+    #[test]
+    fn map_retain_parallel_matches_serial_reference_large() {
+        let n = 20_000usize;
+        let mut terms = make(4);
+        for i in 0..n {
+            terms.push([&[i as u64], &[0]], i as f64);
+        }
+        // map: add 1; keep: value divisible by 3 (arbitrary, exercises both passes at scale).
+        let total_size = map_retain::<TestBasis, f64, _, _>(
+            &mut terms,
+            |c| *c += 1.0,
+            |_term, c| (*c as u64) % 3 == 0,
+        );
+        let v = values(&terms);
+        let expected: std::collections::HashMap<u64, f64> = (0..n as u64)
+            .map(|i| (i, i as f64 + 1.0))
+            .filter(|&(_, c)| (c as u64) % 3 == 0)
+            .collect();
+        assert_eq!(terms.len(), expected.len());
+        assert_eq!(total_size, expected.len());
+        for (&k, &expected_v) in expected.iter() {
+            assert_eq!(v[&k], expected_v, "key {k} mismatch");
+        }
+    }
+
+    #[test]
+    fn fold_coeffs_matches_serial_sum_reference() {
+        let n = 20_000usize;
+        let mut terms = make(4);
+        for i in 0..n {
+            terms.push([&[i as u64], &[0]], i as f64);
+        }
+        let folded = fold_coeffs(&terms, || 0.0f64, |acc, &c| acc + c, |a, b| a + b);
+        let expected: f64 = (0..n as u64).map(|i| i as f64).sum();
+        assert_eq!(folded, expected);
+    }
+
+    #[test]
+    fn sum_coeffs_matches_serial_sum_reference() {
+        let n = 20_000usize;
+        let mut terms = make(4);
+        for i in 0..n {
+            terms.push([&[i as u64], &[0]], i as f64);
+        }
+        let summed = sum_coeffs(&terms, |&c| c as usize);
+        let expected: usize = (0..n).sum();
+        assert_eq!(summed, expected);
     }
 
     #[test]

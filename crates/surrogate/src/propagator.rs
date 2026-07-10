@@ -1,52 +1,67 @@
 ///
-/// impl for the surrogate/symbolic propagator! 
-/// 
-/// This propagator features specific design on top of 
-/// the existing shard-based multithreading. Specifically, 
-/// it employs nested parallelism, to process terms across 
-/// threads, and parallely within each thread.
+/// impl for the surrogate/symbolic propagator!
 ///
-/// The major difference between symbolic and numerical propagator 
-/// is the combinatorial explostion of terms in the symbolic propagator. 
-/// This is because we can merge the same term with different numerical 
-/// coefficients, but naively merging symbolic coefficients is not possible 
-/// because they might consist of different paths. 
+/// This propagator now runs on the same columnar SoA engine as the
+/// numerical propagators (`propaq_core::soa`), rather than the
+/// hash-partition/outbox engine (`propaq_core::propagator::AbstractPropagator`)
+/// it originally shared with them — this crate was the last consumer of
+/// that engine, which has since been retired. Every gate application is a
+/// `soa::kernels::apply_rotation` call over a `SoaTermSum<SymbolicCoeff>`;
+/// merging/truncation reuse `soa::kernels::merge`/new generic `map_retain`/
+/// `fold_coeffs`/`sum_coeffs` primitives instead of the old engine's
+/// per-partition equivalents. None of the symbolic coefficient math below
+/// changed — `SymbolicCoeff`/`Generation`/`SupportTrie`/`ExponentDict`
+/// already did their interning work at flush time (not per-gate), so they
+/// needed no redesign to sit under a columnar container instead of a
+/// sharded hashmap.
 ///
-/// Symbolic coefficients can be compactly represented as 
+/// The major difference between symbolic and numerical propagation
+/// is the combinatorial explosion of terms in the symbolic propagator.
+/// This is because we can merge the same term with different numerical
+/// coefficients, but naively merging symbolic coefficients is not possible
+/// because they might consist of different paths.
+///
+/// Symbolic coefficients can be compactly represented as
 ///             \sum_i c_i \prod_j sin(\theta_j)^{a_j} cos(\theta_j)^{b_j}
-/// 
-/// The coefficients c_i are numerical, and the monomial attributes 
-/// j, a_j and b_j fit into a u32. These are stored in a SoA 
-/// (structure of arrays) format, and coefficients lie in a shared arena. 
 ///
-/// In order to alleviate the combinatorial explosion of distinct paths, 
-/// the monomials are factored into their support (parameters they touch) 
-/// and exponents. This reveals an invariant - the support is always 
-/// an ascending list of parameter indices, and ideally stored as a 
-/// trie. This mitigates the combinatorial explosion of distinct paths, 
-/// and allows for efficient merging. The support is interned into 
-/// the trie, and the exponents are stored in pairs in a separate 
-/// container. Therefore, a global trie is maintained for the entire 
-/// propagation, shared across threads. It is updated at every flush, 
-/// during which the monomials are reconciled into a new generation of the 
-/// trie. This must be done serially, but the subsequent deduplication of 
+/// The coefficients c_i are numerical, and the monomial attributes
+/// j, a_j and b_j fit into a u32. These are stored in a SoA
+/// (structure of arrays) format, and coefficients lie in a shared arena.
+///
+/// In order to alleviate the combinatorial explosion of distinct paths,
+/// the monomials are factored into their support (parameters they touch)
+/// and exponents. This reveals an invariant - the support is always
+/// an ascending list of parameter indices, and ideally stored as a
+/// trie. This mitigates the combinatorial explosion of distinct paths,
+/// and allows for efficient merging. The support is interned into
+/// the trie, and the exponents are stored in pairs in a separate
+/// container. Therefore, a global trie is maintained for the entire
+/// propagation, shared across threads. It is updated at every flush,
+/// during which the monomials are reconciled into a new generation of the
+/// trie. This must be done serially, but the subsequent deduplication of
 /// the coefficients is done in parallel.
 ///
-/// For circuits with primarily numerical parameters and a few symbolic 
-/// parameters, deep-copying the symbolic history of the coefficients 
-/// is wasteful and unnecessary, since the history is unchanged from the 
-/// action of an anticommuting numerical gate. Therefore, the propagator 
+/// For circuits with primarily numerical parameters and a few symbolic
+/// parameters, deep-copying the symbolic history of the coefficients
+/// is wasteful and unnecessary, since the history is unchanged from the
+/// action of an anticommuting numerical gate. Therefore, the propagator
 /// involves a deferred realization scheme, in which the symbolic history
-/// is only realized in memory when a term anticommutes with a symbolic 
+/// is only realized in memory when a term anticommutes with a symbolic
 /// gate. By doing so, the propagator can avoid significant memory overhead.
 ///
 use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
+use std::marker::PhantomData;
+use std::sync::Arc;
 
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 use propaq_core::coeff::CoeffRepr;
-use propaq_core::propagator::AbstractPropagator;
+use propaq_core::logger::Logger;
+use propaq_core::propagator::{close_progress_bar, make_progress_bar, tick_progress_bar};
+use propaq_core::soa::kernels;
+use propaq_core::soa::{SoaBasis, SoaTermSum};
 use propaq_core::traits::AbstractTerm;
 
 use crate::symcoeff::{GateParam, SymbolicCoeff};
@@ -76,35 +91,42 @@ fn resolve_truncation(
     core_resolve_truncation(truncation, schedule)
 }
 
-/// Generic surrogate propagator wrapping `AbstractPropagator<M, SymbolicCoeff>`.
-///
-/// Cannot write `impl<M> AbstractPropagator<M, SymbolicCoeff>` here because
-/// `AbstractPropagator` is a foreign type; instead we wrap and delegate.
-pub struct SurrogatePropagator<M: AbstractTerm> {
-    pub inner: AbstractPropagator<M, SymbolicCoeff>,
+/// Surrogate propagator: drives a `SoaTermSum<SymbolicCoeff>` directly via
+/// `soa::kernels`, generic over the basis (`PauliBasis`/`MajoranaBasis`).
+/// Holds its own thread pool rather than wrapping `AbstractPropagator` — the
+/// same shape as the numerical `SoaPropagator<B>`, plus the surrogate-only
+/// interning/monomial-tracking state.
+pub struct SurrogatePropagator<B: SoaBasis> {
+    pool: Arc<rayon::ThreadPool>,
     /// Flush/merge cadence (when to truncate), separate from the operators.
     pub schedule: FlushSchedule,
     /// The truncation pipeline: operators applied (after the always-on dedup)
     /// at every flush, in list order.
     pub truncators: Vec<Truncator>,
+    progress_bar: bool,
     verbose_log: Option<BufWriter<std::fs::File>>,
     log_filename: Option<String>,
     log_every: usize,
     last_log_instant: Option<std::time::Instant>,
     last_log_gate_idx: usize,
     current_qiskit_gate_idx: Option<usize>,
-    /// Total monomial count across all live coefficients. Like `total_terms`,
-    /// this is only refreshed at flush points (recomputing it every gate would
-    /// require a full O(total_terms) pass, unlike the O(1) term-count read).
+    /// Total monomial count across all live coefficients. Like the live term
+    /// count, this is only refreshed at flush points (recomputing it every
+    /// gate would require a full O(total_terms) pass, unlike the O(1)
+    /// term-count read via `SoaTermSum::len`).
     total_monomials: usize,
     /// The current frozen support/exponent interning generation. Coefficients'
     /// base ids reference it between flushes; `reconcile` advances it (folding
     /// each live coefficient's extension into a fresh generation) at flush
     /// barriers, and it is handed to the compiled model at the end.
     generation: Generation,
+    _marker: PhantomData<B>,
 }
 
-impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
+impl<B: SoaBasis> SurrogatePropagator<B>
+where
+    B::Term: AbstractTerm + for<'py> FromPyObject<'py>,
+{
     pub fn new(
         schedule: FlushSchedule,
         truncators: Vec<Truncator>,
@@ -112,7 +134,15 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         progress_bar: bool,
         logger: Option<PyObject>,
     ) -> PyResult<Self> {
-        use propaq_core::logger::Logger;
+        let mut builder = rayon::ThreadPoolBuilder::new();
+        if let Some(n) = n_threads {
+            builder = builder.num_threads(n);
+        }
+        let pool = Arc::new(
+            builder
+                .build()
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?,
+        );
         let (log_filename, log_every) = match &logger {
             Some(obj) => Python::with_gil(|py| -> PyResult<_> {
                 let lg = obj.bind(py).extract::<PyRef<Logger>>()?;
@@ -120,20 +150,11 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             })?,
             None => (None, 1),
         };
-        // Inner propagator carries no noise; the surrogate manages its own flush
-        // loop (`run_build`), so the inner schedule/truncators are left empty.
-        let inner = AbstractPropagator::new(
-            None,
-            FlushSchedule::none(),
-            Vec::new(),
-            n_threads,
-            progress_bar,
-            logger,
-        )?;
         Ok(SurrogatePropagator {
-            inner,
+            pool,
             schedule,
             truncators,
+            progress_bar,
             verbose_log: None,
             log_filename,
             log_every,
@@ -142,21 +163,25 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             current_qiskit_gate_idx: None,
             total_monomials: 0,
             generation: Generation::new(),
+            _marker: PhantomData,
         })
     }
 
     /// Advance the interning generation: fold every live coefficient's extension
-    /// into a fresh generation, replacing base ids and clearing extensions. 
-    fn reconcile(&mut self) {
+    /// into a fresh generation, replacing base ids and clearing extensions.
+    fn reconcile(&mut self, evolved: &mut SoaTermSum<SymbolicCoeff>) {
         let old = std::mem::take(&mut self.generation);
         let mut new = Generation::new();
+        let n = evolved.len();
         // Serial: interning mutates one shared generation.
-        self.inner.for_each_coeff_mut(|c| c.reconcile_into_deferred(&old, &mut new));
+        for c in &mut evolved.coeffs[..n] {
+            c.reconcile_into_deferred(&old, &mut new);
+        }
         self.generation = new;
         // Parallel: each coefficient's dedup is independent and reads no shared
         // state (it never dereferences the generation), so lift it off the
         // serial interning critical path onto all worker threads.
-        self.inner.par_for_each_coeff_mut(|c| c.deduplicate());
+        self.pool.install(|| evolved.coeffs[..n].par_iter_mut().for_each(|c| c.deduplicate()));
     }
 
     fn open_log(&mut self) -> PyResult<()> {
@@ -175,29 +200,31 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
 
     fn flush_and_maybe_truncate(
         &mut self,
+        evolved: &mut SoaTermSum<SymbolicCoeff>,
         gate_idx: usize,
         layer_idx: usize,
         trigger: &str,
     ) {
         let t0 = std::time::Instant::now();
+        let pool = Arc::clone(&self.pool);
 
-        self.inner.flush_outboxes_to_maps();
+        pool.install(|| kernels::merge::<B, SymbolicCoeff>(evolved));
         // Only needed for the verbose log line below; skip the O(total_terms)
         // pass entirely when logging is off.
         let monomials_before = if self.verbose_log.is_some() {
-            self.inner.sum_coeffs(|c| c.monomial_count())
+            pool.install(|| kernels::sum_coeffs(evolved, |c| c.monomial_count()))
         } else {
             0
         };
 
         let cfg = resolve_config(&self.truncators);
-        let outcome = apply_truncation_policy(&mut self.inner, &cfg);
+        let outcome = pool.install(|| apply_truncation_policy::<B>(evolved, &cfg));
         self.total_monomials = outcome.monomials_after;
 
         // Compact the survivors: fold their extensions into a fresh interning
         // generation. Runs after truncation so only surviving structure is
         // re-interned (dead nodes are dropped with the old generation).
-        self.reconcile();
+        self.reconcile(evolved);
 
         if self.verbose_log.is_some() {
             let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -223,18 +250,19 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
 
     /// Run surrogate propagation and return the compiled model.
     ///
-    /// `evolved` is the observable map (contains the initial coefficients);
+    /// `evolved` is the observable's `SoaTermSum<SymbolicCoeff>` (seeded from
+    /// the numerical observable via `SoaTermSum::map_coeffs` by the caller);
     /// `circuit` is a `SurrogatePauliCircuit` / `SurrogateMajoranaCircuit` Python object;
     /// `initial_state` is the Fock state for structural filtering;
     /// `n_params` is the total parameter count (determines lut size at evaluate time).
     pub fn run_build(
         &mut self,
         py: Python<'_>,
-        evolved: &propaq_core::termsum::AbstractTermSum<M>,
+        evolved: &mut SoaTermSum<SymbolicCoeff>,
         circuit: &Bound<'_, PyAny>,
         initial_state: u64,
         n_params: usize,
-    ) -> PyResult<SurrogateModel<M>> {
+    ) -> PyResult<SurrogateModel<B::Term>> {
         self.open_log()?;
         // Fresh interning generation for this build (the previous build's was
         // moved into its model, but reset defensively in case one errored out).
@@ -260,16 +288,22 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
             None
         };
 
+        let n_units = evolved.n_units;
+        let stride = evolved.stride;
+
         // Extract circuit data from Python: each rotation is either
         // symbolic (`param_index`) or numeric (`angle`), see `GateParam`.
+        // The generator's plane words are extracted once here (rather than
+        // re-extracting the Python object every gate application), same as
+        // the numerical `SoaPropagator`.
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
 
-        let circuit_data: Vec<Vec<(M, GateParam, bool, Option<usize>)>> = layers
+        let circuit_data: Vec<Vec<(Vec<u64>, Vec<u64>, GateParam, bool, Option<usize>)>> = layers
             .iter()
             .map(|layer| {
-                layer.iter().map(|rot_obj| -> PyResult<(M, GateParam, bool, Option<usize>)> {
+                layer.iter().map(|rot_obj| -> PyResult<_> {
                     let rot = rot_obj.bind(py);
-                    let generator: M = rot.getattr("generator")?.extract()?;
+                    let generator: B::Term = rot.getattr("generator")?.extract()?;
                     // Inject the look-ahead cap into symbolic params
                     let param = match SymbolicCoeff::extract_gate_param(rot)? {
                         GateParam::Symbolic { param, .. } => {
@@ -283,7 +317,10 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                         .ok()
                         .and_then(|v| v.extract::<Option<usize>>().ok())
                         .flatten();
-                    Ok((generator, param, is_intermediate, qiskit_gate_idx))
+                    let mut gen0 = vec![0u64; stride];
+                    let mut gen1 = vec![0u64; stride];
+                    B::term_into_planes(&generator, n_units, [&mut gen0, &mut gen1]);
+                    Ok((gen0, gen1, param, is_intermediate, qiskit_gate_idx))
                 }).collect::<PyResult<_>>()
             })
             .collect::<PyResult<_>>()?;
@@ -294,12 +331,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         // accumulates into a trig power at build time; see `SymbolicCoeff`).
         let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
 
-        // Uniform noise support only (symbolic coefficients can carry damping as scalar).
-        let damping = self.inner.uniform_damping(py);
-
-        let (pbar, postfix) = self.inner.make_progress_bar(py, total_rotations)?;
-
-        self.inner.initialize_from(evolved);
+        let (pbar, postfix) = make_progress_bar(py, self.progress_bar, total_rotations)?;
 
         // Flush triggers from the budgets; merge cadence from the schedule.
         let max_terms: Option<usize> = cfg.max_terms;
@@ -310,16 +342,30 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
         let mut pending: usize = 0;
         let mut pending_monomials: usize = 0;
         let mut deferred_threshold_trigger: Option<&'static str> = None;
+        // Deduplicated count as of the last merge, for the gate log's
+        // `map_terms`/`outbox_terms` split (mirrors the numerical `SoaPropagator`
+        // — there's no physical partition/outbox distinction in a flat SoA
+        // array, only "merged" vs "appended since the last merge").
+        let mut merged_len = evolved.len();
 
+        let pool = Arc::clone(&self.pool);
         for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
-            // Apply uniform noise before the layer (mirrors numerical propagator order).
-            if let Some(d) = damping {
-                py.allow_threads(|| self.inner.apply_uniform_noise_inplace(d));
-            }
+            // Note: no per-layer noise here. The old engine's
+            // `self.inner.uniform_damping(py)` always saw `noise: None` for the
+            // surrogate propagator (neither `PauliSurrogatePropagator` nor
+            // `MajoranaSurrogatePropagator` ever exposed a way to set it — no
+            // `noise`/`set_noise` on either pyclass), so that branch was
+            // unreachable dead code; removed rather than carried forward.
 
             let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
-            for (idx, (generator, param, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
-                let (added, added_monomials) = py.allow_threads(|| self.inner.apply_gate_inplace(generator, *param));
+            for (idx, (gen0, gen1, param, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
+                let gen = [gen0.as_slice(), gen1.as_slice()];
+                let before = evolved.len();
+                let added = py.allow_threads(|| {
+                    pool.install(|| kernels::apply_rotation::<B, SymbolicCoeff>(evolved, gen, param, false))
+                });
+                let added_monomials: usize =
+                    evolved.coeffs[before..before + added].iter().map(|c| c.size_hint()).sum();
                 pending += added;
                 pending_monomials += added_monomials;
 
@@ -336,8 +382,7 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     };
                     self.last_log_instant = Some(now);
                     self.last_log_gate_idx = gate_idx;
-                    let outbox_terms = self.inner.n_outbox_terms();
-                    let map_terms = self.inner.total_terms();
+                    let outbox_terms = evolved.len() - merged_len;
                     // Live count: the last-flush total plus monomials added since
                     // (both O(1) reads, no O(total_terms) pass). `pending_monomials`
                     // survives a lossless merge, so this stays accurate between
@@ -350,13 +395,13 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     if let Some(ref mut log) = self.verbose_log {
                         let _ = writeln!(
                             log,
-                            r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"map_terms":{map_terms},"outbox_terms":{outbox_terms},"monomials":{monomials},"avg_ms_per_gate":{avg_ms_str}}}"#
+                            r#"{{"event":"gate","gate_idx":{gate_idx},"layer_idx":{layer_idx},"qiskit_gate_idx":{qki},"map_terms":{merged_len},"outbox_terms":{outbox_terms},"monomials":{monomials},"avg_ms_per_gate":{avg_ms_str}}}"#
                         );
                     }
                 }
 
-                let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, ni, _)| *ni);
-                let terms_trigger = max_terms.map_or(false, |max| self.inner.total_terms() + pending >= max);
+                let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, _, ni, _)| *ni);
+                let terms_trigger = max_terms.map_or(false, |max| evolved.len() >= max);
                 // Term count is a poor proxy for a symbolic coefficient's actual
                 // size: a handful of terms can carry the overwhelming majority
                 // of monomials while term count barely moves. Watch monomial
@@ -375,14 +420,15 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 let pending_trigger = deferred_threshold_trigger.or(threshold_trigger);
                 if let Some(trigger) = pending_trigger {
                     if !next_is_intermediate {
-                        py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, layer_idx, trigger));
+                        py.allow_threads(|| self.flush_and_maybe_truncate(evolved, gate_idx, layer_idx, trigger));
                         pending = 0;
                         pending_monomials = 0;
                         deferred_threshold_trigger = None;
+                        merged_len = evolved.len();
                     } else if threshold_trigger.is_some() && deferred_threshold_trigger.is_none() {
                         deferred_threshold_trigger = Some(trigger);
                         if self.verbose_log.is_some() {
-                            let live_terms = self.inner.total_terms() + pending;
+                            let live_terms = evolved.len();
                             let live_monomials = self.total_monomials + pending_monomials;
                             let qki = self
                                 .current_qiskit_gate_idx
@@ -398,14 +444,16 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                 } else if !next_is_intermediate
                     && merge_max_terms.map_or(false, |m| pending >= m)
                 {
-                    let terms_before = self.inner.total_terms() + pending;
-                    py.allow_threads(|| self.inner.flush_outboxes_to_maps());
+                    let terms_before = evolved.len();
+                    py.allow_threads(|| pool.install(|| kernels::merge::<B, SymbolicCoeff>(evolved)));
                     pending = 0;
-                    self.total_monomials =
-                        py.allow_threads(|| self.inner.sum_coeffs(|c| c.monomial_count()));
+                    self.total_monomials = py.allow_threads(|| {
+                        pool.install(|| kernels::sum_coeffs(evolved, |c| c.monomial_count()))
+                    });
                     pending_monomials = 0;
+                    merged_len = evolved.len();
                     if self.verbose_log.is_some() {
-                        let terms_after = self.inner.total_terms();
+                        let terms_after = evolved.len();
                         let monomials_after = self.total_monomials;
                         let qki = self
                             .current_qiskit_gate_idx
@@ -423,34 +471,34 @@ impl<M: AbstractTerm + for<'py> FromPyObject<'py>> SurrogatePropagator<M> {
                     // Live count: last-flush total plus monomials added since (O(1) reads).
                     pf.bind(py).set_item("monomials", self.total_monomials + pending_monomials)?;
                 }
-                AbstractPropagator::<M, SymbolicCoeff>::tick_progress_bar(
-                    py, &pbar, &postfix, self.inner.total_terms(),
-                )?;
+                tick_progress_bar(py, &pbar, &postfix, evolved.len())?;
                 gate_idx += 1;
             }
         }
 
-        AbstractPropagator::<M, SymbolicCoeff>::close_progress_bar(py, &pbar)?;
+        close_progress_bar(py, &pbar)?;
 
-        py.allow_threads(|| self.flush_and_maybe_truncate(gate_idx, circuit_data.len(), "final"));
+        py.allow_threads(|| self.flush_and_maybe_truncate(evolved, gate_idx, circuit_data.len(), "final"));
 
         if let Some(ref mut log) = self.verbose_log {
             let _ = log.flush();
         }
 
-        // Compile: collect terms with nonzero structural overlap. Drains
-        // `self.inner`'s partition maps rather than cloning out of them.
-        // `self.inner` is re-initialized from scratch on the next `build()`
-        // call, so nothing is lost by moving instead of copying here.
-        let raw: Vec<SurrogateTerm<M>> = self.inner.drain_collect_terms(|term, mut coeff| {
-            let overlap = term.trace_with_fock_state(initial_state);
+        // Compile: collect terms with nonzero structural overlap, reading
+        // straight out of the final SoA columns (no hashmap drain — the
+        // container is already flat).
+        let n = evolved.len();
+        let mut raw: Vec<SurrogateTerm<B::Term>> = Vec::new();
+        for i in 0..n {
+            let overlap = B::trace(evolved.term_planes(i), evolved.n_units, initial_state);
             if overlap.abs() > 1e-15 {
+                // Take rather than clone: `evolved` isn't reused after this build.
+                let mut coeff = std::mem::take(&mut evolved.coeffs[i]);
                 coeff.deduplicate();
-                Some(SurrogateTerm { term, overlap, coeff })
-            } else {
-                None
+                let term = B::term_from_planes(evolved.term_planes(i), evolved.n_units);
+                raw.push(SurrogateTerm { term, overlap, coeff });
             }
-        });
+        }
 
         // The final `flush_and_maybe_truncate("final")` above reconciled the
         // survivors, so every coefficient's base ids reference `self.generation`.
@@ -510,20 +558,22 @@ fn boundary_from_histogram(hist: &[u64], budget: usize) -> (usize, usize) {
     (0, 0)
 }
 
-/// Run the truncation pipeline against `propagator`'s current live state.
-pub fn apply_truncation_policy<M: AbstractTerm>(
-    propagator: &mut AbstractPropagator<M, SymbolicCoeff>,
+/// Run the truncation pipeline against `evolved`'s current live state.
+pub fn apply_truncation_policy<B: SoaBasis>(
+    evolved: &mut SoaTermSum<SymbolicCoeff>,
     cfg: &ResolvedConfig,
 ) -> TruncationOutcome {
-    let total_before = propagator.total_terms();
+    let total_before = evolved.len();
     let min_terms = cfg.min_terms.unwrap_or(0);
+    let n_units = evolved.n_units;
 
     // Deferred like the numerical propagator: below min_terms, skip the lossy
     // filters and only run the lossless dedup.
     let apply_lossy = total_before >= min_terms;
 
-    let mut monomials_after = propagator.map_and_retain_coeffs_inplace(
-        |_, c: &mut SymbolicCoeff| {
+    let mut monomials_after = kernels::map_retain::<B, SymbolicCoeff, _, _>(
+        evolved,
+        |c: &mut SymbolicCoeff| {
             if apply_lossy {
                 if let Some(mf) = cfg.frequency {
                     c.trim_high_frequency(mf);
@@ -536,8 +586,8 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
                 }
             }
         },
-        |t: &M, c: &SymbolicCoeff| {
-            let weight_ok = !apply_lossy || cfg.weight.map_or(true, |w| t.weight() <= w);
+        |term: [&[u64]; 2], c: &SymbolicCoeff| {
+            let weight_ok = !apply_lossy || cfg.weight.map_or(true, |w| B::weight(term, n_units) <= w);
             weight_ok && !c.is_empty()
         },
     );
@@ -552,9 +602,9 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
             if budget > 0 {
                 // 1. Global frequency histogram in one parallel fold. Frequency
                 //    is a small bounded int, so a per-worker `Vec<u64>` keyed by
-                //    frequency is cheap and exact; the per-coefficient scan is
-                //    serial per coeff but the fold spreads coeffs across workers.
-                let hist: Vec<u64> = propagator.fold_coeffs(
+                //    frequency is cheap and exact.
+                let hist: Vec<u64> = kernels::fold_coeffs(
+                    evolved,
                     Vec::new,
                     |mut h, c: &SymbolicCoeff| {
                         c.add_freq_histogram(&mut h);
@@ -577,7 +627,8 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
                 let (s_star, tie_budget) = if remove_in_boundary == 0 || full_bucket {
                     (f64::INFINITY, 0usize)
                 } else {
-                    let mut scalars: Vec<f64> = propagator.fold_coeffs(
+                    let mut scalars: Vec<f64> = kernels::fold_coeffs(
+                        evolved,
                         Vec::new,
                         |mut v, c: &SymbolicCoeff| {
                             c.collect_boundary_scalars(f_star, &mut v);
@@ -595,21 +646,20 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
                     (s, k.saturating_sub(n_below))
                 };
 
-                // 4. One importance-ranked removal pass. Per-entry parallelism in
-                //    `map_and_retain_coeffs_inplace` keeps a giant coefficient
-                //    from stalling its partition.
+                // 4. One importance-ranked removal pass.
                 let tie_remaining = std::sync::atomic::AtomicUsize::new(tie_budget);
-                monomials_after = propagator.map_and_retain_coeffs_inplace(
-                    |_, c: &mut SymbolicCoeff| {
+                monomials_after = kernels::map_retain::<B, SymbolicCoeff, _, _>(
+                    evolved,
+                    |c: &mut SymbolicCoeff| {
                         c.remove_by_rank_budgeted(f_star, s_star, &tie_remaining);
                     },
-                    |_, c: &SymbolicCoeff| !c.is_empty(),
+                    |_term, c: &SymbolicCoeff| !c.is_empty(),
                 );
             }
         }
     }
 
-    let total_after = propagator.total_terms();
+    let total_after = evolved.len();
     TruncationOutcome {
         total_before,
         total_after,
@@ -620,9 +670,9 @@ pub fn apply_truncation_policy<M: AbstractTerm>(
     }
 }
 
-use propaq_pauli::string::PauliString;
+use propaq_pauli::string::PauliBasis;
 use propaq_pauli::termsum::PauliTermSum;
-use propaq_majorana::monomial::MajoranaMonomial;
+use propaq_majorana::monomial::MajoranaBasis;
 use propaq_majorana::termsum::MajoranaTermSum;
 
 /// Back-propagates Pauli observables symbolically, producing a compiled model
@@ -642,7 +692,7 @@ use propaq_majorana::termsum::MajoranaTermSum;
 ///     logger: Optional Logger for verbose JSON Lines event logging.
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliSurrogatePropagator {
-    inner: SurrogatePropagator<PauliString>,
+    inner: SurrogatePropagator<PauliBasis>,
 }
 
 #[pymethods]
@@ -677,16 +727,8 @@ impl PauliSurrogatePropagator {
         initial_state: u64,
     ) -> PyResult<PauliSurrogateModel> {
         let n_params: usize = circuit.getattr("n_params")?.extract()?;
-        // TODO(soa): the surrogate engine still runs on the hash-based
-        // `AbstractPropagator<M, SymbolicCoeff>` (see `SurrogatePropagator`
-        // above); only the numerical propagators moved onto `SoaTermSum` in
-        // this pass. Materializing the observable here is the seam where a
-        // future surrogate SoA port would instead pass `observable.inner`
-        // (a `SoaTermSum<f64>`) straight through.
-        let evolved = propaq_core::termsum::AbstractTermSum {
-            terms: propaq_pauli::termsum::materialize(&observable.inner),
-        };
-        let model = self.inner.run_build(py, &evolved, circuit, initial_state, n_params)?;
+        let mut evolved = observable.inner.map_coeffs(|c| SymbolicCoeff::from_real(*c));
+        let model = self.inner.run_build(py, &mut evolved, circuit, initial_state, n_params)?;
         Ok(PauliSurrogateModel { inner: model })
     }
 
@@ -722,7 +764,7 @@ impl PauliSurrogatePropagator {
 /// Back-propagates Majorana observables symbolically.
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaSurrogatePropagator {
-    inner: SurrogatePropagator<MajoranaMonomial>,
+    inner: SurrogatePropagator<MajoranaBasis>,
 }
 
 #[pymethods]
@@ -751,11 +793,8 @@ impl MajoranaSurrogatePropagator {
         initial_state: u64,
     ) -> PyResult<MajoranaSurrogateModel> {
         let n_params: usize = circuit.getattr("n_params")?.extract()?;
-        // TODO(soa): see the matching comment in `PauliSurrogatePropagator::build`.
-        let evolved = propaq_core::termsum::AbstractTermSum {
-            terms: propaq_majorana::termsum::materialize(&observable.inner),
-        };
-        let model = self.inner.run_build(py, &evolved, circuit, initial_state, n_params)?;
+        let mut evolved = observable.inner.map_coeffs(|c| SymbolicCoeff::from_real(*c));
+        let model = self.inner.run_build(py, &mut evolved, circuit, initial_state, n_params)?;
         Ok(MajoranaSurrogateModel { inner: model })
     }
 
@@ -853,14 +892,14 @@ mod monomial_removal_budget_tests {
 #[cfg(test)]
 mod numeric_history_dedup_tests {
     use super::*;
-    use propaq_core::bitset::Bitset;
-    use propaq_core::termsum::AbstractTermSum;
+    use propaq_core::soa::SoaTermSum;
 
-    fn pauli(x: u64, z: u64, n_qubits: usize) -> PauliString {
-        let xb = Bitset::from_le_bytes(&x.to_le_bytes());
-        let zb = Bitset::from_le_bytes(&z.to_le_bytes());
-        let weight = (&xb | &zb).count_ones();
-        PauliString { x: xb, z: zb, n_qubits, weight }
+    fn planes_of(x: u64, z: u64, stride: usize) -> (Vec<u64>, Vec<u64>) {
+        let mut gx = vec![0u64; stride];
+        let mut gz = vec![0u64; stride];
+        gx[0] = x;
+        gz[0] = z;
+        (gx, gz)
     }
 
     /// A purely-numeric gate history produces only empty-mask monomials, so the
@@ -874,14 +913,11 @@ mod numeric_history_dedup_tests {
     #[test]
     fn numeric_gates_keep_live_monomials_bounded_by_term_count() {
         const N_QUBITS: usize = 8;
-        let mut prop: AbstractPropagator<PauliString, SymbolicCoeff> =
-            AbstractPropagator::new(None, FlushSchedule::none(), Vec::new(), Some(4), false, None)
-                .expect("propagator construction");
+        let mut evolved: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
 
         // Seed a single weight-1 Z on qubit 0.
-        let mut seed = AbstractTermSum::new();
-        seed.add(pauli(0, 1, N_QUBITS), 1.0);
-        prop.initialize_from(&seed);
+        let (gx, gz) = planes_of(0, 1, 1);
+        evolved.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
 
         // Brick-wall of two-qubit generators, all with *numeric* angles, with a
         // lossless merge every few gates (mirrors `merge_max_terms` firing).
@@ -892,17 +928,22 @@ mod numeric_history_dedup_tests {
             for q in (offset..N_QUBITS - 1).step_by(2) {
                 // A weight-2 generator that anticommutes with Z-type terms on
                 // these qubits (X components), so branches are actually created.
-                let generator = pauli((1 << q) | (1 << (q + 1)), 0, N_QUBITS);
+                let (genx, genz) = planes_of((1 << q) | (1 << (q + 1)), 0, 1);
                 let angle = 0.3 + 0.1 * gate_idx as f64;
-                prop.apply_gate_inplace(&generator, GateParam::Numeric { angle });
+                kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
+                    &mut evolved,
+                    [&genx, &genz],
+                    &GateParam::Numeric { angle },
+                    false,
+                );
                 gate_idx += 1;
             }
-            prop.flush_outboxes_to_maps();
+            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut evolved);
 
             // After a merge, every coefficient is deduplicated; with only empty
             // masks in play, that is at most one monomial per live term.
-            let live_terms = prop.total_terms();
-            let live_monomials = prop.sum_coeffs(|c| c.monomial_count());
+            let live_terms = evolved.len();
+            let live_monomials = kernels::sum_coeffs(&evolved, |c| c.monomial_count());
             peak_live_monomials = peak_live_monomials.max(live_monomials);
             assert!(
                 live_monomials <= live_terms,
@@ -920,27 +961,24 @@ mod numeric_history_dedup_tests {
 #[cfg(test)]
 mod shared_parameter_dedup_tests {
     use super::*;
-    use propaq_core::bitset::Bitset;
-    use propaq_core::termsum::AbstractTermSum;
+    use propaq_core::soa::SoaTermSum;
 
-    fn pauli(x: u64, z: u64, n_qubits: usize) -> PauliString {
-        let xb = Bitset::from_le_bytes(&x.to_le_bytes());
-        let zb = Bitset::from_le_bytes(&z.to_le_bytes());
-        let weight = (&xb | &zb).count_ones();
-        PauliString { x: xb, z: zb, n_qubits, weight }
+    fn planes_of(x: u64, z: u64, stride: usize) -> (Vec<u64>, Vec<u64>) {
+        let mut gx = vec![0u64; stride];
+        let mut gz = vec![0u64; stride];
+        gx[0] = x;
+        gz[0] = z;
+        (gx, gz)
     }
 
     #[test]
     fn symbolic_gates_on_few_shared_parameters_keep_monomials_polynomial_not_exponential() {
         const N_QUBITS: usize = 8;
         const N_PARAMS: usize = 3;
-        let mut prop: AbstractPropagator<PauliString, SymbolicCoeff> =
-            AbstractPropagator::new(None, FlushSchedule::none(), Vec::new(), Some(4), false, None)
-                .expect("propagator construction");
+        let mut evolved: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
 
-        let mut seed = AbstractTermSum::new();
-        seed.add(pauli(0, 1, N_QUBITS), 1.0);
-        prop.initialize_from(&seed);
+        let (gx, gz) = planes_of(0, 1, 1);
+        evolved.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
 
         // Brick-wall of two-qubit generators, all *symbolic*, cycling through
         // only `N_PARAMS` distinct parameter indices every parameter is
@@ -951,19 +989,21 @@ mod shared_parameter_dedup_tests {
         for round in 0..30 {
             let offset = round % 2;
             for q in (offset..N_QUBITS - 1).step_by(2) {
-                let generator = pauli((1 << q) | (1 << (q + 1)), 0, N_QUBITS);
+                let (genx, genz) = planes_of((1 << q) | (1 << (q + 1)), 0, 1);
                 let param = gate_idx as usize % N_PARAMS;
-                prop.apply_gate_inplace(
-                    &generator,
-                    GateParam::Symbolic { param: param as u32, prune_freq: None },
+                kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
+                    &mut evolved,
+                    [&genx, &genz],
+                    &GateParam::Symbolic { param: param as u32, prune_freq: None },
+                    false,
                 );
                 param_counts[param] += 1;
                 gate_idx += 1;
             }
-            prop.flush_outboxes_to_maps();
+            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut evolved);
 
-            let live_terms = prop.total_terms();
-            let live_monomials = prop.sum_coeffs(|c| c.monomial_count());
+            let live_terms = evolved.len();
+            let live_monomials = kernels::sum_coeffs(&evolved, |c| c.monomial_count());
             peak_live_monomials = peak_live_monomials.max(live_monomials);
 
             let max_monomials_per_term: usize = param_counts.iter().map(|&k| k + 1).product();

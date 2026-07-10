@@ -4,33 +4,34 @@
 //! parallel evaluation, and the fused flush/truncation pass. Run with
 //! `cargo bench -p propaq-surrogate`.
 //!
-//! `SymbolicCoeff`'s monomial storage is crate-private by design, so all
-//! coefficient data here is built through the public
-//! `SymbolicCoeff`/`CoeffRepr` API rather than constructed directly.
+//! Like the numerical propagators, gate application here runs through
+//! `propaq_core::soa::kernels` over a `SoaTermSum<SymbolicCoeff>` rather than
+//! the old `AbstractPropagator<M, SymbolicCoeff>` hash-partition engine (which
+//! has been retired). `SymbolicCoeff`'s monomial storage is still
+//! crate-private by design, so all coefficient data here is built through the
+//! public `SymbolicCoeff`/`CoeffRepr` API rather than constructed directly.
 //! `apply_rotation` is what real propagation uses to grow coefficients, so
 //! building benchmark inputs the same way keeps them representative instead
 //! of synthetic.
 //!
-//! Threshold sweeps: the parallel-split thresholds are read once from the
-//! environment (cached in a `LazyLock`), so sweep a value by running a fresh
-//! process per setting, e.g.
+//! Threshold sweep: `SymbolicCoeff::evaluate`'s parallel-split threshold is
+//! read once from the environment (cached in a `LazyLock`), so sweep it by
+//! running a fresh process per setting, e.g.
 //!   `PROPAQ_EVALUATE_PAR_MIN_LEN=8192 cargo bench -p propaq-surrogate -- \
 //!      "SymbolicCoeff/evaluate"`
-//! and compare the boundary-size rows (`.../4096`, `.../65536`). The
-//! `apply_gate_inplace` gate threshold (`PROPAQ_GATE_PAR_MIN_LEN`) and the
-//! finer merge cadence (`--merge-max-terms` in `bin/cluster_bench`) are swept
-//! the same way; the current defaults record the machine/workload they were
-//! chosen on in their respective doc comments.
+//! and compare the boundary-size rows (`.../4096`, `.../65536`). Gate
+//! application here goes through `soa::kernels::apply_rotation`, whose
+//! parallel-split threshold (`PAR_MIN_LEN`) is a fixed constant, not
+//! env-overridable — it's shared with every other kernel, not surrogate-only.
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use num_complex::Complex64;
 
-use propaq_core::bitset::Bitset;
 use propaq_core::coeff::CoeffRepr;
-use propaq_core::propagator::AbstractPropagator;
-use propaq_core::termsum::AbstractTermSum;
-use propaq_core::traits::AbstractTerm;
-use propaq_pauli::string::PauliString;
+use propaq_core::soa::kernels;
+use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_pauli::string::{PauliBasis, PauliString};
+use propaq_surrogate::interning::Generation;
 use propaq_surrogate::symcoeff::{GateParam, SymbolicCoeff};
 
 /// Small, dependency-free xorshift PRNG. Benchmarks need varied-but-deterministic
@@ -47,23 +48,24 @@ impl Xorshift64 {
     }
 }
 
-fn make_pauli(x: u64, z: u64, n_qubits: usize) -> PauliString {
-    let xb = Bitset::from_le_bytes(&x.to_le_bytes());
-    let zb = Bitset::from_le_bytes(&z.to_le_bytes());
-    let weight = (&xb | &zb).count_ones();
-    PauliString { x: xb, z: zb, n_qubits, weight }
-}
+const N_QUBITS: usize = 32;
+const N_TERMS: usize = 4096;
+const N_GATES_TIMED: usize = 12;
+// 32 qubits fits in one stride word; kept as a named constant rather than
+// `PauliBasis::stride_words(N_QUBITS)` since every helper below builds
+// single-word plane arrays directly.
+const STRIDE: usize = 1;
 
 /// `n_terms` distinct Pauli strings spread pseudo-randomly across `n_qubits`,
-/// each seeded with a nonzero real coefficient.
-fn build_termsum(n_terms: usize, n_qubits: usize, seed: u64) -> AbstractTermSum<PauliString> {
+/// each seeded with a nonzero real coefficient, promoted to `SymbolicCoeff`.
+fn build_termsum(n_terms: usize, n_qubits: usize, seed: u64) -> SoaTermSum<SymbolicCoeff> {
     let mut rng = Xorshift64(seed | 1);
     let mask = if n_qubits >= 64 { u64::MAX } else { (1u64 << n_qubits) - 1 };
-    let mut ts = AbstractTermSum::new();
+    let mut ts = SoaTermSum::new(n_qubits, STRIDE);
     for i in 0..n_terms {
-        let x = rng.next() & mask;
-        let z = rng.next() & mask;
-        ts.add(make_pauli(x, z, n_qubits), 1.0 / (i + 1) as f64);
+        let x = [rng.next() & mask];
+        let z = [rng.next() & mask];
+        ts.push([&x, &z], SymbolicCoeff::from_real(1.0 / (i + 1) as f64));
     }
     ts
 }
@@ -71,47 +73,44 @@ fn build_termsum(n_terms: usize, n_qubits: usize, seed: u64) -> AbstractTermSum<
 /// A pseudo-random generator confined to the low `band_qubits` qubits, used
 /// to organically grow a narrow subset of terms' coefficients without
 /// reaching into propagator-internal state (which is intentionally private).
-fn banded_generator(rng: &mut Xorshift64, n_qubits: usize, band_qubits: usize) -> PauliString {
+fn banded_generator(rng: &mut Xorshift64, band_qubits: usize) -> ([u64; 1], [u64; 1]) {
     let band_mask = (1u64 << band_qubits) - 1;
-    make_pauli(rng.next() & band_mask, rng.next() & band_mask, n_qubits)
+    ([rng.next() & band_mask], [rng.next() & band_mask])
 }
 
-fn broad_generator(rng: &mut Xorshift64, n_qubits: usize) -> PauliString {
+fn broad_generator(rng: &mut Xorshift64, n_qubits: usize) -> ([u64; 1], [u64; 1]) {
     let mask = if n_qubits >= 64 { u64::MAX } else { (1u64 << n_qubits) - 1 };
-    make_pauli(rng.next() & mask, rng.next() & mask, n_qubits)
-}
-
-const N_QUBITS: usize = 32;
-const N_TERMS: usize = 4096;
-const N_GATES_TIMED: usize = 12;
-
-fn new_propagator() -> AbstractPropagator<PauliString, SymbolicCoeff> {
-    AbstractPropagator::new(None, None, None, false, None).expect("propagator construction")
+    ([rng.next() & mask], [rng.next() & mask])
 }
 
 /// Compares gate-application cost when live coefficients carry roughly equal
-/// weight across partitions vs. when a narrow subset of terms carries
-/// disproportionately many monomials, the scenario sub-partition work
-/// distribution (rather than partition-only parallelism) is meant to handle.
-/// A regression in that distribution shows up as the skewed variant falling
-/// far behind balanced, rather than scaling with total live work.
+/// weight across the term set vs. when a narrow subset of terms carries
+/// disproportionately many monomials, the scenario `apply_rotation`'s
+/// per-row work distribution (rather than uniform term-count parallelism) is
+/// meant to handle. A regression in that distribution shows up as the skewed
+/// variant falling far behind balanced, rather than scaling with total live
+/// work.
 fn bench_apply_gate_inplace(c: &mut Criterion) {
-    let mut group = c.benchmark_group("SurrogatePropagator/apply_gate_inplace");
+    let mut group = c.benchmark_group("SoaTermSum/apply_rotation_surrogate");
 
     group.bench_function("balanced", |bench| {
         bench.iter_batched(
             || {
-                let mut prop = new_propagator();
-                prop.initialize_from(&build_termsum(N_TERMS, N_QUBITS, 0xC0FFEE));
+                let ts = build_termsum(N_TERMS, N_QUBITS, 0xC0FFEE);
                 let rng = Xorshift64(0xBADF00D);
-                (prop, rng)
+                (ts, rng)
             },
-            |(mut prop, mut rng)| {
+            |(mut ts, mut rng)| {
                 for i in 0..N_GATES_TIMED {
-                    let gen = broad_generator(&mut rng, N_QUBITS);
-                    black_box(prop.apply_gate_inplace(black_box(&gen), GateParam::symbolic(i as u32)));
+                    let (gx, gz) = broad_generator(&mut rng, N_QUBITS);
+                    black_box(kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
+                        black_box(&mut ts),
+                        [&gx, &gz],
+                        &GateParam::symbolic(i as u32),
+                        false,
+                    ));
                 }
-                black_box(prop.total_terms())
+                black_box(ts.len())
             },
             BatchSize::LargeInput,
         )
@@ -120,28 +119,37 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
     group.bench_function("skewed", |bench| {
         bench.iter_batched(
             || {
-                let mut prop = new_propagator();
-                prop.initialize_from(&build_termsum(N_TERMS, N_QUBITS, 0xC0FFEE));
+                let mut ts = build_termsum(N_TERMS, N_QUBITS, 0xC0FFEE);
                 let mut rng = Xorshift64(0xBADF00D);
                 // Grow only the terms overlapping a narrow qubit band before
-                // timing starts, so a handful of terms enter the timed
-                // region carrying far more monomials than the rest, while
-                // every other term is untouched by this burst and stays at
-                // its seed size. Left un-flushed deliberately: outbox items
-                // are reprocessed by `apply_gate_inplace` on every
-                // subsequent gate exactly like thread_map entries are.
+                // timing starts, so a handful of terms enter the timed region
+                // carrying far more monomials than the rest, while every
+                // other term is untouched by this burst and stays at its seed
+                // size. Left un-merged deliberately: the appended rows are
+                // reprocessed by `apply_rotation` on every subsequent gate
+                // exactly like any other live row.
                 for i in 0..8u32 {
-                    let gen = banded_generator(&mut rng, N_QUBITS, 4);
-                    prop.apply_gate_inplace(&gen, GateParam::symbolic(1_000 + i));
+                    let (gx, gz) = banded_generator(&mut rng, 4);
+                    kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
+                        &mut ts,
+                        [&gx, &gz],
+                        &GateParam::symbolic(1_000 + i),
+                        false,
+                    );
                 }
-                (prop, rng)
+                (ts, rng)
             },
-            |(mut prop, mut rng)| {
+            |(mut ts, mut rng)| {
                 for i in 0..N_GATES_TIMED {
-                    let gen = broad_generator(&mut rng, N_QUBITS);
-                    black_box(prop.apply_gate_inplace(black_box(&gen), GateParam::symbolic(i as u32)));
+                    let (gx, gz) = broad_generator(&mut rng, N_QUBITS);
+                    black_box(kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
+                        black_box(&mut ts),
+                        [&gx, &gz],
+                        &GateParam::symbolic(i as u32),
+                        false,
+                    ));
                 }
-                black_box(prop.total_terms())
+                black_box(ts.len())
             },
             BatchSize::LargeInput,
         )
@@ -240,9 +248,12 @@ fn bench_deduplicate(c: &mut Criterion) {
 /// `evaluate` parallelizes within a single coefficient's monomial list above
 /// a length threshold (see `EVALUATE_PAR_MIN_LEN`); benchmarking sizes on
 /// both sides of that threshold tracks regressions in the fallback itself,
-/// not just the parallel path.
+/// not just the parallel path. `grown_coeff` never reconciles into a shared
+/// generation, so every monomial's base is the trivial empty one; a fresh
+/// `Generation` is enough to resolve it.
 fn bench_evaluate_by_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("SymbolicCoeff/evaluate");
+    let generation = Generation::new();
     for steps in [8u32, 12, 16, 20] {
         let coeff = grown_coeff(steps);
         let lut: Vec<f64> = (0..steps)
@@ -252,7 +263,7 @@ fn bench_evaluate_by_size(c: &mut Criterion) {
             })
             .collect();
         group.bench_with_input(BenchmarkId::from_parameter(1u64 << steps), &steps, |bench, _| {
-            bench.iter(|| black_box(coeff.evaluate(black_box(&lut))))
+            bench.iter(|| black_box(coeff.evaluate(black_box(&generation), black_box(&lut))))
         });
     }
     group.finish();
@@ -262,7 +273,15 @@ fn bench_evaluate_by_size(c: &mut Criterion) {
 /// of the per-set term/monomial parallelism `evaluate` already has; this
 /// tracks that the batch path amortizes rather than regresses.
 fn bench_evaluate_batch(c: &mut Criterion) {
+    use propaq_core::bitset::Bitset;
     use propaq_surrogate::model::{SurrogateModel, SurrogateTerm};
+
+    fn make_pauli(x: u64, z: u64, n_qubits: usize) -> PauliString {
+        let xb = Bitset::from_le_bytes(&x.to_le_bytes());
+        let zb = Bitset::from_le_bytes(&z.to_le_bytes());
+        let weight = (&xb | &zb).count_ones();
+        PauliString { x: xb, z: zb, n_qubits, weight }
+    }
 
     let mut group = c.benchmark_group("SurrogateModel/evaluate_batch");
     let n_params = 20usize;
@@ -288,35 +307,40 @@ fn bench_evaluate_batch(c: &mut Criterion) {
 
 /// The flush path: dedup plus an optional frequency trim and weight-based
 /// term retain, fused into one pass and parallelized down to individual
-/// entries (see `AbstractPropagator::map_and_retain_coeffs_inplace`). Timed
-/// on a propagator state built by a real (untimed) gate-application burst,
-/// so the coefficient-size distribution going into the flush is realistic
-/// rather than uniform.
+/// entries (see `soa::kernels::map_retain`). Timed on a term set built by a
+/// real (untimed) gate-application burst plus a merge, so the coefficient-size
+/// distribution going into the flush is realistic rather than uniform.
 fn bench_flush_and_retain(c: &mut Criterion) {
-    let mut group = c.benchmark_group("SurrogatePropagator/flush_and_retain");
+    let mut group = c.benchmark_group("SoaTermSum/flush_and_retain_surrogate");
     group.bench_function("dedup_trim_weight_retain", |bench| {
         bench.iter_batched(
             || {
-                let mut prop = new_propagator();
-                prop.initialize_from(&build_termsum(N_TERMS, N_QUBITS, 0x5EED));
+                let mut ts = build_termsum(N_TERMS, N_QUBITS, 0x5EED);
                 let mut rng = Xorshift64(0x1234);
                 for i in 0..10u32 {
-                    let gen = broad_generator(&mut rng, N_QUBITS);
-                    prop.apply_gate_inplace(&gen, GateParam::symbolic(i));
+                    let (gx, gz) = broad_generator(&mut rng, N_QUBITS);
+                    kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
+                        &mut ts,
+                        [&gx, &gz],
+                        &GateParam::symbolic(i),
+                        false,
+                    );
                 }
-                prop.flush_outboxes_to_maps();
-                prop
+                kernels::merge::<PauliBasis, SymbolicCoeff>(&mut ts);
+                ts
             },
-            |mut prop| {
+            |mut ts| {
                 let max_freq = 12usize;
                 let weight_cutoff = 8u32;
-                let monomials_after = prop.map_and_retain_coeffs_inplace(
-                    |_, c: &mut SymbolicCoeff| {
+                let n_units = ts.n_units;
+                let monomials_after = kernels::map_retain::<PauliBasis, SymbolicCoeff, _, _>(
+                    &mut ts,
+                    |c: &mut SymbolicCoeff| {
                         c.trim_high_frequency(max_freq);
                         c.deduplicate();
                     },
-                    |t: &PauliString, c: &SymbolicCoeff| {
-                        AbstractTerm::weight(t) <= weight_cutoff && !c.is_empty()
+                    |term: [&[u64]; 2], c: &SymbolicCoeff| {
+                        PauliBasis::weight(term, n_units) <= weight_cutoff && !c.is_empty()
                     },
                 );
                 black_box(monomials_after)

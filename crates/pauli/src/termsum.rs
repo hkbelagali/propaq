@@ -50,10 +50,11 @@ fn planes_of(term: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {
 /// Materialize the columnar storage into the flat map format the existing
 /// file I/O (`save_terms_to_file`/`load_terms_from_file`/`TermStreamer`) and
 /// `AbstractTerm` machinery already understand — those work directly against
-/// `PauliString`/`f64` and don't need to change for this rewrite. Also the
-/// seam the surrogate propagator uses to read a `PauliTermSum` observable
-/// (`propaq_surrogate::propagator`); its own hash-based `AbstractPropagator`
-/// engine is staged for a later SoA port (see `// TODO(soa)` there).
+/// `PauliString`/`f64` and don't need to change for this rewrite. The
+/// surrogate propagator no longer bridges through this: it seeds its own
+/// `SoaTermSum<SymbolicCoeff>` straight from `SoaTermSum::map_coeffs`
+/// (`propaq_surrogate::propagator`), which stays columnar end-to-end and
+/// avoids the per-term hashmap this function builds.
 pub fn materialize(terms: &SoaTermSum<f64>) -> FxHashMap<PauliString, f64> {
     let n = terms.len();
     let mut map = FxHashMap::default();

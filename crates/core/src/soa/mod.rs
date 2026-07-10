@@ -259,4 +259,28 @@ impl<C: CoeffRepr> SoaTermSum<C> {
             n_units: self.n_units,
         }
     }
+
+    /// Build a new `SoaTermSum<C2>` with identical term-identity planes and
+    /// each coefficient mapped through `f` — a bulk columnar copy (both live
+    /// plane regions via `copy_from_slice`, no per-term struct or Python
+    /// object materialized). This is the seam for switching coefficient
+    /// representations on the same term set, e.g. seeding the surrogate's
+    /// `SoaTermSum<SymbolicCoeff>` from a numerical `SoaTermSum<f64>`
+    /// observable via `SymbolicCoeff::from_real`.
+    pub fn map_coeffs<C2: CoeffRepr>(&self, f: impl Fn(&C) -> C2) -> SoaTermSum<C2> {
+        let s = self.stride;
+        let live = self.len * s;
+        SoaTermSum {
+            planes: [self.planes[0][..live].to_vec(), self.planes[1][..live].to_vec()],
+            coeffs: self.coeffs[..self.len].iter().map(f).collect(),
+            aux_planes: [Vec::new(), Vec::new()],
+            aux_coeffs: Vec::new(),
+            flags: Vec::new(),
+            index: Vec::new(),
+            hashes: Vec::new(),
+            len: self.len,
+            stride: self.stride,
+            n_units: self.n_units,
+        }
+    }
 }
