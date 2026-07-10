@@ -4,7 +4,6 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use num_complex::Complex64;
-use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
 
@@ -235,7 +234,7 @@ impl Hash for PauliString {
 /// `commutes_with_impl`/`matmul_impl`/`trace_fock_state_impl` above, applied
 /// directly to the `x`/`z` word planes of `SoaTermSum<C>` instead of a pair
 /// of per-term `Bitset`s. Both planes are identity (a Pauli string is
-/// exactly its `(x, z)` pair), so `key_cmp` compares both.
+/// exactly its `(x, z)` pair), so `key_hash`/`key_eq` cover both.
 pub struct PauliBasis;
 
 impl SoaBasis for PauliBasis {
@@ -288,8 +287,15 @@ impl SoaBasis for PauliBasis {
         if parity % 2 == 0 { 1.0 } else { -1.0 }
     }
 
-    fn key_cmp(a: [&[u64]; 2], b: [&[u64]; 2]) -> Ordering {
-        a[0].cmp(b[0]).then_with(|| a[1].cmp(b[1]))
+    fn key_hash(term: [&[u64]; 2]) -> u64 {
+        let mut h = FxHasher::default();
+        term[0].hash(&mut h);
+        term[1].hash(&mut h);
+        h.finish()
+    }
+
+    fn key_eq(a: [&[u64]; 2], b: [&[u64]; 2]) -> bool {
+        a[0] == b[0] && a[1] == b[1]
     }
 
     fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> PauliString {
@@ -441,6 +447,14 @@ mod tests {
                 "trace mismatch for {} fock={fock}", ctx(),
             );
         }
+
+        assert_eq!(PauliBasis::key_eq(a_planes, b_planes), *a == *b, "key_eq mismatch for {}", ctx());
+        if PauliBasis::key_eq(a_planes, b_planes) {
+            assert_eq!(
+                PauliBasis::key_hash(a_planes), PauliBasis::key_hash(b_planes),
+                "key_eq strings must key_hash equally for {}", ctx(),
+            );
+        }
     }
 
     #[test]
@@ -459,22 +473,18 @@ mod tests {
     }
 
     #[test]
-    fn pauli_basis_key_cmp_orders_like_equality() {
+    fn pauli_basis_key_eq_and_hash_agree_with_equality() {
         let a = pauli(0b01, 0b10, 4);
         let b = pauli(0b01, 0b10, 4);
         let c = pauli(0b11, 0b10, 4);
         let (ax, az) = planes_of(&a, 1);
         let (bx, bz) = planes_of(&b, 1);
         let (cx, cz) = planes_of(&c, 1);
+        assert!(PauliBasis::key_eq([&ax, &az], [&bx, &bz]), "identical strings must be key_eq");
         assert_eq!(
-            PauliBasis::key_cmp([&ax, &az], [&bx, &bz]),
-            Ordering::Equal,
-            "identical strings must compare equal under key_cmp",
+            PauliBasis::key_hash([&ax, &az]), PauliBasis::key_hash([&bx, &bz]),
+            "key_eq strings must key_hash equally (merge's parallel-batch correctness depends on this)",
         );
-        assert_ne!(
-            PauliBasis::key_cmp([&ax, &az], [&cx, &cz]),
-            Ordering::Equal,
-            "distinct strings must not compare equal under key_cmp",
-        );
+        assert!(!PauliBasis::key_eq([&ax, &az], [&cx, &cz]), "distinct strings must not be key_eq");
     }
 }

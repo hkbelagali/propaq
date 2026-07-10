@@ -19,7 +19,6 @@ pub mod kernels;
 pub mod propagator;
 
 use num_complex::Complex64;
-use std::cmp::Ordering;
 
 use crate::coeff::CoeffRepr;
 
@@ -62,25 +61,21 @@ pub trait SoaBasis: Send + Sync + 'static {
     /// iterates per-qubit pairs; Pauli ignores it).
     fn trace(term: [&[u64]; 2], n_units: usize, fock: u64) -> f64;
 
-    /// Lexicographic order over the key planes only; brings duplicate terms
-    /// adjacent under a sort so the merge pass can flag run boundaries.
-    fn key_cmp(a: [&[u64]; 2], b: [&[u64]; 2]) -> Ordering;
+    /// Hash of the key-relevant plane words only (ignoring derived caches
+    /// like Majorana's `p`), for `soa::kernels::merge`'s hash-based
+    /// duplicate detection. **Must agree with `key_eq`: if `key_eq(a, b)` is
+    /// `true`, `key_hash(a) == key_hash(b)` must also hold.** `merge`'s
+    /// parallel-batch correctness depends on this — it assigns rows to
+    /// worker batches by (bits of) this hash specifically so that every
+    /// instance of a duplicate group is guaranteed to land in the same
+    /// batch, needing no cross-batch synchronization to accumulate them.
+    fn key_hash(term: [&[u64]; 2]) -> u64;
 
-    /// A `u64` summary of `term` used only to bucket terms into coarse,
-    /// `key_cmp`-order-consistent groups before the full sort in
-    /// `soa::kernels::merge` (see `radix_bucket` there). Must agree with
-    /// `key_cmp` in the sense that a smaller `radix_key` never sorts *after*
-    /// a larger one — the default (`term[0][0]`, the most-significant word
-    /// of the most-significant plane under both bases' `key_cmp`) satisfies
-    /// this for any basis whose `key_cmp` compares plane 0 first. Getting
-    /// this "wrong" (e.g. a future basis overriding `key_cmp` to compare
-    /// plane 1 first without overriding this too) only costs performance,
-    /// never correctness: `merge` always finishes with a real `key_cmp`
-    /// sort *within* each bucket regardless of how well this predicts it.
-    #[inline]
-    fn radix_key(term: [&[u64]; 2]) -> u64 {
-        term[0][0]
-    }
+    /// Equality over the key-relevant planes only. Cheaper than checking
+    /// `key_cmp(a, b) == Ordering::Equal` when only equality (not a full
+    /// order) is needed, and what `merge` uses to resolve hash collisions
+    /// within a batch.
+    fn key_eq(a: [&[u64]; 2], b: [&[u64]; 2]) -> bool;
 
     /// Build the per-basis Python term object from its plane words.
     fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> Self::Term;
@@ -105,13 +100,9 @@ pub struct SoaTermSum<C: CoeffRepr> {
     /// Flag array `F` and index array `I`, reused across passes.
     flags: Vec<u32>,
     index: Vec<usize>,
-    /// `merge`'s sort permutation and run-start scratch, reused across
-    /// calls for the same reason `flags`/`index` are: these were previously
-    /// allocated fresh every `merge` call (`(0..n).collect()` /
-    /// `(0..n).filter(...).collect()`), which showed up as real allocator
-    /// traffic in real-workload profiling.
-    perm: Vec<usize>,
-    run_starts: Vec<usize>,
+    /// Per-row `SoaBasis::key_hash` scratch for `merge`'s hash-based
+    /// duplicate detection, reused across calls like `flags`/`index`.
+    hashes: Vec<u64>,
     len: usize,
     pub stride: usize,
     pub n_units: usize,
@@ -126,8 +117,7 @@ impl<C: CoeffRepr> SoaTermSum<C> {
             aux_coeffs: Vec::new(),
             flags: Vec::new(),
             index: Vec::new(),
-            perm: Vec::new(),
-            run_starts: Vec::new(),
+            hashes: Vec::new(),
             len: 0,
             stride,
             n_units,
@@ -245,15 +235,13 @@ impl<C: CoeffRepr> SoaTermSum<C> {
         }
     }
 
-    /// Resize (grow-only) `perm` to exactly `n`, reusing its existing
-    /// allocation. Doesn't fill it with anything — `radix_bucket` (in
-    /// `soa::kernels`) writes every one of its `n` slots exactly once via
-    /// its bucketing scatter, so there's nothing to initialize first.
-    pub(crate) fn ensure_perm_len(&mut self, n: usize) {
-        if self.perm.len() < n {
-            self.perm.resize(n, 0);
+    /// Resize (grow-only) the hash scratch array to hold at least
+    /// `needed_len`. See `ensure_aux_capacity` for why this doesn't return
+    /// the borrow directly.
+    pub(crate) fn ensure_hashes_capacity(&mut self, needed_len: usize) {
+        if self.hashes.len() < needed_len {
+            self.hashes.resize(needed_len, 0);
         }
-        self.perm.truncate(n);
     }
 
     pub fn copy(&self) -> Self where C: Clone {
@@ -265,8 +253,7 @@ impl<C: CoeffRepr> SoaTermSum<C> {
             aux_coeffs: Vec::new(),
             flags: Vec::new(),
             index: Vec::new(),
-            perm: Vec::new(),
-            run_starts: Vec::new(),
+            hashes: Vec::new(),
             len: self.len,
             stride: self.stride,
             n_units: self.n_units,

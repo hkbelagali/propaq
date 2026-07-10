@@ -4,7 +4,6 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use num_complex::Complex64;
-use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
 
@@ -340,8 +339,8 @@ impl Hash for MajoranaMonomial {
 
 /// SoA engine seam for Majorana monomials. Plane 0 is `modes` (the term's
 /// identity); plane 1 is the cached prefix-XOR-scan `p` — not part of
-/// identity (`key_cmp` ignores it), but it must travel with a term through
-/// sort/compaction/append the same way `modes` does, since it's what lets
+/// identity (`key_hash`/`key_eq` ignore it), but it must travel with a term
+/// through sort/compaction/append the same way `modes` does, since it's what lets
 /// `weight`/`product` avoid an O(log n_qubits) rescan on every call (see the
 /// `p` field's doc comment on `MajoranaMonomial` above).
 pub struct MajoranaBasis;
@@ -412,8 +411,15 @@ impl SoaBasis for MajoranaBasis {
         m.trace_fock_state_impl(fock)
     }
 
-    fn key_cmp(a: [&[u64]; 2], b: [&[u64]; 2]) -> Ordering {
-        a[0].cmp(b[0]) // only `modes` is identity; `p` is a derived cache.
+    fn key_hash(term: [&[u64]; 2]) -> u64 {
+        // Only `modes` is identity; `p` is a derived cache.
+        let mut h = FxHasher::default();
+        term[0].hash(&mut h);
+        h.finish()
+    }
+
+    fn key_eq(a: [&[u64]; 2], b: [&[u64]; 2]) -> bool {
+        a[0] == b[0]
     }
 
     fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> MajoranaMonomial {
@@ -833,6 +839,14 @@ mod tests {
                 "trace mismatch for {} fock={fock}", ctx(),
             );
         }
+
+        assert_eq!(MajoranaBasis::key_eq(a_planes, b_planes), *a == *b, "key_eq mismatch for {}", ctx());
+        if MajoranaBasis::key_eq(a_planes, b_planes) {
+            assert_eq!(
+                MajoranaBasis::key_hash(a_planes), MajoranaBasis::key_hash(b_planes),
+                "key_eq monomials must key_hash equally for {}", ctx(),
+            );
+        }
     }
 
     #[test]
@@ -866,21 +880,22 @@ mod tests {
     }
 
     #[test]
-    fn majorana_basis_key_cmp_ignores_p_plane() {
-        // Two monomials with identical modes must compare equal under
-        // key_cmp regardless of what garbage sits in the (unused-for-
-        // identity) p plane.
+    fn majorana_basis_key_eq_and_hash_ignore_p_plane() {
+        // Two monomials with identical modes must be key_eq (and key_hash
+        // equally) regardless of what garbage sits in the (unused-for-
+        // identity) p plane — merge's parallel-batch correctness depends on
+        // key_eq/key_hash agreeing, and neither may read `p`.
         let stride = 1;
         let a = mon(0b0101, 8);
         let (a0, a1) = planes_of(&a, stride);
         let mut a1_garbage = a1.clone();
         a1_garbage[0] ^= 0xDEAD_BEEF;
+        assert!(MajoranaBasis::key_eq([&a0, &a1], [&a0, &a1_garbage]));
         assert_eq!(
-            MajoranaBasis::key_cmp([&a0, &a1], [&a0, &a1_garbage]),
-            Ordering::Equal,
+            MajoranaBasis::key_hash([&a0, &a1]), MajoranaBasis::key_hash([&a0, &a1_garbage]),
         );
         let c = mon(0b1111, 8);
         let (c0, c1) = planes_of(&c, stride);
-        assert_ne!(MajoranaBasis::key_cmp([&a0, &a1], [&c0, &c1]), Ordering::Equal);
+        assert!(!MajoranaBasis::key_eq([&a0, &a1], [&c0, &c1]));
     }
 }
