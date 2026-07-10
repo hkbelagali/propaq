@@ -379,14 +379,32 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
         });
     }
     {
+        // `perm` is a permutation of `0..n`, so `dst` (the position in
+        // `perm`) ranges over every auxiliary-buffer slot exactly once —
+        // every write target here is unique, and every read comes from
+        // `planes`/`coeffs` (untouched during this pass), so there's no
+        // aliasing at all. `par_chunks_mut`/`par_iter_mut` get disjointness
+        // from the type system directly, no `unsafe` needed.
         let SoaTermSum { planes, coeffs, aux_planes, aux_coeffs, perm, .. } = &mut *terms;
-        for (dst, &src) in perm.iter().enumerate() {
-            for p in 0..2 {
-                let s = src * stride;
-                let d = dst * stride;
-                aux_planes[p][d..d + stride].copy_from_slice(&planes[p][s..s + stride]);
-            }
-            aux_coeffs[dst] = coeffs[src].clone();
+        let [ap0, ap1] = aux_planes;
+        let gather_one = |((d0, d1), dc): ((&mut [u64], &mut [u64]), &mut C), &src: &usize| {
+            let s = src * stride;
+            d0.copy_from_slice(&planes[0][s..s + stride]);
+            d1.copy_from_slice(&planes[1][s..s + stride]);
+            *dc = coeffs[src].clone();
+        };
+        if n >= PAR_MIN_LEN {
+            ap0.par_chunks_mut(stride)
+                .zip(ap1.par_chunks_mut(stride))
+                .zip(aux_coeffs.par_iter_mut())
+                .zip(perm.par_iter())
+                .for_each(|(chunk, src)| gather_one(chunk, src));
+        } else {
+            ap0.chunks_mut(stride)
+                .zip(ap1.chunks_mut(stride))
+                .zip(aux_coeffs.iter_mut())
+                .zip(perm.iter())
+                .for_each(|(chunk, src)| gather_one(chunk, src));
         }
     }
     terms.swap_in_aux(n);
