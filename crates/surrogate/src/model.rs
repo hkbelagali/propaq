@@ -117,17 +117,19 @@ impl SurrogateModel {
     /// count rather than term count), but a real large model showed this was
     /// still the dominant serial cost in `save`: "bounded relative to the old
     /// per-term design" does not mean "small" at multi-million-term scale.
-    /// `CompiledCoeff::serialize_sharded`/`deserialize_sharded` do the actual
-    /// splitting (see their doc comments for why no index reindexing is
-    /// needed, unlike `merge_shards`).
+    /// `CompiledCoeff::serialize_shards_with` fuses each shard's
+    /// serialization with `gzip_block` in one pass (rather than collecting
+    /// every shard's raw bytes into a `Vec<Vec<u8>>` first and compressing
+    /// that afterward), so we never hold a full second raw-bytes copy of the
+    /// tape alongside `self.tape` itself -- see its doc comment for why no
+    /// index reindexing is needed either, unlike `merge_shards`.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let target_shards = rayon::current_num_threads().max(1);
 
         let tape_blobs: Vec<Vec<u8>> = self
             .tape
-            .serialize_sharded(target_shards)
-            .par_iter()
-            .map(|raw| gzip_block(raw))
+            .serialize_shards_with(target_shards, gzip_block)
+            .into_iter()
             .collect::<std::io::Result<_>>()?;
 
         // Contiguous shards, one per worker (at least one term each). Each shard
@@ -207,15 +209,25 @@ impl SurrogateModel {
             r.read_exact(&mut blob)?;
             tape_blobs.push(blob);
         }
-        let raw_tape_shards: Vec<Vec<u8>> = tape_blobs
-            .par_iter()
-            .map(|blob| -> std::io::Result<Vec<u8>> {
+        // Decompress AND parse each shard in one fused step per shard (not
+        // "decompress every shard, then parse every shard") -- otherwise the
+        // compressed blobs, the fully-decompressed raw bytes, and the final
+        // parsed ops all end up resident simultaneously, multiplying peak
+        // memory several-fold over the file's on-disk size (a real bug found
+        // on a 200GB file ballooning past 750GB in RAM). `into_par_iter()`
+        // consumes `tape_blobs` so each blob is dropped as soon as its own
+        // shard's decompression+parse finishes, and each shard's transient
+        // decompressed buffer never outlives that one closure call.
+        let tape_shards: Vec<CompiledCoeff> = tape_blobs
+            .into_par_iter()
+            .map(|blob| -> std::io::Result<CompiledCoeff> {
                 let mut raw = Vec::new();
                 GzDecoder::new(&blob[..]).read_to_end(&mut raw)?;
-                Ok(raw)
+                let mut pos = 0usize;
+                Ok(CompiledCoeff::deserialize(&raw, &mut pos))
             })
             .collect::<std::io::Result<_>>()?;
-        let tape = CompiledCoeff::deserialize_sharded(&raw_tape_shards);
+        let tape = CompiledCoeff::concat(tape_shards);
 
         let n_shards = read_u64!() as usize;
         let mut shard_lens = Vec::with_capacity(n_shards);

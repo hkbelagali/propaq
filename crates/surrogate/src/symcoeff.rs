@@ -781,49 +781,57 @@ impl CompiledCoeff {
         CompiledCoeff { ops: deserialize_ops(b, pos) }
     }
 
-    /// Split this tape's ops into `n_shards` contiguous raw (uncompressed)
-    /// byte buffers, serialized in parallel via rayon -- the tape-side
-    /// counterpart to `SurrogateModel::save`'s existing per-term sharding,
-    /// for the same reason: a real large model's tape is big enough that
-    /// serializing (and, in `save`, gzip-compressing) it as one single-
-    /// threaded block was the last serial step in an otherwise fully
-    /// parallel save pipeline. Splitting a flat, already-globally-indexed
-    /// tape needs no reindexing at all -- every operand index already refers
-    /// to an absolute tape position (set once, by `merge_shards`), so a
-    /// contiguous slice's bytes concatenate back (via `deserialize_sharded`,
-    /// fed the shards back in the same order) into the exact same `ops`
-    /// layout a single `serialize` call would have produced. This is
-    /// unrelated to (and simpler than) `merge_shards`' own reindexing, which
+    /// Split this tape's ops into `n_shards` contiguous slices and run `f`
+    /// (e.g. gzip-compression) on each shard's serialized raw bytes, in
+    /// parallel via rayon -- the tape-side counterpart to
+    /// `SurrogateModel::save`'s existing per-term sharding, for the same
+    /// reason: a real large model's tape is big enough that serializing (and
+    /// compressing) it as one single-threaded block was the last serial step
+    /// in an otherwise fully parallel save pipeline. `f` is applied to each
+    /// shard's raw bytes **before** returning, rather than collecting all
+    /// shards' raw bytes into a `Vec<Vec<u8>>` first and mapping over that
+    /// afterward -- the latter would hold every shard's full uncompressed
+    /// bytes simultaneously (on top of `self`'s own already-resident `ops`),
+    /// roughly doubling peak memory during `save` for no reason. Splitting a
+    /// flat, already-globally-indexed tape needs no reindexing at all --
+    /// every operand index already refers to an absolute tape position (set
+    /// once, by `merge_shards`), unlike `merge_shards`' own reindexing, which
     /// exists because *that* step combines several *independently* compiled
-    /// (locally-indexed) tapes -- this one only ever re-chunks one tape
-    /// that's already globally indexed.
-    pub fn serialize_sharded(&self, n_shards: usize) -> Vec<Vec<u8>> {
+    /// (locally-indexed) tapes.
+    pub fn serialize_shards_with<T: Send>(
+        &self,
+        n_shards: usize,
+        f: impl Fn(&[u8]) -> T + Sync,
+    ) -> Vec<T> {
         let chunk = self.ops.len().div_ceil(n_shards.max(1)).max(1);
         self.ops
             .par_chunks(chunk)
             .map(|slice| {
                 let mut buf = Vec::new();
                 serialize_ops(slice, &mut buf);
-                buf
+                f(&buf)
             })
             .collect()
     }
 
-    /// Inverse of `serialize_sharded`: given raw (already gzip-decompressed)
-    /// shard buffers in original shard order, reconstruct one tape. No index
-    /// adjustment needed -- see `serialize_sharded`'s doc comment.
-    pub fn deserialize_sharded(raw_shards: &[Vec<u8>]) -> Self {
-        let mut ops = Vec::new();
-        for raw in raw_shards {
-            let mut pos = 0usize;
-            ops.extend(deserialize_ops(raw, &mut pos));
+    /// Concatenate ops from several already-globally-indexed `CompiledCoeff`
+    /// pieces back into one tape, in order (e.g. shards each produced by
+    /// decompressing + `deserialize`-ing one of `serialize_shards_with`'s
+    /// blobs). Unlike `merge_shards`, this does **not** reindex operand
+    /// indices -- these pieces are contiguous slices of one already-fully-
+    /// indexed tape, not independently-compiled tapes that each started
+    /// their own local indexing from zero.
+    pub fn concat(shards: Vec<CompiledCoeff>) -> CompiledCoeff {
+        let mut ops = Vec::with_capacity(shards.iter().map(|s| s.ops.len()).sum());
+        for shard in shards {
+            ops.extend(shard.ops);
         }
         CompiledCoeff { ops }
     }
 }
 
 /// Write `ops` (little-endian): op count, then one tagged record per op.
-/// Shared codec body for `CompiledCoeff::serialize`/`serialize_sharded`.
+/// Shared codec body for `CompiledCoeff::serialize`/`serialize_shards_with`.
 fn serialize_ops(ops: &[CompiledOp], buf: &mut Vec<u8>) {
     buf.extend_from_slice(&(ops.len() as u64).to_le_bytes());
     for op in ops {
@@ -857,7 +865,8 @@ fn serialize_ops(ops: &[CompiledOp], buf: &mut Vec<u8>) {
 }
 
 /// Read a `Vec<CompiledOp>` written by `serialize_ops`, advancing `pos`.
-/// Shared codec body for `CompiledCoeff::deserialize`/`deserialize_sharded`.
+/// Shared codec body for `CompiledCoeff::deserialize` (per-shard callers
+/// decompress a blob then call `deserialize` directly, one shard at a time).
 fn deserialize_ops(b: &[u8], pos: &mut usize) -> Vec<CompiledOp> {
     #[inline]
     fn rd_u64(b: &[u8], pos: &mut usize) -> u64 {
@@ -1195,13 +1204,13 @@ mod tests {
     }
 
     #[test]
-    fn serialize_sharded_round_trips_and_matches_single_block_serialize() {
+    fn serialize_shards_with_round_trips_and_matches_single_block_serialize() {
         // A batch tape (many roots, deliberate shared prefix) split into
-        // several shards for serialization must reassemble (via
-        // `deserialize_sharded`) into a value-identical tape to what a
+        // several shards for serialization must reassemble (via per-shard
+        // `deserialize` + `concat`) into a value-identical tape to what a
         // single-block `serialize`/`deserialize` round trip produces --
         // proving the "no index adjustment needed" claim in
-        // `serialize_sharded`'s doc comment, not just asserting it.
+        // `serialize_shards_with`'s doc comment, not just asserting it.
         let mut base = SymbolicCoeff::from_scalar(1.0);
         for p in 0..20u32 {
             let _ = base.apply_rotation(&GateParam::symbolic(p), Complex64::new(0.0, -1.0));
@@ -1220,9 +1229,19 @@ mod tests {
         let mut pos = 0usize;
         let single_restored = CompiledCoeff::deserialize(&single_buf, &mut pos);
 
-        let sharded_raw = tape.serialize_sharded(4);
-        assert!(sharded_raw.len() > 1, "test should actually exercise multiple shards");
-        let sharded_restored = CompiledCoeff::deserialize_sharded(&sharded_raw);
+        // `f` here just clones the raw bytes (standing in for the caller's
+        // real work, e.g. gzip compression in `save`), so the shard pieces
+        // can be deserialized directly afterward.
+        let shard_bufs: Vec<Vec<u8>> = tape.serialize_shards_with(4, |raw| raw.to_vec());
+        assert!(shard_bufs.len() > 1, "test should actually exercise multiple shards");
+        let shard_pieces: Vec<CompiledCoeff> = shard_bufs
+            .iter()
+            .map(|buf| {
+                let mut pos = 0usize;
+                CompiledCoeff::deserialize(buf, &mut pos)
+            })
+            .collect();
+        let sharded_restored = CompiledCoeff::concat(shard_pieces);
 
         assert_eq!(single_restored.len(), sharded_restored.len());
         let lut = make_lut(30);
