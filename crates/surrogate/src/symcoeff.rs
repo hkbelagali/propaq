@@ -216,27 +216,50 @@ impl SymbolicCoeff {
     /// topologically-ordered op tape where every node is emitted exactly
     /// once (memoized by `Arc` pointer identity) regardless of how many
     /// parents reference it, and every op only references earlier indices.
-    /// `CompiledCoeff::evaluate` is then a single linear scan -- this is
-    /// what keeps compilation polynomial (not exponential) in the presence
-    /// of shared subtrees, and is meant to run once per term at build end,
-    /// not per gate.
+    /// `CompiledCoeff::evaluate` is then a single linear scan.
+    ///
+    /// This is a thin single-root wrapper around `compile_batch` -- see that
+    /// function's doc for why a *batch* of roots sharing one memo/tape is
+    /// what actually needs to run at build end (once per term here would
+    /// redundantly re-flatten any subtree shared across terms).
+    pub fn compile(&self) -> CompiledCoeff {
+        let (tape, _roots) = SymbolicCoeff::compile_batch(std::iter::once(self.clone()));
+        tape
+    }
+
+    /// Flatten MANY coefficients' DAGs into ONE shared `CompiledCoeff` tape,
+    /// memoized (by `Arc` pointer identity) across all of them at once --
+    /// unlike calling `compile()` once per coefficient, a node reachable
+    /// from more than one of the given roots is emitted into the tape only
+    /// once here, not once per referencing root. Returns `(tape, roots)`
+    /// where `roots[i]` is the tape index of the `i`-th input coefficient's
+    /// root (`u32::MAX` for an empty/zero coefficient).
+    ///
+    /// This is the primitive `run_build` uses (per shard of surviving terms)
+    /// to avoid the multiplicative blowup of compiling every term's DAG
+    /// independently when many terms share large common ancestor subtrees
+    /// via `Arc` -- see `propaq.MD`'s "Evaluate & persistence" section.
     ///
     /// Iterative (explicit stack), not recursive: a coefficient's DAG can be
     /// as deep as the number of gates that touched it, which for a real
     /// circuit can be in the thousands -- recursion would risk a stack
     /// overflow that an explicit stack doesn't.
-    pub fn compile(&self) -> CompiledCoeff {
-        let mut ops: Vec<CompiledOp> = Vec::new();
-        let Some(root) = &self.0 else { return CompiledCoeff { ops } };
+    pub fn compile_batch(
+        coeffs: impl IntoIterator<Item = SymbolicCoeff>,
+    ) -> (CompiledCoeff, Vec<u32>) {
+        // Keeps every input's `Arc<Node>` (if any) alive for the whole
+        // traversal below -- `Frame`'s borrows point into these Arcs.
+        let owned: Vec<SymbolicCoeff> = coeffs.into_iter().collect();
 
+        let mut ops: Vec<CompiledOp> = Vec::new();
         let mut memo: HashMap<*const Node, u32> = HashMap::new();
         // Tracks every node that has already been pushed onto the work stack
         // (whether or not its `Exit` has run yet), so a node referenced by
-        // more than one parent is only ever traversed/compiled once. Without
-        // this, two `Enter` frames for the same shared node could both land
-        // on the stack before either's subtree finishes, each redundantly
-        // re-walking (though not incorrectly -- just wastefully) that whole
-        // subtree.
+        // more than one parent -- or by more than one of this batch's roots
+        // -- is only ever traversed/compiled once. Without this, two `Enter`
+        // frames for the same shared node could both land on the stack
+        // before either's subtree finishes, each redundantly re-walking
+        // (though not incorrectly -- just wastefully) that whole subtree.
         let mut scheduled: HashSet<*const Node> = HashSet::new();
 
         enum Frame<'a> {
@@ -245,8 +268,13 @@ impl SymbolicCoeff {
         }
 
         let mut stack: Vec<Frame> = Vec::new();
-        scheduled.insert(Arc::as_ptr(root));
-        stack.push(Frame::Enter(root));
+        for c in &owned {
+            if let Some(root) = &c.0 {
+                if scheduled.insert(Arc::as_ptr(root)) {
+                    stack.push(Frame::Enter(root));
+                }
+            }
+        }
 
         while let Some(frame) = stack.pop() {
             match frame {
@@ -285,7 +313,22 @@ impl SymbolicCoeff {
             }
         }
 
-        CompiledCoeff { ops }
+        // Read each input's root index via a *final* lookup pass, never
+        // captured inline at push time: two inputs in this batch can hold
+        // the literal same `Arc` root, in which case the second one is
+        // deduped away by `scheduled` and never gets its own `Exit` frame --
+        // the memo's final entry (written by whichever root's traversal
+        // actually ran) is the only correct place to read its index from.
+        let roots: Vec<u32> = owned
+            .iter()
+            .map(|c| {
+                c.0.as_ref()
+                    .and_then(|root| memo.get(&Arc::as_ptr(root)).copied())
+                    .unwrap_or(u32::MAX)
+            })
+            .collect();
+
+        (CompiledCoeff { ops }, roots)
     }
 
     /// Structurally drop monomials violating `max_frequency` and/or
@@ -629,11 +672,26 @@ pub struct CompiledCoeff {
 
 impl CompiledCoeff {
     /// Evaluate against a flat LUT indexed by `2 * param` (`cos`) /
-    /// `2 * param + 1` (`sin`).
+    /// `2 * param + 1` (`sin`). Assumes a *single-root* tape (as produced by
+    /// `SymbolicCoeff::compile`) where the last op is the root -- do not
+    /// call this on a batched/merged tape from `compile_batch`/
+    /// `merge_shards`, which has no single implicit root; use
+    /// `evaluate_all` + a term's own root index instead.
     pub fn evaluate(&self, lut: &[f64]) -> f64 {
         if self.ops.is_empty() {
             return 0.0;
         }
+        let results = self.evaluate_all(lut);
+        results[self.ops.len() - 1]
+    }
+
+    /// Evaluate every op in the tape against a flat LUT indexed by
+    /// `2 * param` (`cos`) / `2 * param + 1` (`sin`), returning the full
+    /// register array. Unlike `evaluate`, this makes no assumption about
+    /// which (if any) op is "the" root -- it's the primitive a batched
+    /// tape's callers use, reading out whichever indices they need
+    /// (`SurrogateTerm::root` per term) after one shared scan.
+    pub fn evaluate_all(&self, lut: &[f64]) -> Vec<f64> {
         let mut results = vec![0.0f64; self.ops.len()];
         for (i, op) in self.ops.iter().enumerate() {
             results[i] = match *op {
@@ -644,7 +702,7 @@ impl CompiledCoeff {
                 CompiledOp::Sin(p, inner) => lut[2 * p as usize + 1] * results[inner as usize],
             };
         }
-        results[self.ops.len() - 1]
+        results
     }
 
     /// Number of ops in the compiled tape (test/diagnostic use).
@@ -654,6 +712,47 @@ impl CompiledCoeff {
 
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
+    }
+
+    /// Concatenate shard-local tapes (as produced by independent
+    /// `compile_batch` calls on disjoint shards of terms) into ONE global
+    /// tape, rewriting each shard's internal operand indices by that
+    /// shard's cumulative offset. Purely arithmetic -- never re-walks any
+    /// `Node`/`Arc`, since `CompiledOp` values are already fully resolved.
+    /// Returns `(global tape, per-shard base offset)`; a shard's own local
+    /// root indices become global via `offset[shard] + local_root` (with
+    /// `u32::MAX` passed through unshifted for empty coefficients).
+    pub fn merge_shards(shards: Vec<CompiledCoeff>) -> (CompiledCoeff, Vec<usize>) {
+        let mut ops: Vec<CompiledOp> = Vec::with_capacity(shards.iter().map(|s| s.ops.len()).sum());
+        let mut offsets: Vec<usize> = Vec::with_capacity(shards.len());
+
+        for shard in shards {
+            let offset = ops.len();
+            offsets.push(offset);
+            let shift = u32::try_from(offset).unwrap_or_else(|_| {
+                panic!(
+                    "compiled tape offset {offset} exceeds u32::MAX -- merged model has too \
+                     many total ops to index with a u32"
+                )
+            });
+            let shifted = |i: u32| {
+                i.checked_add(shift).unwrap_or_else(|| {
+                    panic!(
+                        "compiled tape operand index overflowed u32 while merging shards \
+                         (index {i} + shard offset {shift})"
+                    )
+                })
+            };
+            ops.extend(shard.ops.into_iter().map(|op| match op {
+                CompiledOp::Scalar(c) => CompiledOp::Scalar(c),
+                CompiledOp::Add(a, b) => CompiledOp::Add(shifted(a), shifted(b)),
+                CompiledOp::Scale(f, i) => CompiledOp::Scale(f, shifted(i)),
+                CompiledOp::Cos(p, i) => CompiledOp::Cos(p, shifted(i)),
+                CompiledOp::Sin(p, i) => CompiledOp::Sin(p, shifted(i)),
+            }));
+        }
+
+        (CompiledCoeff { ops }, offsets)
     }
 
     /// Serialize the tape (little-endian): op count, then one tagged record
@@ -1184,5 +1283,122 @@ mod tests {
         c.prune(None, Some(1e-300));
         let after = eval(&c, &lut);
         assert!((after - before).abs() < 1e-8 * before.abs().max(1.0));
+    }
+
+    #[test]
+    fn compile_batch_two_rows_sharing_the_same_root_resolve_to_the_same_index() {
+        // Two term-rows can legitimately hold the literal same `Arc<Node>`
+        // root (e.g. both cloned from one surviving term before diverging
+        // elsewhere). The second one is deduped away by `scheduled` and
+        // never gets its own `Exit` frame -- root indices must therefore be
+        // read from the memo in a final pass, not captured at push time.
+        let mut base = SymbolicCoeff::from_scalar(2.0);
+        let _ = base.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+        let a = base.clone();
+        let b = base.clone();
+
+        let (tape, roots) = SymbolicCoeff::compile_batch([a, b]);
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0], roots[1]);
+        assert_ne!(roots[0], u32::MAX);
+
+        let lut = make_lut(1);
+        let results = tape.evaluate_all(&lut);
+        let expected = eval(&base, &lut);
+        assert!((results[roots[0] as usize] - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn compile_batch_memoizes_shared_prefix_across_many_roots_polynomial_not_linear_in_n() {
+        // Mirrors `compile_memoizes_shared_subtrees_polynomial_not_exponential`,
+        // but across many independently-compiled roots at once (the shape
+        // `run_build` now uses per shard): a shared 50-node prefix branched
+        // 20 ways must appear once in the batch tape, not once per branch.
+        let mut base = SymbolicCoeff::from_scalar(1.0);
+        for p in 0..50u32 {
+            let _ = base.apply_rotation(&GateParam::symbolic(p), Complex64::new(0.0, -1.0));
+        }
+
+        let n_branches = 20u32;
+        let branches: Vec<SymbolicCoeff> = (0..n_branches)
+            .map(|i| {
+                let mut b = base.clone();
+                let _ = b.apply_rotation(&GateParam::symbolic(50 + i), Complex64::new(0.0, -1.0));
+                b
+            })
+            .collect();
+
+        let (tape, roots) = SymbolicCoeff::compile_batch(branches.clone());
+        assert_eq!(roots.len(), n_branches as usize);
+        assert!(
+            tape.len() < 5 * (n_branches as usize),
+            "compile_batch should reuse the shared 50-node prefix once, not per branch: {} ops",
+            tape.len(),
+        );
+
+        let lut = make_lut(70);
+        let results = tape.evaluate_all(&lut);
+        for (branch, &root) in branches.iter().zip(&roots) {
+            assert_ne!(root, u32::MAX);
+            let expected = eval(branch, &lut);
+            assert!((results[root as usize] - expected).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn compile_batch_empty_coefficient_gets_sentinel_root() {
+        let a = SymbolicCoeff::default();
+        let mut b = SymbolicCoeff::from_scalar(1.0);
+        let _ = b.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+
+        let (tape, roots) = SymbolicCoeff::compile_batch([a, b.clone()]);
+        assert_eq!(roots[0], u32::MAX);
+        assert_ne!(roots[1], u32::MAX);
+
+        let lut = make_lut(1);
+        let results = tape.evaluate_all(&lut);
+        assert!((results[roots[1] as usize] - eval(&b, &lut)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn merge_shards_round_trips_values_across_a_shared_boundary_node() {
+        // Two shards, each independently compiled via `compile_batch`, where
+        // a node with the same *value* (but built independently per shard --
+        // shards never share `Arc` identity, only `merge_shards`' pure
+        // index-arithmetic ties them together) sits at a shard boundary.
+        // Confirms the offset-shift is applied to operand indices only, and
+        // that per-shard root indices become correct once shifted.
+        let lut = make_lut(4);
+
+        let mut c1 = SymbolicCoeff::from_scalar(3.0);
+        let _ = c1.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+        let mut c2 = SymbolicCoeff::from_scalar(3.0);
+        let _ = c2.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+        let _ = c2.apply_rotation(&GateParam::symbolic(1), Complex64::new(0.0, -1.0));
+
+        let mut c3 = SymbolicCoeff::from_scalar(5.0);
+        let _ = c3.apply_rotation(&GateParam::symbolic(2), Complex64::new(0.0, -1.0));
+        let mut c4 = SymbolicCoeff::from_scalar(7.0);
+        let _ = c4.apply_rotation(&GateParam::symbolic(3), Complex64::new(0.0, -1.0));
+
+        let (shard0, roots0) = SymbolicCoeff::compile_batch([c1.clone(), c2.clone()]);
+        let (shard1, roots1) = SymbolicCoeff::compile_batch([c3.clone(), c4.clone()]);
+        let shard0_len = shard0.len();
+
+        let (merged, offsets) = CompiledCoeff::merge_shards(vec![shard0, shard1]);
+        assert_eq!(offsets, vec![0, shard0_len]);
+
+        let global_roots = [
+            roots0[0] + offsets[0] as u32,
+            roots0[1] + offsets[0] as u32,
+            roots1[0] + offsets[1] as u32,
+            roots1[1] + offsets[1] as u32,
+        ];
+
+        let results = merged.evaluate_all(&lut);
+        for (root, coeff) in global_roots.iter().zip([&c1, &c2, &c3, &c4]) {
+            let expected = eval(coeff, &lut);
+            assert!((results[*root as usize] - expected).abs() < 1e-9);
+        }
     }
 }

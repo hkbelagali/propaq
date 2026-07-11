@@ -46,7 +46,7 @@ use propaq_core::soa::kernels;
 use propaq_core::soa::{SoaBasis, SoaTermSum};
 use propaq_core::traits::AbstractTerm;
 
-use crate::symcoeff::{GateParam, SymbolicCoeff};
+use crate::symcoeff::{CompiledCoeff, GateParam, SymbolicCoeff};
 use crate::truncation::FrequencyTruncationPolicy;
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
 use propaq_core::truncators::{
@@ -399,50 +399,98 @@ where
             let _ = log.flush();
         }
 
-        // Compile: collect terms with nonzero structural overlap, reading
-        // straight out of the final SoA columns (no hashmap drain — the
-        // container is already flat). Each surviving coefficient's DAG is
-        // compiled once here into a flat evaluation tape (`CompiledCoeff`) —
-        // this is the only point in Phase A where a coefficient's structure
-        // is walked/flattened. The term itself is never reconstructed here:
-        // it was only ever needed to compute `overlap` (already done, via
-        // `B::trace`, on the SoA planes directly), so `SurrogateTerm` stores
-        // just `(overlap, coeff)` -- see `model.rs`.
-        //
-        // Parallelized across coefficients: `compile()` isn't free (an
-        // iterative graph walk allocating its own memo tables per call), and
-        // a real circuit with millions of live terms and undertruncated
-        // (or untruncated) coefficient DAGs made this the dominant serial
-        // cost after propagation itself finished -- one thread at 100% and
-        // climbing memory as every term's tape built up one at a time. The
-        // planes/coeffs destructure gives disjoint borrows (read-only planes
-        // for `B::trace`, a mutable per-row `coeffs` slice for `take`+
-        // `compile`), the same pattern `soa::kernels` already uses.
-        let n = evolved.len();
-        let raw: Vec<SurrogateTerm> = py.allow_threads(|| {
-            pool.install(|| {
-                let SoaTermSum { planes, coeffs, .. } = &mut *evolved;
-                coeffs[..n]
-                    .par_iter_mut()
-                    .enumerate()
-                    .filter_map(|(i, c)| {
-                        let s = i * stride;
-                        let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
-                        let overlap = B::trace(term, n_units, initial_state);
-                        if overlap.abs() > 1e-15 {
-                            // Take rather than clone: `evolved` isn't reused after this build.
-                            let coeff = std::mem::take(c).compile();
-                            Some(SurrogateTerm { overlap, coeff })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
+        // Compile: collect terms with nonzero structural overlap and compile
+        // survivors into one shared tape, sharded across `pool`'s workers --
+        // see `compile_surviving_terms`'s doc comment for the full
+        // rationale (this used to be a `compile()` call per term, which
+        // caused a reported multi-hundred-GB OOM under heavy parameter
+        // reuse).
+        let (tape, raw) = py.allow_threads(|| {
+            pool.install(|| compile_surviving_terms::<B>(evolved, n_units, stride, initial_state))
         });
 
-        Ok(SurrogateModel::new(raw, n_params))
+        Ok(SurrogateModel::new(raw, tape, n_params))
     }
+}
+
+/// Compile all of `evolved`'s surviving (nonzero structural overlap) terms
+/// into ONE shared tape, sharded across `rayon::current_num_threads()`
+/// contiguous chunks (call from within the pool whose thread count should
+/// determine the shard count, e.g. inside `pool.install`). Each shard's
+/// coefficients are compiled together via `SymbolicCoeff::compile_batch`,
+/// sharing one memo/tape per shard rather than one `compile()` call per
+/// term: compiling term-by-term re-walks and re-emits any DAG subtree
+/// shared across many surviving terms once per referencing term, which
+/// under heavy parameter reuse approaches (surviving terms) x (distinct
+/// nodes) total compiled output -- the diagnosed cause of the OOM this
+/// replaced, and a source of redundant work in every subsequent
+/// `evaluate` too. Sharding bounds duplication of any shared node at
+/// (shard count) instead of (terms referencing it), independent of term
+/// count -- see `propaq.MD`'s "Evaluate & persistence" section.
+/// `CompiledCoeff::merge_shards` does one cheap, purely-arithmetic pass
+/// concatenating the shards' tapes into the single tape returned here,
+/// alongside a flat `Vec<SurrogateTerm>` (`(overlap, root)` per surviving
+/// term -- the term itself is never reconstructed, only ever needed to
+/// compute `overlap`).
+///
+/// Deliberately free of `pyo3`/`py` -- this is the whole reason it's split
+/// out of `run_build`, so it can be exercised directly by a Rust unit test
+/// against a hand-built `SoaTermSum<SymbolicCoeff>` without fabricating a
+/// Python circuit object.
+fn compile_surviving_terms<B: SoaBasis>(
+    evolved: &mut SoaTermSum<SymbolicCoeff>,
+    n_units: usize,
+    stride: usize,
+    initial_state: u64,
+) -> (CompiledCoeff, Vec<SurrogateTerm>) {
+    let n = evolved.len();
+    let target_shards = rayon::current_num_threads().max(1);
+    let chunk = n.div_ceil(target_shards).max(1);
+
+    let (shard_tapes, shard_terms): (Vec<CompiledCoeff>, Vec<Vec<(f64, u32)>>) = {
+        let SoaTermSum { planes, coeffs, .. } = evolved;
+        coeffs[..n]
+            .par_chunks_mut(chunk)
+            .enumerate()
+            .map(|(chunk_idx, shard)| {
+                // `par_chunks_mut` doesn't hand us the chunk's own absolute
+                // row offset -- `chunk_idx * chunk` is it, since chunking
+                // always partitions front-to-back in fixed-size runs (the
+                // same assumption `SurrogateModel::save`'s own `par_chunks`
+                // sharding already relies on).
+                let base = chunk_idx * chunk;
+                let mut overlaps: Vec<f64> = Vec::new();
+                let mut survivors: Vec<SymbolicCoeff> = Vec::new();
+                for (j, c) in shard.iter_mut().enumerate() {
+                    let global_row = base + j;
+                    let s = global_row * stride;
+                    let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
+                    let overlap = B::trace(term, n_units, initial_state);
+                    if overlap.abs() > 1e-15 {
+                        overlaps.push(overlap);
+                        // Take rather than clone: `evolved` isn't reused after this build.
+                        survivors.push(std::mem::take(c));
+                    }
+                }
+                let (tape, local_roots) = SymbolicCoeff::compile_batch(survivors);
+                let terms: Vec<(f64, u32)> = overlaps.into_iter().zip(local_roots).collect();
+                (tape, terms)
+            })
+            .unzip()
+    };
+
+    let (tape, offsets) = CompiledCoeff::merge_shards(shard_tapes);
+    let mut raw = Vec::with_capacity(shard_terms.iter().map(|s| s.len()).sum());
+    for (terms, offset) in shard_terms.into_iter().zip(offsets) {
+        // `merge_shards` already validated every offset fits `u32` (panics
+        // internally otherwise), so this cast is safe.
+        let offset = offset as u32;
+        for (overlap, local_root) in terms {
+            let root = if local_root == u32::MAX { u32::MAX } else { local_root + offset };
+            raw.push(SurrogateTerm { overlap, root });
+        }
+    }
+    (tape, raw)
 }
 
 /// Result of one `apply_truncation_policy` call, for logging/reporting.
@@ -834,5 +882,86 @@ mod shared_parameter_dedup_tests {
                 "symbolic {have} vs f64 reference {want}",
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod sharded_compile_tests {
+    use super::*;
+    use crate::model::SurrogateModel;
+    use propaq_core::soa::SoaTermSum;
+
+    fn planes_of(x: u64, z: u64, stride: usize) -> (Vec<u64>, Vec<u64>) {
+        let mut gx = vec![0u64; stride];
+        let mut gz = vec![0u64; stride];
+        gx[0] = x;
+        gz[0] = z;
+        (gx, gz)
+    }
+
+    /// `compile_surviving_terms` (the sharded-batch replacement for a
+    /// per-term `compile()` loop) exercised end-to-end against a circuit
+    /// with heavy cross-term sharing (many shared parameters, many rounds --
+    /// same shape as `shared_parameter_history_matches_f64_engine_under_fixed_angles`),
+    /// asserting the resulting `SurrogateModel::evaluate` output matches the
+    /// trusted plain-`f64` numeric engine's own expectation value. This is
+    /// the multi-shard path's end-to-end regression guard: the unit tests in
+    /// `symcoeff.rs` cover `compile_batch`/`merge_shards` in isolation, this
+    /// covers the shard/offset bookkeeping that glues them together in
+    /// `run_build`.
+    #[test]
+    fn compile_surviving_terms_matches_f64_engine_under_heavy_parameter_sharing() {
+        const N_QUBITS: usize = 8;
+        const N_PARAMS: usize = 3;
+        const FOCK: u64 = 0;
+        let fixed_angles: [f64; N_PARAMS] = [0.41, 1.13, 2.02];
+
+        let mut numeric: SoaTermSum<f64> = SoaTermSum::new(N_QUBITS, 1);
+        let mut symbolic: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+
+        let (gx, gz) = planes_of(0, 1, 1);
+        numeric.push([&gx, &gz], 1.0);
+        symbolic.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
+
+        let mut gate_idx: u32 = 0;
+        for round in 0..30 {
+            let offset = round % 2;
+            for q in (offset..N_QUBITS - 1).step_by(2) {
+                let (genx, genz) = planes_of((1 << q) | (1 << (q + 1)), 0, 1);
+                let param = gate_idx as usize % N_PARAMS;
+                kernels::apply_rotation::<PauliBasis, f64>(
+                    &mut numeric,
+                    [&genx, &genz],
+                    &fixed_angles[param],
+                    false,
+                );
+                kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(
+                    &mut symbolic,
+                    [&genx, &genz],
+                    &GateParam::Symbolic { param: param as u32 },
+                    false,
+                );
+                gate_idx += 1;
+            }
+            kernels::merge::<PauliBasis, f64>(&mut numeric);
+            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut symbolic);
+        }
+        assert!(gate_idx as usize > 4 * N_PARAMS, "test should reuse each parameter many times");
+
+        let expected: f64 = (0..numeric.len())
+            .map(|i| *numeric.coeff(i) * PauliBasis::trace(numeric.term_planes(i), numeric.n_units, FOCK))
+            .sum();
+
+        let n_units = symbolic.n_units;
+        let stride = symbolic.stride;
+        let (tape, terms) = compile_surviving_terms::<PauliBasis>(&mut symbolic, n_units, stride, FOCK);
+        assert!(!terms.is_empty(), "test did not exercise any surviving terms");
+        let model = SurrogateModel::new(terms, tape, N_PARAMS);
+
+        let got = model.evaluate(&fixed_angles);
+        assert!(
+            (got - expected).abs() < 1e-8 * expected.abs().max(1.0),
+            "sharded-batch-compiled model {got} vs f64 reference {expected}",
+        );
     }
 }

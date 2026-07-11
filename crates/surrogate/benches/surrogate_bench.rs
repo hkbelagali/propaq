@@ -238,17 +238,20 @@ fn bench_evaluate_by_size(c: &mut Criterion) {
 }
 
 /// `SurrogateModel::evaluate_batch` parallelizes across parameter sets on top
-/// of the per-set term parallelism `evaluate` already has; this tracks that
-/// the batch path amortizes rather than regresses.
+/// of the shared-tape scan `evaluate` now does; this tracks that the batch
+/// path amortizes rather than regresses. Built via `compile_batch` (not 64
+/// independent `compile()` calls) since that's how `run_build` actually
+/// produces a `SurrogateModel` now -- see `bench_compile_batch_vs_per_term_under_sharing`
+/// below for the head-to-head comparison between the two.
 fn bench_evaluate_batch(c: &mut Criterion) {
     use propaq_surrogate::model::{SurrogateModel, SurrogateTerm};
 
     let mut group = c.benchmark_group("SurrogateModel/evaluate_batch");
     let n_params = 20usize;
-    let terms: Vec<SurrogateTerm> = (0..64)
-        .map(|_| SurrogateTerm { overlap: 1.0, coeff: grown_coeff(14).compile() })
-        .collect();
-    let model = SurrogateModel::new(terms, n_params);
+    let coeffs: Vec<SymbolicCoeff> = (0..64).map(|_| grown_coeff(14)).collect();
+    let (tape, roots) = SymbolicCoeff::compile_batch(coeffs);
+    let terms: Vec<SurrogateTerm> = roots.into_iter().map(|root| SurrogateTerm { overlap: 1.0, root }).collect();
+    let model = SurrogateModel::new(terms, tape, n_params);
 
     let mut rng = Xorshift64(0xFEED);
     let param_sets: Vec<Vec<f64>> = (0..32)
@@ -258,6 +261,70 @@ fn bench_evaluate_batch(c: &mut Criterion) {
     group.bench_function("32_sets", |bench| {
         bench.iter(|| black_box(model.evaluate_batch(black_box(&param_sets))))
     });
+    group.finish();
+}
+
+/// The concrete demonstration of the shared-compile-tape fix: build
+/// `n_terms` coefficients all branching off one shared deep prefix (the
+/// scenario that used to cause a multi-hundred-GB OOM at real scale --
+/// heavy cross-term `Arc` sharing), then compare (a) today's replaced
+/// per-term `compile()` looped over every coefficient (summing each
+/// resulting tape's own length) against (b) one `compile_batch` call over
+/// the same set. The aggregate-ops ratio between (a) and (b) is the direct
+/// empirical evidence for the `O(N·D)` -> `O(D)` (single shard here, so
+/// `K=1`) reduction described in the design; timing the two confirms it's
+/// not just smaller but faster to produce.
+fn bench_compile_batch_vs_per_term_under_sharing(c: &mut Criterion) {
+    let mut group = c.benchmark_group("SymbolicCoeff/compile_batch_vs_per_term_under_sharing");
+
+    let prefix_len = 200u32;
+    let mut base = SymbolicCoeff::from_real(1.0);
+    for p in 0..prefix_len {
+        let branch = base.apply_rotation(&GateParam::symbolic(p), Complex64::new(0.0, 1.0));
+        base.add_assign(branch);
+    }
+
+    for n_terms in [16u32, 64, 256] {
+        let coeffs: Vec<SymbolicCoeff> = (0..n_terms)
+            .map(|i| {
+                let mut b = base.clone();
+                let branch = b.apply_rotation(&GateParam::symbolic(prefix_len + i), Complex64::new(0.0, 1.0));
+                b.add_assign(branch);
+                b
+            })
+            .collect();
+
+        // Reported once per `n_terms`, not per-iteration timing: the point
+        // is the aggregate op-count ratio, which is deterministic given the
+        // same input (not something criterion's statistical timing loop
+        // needs to re-measure).
+        let per_term_ops: usize = coeffs.iter().map(|c| c.compile().len()).sum();
+        let (batch_tape, _roots) = SymbolicCoeff::compile_batch(coeffs.clone());
+        eprintln!(
+            "compile_batch_vs_per_term_under_sharing[n_terms={n_terms}]: \
+             per-term total ops = {per_term_ops}, compile_batch tape ops = {}, ratio = {:.1}x",
+            batch_tape.len(),
+            per_term_ops as f64 / batch_tape.len().max(1) as f64,
+        );
+
+        group.bench_with_input(BenchmarkId::new("per_term_compile_loop", n_terms), &n_terms, |bench, _| {
+            bench.iter_batched(
+                || coeffs.clone(),
+                |cs| {
+                    let total: usize = cs.iter().map(|c| black_box(c.compile()).len()).sum();
+                    black_box(total)
+                },
+                BatchSize::LargeInput,
+            )
+        });
+        group.bench_with_input(BenchmarkId::new("compile_batch", n_terms), &n_terms, |bench, _| {
+            bench.iter_batched(
+                || coeffs.clone(),
+                |cs| black_box(SymbolicCoeff::compile_batch(black_box(cs))),
+                BatchSize::LargeInput,
+            )
+        });
+    }
     group.finish();
 }
 
@@ -394,6 +461,7 @@ criterion_group!(
     bench_compile_by_size,
     bench_evaluate_by_size,
     bench_evaluate_batch,
+    bench_compile_batch_vs_per_term_under_sharing,
     bench_flush_and_retain,
     bench_prune_by_size,
     bench_prune_shared_parameters,
