@@ -483,10 +483,21 @@ fn compile_surviving_terms<B: SoaBasis>(
                     let s = global_row * stride;
                     let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
                     let overlap = B::trace(term, n_units, initial_state);
+                    // Always take, even when the row won't survive: a
+                    // structurally-zero-overlap term contributes nothing to
+                    // any expectation value regardless of parameters, so its
+                    // entire coefficient DAG is pure waste once we know
+                    // that -- leaving it in `evolved` (untouched) would keep
+                    // it resident until the whole `build()` call unwinds,
+                    // well past when the compiled tape is already built.
+                    // Taking it here drops it (or, if some part is still
+                    // shared with a surviving term's own coefficient via
+                    // `Arc`, correctly keeps just that shared part alive)
+                    // immediately instead.
+                    let coeff = std::mem::take(c);
                     if overlap.abs() > 1e-15 {
                         overlaps.push(overlap);
-                        // Take rather than clone: `evolved` isn't reused after this build.
-                        survivors.push(std::mem::take(c));
+                        survivors.push(coeff);
                     }
                 }
                 let (tape, local_roots) = SymbolicCoeff::compile_batch(survivors);
@@ -976,6 +987,41 @@ mod sharded_compile_tests {
         assert!(
             (got - expected).abs() < 1e-8 * expected.abs().max(1.0),
             "sharded-batch-compiled model {got} vs f64 reference {expected}",
+        );
+    }
+
+    /// Regression test for a real memory-retention gap: `compile_surviving_terms`
+    /// used to only `mem::take` a row's coefficient inside the
+    /// `overlap.abs() > 1e-15` branch, so a structurally-zero-overlap row's
+    /// entire coefficient DAG (pure waste -- it contributes nothing to any
+    /// expectation value, for any parameters) stayed fully resident in
+    /// `evolved` until the caller's `SoaTermSum` eventually dropped, well
+    /// after the compiled tape was already built. Every row's coefficient
+    /// must now be taken (freeing it immediately unless still shared with a
+    /// surviving term's own coefficient via `Arc`), not just survivors'.
+    #[test]
+    fn zero_overlap_rows_have_their_coefficient_cleared_too() {
+        const N_QUBITS: usize = 4;
+        const FOCK: u64 = 0;
+        let mut ts: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+
+        // Row 0: pure-Z string -- structurally survives (nonzero trace
+        // against the all-zero Fock state).
+        let (gx0, gz0) = planes_of(0, 0b1, 1);
+        ts.push([&gx0, &gz0], SymbolicCoeff::from_real(1.0));
+
+        // Row 1: has X support -- structurally zero overlap regardless of
+        // its coefficient's value or any parameter assignment.
+        let (gx1, gz1) = planes_of(0b1, 0, 1);
+        ts.push([&gx1, &gz1], SymbolicCoeff::from_real(3.0));
+
+        let (_tape, terms) = compile_surviving_terms::<PauliBasis>(&mut ts, N_QUBITS, 1, FOCK);
+        assert_eq!(terms.len(), 1, "only the pure-Z row should survive");
+
+        assert!(ts.coeff(0).is_empty(), "surviving row's coefficient should have been taken");
+        assert!(
+            ts.coeff(1).is_empty(),
+            "zero-overlap row's coefficient should ALSO have been taken/dropped, not left resident",
         );
     }
 }

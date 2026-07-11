@@ -48,6 +48,15 @@ class MajoranaSurrogateModel:
         """Number of compiled terms (zero-overlap terms excluded)."""
         ...
 
+    @property
+    def n_monomials(self) -> int:
+        """
+        Total pre-dedup monomial-instance count across every surviving term
+        (an upper bound, not deduplicated). `n_terms` alone doesn't say how
+        much underlying computation a term represents.
+        """
+        ...
+
     def evaluate(self, params: list[float]) -> float:
         """
         Evaluate the expectation value.

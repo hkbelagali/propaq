@@ -106,6 +106,22 @@ impl SurrogateModel {
         self.terms.len()
     }
 
+    /// Total pre-dedup monomial-instance count across every surviving term
+    /// (an upper bound, not deduplicated -- see `CompiledCoeff::monomial_counts`),
+    /// summing each term's own root's count in the shared tape. `n_terms`
+    /// alone doesn't say how much underlying computation a term represents:
+    /// a handful of terms can each still expand to an astronomical monomial
+    /// count if their coefficient's derivation history is deep and largely
+    /// unshared.
+    pub fn n_monomials(&self) -> u64 {
+        let counts = self.tape.monomial_counts();
+        self.terms
+            .iter()
+            .filter(|t| t.root != EMPTY_ROOT)
+            .map(|t| counts[t.root])
+            .sum()
+    }
+
     /// Save to a binary file (see the module-level format notes on
     /// `MAGIC`/`FORMAT_VERSION`).
     ///
@@ -379,6 +395,14 @@ impl PauliSurrogateModel {
         self.inner.n_terms()
     }
 
+    /// Total pre-dedup monomial-instance count across every surviving term
+    /// (an upper bound, not deduplicated -- `n_terms` alone doesn't say how
+    /// much underlying computation a term represents).
+    #[getter]
+    fn n_monomials(&self) -> u64 {
+        self.inner.n_monomials()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "PauliSurrogateModel(n_terms={}, n_params={})",
@@ -442,6 +466,14 @@ impl MajoranaSurrogateModel {
         self.inner.n_terms()
     }
 
+    /// Total pre-dedup monomial-instance count across every surviving term
+    /// (an upper bound, not deduplicated -- `n_terms` alone doesn't say how
+    /// much underlying computation a term represents).
+    #[getter]
+    fn n_monomials(&self) -> u64 {
+        self.inner.n_monomials()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "MajoranaSurrogateModel(n_terms={}, n_params={})",
@@ -503,6 +535,19 @@ mod tests {
 
         let got = model.evaluate(&params);
         assert!((got - expected).abs() < 1e-12, "got {got}, expected {expected}");
+    }
+
+    #[test]
+    fn n_monomials_matches_the_original_node_count_sum() {
+        // `SymbolicCoeff::monomial_count()` reads `Node::count` directly off
+        // the (still-owned, uncompiled) DAG -- the ground truth this test
+        // cross-checks `SurrogateModel::n_monomials`'s tape-recomputed
+        // version against, since `compile_batch` discards `Node::count`
+        // once flattened and `n_monomials` has to reconstruct it from the
+        // flat `CompiledOp` tape instead.
+        let (model, coeffs, _overlaps) = build_shared_model();
+        let expected: u64 = coeffs.iter().map(|c| c.monomial_count() as u64).sum();
+        assert_eq!(model.n_monomials(), expected);
     }
 
     #[test]

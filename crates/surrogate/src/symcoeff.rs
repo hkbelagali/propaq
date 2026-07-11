@@ -738,6 +738,31 @@ impl CompiledCoeff {
         results
     }
 
+    /// Per-op pre-dedup monomial-instance count, mirroring `Node::count`'s
+    /// own combine rules (`Add` sums both sides, `Scale`/`Cos`/`Sin` pass
+    /// their inner count through unchanged, `Scalar` is a single monomial) --
+    /// an upper bound on how many monomials each op's subtree represents,
+    /// not a deduplicated tally. Recomputed from the flat tape rather than
+    /// carried over from `Node::count` directly, since `compile`/
+    /// `compile_batch` deliberately discard the original DAG's cached
+    /// fields once flattened. Plain (non-saturating) `u64` arithmetic,
+    /// matching `Node::add`'s own `a.count + b.count` -- this is a purely
+    /// informational upper bound (never used for correctness), so it
+    /// follows the same overflow tolerance already established there.
+    pub fn monomial_counts(&self) -> Vec<u64> {
+        let mut counts = vec![0u64; self.ops.len()];
+        for (i, op) in self.ops.iter().enumerate() {
+            counts[i] = match *op {
+                CompiledOp::Scalar(_) => 1,
+                CompiledOp::Add(a, b) => counts[a] + counts[b],
+                CompiledOp::Scale(_, inner) => counts[inner],
+                CompiledOp::Cos(_, inner) => counts[inner],
+                CompiledOp::Sin(_, inner) => counts[inner],
+            };
+        }
+        counts
+    }
+
     /// Number of ops in the compiled tape (test/diagnostic use).
     pub fn len(&self) -> usize {
         self.ops.len()
