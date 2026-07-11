@@ -41,14 +41,16 @@ pub struct SurrogateTerm {
     /// `term.trace_with_fock_state(initial_state)`; nonzero by construction.
     /// Independent of the gate parameters, computed once at build end.
     pub overlap: f64,
-    /// Index into the owning `SurrogateModel::tape`; `u32::MAX` sentinel for
-    /// a structurally-empty (zero) coefficient.
-    pub root: u32,
+    /// Index into the owning `SurrogateModel::tape`; `usize::MAX` sentinel
+    /// for a structurally-empty (zero) coefficient. `usize`, not `u32`: a
+    /// real large model's merged tape has been observed to exceed
+    /// `u32::MAX` total ops (see `CompiledOp`'s doc comment in `symcoeff.rs`).
+    pub root: usize,
 }
 
 /// Sentinel `SurrogateTerm::root` value for a structurally-empty coefficient
 /// (no ops in the shared tape to reference).
-const EMPTY_ROOT: u32 = u32::MAX;
+const EMPTY_ROOT: usize = usize::MAX;
 
 /// Compiled output of a surrogate propagation run.
 ///
@@ -109,7 +111,7 @@ impl SurrogateModel {
     ///
     /// The shared `tape` (bounded by shard-count x distinct-node-count, not
     /// by term count -- see `SurrogateModel`'s doc comment) is serialized and
-    /// gzip-compressed as one block. The (now tiny, 12-bytes-per-term) term
+    /// gzip-compressed as one block. The (now tiny, 16-bytes-per-term) term
     /// array is split into ~`current_num_threads()` contiguous shards, each
     /// serialized and gzip-compressed independently and in parallel, mirroring
     /// the tape's own parallel-friendly shape. Deliberately not also sharding
@@ -222,20 +224,23 @@ impl SurrogateModel {
 }
 
 /// Magic bytes and format version stamped at the head of every saved model.
-/// Bumped (7) from the per-term-`CompiledCoeff` format (6) since
-/// `SurrogateTerm` no longer carries its own compiled tape at all -- only a
-/// `root` index into one model-wide shared `tape` -- old files fail to load
-/// with a clear error rather than being silently misparsed (see `load`'s
-/// version check).
+/// Bumped twice in quick succession: 6 -> 7 when `SurrogateTerm` stopped
+/// carrying its own compiled tape (only a `root` index into one model-wide
+/// shared `tape`); 7 -> 8 when `root`'s width grew from `u32` to `usize`
+/// (`u32` was observed to overflow on a real multi-million-term model's
+/// merged tape -- see `CompiledOp`'s doc comment in `symcoeff.rs`). Old
+/// files fail to load with a clear error rather than being silently
+/// misparsed (see `load`'s version check).
 const MAGIC: u32 = u32::from_le_bytes(*b"PQSM");
-const FORMAT_VERSION: u32 = 7;
+const FORMAT_VERSION: u32 = 8;
 
 /// Serialize one term into `buf` (uncompressed): overlap (f64le) then root
-/// (u32le) -- 12 bytes, no longer a whole `CompiledCoeff` per term (see
+/// (u64le, regardless of the in-memory `usize` width, for portability) --
+/// 16 bytes, no longer a whole `CompiledCoeff` per term (see
 /// `SurrogateModel`'s doc comment).
 fn write_term_into(buf: &mut Vec<u8>, st: &SurrogateTerm) {
     buf.extend_from_slice(&st.overlap.to_le_bytes());
-    buf.extend_from_slice(&st.root.to_le_bytes());
+    buf.extend_from_slice(&(st.root as u64).to_le_bytes());
 }
 
 /// gzip a shard's raw bytes into a self-contained compressed blob.
@@ -258,17 +263,17 @@ fn parse_shard(compressed: &[u8]) -> std::io::Result<Vec<SurrogateTerm>> {
         v
     }
     #[inline]
-    fn rd_u32(b: &[u8], pos: &mut usize) -> u32 {
-        let v = u32::from_le_bytes(b[*pos..*pos + 4].try_into().unwrap());
-        *pos += 4;
-        v
+    fn rd_root(b: &[u8], pos: &mut usize) -> usize {
+        let v = u64::from_le_bytes(b[*pos..*pos + 8].try_into().unwrap());
+        *pos += 8;
+        v as usize
     }
 
     let mut terms = Vec::new();
     let mut pos = 0usize;
     while pos < raw.len() {
         let overlap = rd_f64(&raw, &mut pos);
-        let root = rd_u32(&raw, &mut pos);
+        let root = rd_root(&raw, &mut pos);
         terms.push(SurrogateTerm { overlap, root });
     }
     Ok(terms)

@@ -437,17 +437,34 @@ where
 /// out of `run_build`, so it can be exercised directly by a Rust unit test
 /// against a hand-built `SoaTermSum<SymbolicCoeff>` without fabricating a
 /// Python circuit object.
+///
+/// Shard count is **oversubscribed** relative to thread count
+/// (`SHARD_OVERSUBSCRIPTION` shards per worker, not exactly one) so rayon's
+/// work-stealing scheduler actually has something to rebalance: with exactly
+/// one shard per thread, once every thread has claimed its one chunk there
+/// is nothing left in the queue for an idle thread to steal, so a single
+/// unusually heavy shard (a few terms with much deeper coefficient DAGs than
+/// the rest -- plausible under skewed parameter reuse) stalls the whole pass
+/// on that one worker while every other thread sits idle. Leaving several
+/// unclaimed shards in the queue at all times lets a thread that finishes
+/// early immediately pick up the next one instead of idling. This raises the
+/// shared-node duplication bound from `(thread count)` to `(thread count) x
+/// (oversubscription factor)` -- still a small constant independent of term
+/// count, so the OOM-prevention property this function exists for is
+/// unaffected, just with a slightly larger (and tunable) constant.
 fn compile_surviving_terms<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     n_units: usize,
     stride: usize,
     initial_state: u64,
 ) -> (CompiledCoeff, Vec<SurrogateTerm>) {
+    const SHARD_OVERSUBSCRIPTION: usize = 4;
+
     let n = evolved.len();
-    let target_shards = rayon::current_num_threads().max(1);
+    let target_shards = (rayon::current_num_threads() * SHARD_OVERSUBSCRIPTION).max(1);
     let chunk = n.div_ceil(target_shards).max(1);
 
-    let (shard_tapes, shard_terms): (Vec<CompiledCoeff>, Vec<Vec<(f64, u32)>>) = {
+    let (shard_tapes, shard_terms): (Vec<CompiledCoeff>, Vec<Vec<(f64, usize)>>) = {
         let SoaTermSum { planes, coeffs, .. } = evolved;
         coeffs[..n]
             .par_chunks_mut(chunk)
@@ -473,7 +490,7 @@ fn compile_surviving_terms<B: SoaBasis>(
                     }
                 }
                 let (tape, local_roots) = SymbolicCoeff::compile_batch(survivors);
-                let terms: Vec<(f64, u32)> = overlaps.into_iter().zip(local_roots).collect();
+                let terms: Vec<(f64, usize)> = overlaps.into_iter().zip(local_roots).collect();
                 (tape, terms)
             })
             .unzip()
@@ -482,11 +499,8 @@ fn compile_surviving_terms<B: SoaBasis>(
     let (tape, offsets) = CompiledCoeff::merge_shards(shard_tapes);
     let mut raw = Vec::with_capacity(shard_terms.iter().map(|s| s.len()).sum());
     for (terms, offset) in shard_terms.into_iter().zip(offsets) {
-        // `merge_shards` already validated every offset fits `u32` (panics
-        // internally otherwise), so this cast is safe.
-        let offset = offset as u32;
         for (overlap, local_root) in terms {
-            let root = if local_root == u32::MAX { u32::MAX } else { local_root + offset };
+            let root = if local_root == usize::MAX { usize::MAX } else { local_root + offset };
             raw.push(SurrogateTerm { overlap, root });
         }
     }

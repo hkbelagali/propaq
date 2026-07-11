@@ -233,7 +233,7 @@ impl SymbolicCoeff {
     /// from more than one of the given roots is emitted into the tape only
     /// once here, not once per referencing root. Returns `(tape, roots)`
     /// where `roots[i]` is the tape index of the `i`-th input coefficient's
-    /// root (`u32::MAX` for an empty/zero coefficient).
+    /// root (`usize::MAX` for an empty/zero coefficient).
     ///
     /// This is the primitive `run_build` uses (per shard of surviving terms)
     /// to avoid the multiplicative blowup of compiling every term's DAG
@@ -246,13 +246,13 @@ impl SymbolicCoeff {
     /// overflow that an explicit stack doesn't.
     pub fn compile_batch(
         coeffs: impl IntoIterator<Item = SymbolicCoeff>,
-    ) -> (CompiledCoeff, Vec<u32>) {
+    ) -> (CompiledCoeff, Vec<usize>) {
         // Keeps every input's `Arc<Node>` (if any) alive for the whole
         // traversal below -- `Frame`'s borrows point into these Arcs.
         let owned: Vec<SymbolicCoeff> = coeffs.into_iter().collect();
 
         let mut ops: Vec<CompiledOp> = Vec::new();
-        let mut memo: HashMap<*const Node, u32> = HashMap::new();
+        let mut memo: HashMap<*const Node, usize> = HashMap::new();
         // Tracks every node that has already been pushed onto the work stack
         // (whether or not its `Exit` has run yet), so a node referenced by
         // more than one parent -- or by more than one of this batch's roots
@@ -308,7 +308,7 @@ impl SymbolicCoeff {
                         NodeKind::Sin(p, inner) => CompiledOp::Sin(*p, memo[&Arc::as_ptr(inner)]),
                     };
                     ops.push(op);
-                    memo.insert(Arc::as_ptr(node), (ops.len() - 1) as u32);
+                    memo.insert(Arc::as_ptr(node), ops.len() - 1);
                 }
             }
         }
@@ -319,12 +319,12 @@ impl SymbolicCoeff {
         // deduped away by `scheduled` and never gets its own `Exit` frame --
         // the memo's final entry (written by whichever root's traversal
         // actually ran) is the only correct place to read its index from.
-        let roots: Vec<u32> = owned
+        let roots: Vec<usize> = owned
             .iter()
             .map(|c| {
                 c.0.as_ref()
                     .and_then(|root| memo.get(&Arc::as_ptr(root)).copied())
-                    .unwrap_or(u32::MAX)
+                    .unwrap_or(usize::MAX)
             })
             .collect();
 
@@ -650,16 +650,48 @@ impl CoeffRepr for SymbolicCoeff {
     }
 }
 
-/// One flattened operation in a `CompiledCoeff`'s tape. Indices always refer
-/// to earlier positions in the same tape (the tape is topologically ordered
-/// by construction -- see `SymbolicCoeff::compile`).
+/// One flattened operation in a `CompiledCoeff`'s tape. Tape-referencing
+/// operand indices are `usize`, not `u32`: a real large workload's merged
+/// tape (many shards' worth of largely-unshared per-term history, summed
+/// across millions of surviving terms) has been observed to exceed
+/// `u32::MAX` total ops -- `u32` looked like plenty for one term's own
+/// tape, but doesn't bound the *sum* across a whole model. `Cos`/`Sin`'s
+/// first field is a parameter *index* (bounded by parameter count, not tape
+/// size), so it stays `u32`. Indices always refer to earlier positions in
+/// the same tape (the tape is topologically ordered by construction -- see
+/// `SymbolicCoeff::compile`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum CompiledOp {
     Scalar(f64),
-    Add(u32, u32),
-    Scale(f64, u32),
-    Cos(u32, u32),
-    Sin(u32, u32),
+    Add(usize, usize),
+    Scale(f64, usize),
+    Cos(u32, usize),
+    Sin(u32, usize),
+}
+
+/// Shift one op's tape-referencing operand index/indices by `offset`
+/// (`CompiledCoeff::merge_shards`'s per-shard concatenation step). Split out
+/// as its own function so the arithmetic can be unit-tested directly against
+/// large synthetic offsets (beyond `u32::MAX`) without needing to actually
+/// allocate a multi-billion-entry `Vec<CompiledOp>` to exercise it.
+/// `checked_add` is defense-in-depth: since operand indices are `usize`,
+/// this can only overflow by exhausting the whole address space.
+fn shift_op(op: CompiledOp, offset: usize) -> CompiledOp {
+    let shifted = |i: usize| {
+        i.checked_add(offset).unwrap_or_else(|| {
+            panic!(
+                "compiled tape operand index overflowed usize while merging shards \
+                 (index {i} + shard offset {offset})"
+            )
+        })
+    };
+    match op {
+        CompiledOp::Scalar(c) => CompiledOp::Scalar(c),
+        CompiledOp::Add(a, b) => CompiledOp::Add(shifted(a), shifted(b)),
+        CompiledOp::Scale(f, i) => CompiledOp::Scale(f, shifted(i)),
+        CompiledOp::Cos(p, i) => CompiledOp::Cos(p, shifted(i)),
+        CompiledOp::Sin(p, i) => CompiledOp::Sin(p, shifted(i)),
+    }
 }
 
 /// A frozen, flat evaluation tape produced once by `SymbolicCoeff::compile`.
@@ -696,10 +728,10 @@ impl CompiledCoeff {
         for (i, op) in self.ops.iter().enumerate() {
             results[i] = match *op {
                 CompiledOp::Scalar(c) => c,
-                CompiledOp::Add(a, b) => results[a as usize] + results[b as usize],
-                CompiledOp::Scale(f, inner) => f * results[inner as usize],
-                CompiledOp::Cos(p, inner) => lut[2 * p as usize] * results[inner as usize],
-                CompiledOp::Sin(p, inner) => lut[2 * p as usize + 1] * results[inner as usize],
+                CompiledOp::Add(a, b) => results[a] + results[b],
+                CompiledOp::Scale(f, inner) => f * results[inner],
+                CompiledOp::Cos(p, inner) => lut[2 * p as usize] * results[inner],
+                CompiledOp::Sin(p, inner) => lut[2 * p as usize + 1] * results[inner],
             };
         }
         results
@@ -721,7 +753,7 @@ impl CompiledCoeff {
     /// `Node`/`Arc`, since `CompiledOp` values are already fully resolved.
     /// Returns `(global tape, per-shard base offset)`; a shard's own local
     /// root indices become global via `offset[shard] + local_root` (with
-    /// `u32::MAX` passed through unshifted for empty coefficients).
+    /// `usize::MAX` passed through unshifted for empty coefficients).
     pub fn merge_shards(shards: Vec<CompiledCoeff>) -> (CompiledCoeff, Vec<usize>) {
         let mut ops: Vec<CompiledOp> = Vec::with_capacity(shards.iter().map(|s| s.ops.len()).sum());
         let mut offsets: Vec<usize> = Vec::with_capacity(shards.len());
@@ -729,34 +761,16 @@ impl CompiledCoeff {
         for shard in shards {
             let offset = ops.len();
             offsets.push(offset);
-            let shift = u32::try_from(offset).unwrap_or_else(|_| {
-                panic!(
-                    "compiled tape offset {offset} exceeds u32::MAX -- merged model has too \
-                     many total ops to index with a u32"
-                )
-            });
-            let shifted = |i: u32| {
-                i.checked_add(shift).unwrap_or_else(|| {
-                    panic!(
-                        "compiled tape operand index overflowed u32 while merging shards \
-                         (index {i} + shard offset {shift})"
-                    )
-                })
-            };
-            ops.extend(shard.ops.into_iter().map(|op| match op {
-                CompiledOp::Scalar(c) => CompiledOp::Scalar(c),
-                CompiledOp::Add(a, b) => CompiledOp::Add(shifted(a), shifted(b)),
-                CompiledOp::Scale(f, i) => CompiledOp::Scale(f, shifted(i)),
-                CompiledOp::Cos(p, i) => CompiledOp::Cos(p, shifted(i)),
-                CompiledOp::Sin(p, i) => CompiledOp::Sin(p, shifted(i)),
-            }));
+            ops.extend(shard.ops.into_iter().map(|op| shift_op(op, offset)));
         }
 
         (CompiledCoeff { ops }, offsets)
     }
 
     /// Serialize the tape (little-endian): op count, then one tagged record
-    /// per op.
+    /// per op. Operand (tape-referencing) indices are written as 8-byte
+    /// (`u64`) fields on the wire regardless of the in-memory `usize` width,
+    /// for portability; `Cos`/`Sin`'s parameter index stays 4 bytes (`u32`).
     pub fn serialize(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&(self.ops.len() as u64).to_le_bytes());
         for op in &self.ops {
@@ -767,23 +781,23 @@ impl CompiledCoeff {
                 }
                 CompiledOp::Add(a, b) => {
                     buf.push(1);
-                    buf.extend_from_slice(&a.to_le_bytes());
-                    buf.extend_from_slice(&b.to_le_bytes());
+                    buf.extend_from_slice(&(a as u64).to_le_bytes());
+                    buf.extend_from_slice(&(b as u64).to_le_bytes());
                 }
                 CompiledOp::Scale(f, i) => {
                     buf.push(2);
                     buf.extend_from_slice(&f.to_le_bytes());
-                    buf.extend_from_slice(&i.to_le_bytes());
+                    buf.extend_from_slice(&(i as u64).to_le_bytes());
                 }
                 CompiledOp::Cos(p, i) => {
                     buf.push(3);
                     buf.extend_from_slice(&p.to_le_bytes());
-                    buf.extend_from_slice(&i.to_le_bytes());
+                    buf.extend_from_slice(&(i as u64).to_le_bytes());
                 }
                 CompiledOp::Sin(p, i) => {
                     buf.push(4);
                     buf.extend_from_slice(&p.to_le_bytes());
-                    buf.extend_from_slice(&i.to_le_bytes());
+                    buf.extend_from_slice(&(i as u64).to_le_bytes());
                 }
             }
         }
@@ -796,6 +810,10 @@ impl CompiledCoeff {
             let v = u64::from_le_bytes(b[*pos..*pos + 8].try_into().unwrap());
             *pos += 8;
             v
+        }
+        #[inline]
+        fn rd_idx(b: &[u8], pos: &mut usize) -> usize {
+            rd_u64(b, pos) as usize
         }
         #[inline]
         fn rd_u32(b: &[u8], pos: &mut usize) -> u32 {
@@ -817,10 +835,10 @@ impl CompiledCoeff {
             *pos += 1;
             let op = match tag {
                 0 => CompiledOp::Scalar(rd_f64(b, pos)),
-                1 => CompiledOp::Add(rd_u32(b, pos), rd_u32(b, pos)),
-                2 => CompiledOp::Scale(rd_f64(b, pos), rd_u32(b, pos)),
-                3 => CompiledOp::Cos(rd_u32(b, pos), rd_u32(b, pos)),
-                4 => CompiledOp::Sin(rd_u32(b, pos), rd_u32(b, pos)),
+                1 => CompiledOp::Add(rd_idx(b, pos), rd_idx(b, pos)),
+                2 => CompiledOp::Scale(rd_f64(b, pos), rd_idx(b, pos)),
+                3 => CompiledOp::Cos(rd_u32(b, pos), rd_idx(b, pos)),
+                4 => CompiledOp::Sin(rd_u32(b, pos), rd_idx(b, pos)),
                 _ => panic!("corrupt CompiledCoeff tape: unknown op tag {tag}"),
             };
             ops.push(op);
@@ -1300,7 +1318,7 @@ mod tests {
         let (tape, roots) = SymbolicCoeff::compile_batch([a, b]);
         assert_eq!(roots.len(), 2);
         assert_eq!(roots[0], roots[1]);
-        assert_ne!(roots[0], u32::MAX);
+        assert_ne!(roots[0], usize::MAX);
 
         let lut = make_lut(1);
         let results = tape.evaluate_all(&lut);
@@ -1339,7 +1357,7 @@ mod tests {
         let lut = make_lut(70);
         let results = tape.evaluate_all(&lut);
         for (branch, &root) in branches.iter().zip(&roots) {
-            assert_ne!(root, u32::MAX);
+            assert_ne!(root, usize::MAX);
             let expected = eval(branch, &lut);
             assert!((results[root as usize] - expected).abs() < 1e-9);
         }
@@ -1352,8 +1370,8 @@ mod tests {
         let _ = b.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
 
         let (tape, roots) = SymbolicCoeff::compile_batch([a, b.clone()]);
-        assert_eq!(roots[0], u32::MAX);
-        assert_ne!(roots[1], u32::MAX);
+        assert_eq!(roots[0], usize::MAX);
+        assert_ne!(roots[1], usize::MAX);
 
         let lut = make_lut(1);
         let results = tape.evaluate_all(&lut);
@@ -1389,10 +1407,10 @@ mod tests {
         assert_eq!(offsets, vec![0, shard0_len]);
 
         let global_roots = [
-            roots0[0] + offsets[0] as u32,
-            roots0[1] + offsets[0] as u32,
-            roots1[0] + offsets[1] as u32,
-            roots1[1] + offsets[1] as u32,
+            roots0[0] + offsets[0],
+            roots0[1] + offsets[0],
+            roots1[0] + offsets[1],
+            roots1[1] + offsets[1],
         ];
 
         let results = merged.evaluate_all(&lut);
@@ -1400,5 +1418,38 @@ mod tests {
             let expected = eval(coeff, &lut);
             assert!((results[*root as usize] - expected).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn shift_op_handles_offsets_beyond_u32_max() {
+        // Regression test for a real-workload panic: a 4.19M-term model's
+        // merged tape exceeded u32::MAX total ops, since each term's own
+        // largely-unshared derivation tail still scales with term count
+        // even though shared-subtree duplication itself is shard-bounded.
+        // `shift_op` is exercised directly here (rather than via
+        // `merge_shards` on an actually multi-billion-entry `Vec<CompiledOp>`,
+        // which would itself exhaust memory in a test) with synthetic
+        // offsets/indices comfortably past `u32::MAX` (4_294_967_295), to
+        // prove the arithmetic itself no longer overflows now that operand
+        // indices are `usize`.
+        let big_offset: usize = u32::MAX as usize + 5_000_000_000;
+
+        assert_eq!(shift_op(CompiledOp::Scalar(3.5), big_offset), CompiledOp::Scalar(3.5));
+        assert_eq!(
+            shift_op(CompiledOp::Add(10, 20), big_offset),
+            CompiledOp::Add(10 + big_offset, 20 + big_offset),
+        );
+        assert_eq!(
+            shift_op(CompiledOp::Scale(2.0, 7), big_offset),
+            CompiledOp::Scale(2.0, 7 + big_offset),
+        );
+        assert_eq!(
+            shift_op(CompiledOp::Cos(3, 11), big_offset),
+            CompiledOp::Cos(3, 11 + big_offset),
+        );
+        assert_eq!(
+            shift_op(CompiledOp::Sin(4, 12), big_offset),
+            CompiledOp::Sin(4, 12 + big_offset),
+        );
     }
 }
