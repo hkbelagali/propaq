@@ -463,8 +463,16 @@ fn prune_node(root: &Arc<Node>, max_frequency: Option<u32>, coeff_cutoff: Option
     let max_freq_cap = max_frequency.unwrap_or(u32::MAX);
     let cutoff = coeff_cutoff.unwrap_or(0.0);
 
-    let mut memo: HashMap<PruneKey, Option<Arc<Node>>> = HashMap::new();
-    let mut scheduled: HashSet<PruneKey> = HashSet::new();
+    // `FxHashMap`/`FxHashSet` (already a dependency, `rustc-hash`, and
+    // already used for exactly this kind of hot-path memoization in
+    // `soa::kernels::merge`), not the default `std::collections::HashMap`'s
+    // SipHash-based hasher -- profiling a real workload found this memo
+    // table's hashing/rehashing dominating (~90%+) `prune`'s total runtime,
+    // since SipHash is deliberately not optimized for speed (it's designed
+    // for DoS resistance), which matters enormously once the key count
+    // reaches the millions this real-workload traversal produces.
+    let mut memo: rustc_hash::FxHashMap<PruneKey, Option<Arc<Node>>> = rustc_hash::FxHashMap::default();
+    let mut scheduled: rustc_hash::FxHashSet<PruneKey> = rustc_hash::FxHashSet::default();
 
     enum Frame<'a> {
         Enter { node: &'a Arc<Node>, depth: u32, scale_exp: i32 },
