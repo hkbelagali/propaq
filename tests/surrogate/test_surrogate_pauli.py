@@ -143,11 +143,9 @@ class TestNumericalAgreement:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
 class TestFrequencyTruncation:
-    """`FrequencyTruncator`/`max_frequency` are monomial-level and not yet
-    supported by the Phase A surrogate (see `propaq.MD`'s staged-rollout
-    notes): the DAG coefficient representation defers all monomial-level
-    truncation to Phase B. Building with one configured must raise a clear
-    error rather than silently doing nothing or misbehaving."""
+    """`FrequencyTruncator`/`max_frequency` are monomial-level, but decided
+    structurally by `SymbolicCoeff::prune` -- no monomial expansion needed.
+    See `propaq.MD`'s "Truncation" section."""
 
     def _circuit_and_obs(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
@@ -157,12 +155,40 @@ class TestFrequencyTruncation:
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
         return obs, sc, circ, angles
 
-    def test_max_frequency_is_rejected_in_phase_a(self):
+    def test_max_frequency_zero_drops_all_non_constant(self):
+        """freq=0 keeps only monomials with no trig factors (constant terms)."""
         obs, sc, circ, angles = self._circuit_and_obs()
-        with pytest.raises(ValueError, match="not yet supported"):
-            PauliSurrogatePropagator(
-                truncation=FrequencyTruncationPolicy(max_frequency=1)
+        model = PauliSurrogatePropagator(
+            truncation=FrequencyTruncationPolicy(max_frequency=0)
+        ).build(obs, sc, initial_state=0)
+        # may have 0 terms or only constant-factor terms
+        assert model.n_terms >= 0
+
+    def test_increasing_frequency_reduces_error(self):
+        obs, sc, circ, angles = self._circuit_and_obs()
+        n_rots = 3
+        numerical = numerical_ev(obs, circ)
+        prev_err = float("inf")
+        for freq in range(0, n_rots + 1):
+            model = PauliSurrogatePropagator(
+                truncation=FrequencyTruncationPolicy(max_frequency=freq)
             ).build(obs, sc, initial_state=0)
+            err = abs(model.evaluate(angles) - numerical)
+            assert err <= prev_err + 1e-12, (
+                f"Error did not decrease monotonically at freq={freq}: "
+                f"prev={prev_err:.3e}, curr={err:.3e}"
+            )
+            prev_err = err
+
+    def test_exact_at_n_rotations(self):
+        """At max_frequency >= n_rotations, the result must be exact."""
+        obs, sc, circ, angles = self._circuit_and_obs()
+        n_rots = 3
+        model = PauliSurrogatePropagator(
+            truncation=FrequencyTruncationPolicy(max_frequency=n_rots)
+        ).build(obs, sc, initial_state=0)
+        numerical = numerical_ev(obs, circ)
+        assert model.evaluate(angles) == pytest.approx(numerical, rel=1e-9)
 
 
 class TestMergeCadence:
@@ -239,15 +265,26 @@ class TestParameterReuseDedup:
         assert m_eager.evaluate(params) == pytest.approx(exact, rel=1e-9)
         assert m_eager.evaluate(params) == pytest.approx(m_off.evaluate(params), rel=1e-12)
 
-    def test_frequency_truncation_is_rejected_in_phase_a(self):
-        """`max_frequency` is monomial-level and not yet supported by the
-        Phase A surrogate, even with parameters reused across gates; see
-        `TestFrequencyTruncation`."""
+    def test_frequency_truncation_monotonic_with_shared_parameters(self):
+        """`max_frequency` caps total trig *power*, not gate count; with a
+        parameter reused across gates that cap must still be exact once it
+        reaches the number of rotations, and error must shrink monotonically
+        below that."""
         obs, sc, circ, params = self._reused_param_circuit()
-        with pytest.raises(ValueError, match="not yet supported"):
-            PauliSurrogatePropagator(
-                truncation=FrequencyTruncationPolicy(max_frequency=1)
+        n_rots = 4
+        numerical = numerical_ev(obs, circ)
+        prev_err = float("inf")
+        for freq in range(0, n_rots + 1):
+            model = PauliSurrogatePropagator(
+                truncation=FrequencyTruncationPolicy(max_frequency=freq)
             ).build(obs, sc, initial_state=0)
+            err = abs(model.evaluate(params) - numerical)
+            assert err <= prev_err + 1e-12, (
+                f"error did not decrease monotonically at freq={freq}: "
+                f"prev={prev_err:.3e}, curr={err:.3e}"
+            )
+            prev_err = err
+        assert prev_err < 1e-9
 
     def test_many_reuses_of_one_parameter_matches_numerical(self):
         """A single parameter driving five separate gates: the trig-power
@@ -276,20 +313,27 @@ class TestComposableTruncation:
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
         return obs, sc, circ, angles
 
-    def test_frequency_and_coefficient_truncators_are_rejected_in_phase_a(self):
-        """`FrequencyTruncator`/`CoefficientTruncator` are monomial-level and
-        not yet supported by the Phase A surrogate, whether given alone, in a
-        list, or mixed with a still-supported operator; see
-        `TestFrequencyTruncation`."""
+    def test_list_of_truncators_frequency_exact(self):
         obs, sc, circ, angles = self._circ()
-        for truncation in [
-            [FrequencyTruncator(3), CoefficientTruncator(1e-15)],
-            FrequencyTruncator(3),
-            [CoefficientTruncator(1e-15)],
-            [CoefficientTruncator(1e9)],
-        ]:
-            with pytest.raises(ValueError, match="not yet supported"):
-                PauliSurrogatePropagator(truncation=truncation).build(obs, sc, initial_state=0)
+        model = PauliSurrogatePropagator(
+            truncation=[FrequencyTruncator(3), CoefficientTruncator(1e-15)]
+        ).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_coefficient_truncator_tiny_threshold_is_exact(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(
+            truncation=[CoefficientTruncator(1e-15)]
+        ).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_coefficient_truncator_huge_threshold_prunes_everything(self):
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(
+            truncation=[CoefficientTruncator(1e9)]
+        ).build(obs, sc, initial_state=0)
+        # |scalar| < 1e9 for every real monomial, so all get pruned at the flush.
+        assert model.evaluate(angles) == pytest.approx(0.0, abs=1e-12)
 
     def test_single_truncator_accepted(self):
         """A bare truncator (not wrapped in a list) is accepted directly."""
@@ -347,21 +391,10 @@ class TestComposableTruncation:
         ]:
             assert isinstance(op, Truncator)
 
-    def test_none_valued_frequency_and_coefficient_truncators_are_still_rejected(self):
-        """Phase A's rejection is unconditional on the truncator *type*, not
-        its configured value -- a `FrequencyTruncator(None)`/
-        `CoefficientTruncator(None)` (which would be a no-op if it ran) is
-        still rejected, since a lazy DAG has no monomial-level machinery to
-        run it against at all."""
-        obs, sc, circ, angles = self._circ()
-        for truncation in [[FrequencyTruncator(None)], [CoefficientTruncator(None)]]:
-            with pytest.raises(ValueError, match="not yet supported"):
-                PauliSurrogatePropagator(truncation=truncation).build(obs, sc, initial_state=0)
-
-    def test_none_valued_weight_truncator_is_noop_exact(self):
+    def test_none_valued_truncators_are_noop_exact(self):
         obs, sc, circ, angles = self._circ()
         model = PauliSurrogatePropagator(
-            truncation=[WeightTruncator(None)]
+            truncation=[FrequencyTruncator(None), CoefficientTruncator(None), WeightTruncator(None)]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 

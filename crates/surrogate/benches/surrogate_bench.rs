@@ -265,8 +265,10 @@ fn bench_evaluate_batch(c: &mut Criterion) {
 /// individual entries (see `soa::kernels::map_retain`). Timed on a term set
 /// built by a real (untimed) gate-application burst plus a merge, so the
 /// live-term distribution going into the flush is realistic rather than
-/// uniform. Monomial-level trimming (frequency/coefficient-magnitude) is
-/// deferred to Phase B and isn't part of this pass; see `propaq.MD`.
+/// uniform. Frequency/coefficient-magnitude monomial-level trimming (via
+/// `SymbolicCoeff::prune`) is benchmarked separately below
+/// (`bench_prune_by_size`/`bench_prune_shared_parameters`), since it isn't
+/// part of `map_retain`'s per-coefficient closure here.
 fn bench_flush_and_retain(c: &mut Criterion) {
     let mut group = c.benchmark_group("SoaTermSum/flush_and_retain_surrogate");
     group.bench_function("weight_retain", |bench| {
@@ -304,6 +306,87 @@ fn bench_flush_and_retain(c: &mut Criterion) {
     group.finish();
 }
 
+/// `SymbolicCoeff::prune`'s cost as a function of prior history size, under
+/// a `FrequencyTruncator`-style cap and a `CoefficientTruncator`-style
+/// cutoff separately. Neither cutoff can ever actually trigger against
+/// `grown_coeff`'s construction (every branch's frequency keeps climbing and
+/// every factor has magnitude exactly 1), so this measures the pure
+/// traversal/memoization overhead of walking a coefficient that turns out to
+/// need no pruning at all -- the common case for a coefficient whose cutoffs
+/// were tuned for some *other*, larger term.
+fn bench_prune_by_size(c: &mut Criterion) {
+    let mut group = c.benchmark_group("SymbolicCoeff/prune_by_prior_history");
+    for steps in [8u32, 12, 17, 20] {
+        group.bench_with_input(
+            BenchmarkId::new("frequency", 1u64 << steps),
+            &steps,
+            |bench, &steps| {
+                bench.iter_batched(
+                    || grown_coeff(steps),
+                    |mut coeff| {
+                        coeff.prune(Some(black_box(steps + 1)), None);
+                        black_box(coeff)
+                    },
+                    BatchSize::LargeInput,
+                )
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("coefficient", 1u64 << steps),
+            &steps,
+            |bench, _| {
+                bench.iter_batched(
+                    || grown_coeff(steps),
+                    |mut coeff| {
+                        coeff.prune(None, Some(black_box(1e-9)));
+                        black_box(coeff)
+                    },
+                    BatchSize::LargeInput,
+                )
+            },
+        );
+    }
+    group.finish();
+}
+
+/// `prune`'s cost under heavy parameter reuse: a shared prefix branched and
+/// merged over several rounds (the 2-parent-diamond-then-merge pattern real
+/// propagation produces every gate). This is the scenario the bucketed
+/// memoization design specifically targets -- without it, cost would compound
+/// multiplicatively per round; with it, cost should stay close to linear in
+/// total distinct nodes regardless of round count.
+fn bench_prune_shared_parameters(c: &mut Criterion) {
+    let mut group = c.benchmark_group("SymbolicCoeff/prune_shared_parameters");
+    for rounds in [4u32, 8, 12] {
+        group.bench_with_input(BenchmarkId::from_parameter(rounds), &rounds, |bench, &rounds| {
+            bench.iter_batched(
+                || {
+                    let mut base = SymbolicCoeff::from_real(1.0);
+                    let mut next_param = 0u32;
+                    for _ in 0..rounds {
+                        let mut merged = SymbolicCoeff::default();
+                        for _ in 0..3u32 {
+                            let mut b = base.clone();
+                            let branch = b.apply_rotation(&GateParam::symbolic(next_param), Complex64::new(0.0, 1.0));
+                            b.add_assign(branch);
+                            next_param += 1;
+                            merged.add_assign(b);
+                        }
+                        base = merged;
+                    }
+                    base
+                },
+                |mut coeff| {
+                    coeff.prune(None, black_box(Some(1e-9)));
+                    black_box(coeff)
+                },
+                BatchSize::LargeInput,
+            )
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_apply_gate_inplace,
@@ -312,5 +395,7 @@ criterion_group!(
     bench_evaluate_by_size,
     bench_evaluate_batch,
     bench_flush_and_retain,
+    bench_prune_by_size,
+    bench_prune_shared_parameters,
 );
 criterion_main!(benches);

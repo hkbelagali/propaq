@@ -18,13 +18,18 @@
 /// overhead in practice (see `propaq.MD`/project memory for the diagnosis
 /// and the ProPauli reference design this port is based on).
 ///
-/// Monomial-level truncation (`FrequencyTruncator`/`CoefficientTruncator`,
-/// both of which need an expanded per-monomial view a lazy DAG doesn't have)
-/// is not supported — configuring one raises a clear error rather than being
-/// silently ignored. Only term-level truncation (`WeightTruncator`,
-/// `TermBudget`) is honored; there is no monomial-count-based budget
+/// Every `Truncator` is honored, including the monomial-level
+/// `FrequencyTruncator`/`CoefficientTruncator` — despite first appearances,
+/// neither needs an expanded per-monomial view of a coefficient's history.
+/// `SymbolicCoeff::prune` decides both cutoffs structurally, from cached
+/// per-node bounds, dropping whole doomed subtrees in O(1) without ever
+/// visiting their insides (see `symcoeff.rs`'s module doc and `prune`'s doc
+/// comment for the algorithm). There is no monomial-*count* budget
 /// (`MonomialBudget` was removed — judged unnecessary given `WeightTruncator`/
-/// `TermBudget` plus the now-default eager merge cadence).
+/// `TermBudget` plus the default eager merge cadence, and the same structural
+/// approach that made `prune` possible doesn't extend to a global
+/// cross-coefficient rank-ordered budget the way it does to a per-monomial
+/// threshold).
 ///
 use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
@@ -48,28 +53,12 @@ use propaq_core::truncators::{
     Truncator,
 };
 
-/// `FrequencyTruncator`/`CoefficientTruncator` both need a per-monomial view
-/// of a symbolic coefficient's history, which the DAG representation doesn't
-/// expose. Rejected explicitly rather than silently ignored, mirroring
-/// `propaq_core::truncators::reject_surrogate_only`'s pattern for the
-/// numerical propagator's analogous rejection of surrogate-only operators.
-fn reject_phase_a_unsupported(truncators: &[Truncator]) -> PyResult<()> {
-    if truncators.iter().any(|t| matches!(t, Truncator::Frequency(_) | Truncator::Coefficient(_))) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "FrequencyTruncator and CoefficientTruncator are not yet supported by the surrogate \
-             propagator (monomial-level truncation is being redesigned around a new coefficient \
-             representation); use WeightTruncator / TermBudget for now.",
-        ));
-    }
-    Ok(())
-}
-
 /// Resolve the flexible `truncation` constructor argument into `(FlushSchedule,
 /// [Truncator])`. The surrogate additionally accepts the legacy
 /// `FrequencyTruncationPolicy` (decomposed here); everything else, such as a list, a
 /// single truncator, a core `TruncationPolicy`, or `None`, is delegated to the
-/// shared `propaq_core` resolver. Either path rejects Phase-A-unsupported
-/// (monomial-level) truncators -- see `reject_phase_a_unsupported`.
+/// shared `propaq_core` resolver. Every truncator the resolved list can
+/// produce is honored by `apply_truncation_policy` below -- no rejection step.
 fn resolve_truncation(
     truncation: Option<&Bound<'_, PyAny>>,
     schedule: Option<FlushSchedule>,
@@ -77,13 +66,10 @@ fn resolve_truncation(
     if let Some(obj) = truncation {
         if let Ok(legacy) = obj.extract::<PyRef<FrequencyTruncationPolicy>>() {
             let (decomposed, ops) = legacy.decompose();
-            reject_phase_a_unsupported(&ops)?;
             return Ok((schedule.unwrap_or(decomposed), ops));
         }
     }
-    let (schedule, ops) = core_resolve_truncation(truncation, schedule)?;
-    reject_phase_a_unsupported(&ops)?;
-    Ok((schedule, ops))
+    core_resolve_truncation(truncation, schedule)
 }
 
 /// Surrogate propagator: drives a `SoaTermSum<SymbolicCoeff>` directly via
@@ -448,13 +434,13 @@ pub struct TruncationOutcome {
 
 /// Run the truncation pipeline against `evolved`'s current live state.
 ///
-/// Term-level only: `WeightTruncator` (operator weight) and the always-on
-/// lossless dedup (`SymbolicCoeff::add_assign`/`is_empty` via `merge`,
-/// already applied by the caller before this runs). Monomial-level
-/// truncation (`FrequencyTruncator`, symbolic `CoefficientTruncator`) is
-/// rejected at construction time (`reject_phase_a_unsupported`); there is no
-/// monomial-count budget at all (`MonomialBudget` was removed as
-/// unnecessary).
+/// `WeightTruncator` (operator weight) is a stream-compaction filter, same
+/// as the numerical propagator. `FrequencyTruncator`/`CoefficientTruncator`
+/// go through `SymbolicCoeff::prune`, which drops monomials structurally
+/// (no expansion) -- see `prune`'s doc comment. There is no monomial-*count*
+/// budget (`MonomialBudget` was removed as unnecessary). The always-on
+/// lossless dedup (`SymbolicCoeff::add_assign`/`is_empty` via `merge`) has
+/// already run by the time this is called.
 pub fn apply_truncation_policy<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     cfg: &ResolvedConfig,
@@ -466,10 +452,17 @@ pub fn apply_truncation_policy<B: SoaBasis>(
     // Deferred like the numerical propagator: below min_terms, skip the lossy
     // filters.
     let apply_lossy = total_before >= min_terms;
+    // Saturating cast: a `usize` cap beyond `u32::MAX` is indistinguishable
+    // from "no cap" in practice, but should clamp rather than wrap.
+    let max_frequency = cfg.frequency.map(|f| f.min(u32::MAX as usize) as u32);
 
     let monomials_after = kernels::map_retain::<B, SymbolicCoeff, _, _>(
         evolved,
-        |_c: &mut SymbolicCoeff| {},
+        |c: &mut SymbolicCoeff| {
+            if apply_lossy {
+                c.prune(max_frequency, cfg.coefficient);
+            }
+        },
         |term: [&[u64]; 2], c: &SymbolicCoeff| {
             let weight_ok = !apply_lossy || cfg.weight.map_or(true, |w| B::weight(term, n_units) <= w);
             weight_ok && !c.is_empty()

@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 
     from propaq.circuits.pauli.surrogate_circuit import SurrogatePauliCircuit
 
-# The surrogate currently only honors WeightTruncator/TermBudget (term-level);
-# FrequencyTruncator/CoefficientTruncator are accepted here but rejected at
-# construction time (monomial-level truncation isn't yet supported by the
-# symbolic DAG coefficient representation).
+# The surrogate honors every truncator, including the monomial-level
+# FrequencyTruncator/CoefficientTruncator: both are decided structurally
+# from the symbolic DAG's cached per-node bounds, with no monomial expansion
+# needed (see propaq.MD's "Truncation" section).
 _Truncator = FrequencyTruncator | CoefficientTruncator | WeightTruncator | TermBudget
 _Truncation = (
     _Truncator | Sequence[_Truncator] | FrequencyTruncationPolicy | TruncationPolicy | None

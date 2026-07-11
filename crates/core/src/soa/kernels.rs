@@ -239,8 +239,10 @@ where
 
 /// Parallel per-coefficient fold across all live terms, merged via
 /// `combine` — the SoA analogue of the old hash-partition engine's
-/// `fold_coeffs`. Used by the surrogate's global frequency histogram and
-/// boundary-scalar collection during monomial-budget truncation.
+/// `fold_coeffs`. Not currently called from anywhere (its former caller, a
+/// global frequency histogram for `MonomialBudget`'s importance-ranked
+/// removal, was deleted along with that truncator); kept as a generic,
+/// tested primitive in case a future cross-coefficient aggregate needs one.
 pub fn fold_coeffs<C: CoeffRepr, T, ID, F, R>(terms: &SoaTermSum<C>, identity: ID, fold: F, combine: R) -> T
 where
     T: Send,

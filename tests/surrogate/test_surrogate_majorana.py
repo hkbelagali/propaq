@@ -108,11 +108,9 @@ class TestNumericalAgreement:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
 class TestFrequencyTruncation:
-    """`FrequencyTruncator`/`max_frequency` are monomial-level and not yet
-    supported by the Phase A surrogate (see `propaq.MD`'s staged-rollout
-    notes): the DAG coefficient representation defers all monomial-level
-    truncation to Phase B. Building with one configured must raise a clear
-    error rather than silently doing nothing or misbehaving."""
+    """`FrequencyTruncator`/`max_frequency` are monomial-level, but decided
+    structurally by `SymbolicCoeff::prune` -- no monomial expansion needed.
+    See `propaq.MD`'s "Truncation" section."""
 
     def _circuit_and_obs(self):
         obs = MajoranaTermSum({mm(0b0011): 1.0})
@@ -124,12 +122,26 @@ class TestFrequencyTruncation:
         sc = SurrogateMajoranaCircuit.from_majorana_circuit(circ, param_indices=[0, 1, 2])
         return obs, sc, circ, angles
 
-    def test_max_frequency_is_rejected_in_phase_a(self):
+    def test_increasing_frequency_reduces_error(self):
         obs, sc, circ, angles = self._circuit_and_obs()
-        with pytest.raises(ValueError, match="not yet supported"):
-            MajoranaSurrogatePropagator(
-                truncation=FrequencyTruncationPolicy(max_frequency=1)
+        numerical = numerical_ev(obs, circ)
+        prev_err = float("inf")
+        for freq in range(0, 4):
+            model = MajoranaSurrogatePropagator(
+                truncation=FrequencyTruncationPolicy(max_frequency=freq)
             ).build(obs, sc, initial_state=0)
+            err = abs(model.evaluate(angles) - numerical)
+            assert err <= prev_err + 1e-12
+            prev_err = err
+
+    def test_exact_at_n_rotations(self):
+        obs, sc, circ, angles = self._circuit_and_obs()
+        n_rots = 3
+        model = MajoranaSurrogatePropagator(
+            truncation=FrequencyTruncationPolicy(max_frequency=n_rots)
+        ).build(obs, sc, initial_state=0)
+        numerical = numerical_ev(obs, circ)
+        assert model.evaluate(angles) == pytest.approx(numerical, rel=1e-9)
 
 class TestParameterReuseDedup:
     """Targeted coverage for the parameter-space merge/dedup logic, mirrored

@@ -22,14 +22,20 @@
 /// real constant or by cos/sin of one parameter, never a general product of
 /// two symbolic subexpressions, so five node kinds are enough.
 ///
-/// Expansion into an explicit monomial-scalar list (needed for
-/// frequency/monomial-budget truncation) is deferred entirely to Phase B; see
-/// `propaq.MD` and the project memory for the staged rollout this is part
-/// of. In this phase, a coefficient's DAG is only ever walked once, at build
-/// end, via `compile()` -- a memoized flatten into a flat evaluable tape (see
-/// `CompiledCoeff`), so repeated `evaluate`/`evaluate_batch` calls (a VQE
-/// optimizer's inner loop) are cheap linear scans instead of per-call tree
-/// walks.
+/// Monomial-level truncation (`FrequencyTruncator`/`CoefficientTruncator`)
+/// does *not* require expanding a coefficient into an explicit monomial
+/// list, despite first appearances. Both cutoffs are decidable structurally:
+/// frequency (a count of `Cos`/`Sin` wraps) is purely structural, and
+/// coefficient magnitude has a sound upper bound (`|cos|,|sin| <= 1` always).
+/// Caching those bounds per node (`min_freq`/`max_freq`/`upper_scale`, see
+/// `Node`'s doc) lets `SymbolicCoeff::prune` drop whole doomed subtrees in
+/// O(1) without ever visiting their insides -- see `prune`'s doc comment.
+///
+/// Besides `prune` (run only at truncation flushes), a coefficient's DAG is
+/// only ever walked once per term, at build end, via `compile()` -- a
+/// memoized flatten into a flat evaluable tape (see `CompiledCoeff`), so
+/// repeated `evaluate`/`evaluate_batch` calls (a VQE optimizer's inner loop)
+/// are cheap linear scans instead of per-call tree walks.
 ///
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
@@ -46,9 +52,33 @@ use propaq_core::coeff::CoeffRepr;
 /// semantics `total_monomials`/`pending_monomials` already use elsewhere in
 /// `propagator.rs`, so `monomial_count()`/`size_hint()` stay O(1) with no
 /// caller-visible behavior change there.
+///
+/// `min_freq`/`max_freq` and `upper_scale` are cached the same way, and are
+/// what let `SymbolicCoeff::prune` decide whether a whole subtree survives a
+/// `FrequencyTruncator`/`CoefficientTruncator` cutoff without ever expanding
+/// it into individual monomials -- see `prune`'s doc comment.
 struct Node {
     kind: NodeKind,
     count: u64,
+    /// Minimum/maximum number of `Cos`/`Sin` wraps between this node and any
+    /// `Scalar` leaf reachable below it. Both are **exact** (frequency is a
+    /// purely structural quantity with no runtime-unknown component, unlike
+    /// `upper_scale` below), which is what lets `prune` prove a subtree is
+    /// *either* fully doomed (`min_freq` too high) *or* fully safe (`max_freq`
+    /// still within the cap) without visiting its insides.
+    min_freq: u32,
+    max_freq: u32,
+    /// A safe (never-underestimating) upper bound on `|Scale/Scalar product|`
+    /// reachable below this node, ignoring any `Scale` factors above it
+    /// (those get folded in externally as a traversal descends). `Cos`/`Sin`
+    /// don't change this bound: `|cos|,|sin| <= 1` always, so treating an
+    /// unknown-until-parameters-are-bound trig factor as "no worse than x1"
+    /// can never underestimate the true magnitude. Unlike frequency, there is
+    /// no symmetric "definitely survives" bound computable here -- a trig
+    /// factor can shrink a monomial arbitrarily close to zero even when its
+    /// structural prefactor is large -- so `upper_scale` only ever proves a
+    /// subtree "definitely prunable," never "definitely kept."
+    upper_scale: f64,
 }
 
 enum NodeKind {
@@ -66,7 +96,9 @@ enum NodeKind {
 /// zero.
 fn drop_placeholder() -> Arc<Node> {
     static PLACEHOLDER: OnceLock<Arc<Node>> = OnceLock::new();
-    Arc::clone(PLACEHOLDER.get_or_init(|| Arc::new(Node { kind: NodeKind::Scalar(0.0), count: 1 })))
+    Arc::clone(PLACEHOLDER.get_or_init(|| {
+        Arc::new(Node { kind: NodeKind::Scalar(0.0), count: 1, min_freq: 0, max_freq: 0, upper_scale: 0.0 })
+    }))
 }
 
 /// Without this, dropping a `Node` recurses into dropping its `Arc<Node>`
@@ -116,27 +148,38 @@ impl Drop for Node {
 
 impl Node {
     fn scalar(c: f64) -> Arc<Node> {
-        Arc::new(Node { kind: NodeKind::Scalar(c), count: 1 })
+        Arc::new(Node { kind: NodeKind::Scalar(c), count: 1, min_freq: 0, max_freq: 0, upper_scale: c.abs() })
     }
 
     fn add(a: Arc<Node>, b: Arc<Node>) -> Arc<Node> {
         let count = a.count + b.count;
-        Arc::new(Node { kind: NodeKind::Add(a, b), count })
+        let min_freq = a.min_freq.min(b.min_freq);
+        let max_freq = a.max_freq.max(b.max_freq);
+        let upper_scale = a.upper_scale.max(b.upper_scale);
+        Arc::new(Node { kind: NodeKind::Add(a, b), count, min_freq, max_freq, upper_scale })
     }
 
     fn scale(factor: f64, inner: Arc<Node>) -> Arc<Node> {
         let count = inner.count;
-        Arc::new(Node { kind: NodeKind::Scale(factor, inner), count })
+        let (min_freq, max_freq) = (inner.min_freq, inner.max_freq);
+        let upper_scale = factor.abs() * inner.upper_scale;
+        Arc::new(Node { kind: NodeKind::Scale(factor, inner), count, min_freq, max_freq, upper_scale })
     }
 
     fn cos(param: u32, inner: Arc<Node>) -> Arc<Node> {
         let count = inner.count;
-        Arc::new(Node { kind: NodeKind::Cos(param, inner), count })
+        let min_freq = inner.min_freq.saturating_add(1);
+        let max_freq = inner.max_freq.saturating_add(1);
+        let upper_scale = inner.upper_scale;
+        Arc::new(Node { kind: NodeKind::Cos(param, inner), count, min_freq, max_freq, upper_scale })
     }
 
     fn sin(param: u32, inner: Arc<Node>) -> Arc<Node> {
         let count = inner.count;
-        Arc::new(Node { kind: NodeKind::Sin(param, inner), count })
+        let min_freq = inner.min_freq.saturating_add(1);
+        let max_freq = inner.max_freq.saturating_add(1);
+        let upper_scale = inner.upper_scale;
+        Arc::new(Node { kind: NodeKind::Sin(param, inner), count, min_freq, max_freq, upper_scale })
     }
 }
 
@@ -245,6 +288,56 @@ impl SymbolicCoeff {
         CompiledCoeff { ops }
     }
 
+    /// Structurally drop monomials violating `max_frequency` and/or
+    /// `coeff_cutoff` -- **without ever expanding into an explicit monomial
+    /// list**. A no-op if both are `None`.
+    ///
+    /// Both cutoffs are decided via the cached `min_freq`/`max_freq`/
+    /// `upper_scale` bounds (see `Node`'s doc): walking the DAG top-down
+    /// while carrying an accumulated `(depth, scale)` context from the root,
+    /// a whole subtree is dropped in O(1) the instant it's *provably*
+    /// doomed (`depth + node.min_freq > max_frequency`, or
+    /// `scale * node.upper_scale < coeff_cutoff`) -- no need to visit
+    /// anything below it. When only `max_frequency` is active, a subtree can
+    /// also be proven *fully safe* (`depth + node.max_freq <= max_frequency`)
+    /// and kept unchanged (original `Arc`, no rebuild) -- frequency is exact,
+    /// so both directions are provable; magnitude only ever proves
+    /// "doomed," never "safe" (a trig factor can shrink a monomial toward
+    /// zero regardless of how large its structural prefactor is), so
+    /// `coeff_cutoff`-active subtrees always need an exact leaf-level
+    /// decision once they're not already provably doomed.
+    ///
+    /// Iterative (explicit stack, same `Enter`/`Exit` discipline as
+    /// `compile`), since a coefficient's DAG can be thousands of nodes deep.
+    /// Unlike `compile`, this isn't a pure post-order walk: the
+    /// doomed/safe/ambiguous decision is made top-down (at `Enter`, using
+    /// context inherited from the parent), and the rebuilt subtree is
+    /// assembled bottom-up (at `Exit`) -- so each memoized entry is keyed by
+    /// `(node pointer, context)`, not pointer alone, since the same shared
+    /// node can be reached with different context from different parents.
+    ///
+    /// Memoization: `depth` is exact and cheap to key on directly. `scale` is
+    /// a continuous float, so it's tracked internally as `scale_exp: i32`, a
+    /// rounded-**up** log2 exponent maintaining the invariant
+    /// `true accumulated |scale| <= 2^scale_exp` -- a cached decision can
+    /// therefore only ever *keep* slightly more than an exact cutoff would,
+    /// never wrongly prune. Without this, a shared subtree reached with
+    /// different exact `scale` values from different parents (routine: every
+    /// `apply_rotation` creates a 2-parent diamond, and `merge` folds
+    /// derivation paths back together by default after every gate) would be
+    /// re-walked once per distinct context -- reopening exactly the
+    /// unbounded-revisit blowup this DAG design exists to avoid. `depth`'s
+    /// dimension of the memo key collapses to a constant when
+    /// `max_frequency` is `None`; `scale_exp`'s collapses when `coeff_cutoff`
+    /// is `None`.
+    pub fn prune(&mut self, max_frequency: Option<u32>, coeff_cutoff: Option<f64>) {
+        if max_frequency.is_none() && coeff_cutoff.is_none() {
+            return;
+        }
+        let Some(root) = self.0.take() else { return };
+        self.0 = prune_node(&root, max_frequency, coeff_cutoff);
+    }
+
     /// Records that every live term's history branched on `param`: `cos`
     /// stays on `self` (mutated in place, O(1)), `sin` is returned as the new
     /// anticommuted term's coefficient. Both just wrap the existing history
@@ -279,6 +372,166 @@ impl SymbolicCoeff {
         let sin = old.map(|n| Node::scale(branch_phase, n));
         SymbolicCoeff(sin)
     }
+}
+
+/// Combine an accumulated `scale_exp` (see `prune_node`'s doc) with one more
+/// `Scale` factor `k`, rounding **up** so the invariant `true accumulated
+/// |scale| <= 2^scale_exp` is preserved. `k.abs().log2()` is `-inf` when
+/// `k == 0.0`; `(-inf).ceil() as i32` saturates to `i32::MIN` in Rust (no
+/// special-casing needed), which correctly represents "this branch's true
+/// scale is exactly zero" for the doomed check in `is_doomed_by_coeff`.
+#[inline]
+fn combine_scale_exp(exp: i32, k: f64) -> i32 {
+    let k_exp = k.abs().log2().ceil() as i32;
+    exp.saturating_add(k_exp)
+}
+
+/// Whether a subtree with accumulated `scale_exp` and cached `upper_scale` is
+/// *provably* below `cutoff` -- i.e. `2^scale_exp * upper_scale < cutoff`,
+/// computed in log-space to stay well-behaved at extreme `scale_exp`
+/// magnitudes (a real circuit can chain thousands of `Scale` factors).
+/// `cutoff <= 0.0` never dooms anything (no real magnitude is `< 0`).
+#[inline]
+fn is_doomed_by_coeff(scale_exp: i32, upper_scale: f64, cutoff: f64) -> bool {
+    if cutoff <= 0.0 {
+        return false;
+    }
+    (scale_exp as f64) + upper_scale.log2() < cutoff.log2()
+}
+
+/// The memo/scheduled key for `prune_node`'s traversal: a node pointer plus
+/// whichever context dimensions are actually in use (the unused dimension
+/// collapses to a constant, since a cutoff that isn't configured can never
+/// distinguish two contexts).
+type PruneKey = (*const Node, u32, i32);
+
+#[inline]
+fn prune_key(ptr: *const Node, depth: u32, scale_exp: i32, has_freq: bool, has_coeff: bool) -> PruneKey {
+    (ptr, if has_freq { depth } else { 0 }, if has_coeff { scale_exp } else { 0 })
+}
+
+/// `SymbolicCoeff::prune`'s iterative top-down-decide/bottom-up-rebuild walk
+/// -- see `prune`'s doc comment for the algorithm. Returns `None` if the
+/// whole coefficient was pruned away.
+fn prune_node(root: &Arc<Node>, max_frequency: Option<u32>, coeff_cutoff: Option<f64>) -> Option<Arc<Node>> {
+    let has_freq = max_frequency.is_some();
+    let has_coeff = coeff_cutoff.is_some();
+    let max_freq_cap = max_frequency.unwrap_or(u32::MAX);
+    let cutoff = coeff_cutoff.unwrap_or(0.0);
+
+    let mut memo: HashMap<PruneKey, Option<Arc<Node>>> = HashMap::new();
+    let mut scheduled: HashSet<PruneKey> = HashSet::new();
+
+    enum Frame<'a> {
+        Enter { node: &'a Arc<Node>, depth: u32, scale_exp: i32 },
+        Exit { node: &'a Arc<Node>, depth: u32, scale_exp: i32 },
+    }
+
+    let mut stack: Vec<Frame> = Vec::new();
+    let root_key = prune_key(Arc::as_ptr(root), 0, 0, has_freq, has_coeff);
+    scheduled.insert(root_key);
+    stack.push(Frame::Enter { node: root, depth: 0, scale_exp: 0 });
+
+    while let Some(frame) = stack.pop() {
+        match frame {
+            Frame::Enter { node, depth, scale_exp } => {
+                let key = prune_key(Arc::as_ptr(node), depth, scale_exp, has_freq, has_coeff);
+
+                let doomed_by_freq = has_freq && depth.saturating_add(node.min_freq) > max_freq_cap;
+                let doomed_by_coeff = has_coeff && is_doomed_by_coeff(scale_exp, node.upper_scale, cutoff);
+                if doomed_by_freq || doomed_by_coeff {
+                    memo.insert(key, None);
+                    continue;
+                }
+
+                // Only provable when coefficient truncation isn't also
+                // active -- magnitude has no "definitely survives" bound.
+                let provably_safe = has_freq && !has_coeff && depth.saturating_add(node.max_freq) <= max_freq_cap;
+                if provably_safe || (!has_freq && !has_coeff) {
+                    memo.insert(key, Some(Arc::clone(node)));
+                    continue;
+                }
+
+                // Ambiguous: recurse. A `Scalar` leaf has no children, so it
+                // falls straight through to `Exit` and is trivially kept
+                // (it already survived the doomed check above).
+                stack.push(Frame::Exit { node, depth, scale_exp });
+                match &node.kind {
+                    NodeKind::Scalar(_) => {}
+                    NodeKind::Add(a, b) => {
+                        let kb = prune_key(Arc::as_ptr(b), depth, scale_exp, has_freq, has_coeff);
+                        let ka = prune_key(Arc::as_ptr(a), depth, scale_exp, has_freq, has_coeff);
+                        if scheduled.insert(kb) {
+                            stack.push(Frame::Enter { node: b, depth, scale_exp });
+                        }
+                        if scheduled.insert(ka) {
+                            stack.push(Frame::Enter { node: a, depth, scale_exp });
+                        }
+                    }
+                    NodeKind::Scale(k, inner) => {
+                        let new_scale_exp = if has_coeff { combine_scale_exp(scale_exp, *k) } else { scale_exp };
+                        let ki = prune_key(Arc::as_ptr(inner), depth, new_scale_exp, has_freq, has_coeff);
+                        if scheduled.insert(ki) {
+                            stack.push(Frame::Enter { node: inner, depth, scale_exp: new_scale_exp });
+                        }
+                    }
+                    NodeKind::Cos(_, inner) | NodeKind::Sin(_, inner) => {
+                        let new_depth = depth.saturating_add(1);
+                        let ki = prune_key(Arc::as_ptr(inner), new_depth, scale_exp, has_freq, has_coeff);
+                        if scheduled.insert(ki) {
+                            stack.push(Frame::Enter { node: inner, depth: new_depth, scale_exp });
+                        }
+                    }
+                }
+            }
+            Frame::Exit { node, depth, scale_exp } => {
+                let key = prune_key(Arc::as_ptr(node), depth, scale_exp, has_freq, has_coeff);
+                let result = match &node.kind {
+                    NodeKind::Scalar(_) => Some(Arc::clone(node)),
+                    NodeKind::Add(a, b) => {
+                        let ka = prune_key(Arc::as_ptr(a), depth, scale_exp, has_freq, has_coeff);
+                        let kb = prune_key(Arc::as_ptr(b), depth, scale_exp, has_freq, has_coeff);
+                        match (memo[&ka].clone(), memo[&kb].clone()) {
+                            (None, None) => None,
+                            (Some(x), None) => Some(x),
+                            (None, Some(y)) => Some(y),
+                            (Some(x), Some(y)) => {
+                                if Arc::ptr_eq(&x, a) && Arc::ptr_eq(&y, b) {
+                                    Some(Arc::clone(node))
+                                } else {
+                                    Some(Node::add(x, y))
+                                }
+                            }
+                        }
+                    }
+                    NodeKind::Scale(k, inner) => {
+                        let new_scale_exp = if has_coeff { combine_scale_exp(scale_exp, *k) } else { scale_exp };
+                        let ki = prune_key(Arc::as_ptr(inner), depth, new_scale_exp, has_freq, has_coeff);
+                        memo[&ki].clone().map(|x| {
+                            if Arc::ptr_eq(&x, inner) { Arc::clone(node) } else { Node::scale(*k, x) }
+                        })
+                    }
+                    NodeKind::Cos(p, inner) => {
+                        let new_depth = depth.saturating_add(1);
+                        let ki = prune_key(Arc::as_ptr(inner), new_depth, scale_exp, has_freq, has_coeff);
+                        memo[&ki].clone().map(|x| {
+                            if Arc::ptr_eq(&x, inner) { Arc::clone(node) } else { Node::cos(*p, x) }
+                        })
+                    }
+                    NodeKind::Sin(p, inner) => {
+                        let new_depth = depth.saturating_add(1);
+                        let ki = prune_key(Arc::as_ptr(inner), new_depth, scale_exp, has_freq, has_coeff);
+                        memo[&ki].clone().map(|x| {
+                            if Arc::ptr_eq(&x, inner) { Arc::clone(node) } else { Node::sin(*p, x) }
+                        })
+                    }
+                };
+                memo.insert(key, result);
+            }
+        }
+    }
+
+    memo.remove(&root_key).unwrap()
 }
 
 /// Gate parameter for a symbolic rotation: either a symbolic parameter (a
@@ -783,5 +1036,153 @@ mod tests {
             let _ = c.apply_rotation(&GateParam::symbolic(p), Complex64::new(0.0, -1.0));
         }
         drop(c);
+    }
+
+    fn root_ptr(c: &SymbolicCoeff) -> *const Node {
+        Arc::as_ptr(c.0.as_ref().unwrap())
+    }
+
+    #[test]
+    fn prune_max_frequency_zero_drops_non_constant_keeps_constant() {
+        // A constant (frequency-0) monomial and a frequency-1 monomial
+        // summed together; capping frequency at 0 must drop only the latter.
+        let mut total = SymbolicCoeff::from_scalar(5.0);
+        let mut b = SymbolicCoeff::from_scalar(3.0);
+        let _ = b.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+        total.add_assign(b);
+
+        let lut = make_lut(1);
+        assert!((eval(&total, &lut) - (5.0 + 3.0 * lut[0])).abs() < 1e-12);
+
+        total.prune(Some(0), None);
+        assert!((eval(&total, &lut) - 5.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn prune_max_frequency_at_true_depth_is_exact_no_op() {
+        // Capping frequency at exactly the coefficient's true max depth must
+        // change nothing -- verified both by `evaluate` and by confirming
+        // the "provably safe" fast path actually fired (same root `Arc`,
+        // no rebuild), not just that the rebuilt structure happens to
+        // evaluate the same.
+        let mut c = SymbolicCoeff::from_scalar(2.0);
+        let _ = c.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+        let _ = c.apply_rotation(&GateParam::symbolic(1), Complex64::new(0.0, -1.0));
+
+        let lut = make_lut(2);
+        let before_val = eval(&c, &lut);
+        let before_ptr = root_ptr(&c);
+
+        c.prune(Some(2), None);
+
+        assert!((eval(&c, &lut) - before_val).abs() < 1e-12);
+        assert_eq!(root_ptr(&c), before_ptr, "provably-safe fast path should return the original Arc unchanged");
+    }
+
+    #[test]
+    fn prune_with_no_cutoffs_is_a_true_no_op() {
+        let mut c = SymbolicCoeff::from_scalar(1.0);
+        let _ = c.apply_rotation(&GateParam::symbolic(0), Complex64::new(0.0, -1.0));
+        let before_ptr = root_ptr(&c);
+        c.prune(None, None);
+        assert_eq!(root_ptr(&c), before_ptr);
+    }
+
+    #[test]
+    fn prune_hand_built_cross_check_frequency_and_coefficient() {
+        // Two hand-built monomials with known frequency and scale magnitude:
+        //   m1 = cos(theta_0) * 2.0 * 3.0   -- frequency 1, upper_scale 6.0
+        //   m2 = sin(theta_1) * 0.5         -- frequency 1, upper_scale 0.5
+        let lut = make_lut(2);
+        let (theta0, theta1) = (0.37f64, 0.74f64); // matches `make_lut`'s `0.37*(i+1)`
+
+        let m1 = Node::cos(0, Node::scale(2.0, Node::scalar(3.0)));
+        let m2 = Node::sin(1, Node::scalar(0.5));
+        let total = SymbolicCoeff(Some(Node::add(m1, m2)));
+
+        let expected_total = 6.0 * theta0.cos() + 0.5 * theta1.sin();
+        assert!((eval(&total, &lut) - expected_total).abs() < 1e-12);
+
+        // max_frequency = 0: both monomials are frequency 1, both doomed.
+        let mut c = total.clone();
+        c.prune(Some(0), None);
+        assert!(c.is_empty());
+
+        // max_frequency = 1: exact boundary, no-op.
+        let mut c = total.clone();
+        c.prune(Some(1), None);
+        assert!((eval(&c, &lut) - expected_total).abs() < 1e-12);
+
+        // coeff_cutoff = 1.0: only m2 (upper_scale 0.5 < 1.0) is doomed.
+        let mut c = total.clone();
+        c.prune(None, Some(1.0));
+        assert!((eval(&c, &lut) - 6.0 * theta0.cos()).abs() < 1e-12);
+
+        // coeff_cutoff = 10.0: both doomed (6.0 < 10.0, 0.5 < 10.0).
+        let mut c = total.clone();
+        c.prune(None, Some(10.0));
+        assert!(c.is_empty());
+    }
+
+    #[test]
+    fn prune_memoizes_shared_subtrees_under_coefficient_cutoff() {
+        // A nested-sharing shape: each round branches the *previous* round's
+        // (already-merged) result several ways and merges again -- the same
+        // 2-parent-diamond-then-merge pattern real propagation produces
+        // every gate, repeated across rounds so an unmemoized per-context
+        // revisit cost would compound multiplicatively *per round*
+        // (genuinely exponential in round count), not just linearly in
+        // branch count. All factors here have magnitude exactly 1, so a
+        // cutoff far below 1 can never structurally prune anything --
+        // forcing every visit to fall through to "ambiguous, recurse" the
+        // way a real coefficient-cutoff-active prune commonly would.
+        let mut base = SymbolicCoeff::from_scalar(1.0);
+        let mut next_param = 0u32;
+        for _round in 0..12 {
+            let mut merged = SymbolicCoeff::default();
+            for _branch in 0..3u32 {
+                let mut b = base.clone();
+                let _ = b.apply_rotation(&GateParam::symbolic(next_param), Complex64::new(0.0, -1.0));
+                next_param += 1;
+                merged.add_assign(b);
+            }
+            base = merged;
+        }
+
+        let lut = make_lut(next_param as usize);
+        let before = eval(&base, &lut);
+
+        let start = std::time::Instant::now();
+        base.prune(None, Some(1e-9));
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "prune() took {elapsed:?} for a 3-way/12-round shared structure -- \
+             suggests memoization by (node, scale bucket) isn't sharing repeated visits",
+        );
+
+        let after = eval(&base, &lut);
+        assert!((after - before).abs() < 1e-6 * before.abs().max(1.0));
+    }
+
+    #[test]
+    fn prune_deep_chain_does_not_overflow_the_stack() {
+        // Mirrors `dropping_a_deep_chain_does_not_overflow_the_stack`, but
+        // for `prune`'s own iterative stack discipline (a different frame
+        // shape from `Drop`'s and `compile`'s, so it needs its own
+        // depth-safety proof). A coefficient-cutoff-only prune has no
+        // "provably safe, stop early" fast path (see `prune`'s doc comment),
+        // so a cutoff that can never trigger (every factor here has
+        // magnitude exactly 1) forces a genuine top-to-bottom walk through
+        // all 200,000 levels rather than resolving instantly at the root.
+        let mut c = SymbolicCoeff::from_scalar(1.0);
+        for p in 0..200_000u32 {
+            let _ = c.apply_rotation(&GateParam::symbolic(p), Complex64::new(0.0, -1.0));
+        }
+        let lut = make_lut(200_000);
+        let before = eval(&c, &lut);
+        c.prune(None, Some(1e-300));
+        let after = eval(&c, &lut);
+        assert!((after - before).abs() < 1e-8 * before.abs().max(1.0));
     }
 }
