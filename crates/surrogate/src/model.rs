@@ -109,26 +109,31 @@ impl SurrogateModel {
     /// Save to a binary file (see the module-level format notes on
     /// `MAGIC`/`FORMAT_VERSION`).
     ///
-    /// The shared `tape` (bounded by shard-count x distinct-node-count, not
-    /// by term count -- see `SurrogateModel`'s doc comment) is serialized and
-    /// gzip-compressed as one block. The (now tiny, 16-bytes-per-term) term
-    /// array is split into ~`current_num_threads()` contiguous shards, each
-    /// serialized and gzip-compressed independently and in parallel, mirroring
-    /// the tape's own parallel-friendly shape. Deliberately not also sharding
-    /// the tape itself: it's exactly the part of the old design that used to
-    /// blow up, so a single-threaded compress of it is expected to be cheap;
-    /// revisit only if a real large-tape workload's `save` wall time shows
-    /// otherwise.
+    /// Both the shared `tape` and the term array are split into
+    /// ~`current_num_threads()` contiguous shards, each serialized and
+    /// gzip-compressed independently and in parallel -- previously the tape
+    /// was serialized/compressed as one single-threaded block (reasoned to
+    /// be cheap enough, since it's bounded by shard-count x distinct-node-
+    /// count rather than term count), but a real large model showed this was
+    /// still the dominant serial cost in `save`: "bounded relative to the old
+    /// per-term design" does not mean "small" at multi-million-term scale.
+    /// `CompiledCoeff::serialize_sharded`/`deserialize_sharded` do the actual
+    /// splitting (see their doc comments for why no index reindexing is
+    /// needed, unlike `merge_shards`).
     pub fn save(&self, path: &str) -> std::io::Result<()> {
-        let mut tape_raw = Vec::new();
-        self.tape.serialize(&mut tape_raw);
-        let tape_blob = gzip_block(&tape_raw)?;
+        let target_shards = rayon::current_num_threads().max(1);
+
+        let tape_blobs: Vec<Vec<u8>> = self
+            .tape
+            .serialize_sharded(target_shards)
+            .par_iter()
+            .map(|raw| gzip_block(raw))
+            .collect::<std::io::Result<_>>()?;
 
         // Contiguous shards, one per worker (at least one term each). Each shard
         // is serialized + compressed on its own thread; blobs come back in term
         // order because `par_chunks` preserves order.
         let n_terms = self.terms.len();
-        let target_shards = rayon::current_num_threads().max(1);
         let chunk = n_terms.div_ceil(target_shards).max(1);
         let term_blobs: Vec<Vec<u8>> = self
             .terms
@@ -147,8 +152,13 @@ impl SurrogateModel {
         w.write_all(&MAGIC.to_le_bytes())?;
         w.write_all(&FORMAT_VERSION.to_le_bytes())?;
         w.write_all(&(self.n_params as u64).to_le_bytes())?;
-        w.write_all(&(tape_blob.len() as u64).to_le_bytes())?;
-        w.write_all(&tape_blob)?;
+        w.write_all(&(tape_blobs.len() as u64).to_le_bytes())?;
+        for b in &tape_blobs {
+            w.write_all(&(b.len() as u64).to_le_bytes())?;
+        }
+        for b in &tape_blobs {
+            w.write_all(b)?;
+        }
         w.write_all(&(term_blobs.len() as u64).to_le_bytes())?;
         for b in &term_blobs {
             w.write_all(&(b.len() as u64).to_le_bytes())?;
@@ -160,10 +170,9 @@ impl SurrogateModel {
         Ok(())
     }
 
-    /// Load from a file produced by `save`. The header, tape blob, and
-    /// compressed term blobs are read sequentially, then the tape is
-    /// decompressed and the term shards are decompressed/parsed in parallel
-    /// and concatenated (in shard/term order).
+    /// Load from a file produced by `save`. The header and compressed blobs
+    /// are read sequentially, then both the tape shards and the term shards
+    /// are decompressed/parsed in parallel and reassembled (in shard order).
     pub fn load(path: &str) -> std::io::Result<Self> {
         let mut r = BufReader::new(std::fs::File::open(path)?);
 
@@ -187,13 +196,26 @@ impl SurrogateModel {
 
         let n_params = read_u64!() as usize;
 
-        let tape_blob_len = read_u64!() as usize;
-        let mut tape_blob = vec![0u8; tape_blob_len];
-        r.read_exact(&mut tape_blob)?;
-        let mut tape_raw = Vec::new();
-        GzDecoder::new(&tape_blob[..]).read_to_end(&mut tape_raw)?;
-        let mut tape_pos = 0usize;
-        let tape = CompiledCoeff::deserialize(&tape_raw, &mut tape_pos);
+        let n_tape_shards = read_u64!() as usize;
+        let mut tape_shard_lens = Vec::with_capacity(n_tape_shards);
+        for _ in 0..n_tape_shards {
+            tape_shard_lens.push(read_u64!() as usize);
+        }
+        let mut tape_blobs: Vec<Vec<u8>> = Vec::with_capacity(n_tape_shards);
+        for len in tape_shard_lens {
+            let mut blob = vec![0u8; len];
+            r.read_exact(&mut blob)?;
+            tape_blobs.push(blob);
+        }
+        let raw_tape_shards: Vec<Vec<u8>> = tape_blobs
+            .par_iter()
+            .map(|blob| -> std::io::Result<Vec<u8>> {
+                let mut raw = Vec::new();
+                GzDecoder::new(&blob[..]).read_to_end(&mut raw)?;
+                Ok(raw)
+            })
+            .collect::<std::io::Result<_>>()?;
+        let tape = CompiledCoeff::deserialize_sharded(&raw_tape_shards);
 
         let n_shards = read_u64!() as usize;
         let mut shard_lens = Vec::with_capacity(n_shards);
@@ -224,15 +246,18 @@ impl SurrogateModel {
 }
 
 /// Magic bytes and format version stamped at the head of every saved model.
-/// Bumped twice in quick succession: 6 -> 7 when `SurrogateTerm` stopped
-/// carrying its own compiled tape (only a `root` index into one model-wide
-/// shared `tape`); 7 -> 8 when `root`'s width grew from `u32` to `usize`
-/// (`u32` was observed to overflow on a real multi-million-term model's
-/// merged tape -- see `CompiledOp`'s doc comment in `symcoeff.rs`). Old
-/// files fail to load with a clear error rather than being silently
-/// misparsed (see `load`'s version check).
+/// Bumped three times in quick succession: 6 -> 7 when `SurrogateTerm`
+/// stopped carrying its own compiled tape (only a `root` index into one
+/// model-wide shared `tape`); 7 -> 8 when `root`'s width grew from `u32` to
+/// `usize` (`u32` was observed to overflow on a real multi-million-term
+/// model's merged tape -- see `CompiledOp`'s doc comment in `symcoeff.rs`);
+/// 8 -> 9 when the tape gained its own shard-length index (previously one
+/// single block, which turned out to still be `save`'s dominant serial cost
+/// at real scale -- see `save`'s doc comment). Old files fail to load with a
+/// clear error rather than being silently misparsed (see `load`'s version
+/// check).
 const MAGIC: u32 = u32::from_le_bytes(*b"PQSM");
-const FORMAT_VERSION: u32 = 8;
+const FORMAT_VERSION: u32 = 9;
 
 /// Serialize one term into `buf` (uncompressed): overlap (f64le) then root
 /// (u64le, regardless of the in-memory `usize` width, for portability) --

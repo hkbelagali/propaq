@@ -42,6 +42,7 @@ use std::sync::{Arc, OnceLock};
 
 use num_complex::Complex64;
 use pyo3::prelude::*;
+use rayon::prelude::*;
 use propaq_core::coeff::CoeffRepr;
 
 /// One node of a coefficient's history. `count` is a cached, cheap-to-combine
@@ -772,79 +773,131 @@ impl CompiledCoeff {
     /// (`u64`) fields on the wire regardless of the in-memory `usize` width,
     /// for portability; `Cos`/`Sin`'s parameter index stays 4 bytes (`u32`).
     pub fn serialize(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&(self.ops.len() as u64).to_le_bytes());
-        for op in &self.ops {
-            match *op {
-                CompiledOp::Scalar(c) => {
-                    buf.push(0);
-                    buf.extend_from_slice(&c.to_le_bytes());
-                }
-                CompiledOp::Add(a, b) => {
-                    buf.push(1);
-                    buf.extend_from_slice(&(a as u64).to_le_bytes());
-                    buf.extend_from_slice(&(b as u64).to_le_bytes());
-                }
-                CompiledOp::Scale(f, i) => {
-                    buf.push(2);
-                    buf.extend_from_slice(&f.to_le_bytes());
-                    buf.extend_from_slice(&(i as u64).to_le_bytes());
-                }
-                CompiledOp::Cos(p, i) => {
-                    buf.push(3);
-                    buf.extend_from_slice(&p.to_le_bytes());
-                    buf.extend_from_slice(&(i as u64).to_le_bytes());
-                }
-                CompiledOp::Sin(p, i) => {
-                    buf.push(4);
-                    buf.extend_from_slice(&p.to_le_bytes());
-                    buf.extend_from_slice(&(i as u64).to_le_bytes());
-                }
-            }
-        }
+        serialize_ops(&self.ops, buf);
     }
 
     /// Deserialize a tape written by `serialize`, advancing `pos`.
     pub fn deserialize(b: &[u8], pos: &mut usize) -> Self {
-        #[inline]
-        fn rd_u64(b: &[u8], pos: &mut usize) -> u64 {
-            let v = u64::from_le_bytes(b[*pos..*pos + 8].try_into().unwrap());
-            *pos += 8;
-            v
-        }
-        #[inline]
-        fn rd_idx(b: &[u8], pos: &mut usize) -> usize {
-            rd_u64(b, pos) as usize
-        }
-        #[inline]
-        fn rd_u32(b: &[u8], pos: &mut usize) -> u32 {
-            let v = u32::from_le_bytes(b[*pos..*pos + 4].try_into().unwrap());
-            *pos += 4;
-            v
-        }
-        #[inline]
-        fn rd_f64(b: &[u8], pos: &mut usize) -> f64 {
-            let v = f64::from_le_bytes(b[*pos..*pos + 8].try_into().unwrap());
-            *pos += 8;
-            v
-        }
+        CompiledCoeff { ops: deserialize_ops(b, pos) }
+    }
 
-        let n = rd_u64(b, pos) as usize;
-        let mut ops = Vec::with_capacity(n);
-        for _ in 0..n {
-            let tag = b[*pos];
-            *pos += 1;
-            let op = match tag {
-                0 => CompiledOp::Scalar(rd_f64(b, pos)),
-                1 => CompiledOp::Add(rd_idx(b, pos), rd_idx(b, pos)),
-                2 => CompiledOp::Scale(rd_f64(b, pos), rd_idx(b, pos)),
-                3 => CompiledOp::Cos(rd_u32(b, pos), rd_idx(b, pos)),
-                4 => CompiledOp::Sin(rd_u32(b, pos), rd_idx(b, pos)),
-                _ => panic!("corrupt CompiledCoeff tape: unknown op tag {tag}"),
-            };
-            ops.push(op);
+    /// Split this tape's ops into `n_shards` contiguous raw (uncompressed)
+    /// byte buffers, serialized in parallel via rayon -- the tape-side
+    /// counterpart to `SurrogateModel::save`'s existing per-term sharding,
+    /// for the same reason: a real large model's tape is big enough that
+    /// serializing (and, in `save`, gzip-compressing) it as one single-
+    /// threaded block was the last serial step in an otherwise fully
+    /// parallel save pipeline. Splitting a flat, already-globally-indexed
+    /// tape needs no reindexing at all -- every operand index already refers
+    /// to an absolute tape position (set once, by `merge_shards`), so a
+    /// contiguous slice's bytes concatenate back (via `deserialize_sharded`,
+    /// fed the shards back in the same order) into the exact same `ops`
+    /// layout a single `serialize` call would have produced. This is
+    /// unrelated to (and simpler than) `merge_shards`' own reindexing, which
+    /// exists because *that* step combines several *independently* compiled
+    /// (locally-indexed) tapes -- this one only ever re-chunks one tape
+    /// that's already globally indexed.
+    pub fn serialize_sharded(&self, n_shards: usize) -> Vec<Vec<u8>> {
+        let chunk = self.ops.len().div_ceil(n_shards.max(1)).max(1);
+        self.ops
+            .par_chunks(chunk)
+            .map(|slice| {
+                let mut buf = Vec::new();
+                serialize_ops(slice, &mut buf);
+                buf
+            })
+            .collect()
+    }
+
+    /// Inverse of `serialize_sharded`: given raw (already gzip-decompressed)
+    /// shard buffers in original shard order, reconstruct one tape. No index
+    /// adjustment needed -- see `serialize_sharded`'s doc comment.
+    pub fn deserialize_sharded(raw_shards: &[Vec<u8>]) -> Self {
+        let mut ops = Vec::new();
+        for raw in raw_shards {
+            let mut pos = 0usize;
+            ops.extend(deserialize_ops(raw, &mut pos));
         }
         CompiledCoeff { ops }
     }
+}
+
+/// Write `ops` (little-endian): op count, then one tagged record per op.
+/// Shared codec body for `CompiledCoeff::serialize`/`serialize_sharded`.
+fn serialize_ops(ops: &[CompiledOp], buf: &mut Vec<u8>) {
+    buf.extend_from_slice(&(ops.len() as u64).to_le_bytes());
+    for op in ops {
+        match *op {
+            CompiledOp::Scalar(c) => {
+                buf.push(0);
+                buf.extend_from_slice(&c.to_le_bytes());
+            }
+            CompiledOp::Add(a, b) => {
+                buf.push(1);
+                buf.extend_from_slice(&(a as u64).to_le_bytes());
+                buf.extend_from_slice(&(b as u64).to_le_bytes());
+            }
+            CompiledOp::Scale(f, i) => {
+                buf.push(2);
+                buf.extend_from_slice(&f.to_le_bytes());
+                buf.extend_from_slice(&(i as u64).to_le_bytes());
+            }
+            CompiledOp::Cos(p, i) => {
+                buf.push(3);
+                buf.extend_from_slice(&p.to_le_bytes());
+                buf.extend_from_slice(&(i as u64).to_le_bytes());
+            }
+            CompiledOp::Sin(p, i) => {
+                buf.push(4);
+                buf.extend_from_slice(&p.to_le_bytes());
+                buf.extend_from_slice(&(i as u64).to_le_bytes());
+            }
+        }
+    }
+}
+
+/// Read a `Vec<CompiledOp>` written by `serialize_ops`, advancing `pos`.
+/// Shared codec body for `CompiledCoeff::deserialize`/`deserialize_sharded`.
+fn deserialize_ops(b: &[u8], pos: &mut usize) -> Vec<CompiledOp> {
+    #[inline]
+    fn rd_u64(b: &[u8], pos: &mut usize) -> u64 {
+        let v = u64::from_le_bytes(b[*pos..*pos + 8].try_into().unwrap());
+        *pos += 8;
+        v
+    }
+    #[inline]
+    fn rd_idx(b: &[u8], pos: &mut usize) -> usize {
+        rd_u64(b, pos) as usize
+    }
+    #[inline]
+    fn rd_u32(b: &[u8], pos: &mut usize) -> u32 {
+        let v = u32::from_le_bytes(b[*pos..*pos + 4].try_into().unwrap());
+        *pos += 4;
+        v
+    }
+    #[inline]
+    fn rd_f64(b: &[u8], pos: &mut usize) -> f64 {
+        let v = f64::from_le_bytes(b[*pos..*pos + 8].try_into().unwrap());
+        *pos += 8;
+        v
+    }
+
+    let n = rd_u64(b, pos) as usize;
+    let mut ops = Vec::with_capacity(n);
+    for _ in 0..n {
+        let tag = b[*pos];
+        *pos += 1;
+        let op = match tag {
+            0 => CompiledOp::Scalar(rd_f64(b, pos)),
+            1 => CompiledOp::Add(rd_idx(b, pos), rd_idx(b, pos)),
+            2 => CompiledOp::Scale(rd_f64(b, pos), rd_idx(b, pos)),
+            3 => CompiledOp::Cos(rd_u32(b, pos), rd_idx(b, pos)),
+            4 => CompiledOp::Sin(rd_u32(b, pos), rd_idx(b, pos)),
+            _ => panic!("corrupt CompiledCoeff tape: unknown op tag {tag}"),
+        };
+        ops.push(op);
+    }
+    ops
 }
 
 #[cfg(test)]
@@ -1139,6 +1192,47 @@ mod tests {
 
         let lut = make_lut(8);
         assert!((restored.evaluate(&lut) - compiled.evaluate(&lut)).abs() < 1e-15);
+    }
+
+    #[test]
+    fn serialize_sharded_round_trips_and_matches_single_block_serialize() {
+        // A batch tape (many roots, deliberate shared prefix) split into
+        // several shards for serialization must reassemble (via
+        // `deserialize_sharded`) into a value-identical tape to what a
+        // single-block `serialize`/`deserialize` round trip produces --
+        // proving the "no index adjustment needed" claim in
+        // `serialize_sharded`'s doc comment, not just asserting it.
+        let mut base = SymbolicCoeff::from_scalar(1.0);
+        for p in 0..20u32 {
+            let _ = base.apply_rotation(&GateParam::symbolic(p), Complex64::new(0.0, -1.0));
+        }
+        let branches: Vec<SymbolicCoeff> = (0..10u32)
+            .map(|i| {
+                let mut b = base.clone();
+                let _ = b.apply_rotation(&GateParam::symbolic(20 + i), Complex64::new(0.0, -1.0));
+                b
+            })
+            .collect();
+        let (tape, roots) = SymbolicCoeff::compile_batch(branches.clone());
+
+        let mut single_buf = Vec::new();
+        tape.serialize(&mut single_buf);
+        let mut pos = 0usize;
+        let single_restored = CompiledCoeff::deserialize(&single_buf, &mut pos);
+
+        let sharded_raw = tape.serialize_sharded(4);
+        assert!(sharded_raw.len() > 1, "test should actually exercise multiple shards");
+        let sharded_restored = CompiledCoeff::deserialize_sharded(&sharded_raw);
+
+        assert_eq!(single_restored.len(), sharded_restored.len());
+        let lut = make_lut(30);
+        let single_results = single_restored.evaluate_all(&lut);
+        let sharded_results = sharded_restored.evaluate_all(&lut);
+        for (branch, &root) in branches.iter().zip(&roots) {
+            let expected = eval(branch, &lut);
+            assert!((single_results[root] - expected).abs() < 1e-9);
+            assert!((sharded_results[root] - expected).abs() < 1e-9);
+        }
     }
 
     #[test]
