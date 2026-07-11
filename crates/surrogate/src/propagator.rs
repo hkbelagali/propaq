@@ -37,6 +37,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 use propaq_core::coeff::CoeffRepr;
 use propaq_core::logger::Logger;
@@ -407,16 +408,38 @@ where
         // it was only ever needed to compute `overlap` (already done, via
         // `B::trace`, on the SoA planes directly), so `SurrogateTerm` stores
         // just `(overlap, coeff)` -- see `model.rs`.
+        //
+        // Parallelized across coefficients: `compile()` isn't free (an
+        // iterative graph walk allocating its own memo tables per call), and
+        // a real circuit with millions of live terms and undertruncated
+        // (or untruncated) coefficient DAGs made this the dominant serial
+        // cost after propagation itself finished -- one thread at 100% and
+        // climbing memory as every term's tape built up one at a time. The
+        // planes/coeffs destructure gives disjoint borrows (read-only planes
+        // for `B::trace`, a mutable per-row `coeffs` slice for `take`+
+        // `compile`), the same pattern `soa::kernels` already uses.
         let n = evolved.len();
-        let mut raw: Vec<SurrogateTerm> = Vec::new();
-        for i in 0..n {
-            let overlap = B::trace(evolved.term_planes(i), evolved.n_units, initial_state);
-            if overlap.abs() > 1e-15 {
-                // Take rather than clone: `evolved` isn't reused after this build.
-                let coeff = std::mem::take(&mut evolved.coeffs[i]).compile();
-                raw.push(SurrogateTerm { overlap, coeff });
-            }
-        }
+        let raw: Vec<SurrogateTerm> = py.allow_threads(|| {
+            pool.install(|| {
+                let SoaTermSum { planes, coeffs, .. } = &mut *evolved;
+                coeffs[..n]
+                    .par_iter_mut()
+                    .enumerate()
+                    .filter_map(|(i, c)| {
+                        let s = i * stride;
+                        let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
+                        let overlap = B::trace(term, n_units, initial_state);
+                        if overlap.abs() > 1e-15 {
+                            // Take rather than clone: `evolved` isn't reused after this build.
+                            let coeff = std::mem::take(c).compile();
+                            Some(SurrogateTerm { overlap, coeff })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+        });
 
         Ok(SurrogateModel::new(raw, n_params))
     }
