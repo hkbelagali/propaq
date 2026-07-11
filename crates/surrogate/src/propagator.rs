@@ -229,7 +229,7 @@ where
         circuit: &Bound<'_, PyAny>,
         initial_state: u64,
         n_params: usize,
-    ) -> PyResult<SurrogateModel<B::Term>> {
+    ) -> PyResult<SurrogateModel> {
         self.open_log()?;
 
         // Resolve the truncation pipeline once (Copy config). The flush trigger
@@ -417,16 +417,18 @@ where
         // container is already flat). Each surviving coefficient's DAG is
         // compiled once here into a flat evaluation tape (`CompiledCoeff`) —
         // this is the only point in Phase A where a coefficient's structure
-        // is walked/flattened.
+        // is walked/flattened. The term itself is never reconstructed here:
+        // it was only ever needed to compute `overlap` (already done, via
+        // `B::trace`, on the SoA planes directly), so `SurrogateTerm` stores
+        // just `(overlap, coeff)` -- see `model.rs`.
         let n = evolved.len();
-        let mut raw: Vec<SurrogateTerm<B::Term>> = Vec::new();
+        let mut raw: Vec<SurrogateTerm> = Vec::new();
         for i in 0..n {
             let overlap = B::trace(evolved.term_planes(i), evolved.n_units, initial_state);
             if overlap.abs() > 1e-15 {
                 // Take rather than clone: `evolved` isn't reused after this build.
                 let coeff = std::mem::take(&mut evolved.coeffs[i]).compile();
-                let term = B::term_from_planes(evolved.term_planes(i), evolved.n_units);
-                raw.push(SurrogateTerm { term, overlap, coeff });
+                raw.push(SurrogateTerm { overlap, coeff });
             }
         }
 

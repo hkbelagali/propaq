@@ -1,18 +1,18 @@
 ///
 /// Representation of a compiled surrogate model for expectation value calculations.
-/// After a symbolic propagation, the resulting object is a mapping 
+/// After a symbolic propagation, the resulting object is a mapping
 ///
 /// $f : \theta \mapsto tr(U(\theta)^\dagger H U(\theta) \rho)$
 ///
-/// for some parameters $\theta$. 
-/// The parameter values are stored in an LUT for fast lookup, and the evaluation 
-/// of the mapping is parallelized. In order to make the evaluations faster, 
+/// for some parameters $\theta$.
+/// The parameter values are stored in an LUT for fast lookup, and the evaluation
+/// of the mapping is parallelized. In order to make the evaluations faster,
 /// the terms are structurally pruned to remove zero contributions.
 ///
-/// Surrogate models can be saved to disk and loaded back into memory, allowing for 
-/// the reuse of the same model for different optimization runs. 
+/// Surrogate models can be saved to disk and loaded back into memory, allowing for
+/// the reuse of the same model for different optimization runs.
 ///
-/// This file contains both the trait definitions for the surrogate model, as well as 
+/// This file contains both the trait definitions for the surrogate model, as well as
 /// impls for Pauli and Majorana surrogate models.
 ///
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -24,17 +24,21 @@ use flate2::Compression;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-use propaq_core::traits::AbstractTerm;
-use propaq_pauli::string::PauliString;
-use propaq_majorana::monomial::MajoranaMonomial;
-
 use crate::symcoeff::CompiledCoeff;
 
-/// A single compiled term: a Pauli/Majorana string with its structural overlap and
-/// a compiled coefficient tape mapping parameter angles to a numerical contribution.
-pub struct SurrogateTerm<M: AbstractTerm> {
-    pub term: M,
+/// A single compiled term's evaluation data: its structural overlap with the
+/// initial state and a compiled coefficient tape mapping parameter angles to
+/// a numerical contribution. Deliberately holds nothing else -- in
+/// particular no Pauli/Majorana string. `evaluate` only ever needs `overlap`
+/// and `coeff` together (the term itself was only ever used to compute
+/// `overlap` once, during propagation, and to identify the term for
+/// save/load, which no longer round-trips it -- see `propaq.MD`), so
+/// `SurrogateModel` no longer carries an `AbstractTerm` generic parameter at
+/// all: the same concrete type backs both `PauliSurrogateModel` and
+/// `MajoranaSurrogateModel`.
+pub struct SurrogateTerm {
     /// `term.trace_with_fock_state(initial_state)`; nonzero by construction.
+    /// Independent of the gate parameters, computed once at build end.
     pub overlap: f64,
     pub coeff: CompiledCoeff,
 }
@@ -44,13 +48,13 @@ pub struct SurrogateTerm<M: AbstractTerm> {
 /// Contains only terms with nonzero structural overlap (filter is structural,
 /// not coefficient-dependent). Call `evaluate` with parameter angles to obtain
 /// the expectation value without re-running propagation.
-pub struct SurrogateModel<M: AbstractTerm> {
-    pub terms: Vec<SurrogateTerm<M>>,
+pub struct SurrogateModel {
+    pub terms: Vec<SurrogateTerm>,
     pub n_params: usize,
 }
 
-impl<M: AbstractTerm> SurrogateModel<M> {
-    pub fn new(terms: Vec<SurrogateTerm<M>>, n_params: usize) -> Self {
+impl SurrogateModel {
+    pub fn new(terms: Vec<SurrogateTerm>, n_params: usize) -> Self {
         SurrogateModel { terms, n_params }
     }
 
@@ -88,12 +92,8 @@ impl<M: AbstractTerm> SurrogateModel<M> {
     /// serialized and gzip-compressed **independently and in parallel**, then
     /// the header, a shard-length index, and the compressed blobs are written
     /// sequentially. This makes `save` scale with cores instead of walking every
-    /// monomial single-threaded. 
+    /// monomial single-threaded.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
-        let first = self.terms.first();
-        let key_stride: u64 = first.map_or(0, |t| t.term.to_bytes_vec().len() as u64);
-        let system_size: u64 = first.map_or(0, |t| t.term.system_size());
-
         // Contiguous shards, one per worker (at least one term each). Each shard
         // is serialized + compressed on its own thread; blobs come back in term
         // order because `par_chunks` preserves order.
@@ -117,8 +117,6 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         w.write_all(&MAGIC.to_le_bytes())?;
         w.write_all(&FORMAT_VERSION.to_le_bytes())?;
         w.write_all(&(self.n_params as u64).to_le_bytes())?;
-        w.write_all(&system_size.to_le_bytes())?;
-        w.write_all(&key_stride.to_le_bytes())?;
         w.write_all(&(blobs.len() as u64).to_le_bytes())?;
         for b in &blobs {
             w.write_all(&(b.len() as u64).to_le_bytes())?;
@@ -155,8 +153,6 @@ impl<M: AbstractTerm> SurrogateModel<M> {
         }
 
         let n_params = read_u64!() as usize;
-        let system_size = read_u64!();
-        let key_stride = read_u64!() as usize;
 
         let n_shards = read_u64!() as usize;
         let mut shard_lens = Vec::with_capacity(n_shards);
@@ -172,9 +168,9 @@ impl<M: AbstractTerm> SurrogateModel<M> {
             blobs.push(blob);
         }
 
-        let per_shard: Vec<Vec<SurrogateTerm<M>>> = blobs
+        let per_shard: Vec<Vec<SurrogateTerm>> = blobs
             .par_iter()
-            .map(|blob| parse_shard::<M>(blob, key_stride, system_size))
+            .map(|blob| parse_shard(blob))
             .collect::<std::io::Result<_>>()?;
 
         let mut terms = Vec::with_capacity(per_shard.iter().map(|s| s.len()).sum());
@@ -187,18 +183,18 @@ impl<M: AbstractTerm> SurrogateModel<M> {
 }
 
 /// Magic bytes and format version stamped at the head of every saved model.
-/// Bumped from the earlier CSR/trie-interned format (which shared one
-/// `Generation` blob across all terms) since each term's coefficient is now a
-/// self-contained `CompiledCoeff` tape -- old files fail to load with a clear
-/// error rather than being silently misparsed (see `load`'s version check).
+/// Bumped from the earlier per-term-key format (which stored each term's
+/// Pauli/Majorana string bytes alongside its overlap/coefficient) since
+/// `SurrogateTerm` no longer carries the term at all -- only its
+/// (parameter-independent) structural overlap and compiled coefficient tape
+/// are needed to evaluate -- old files fail to load with a clear error
+/// rather than being silently misparsed (see `load`'s version check).
 const MAGIC: u32 = u32::from_le_bytes(*b"PQSM");
-const FORMAT_VERSION: u32 = 5;
+const FORMAT_VERSION: u32 = 6;
 
-/// Serialize one term into `buf` (uncompressed): key bytes, overlap (f64le),
-/// then the term's self-contained `CompiledCoeff` tape (see
-/// `CompiledCoeff::serialize`).
-fn write_term_into<M: AbstractTerm>(buf: &mut Vec<u8>, st: &SurrogateTerm<M>) {
-    buf.extend_from_slice(&st.term.to_bytes_vec());
+/// Serialize one term into `buf` (uncompressed): overlap (f64le), then the
+/// term's self-contained `CompiledCoeff` tape (see `CompiledCoeff::serialize`).
+fn write_term_into(buf: &mut Vec<u8>, st: &SurrogateTerm) {
     buf.extend_from_slice(&st.overlap.to_le_bytes());
     st.coeff.serialize(buf);
 }
@@ -212,11 +208,7 @@ fn gzip_block(data: &[u8]) -> std::io::Result<Vec<u8>> {
 
 /// Decompress and parse one shard blob into its terms (the inverse of
 /// `write_term_into`), consuming the whole decompressed buffer.
-fn parse_shard<M: AbstractTerm>(
-    compressed: &[u8],
-    key_stride: usize,
-    system_size: u64,
-) -> std::io::Result<Vec<SurrogateTerm<M>>> {
+fn parse_shard(compressed: &[u8]) -> std::io::Result<Vec<SurrogateTerm>> {
     let mut raw = Vec::new();
     GzDecoder::new(compressed).read_to_end(&mut raw)?;
 
@@ -230,11 +222,9 @@ fn parse_shard<M: AbstractTerm>(
     let mut terms = Vec::new();
     let mut pos = 0usize;
     while pos < raw.len() {
-        let term = M::from_bytes_vec(&raw[pos..pos + key_stride], system_size);
-        pos += key_stride;
         let overlap = rd_f64(&raw, &mut pos);
         let coeff = CompiledCoeff::deserialize(&raw, &mut pos);
-        terms.push(SurrogateTerm { term, overlap, coeff });
+        terms.push(SurrogateTerm { overlap, coeff });
     }
     Ok(terms)
 }
@@ -246,7 +236,7 @@ fn parse_shard<M: AbstractTerm>(
 /// re-running propagation. Use `save`/`load` for persistence.
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliSurrogateModel {
-    pub(crate) inner: SurrogateModel<PauliString>,
+    pub(crate) inner: SurrogateModel,
 }
 
 #[pymethods]
@@ -285,7 +275,7 @@ impl PauliSurrogateModel {
     /// Load a model from a file produced by `save`.
     #[staticmethod]
     fn load(path: &str) -> PyResult<Self> {
-        let inner = SurrogateModel::<PauliString>::load(path)
+        let inner = SurrogateModel::load(path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
         Ok(PauliSurrogateModel { inner })
     }
@@ -313,7 +303,7 @@ impl PauliSurrogateModel {
 /// Compiled surrogate model for Majorana observables.
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaSurrogateModel {
-    pub(crate) inner: SurrogateModel<MajoranaMonomial>,
+    pub(crate) inner: SurrogateModel,
 }
 
 #[pymethods]
@@ -350,7 +340,7 @@ impl MajoranaSurrogateModel {
 
     #[staticmethod]
     fn load(path: &str) -> PyResult<Self> {
-        let inner = SurrogateModel::<MajoranaMonomial>::load(path)
+        let inner = SurrogateModel::load(path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
         Ok(MajoranaSurrogateModel { inner })
     }

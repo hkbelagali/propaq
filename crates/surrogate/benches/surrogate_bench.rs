@@ -27,7 +27,7 @@ use num_complex::Complex64;
 use propaq_core::coeff::CoeffRepr;
 use propaq_core::soa::kernels;
 use propaq_core::soa::{SoaBasis, SoaTermSum};
-use propaq_pauli::string::{PauliBasis, PauliString};
+use propaq_pauli::string::PauliBasis;
 use propaq_surrogate::symcoeff::{GateParam, SymbolicCoeff};
 
 /// Small, dependency-free xorshift PRNG. Benchmarks need varied-but-deterministic
@@ -241,24 +241,12 @@ fn bench_evaluate_by_size(c: &mut Criterion) {
 /// of the per-set term parallelism `evaluate` already has; this tracks that
 /// the batch path amortizes rather than regresses.
 fn bench_evaluate_batch(c: &mut Criterion) {
-    use propaq_core::bitset::Bitset;
     use propaq_surrogate::model::{SurrogateModel, SurrogateTerm};
-
-    fn make_pauli(x: u64, z: u64, n_qubits: usize) -> PauliString {
-        let xb = Bitset::from_le_bytes(&x.to_le_bytes());
-        let zb = Bitset::from_le_bytes(&z.to_le_bytes());
-        let weight = (&xb | &zb).count_ones();
-        PauliString { x: xb, z: zb, n_qubits, weight }
-    }
 
     let mut group = c.benchmark_group("SurrogateModel/evaluate_batch");
     let n_params = 20usize;
-    let terms: Vec<SurrogateTerm<PauliString>> = (0..64)
-        .map(|i| SurrogateTerm {
-            term: make_pauli(0, 1 << (i % N_QUBITS as u64), N_QUBITS),
-            overlap: 1.0,
-            coeff: grown_coeff(14).compile(),
-        })
+    let terms: Vec<SurrogateTerm> = (0..64)
+        .map(|_| SurrogateTerm { overlap: 1.0, coeff: grown_coeff(14).compile() })
         .collect();
     let model = SurrogateModel::new(terms, n_params);
 
