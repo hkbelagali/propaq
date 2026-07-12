@@ -57,8 +57,28 @@ class TermBudget:
     (only lossless dedup/merge runs). Either side ``None`` disables that bound.
     """
 
-    min_terms: int | None
     max_terms: int | None
+    min_terms: int | None
 
     def __init__(self, max_terms: int | None = None, min_terms: int | None = None) -> None: ...
+    def __repr__(self) -> str: ...
+
+
+class MonomialBudget:
+    """Monomial-count budget, surrogate-only.
+
+    Structurally identical to ``TermBudget`` but keyed on the live
+    monomial-count estimate instead of term count: ``max_monomials`` triggers
+    a flush-and-truncate once it's reached; ``min_monomials`` is the count
+    below which the lossy operators are suppressed (only lossless dedup/merge
+    runs). Either side ``None`` disables that bound. The numerical propagator
+    rejects this truncator (its coefficients have a monomial count of exactly
+    1 always, making this budget equivalent to, and redundant with,
+    ``TermBudget`` there).
+    """
+
+    max_monomials: int | None
+    min_monomials: int | None
+
+    def __init__(self, max_monomials: int | None = None, min_monomials: int | None = None) -> None: ...
     def __repr__(self) -> str: ...

@@ -15,6 +15,7 @@
 /// This file contains both the trait definitions for the surrogate model, as well as
 /// impls for Pauli and Majorana surrogate models.
 ///
+use std::cell::RefCell;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::fs::OpenOptions;
 
@@ -51,6 +52,14 @@ pub struct SurrogateTerm {
 /// Sentinel `SurrogateTerm::root` value for a structurally-empty coefficient
 /// (no ops in the shared tape to reference).
 const EMPTY_ROOT: usize = usize::MAX;
+
+thread_local! {
+    /// Per-worker-thread scratch buffer for `evaluate_batch`, reused across
+    /// every parameter set that lands on this thread instead of allocating a
+    /// fresh `tape.ops.len()`-sized `Vec` per call -- see
+    /// `CompiledCoeff::evaluate_into`.
+    static EVAL_SCRATCH: RefCell<Vec<f64>> = RefCell::new(Vec::new());
+}
 
 /// Compiled output of a surrogate propagation run.
 ///
@@ -92,9 +101,34 @@ impl SurrogateModel {
     }
 
     /// Evaluate for many parameter assignments at once. Parallelizes across
-    /// assignments.
+    /// assignments; each assignment reuses one thread-local scratch buffer
+    /// across calls instead of allocating a fresh `tape.ops.len()`-sized
+    /// `Vec` per parameter set (`CompiledCoeff::evaluate_into`) -- for a
+    /// large tape evaluated over many parameter sets (a VQE optimizer's
+    /// inner loop, potentially thousands of calls against the same built
+    /// model), this removes what was previously a fresh full-tape
+    /// allocation on every single call. The per-term weighted sum below is
+    /// sequential, not `terms.par_iter()` (unlike the single-shot
+    /// `evaluate`): the outer parallelism here is already across parameter
+    /// sets, and nesting a second rayon-parallel reduction while holding the
+    /// scratch buffer's `RefCell` borrow would risk a work-stealing thread
+    /// re-entering the same thread-local buffer before the borrow is
+    /// released (a `BorrowMutError` panic).
     pub fn evaluate_batch(&self, param_sets: &[Vec<f64>]) -> Vec<f64> {
-        param_sets.par_iter().map(|p| self.evaluate(p)).collect()
+        param_sets
+            .par_iter()
+            .map(|params| {
+                let lut = Self::make_lut(params);
+                EVAL_SCRATCH.with(|cell| {
+                    let mut results = cell.borrow_mut();
+                    self.tape.evaluate_into(&lut, &mut results);
+                    self.terms
+                        .iter()
+                        .map(|t| if t.root == EMPTY_ROOT { 0.0 } else { t.overlap * results[t.root] })
+                        .sum()
+                })
+            })
+            .collect()
     }
 
     /// Build a lookup table of cos/sin values for the given parameter angles.

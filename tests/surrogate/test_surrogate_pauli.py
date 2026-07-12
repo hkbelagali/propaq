@@ -2,6 +2,7 @@
 Correctness tests for the surrogate Pauli propagator.
 """
 
+import json
 import math
 import os
 import tempfile
@@ -13,6 +14,8 @@ from propaq import (
     FlushSchedule,
     FrequencyTruncationPolicy,
     FrequencyTruncator,
+    Logger,
+    MonomialBudget,
     PauliPropagator,
     PauliString,
     PauliSurrogateModel,
@@ -388,15 +391,66 @@ class TestComposableTruncation:
             CoefficientTruncator(None),
             WeightTruncator(None),
             TermBudget(),
+            MonomialBudget(),
         ]:
             assert isinstance(op, Truncator)
 
     def test_none_valued_truncators_are_noop_exact(self):
         obs, sc, circ, angles = self._circ()
         model = PauliSurrogatePropagator(
-            truncation=[FrequencyTruncator(None), CoefficientTruncator(None), WeightTruncator(None)]
+            truncation=[
+                FrequencyTruncator(None), CoefficientTruncator(None), WeightTruncator(None),
+                MonomialBudget(None, None),
+            ]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_explicit_schedule_plus_monomial_budget(self):
+        """`MonomialBudget` composed with another operator (mirrors
+        `test_explicit_schedule_plus_operators`, but with a monomial-count
+        budget instead of a term-count one) must not change the exact
+        result for a circuit this small."""
+        obs, sc, circ, angles = self._circ()
+        sched = FlushSchedule(merge_max_terms=500_000)
+        model = PauliSurrogatePropagator(
+            schedule=sched,
+            truncation=[WeightTruncator(4), MonomialBudget(max_monomials=1_000_000)],
+        ).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_monomial_budget_triggers_mid_propagation_flush(self, tmp_path):
+        """A small `max_monomials` on a circuit with heavy parameter reuse
+        (enough monomial growth to cross the budget before the final flush)
+        must actually fire a `"monomial_threshold"`-triggered flush during
+        propagation, not just the unconditional flush at the very end."""
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        params = [0.3, 0.6, 0.9]
+        gens = [
+            ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0),
+            ps(0b1000, 0), ps(0b0001, 0b0010), ps(0b0010, 0b0100),
+        ]
+        angles = [params[i % 3] for i in range(len(gens))]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(
+            circ, param_indices=[i % 3 for i in range(len(gens))]
+        )
+
+        log_file = tmp_path / "monomial_budget.jsonl"
+        PauliSurrogatePropagator(
+            truncation=[MonomialBudget(max_monomials=2)],
+            logger=Logger(str(log_file), log_every=1),
+        ).build(obs, sc, initial_state=0)
+
+        events = []
+        with open(log_file) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+        triggers = {e.get("trigger") for e in events if e.get("event") == "surrogate_flush"}
+        assert "monomial_threshold" in triggers, (
+            f"expected a monomial_threshold-triggered flush, got triggers={triggers}"
+        )
 
 class TestLoschmidtEcho:
     def test_echo_recovers_initial(self):

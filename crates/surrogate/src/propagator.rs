@@ -24,12 +24,20 @@
 /// `SymbolicCoeff::prune` decides both cutoffs structurally, from cached
 /// per-node bounds, dropping whole doomed subtrees in O(1) without ever
 /// visiting their insides (see `symcoeff.rs`'s module doc and `prune`'s doc
-/// comment for the algorithm). There is no monomial-*count* budget
-/// (`MonomialBudget` was removed — judged unnecessary given `WeightTruncator`/
-/// `TermBudget` plus the default eager merge cadence, and the same structural
-/// approach that made `prune` possible doesn't extend to a global
-/// cross-coefficient rank-ordered budget the way it does to a per-monomial
-/// threshold).
+/// comment for the algorithm).
+///
+/// `MonomialBudget` is a threshold-triggered flush keyed on the live
+/// monomial-count estimate (`SymbolicCoeff::monomial_count`, summed), exactly
+/// mirroring `TermBudget`'s role (a *when to flush* decision, not a removal
+/// strategy) but on monomial count instead of term count — since a handful
+/// of terms can carry an astronomically larger monomial count than their row
+/// count suggests, `TermBudget` alone doesn't bound the dimension that
+/// actually drives memory/CPU cost here. This is a different, much simpler
+/// mechanism than the *old* `MonomialBudget` that was removed during the DAG
+/// rewrite (a global, cross-coefficient, rank-ordered *importance removal*
+/// requiring a histogram) — that one doesn't extend to this structural
+/// design, but a plain threshold trigger reusing `prune`/`map_retain` (the
+/// same machinery every other truncator already uses for removal) does.
 ///
 use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
@@ -163,6 +171,7 @@ where
         gate_idx: usize,
         layer_idx: usize,
         trigger: &str,
+        pending_monomials: usize,
     ) {
         let t0 = std::time::Instant::now();
         let pool = Arc::clone(&self.pool);
@@ -175,9 +184,15 @@ where
         } else {
             0
         };
+        // Cheap running estimate (not the exact recount above), for
+        // `MonomialBudget`'s `min_monomials` floor -- deliberately a
+        // different name/value from `monomials_before`, which is an exact,
+        // verbose-logging-only recompute.
+        let monomials_before_estimate = self.total_monomials + pending_monomials;
 
         let cfg = resolve_config(&self.truncators);
-        let outcome = pool.install(|| apply_truncation_policy::<B>(evolved, &cfg));
+        let outcome =
+            pool.install(|| apply_truncation_policy::<B>(evolved, &cfg, monomials_before_estimate));
         self.total_monomials = outcome.monomials_after;
 
         if self.verbose_log.is_some() {
@@ -219,9 +234,10 @@ where
     ) -> PyResult<SurrogateModel> {
         self.open_log()?;
 
-        // Resolve the truncation pipeline once (Copy config). The flush trigger
-        // (`max_terms`) and the `min_terms` gate come from the `TermBudget`
-        // operator; the merge cadence from the schedule.
+        // Resolve the truncation pipeline once (Copy config). The flush
+        // triggers (`max_terms`/`max_monomials`) and the `min_terms`/
+        // `min_monomials` floors come from `TermBudget`/`MonomialBudget`;
+        // the merge cadence from the schedule.
         let cfg = resolve_config(&self.truncators);
 
         let n_units = evolved.n_units;
@@ -263,8 +279,9 @@ where
 
         let (pbar, postfix) = make_progress_bar(py, self.progress_bar, total_rotations)?;
 
-        // Flush trigger from the budget; merge cadence from the schedule.
+        // Flush trigger from the budget(s); merge cadence from the schedule.
         let max_terms: Option<usize> = cfg.max_terms;
+        let max_monomials: Option<usize> = cfg.max_monomials;
         let merge_max_terms: Option<usize> = self.schedule.merge_max_terms;
 
         let mut gate_idx: usize = 0;
@@ -331,11 +348,24 @@ where
 
                 let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, _, ni, _)| *ni);
                 let terms_trigger = max_terms.map_or(false, |max| evolved.len() >= max);
-                let threshold_trigger = terms_trigger.then_some("threshold");
+                let monomials_trigger =
+                    max_monomials.map_or(false, |max| self.total_monomials + pending_monomials >= max);
+                // If both ceilings cross on the same gate, `terms_trigger` wins
+                // in the logged/latched trigger name (harmless -- a flush still
+                // fires either way, this only affects which string gets logged).
+                let threshold_trigger: Option<&'static str> = if terms_trigger {
+                    Some("threshold")
+                } else if monomials_trigger {
+                    Some("monomial_threshold")
+                } else {
+                    None
+                };
                 let pending_trigger = deferred_threshold_trigger.or(threshold_trigger);
                 if let Some(trigger) = pending_trigger {
                     if !next_is_intermediate {
-                        py.allow_threads(|| self.flush_and_maybe_truncate(evolved, gate_idx, layer_idx, trigger));
+                        py.allow_threads(|| {
+                            self.flush_and_maybe_truncate(evolved, gate_idx, layer_idx, trigger, pending_monomials)
+                        });
                         pending = 0;
                         pending_monomials = 0;
                         deferred_threshold_trigger = None;
@@ -393,7 +423,9 @@ where
 
         close_progress_bar(py, &pbar)?;
 
-        py.allow_threads(|| self.flush_and_maybe_truncate(evolved, gate_idx, circuit_data.len(), "final"));
+        py.allow_threads(|| {
+            self.flush_and_maybe_truncate(evolved, gate_idx, circuit_data.len(), "final", pending_monomials)
+        });
 
         if let Some(ref mut log) = self.verbose_log {
             let _ = log.flush();
@@ -533,21 +565,34 @@ pub struct TruncationOutcome {
 /// `WeightTruncator` (operator weight) is a stream-compaction filter, same
 /// as the numerical propagator. `FrequencyTruncator`/`CoefficientTruncator`
 /// go through `SymbolicCoeff::prune`, which drops monomials structurally
-/// (no expansion) -- see `prune`'s doc comment. There is no monomial-*count*
-/// budget (`MonomialBudget` was removed as unnecessary). The always-on
-/// lossless dedup (`SymbolicCoeff::add_assign`/`is_empty` via `merge`) has
-/// already run by the time this is called.
+/// (no expansion) -- see `prune`'s doc comment. `TermBudget`/`MonomialBudget`
+/// only decide *when* this function gets called (see `run_build`'s trigger
+/// logic) and additionally gate `apply_lossy` below via their `min_terms`/
+/// `min_monomials` floors. The always-on lossless dedup
+/// (`SymbolicCoeff::add_assign`/`is_empty` via `merge`) has already run by
+/// the time this is called.
+///
+/// `monomials_before_estimate` is the caller's cheap running estimate
+/// (`self.total_monomials + pending_monomials`), not an exact recount --
+/// there's no O(1) exact way to get one, unlike `total_before` (`evolved.len()`).
 pub fn apply_truncation_policy<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     cfg: &ResolvedConfig,
+    monomials_before_estimate: usize,
 ) -> TruncationOutcome {
     let total_before = evolved.len();
     let min_terms = cfg.min_terms.unwrap_or(0);
+    let min_monomials = cfg.min_monomials.unwrap_or(0);
     let n_units = evolved.n_units;
 
-    // Deferred like the numerical propagator: below min_terms, skip the lossy
-    // filters.
-    let apply_lossy = total_before >= min_terms;
+    // Deferred like the numerical propagator: below min_terms/min_monomials,
+    // skip the lossy filters. Both floors must clear (AND, not OR) -- each
+    // is an independent "don't lossy-prune something too young/small yet"
+    // veto, and `min_terms` already gates the whole bundle (including
+    // `WeightTruncator`, which isn't really "about" term count either), so
+    // there's precedent that a floor means "wait for everything to warm up,"
+    // not a per-operator-scoped gate.
+    let apply_lossy = total_before >= min_terms && monomials_before_estimate >= min_monomials;
     // Saturating cast: a `usize` cap beyond `u32::MAX` is indistinguishable
     // from "no cap" in practice, but should clamp rather than wrap.
     let max_frequency = cfg.frequency.map(|f| f.min(u32::MAX as usize) as u32);
@@ -1023,5 +1068,62 @@ mod sharded_compile_tests {
             ts.coeff(1).is_empty(),
             "zero-overlap row's coefficient should ALSO have been taken/dropped, not left resident",
         );
+    }
+}
+
+#[cfg(test)]
+mod monomial_budget_tests {
+    use super::*;
+    use propaq_core::soa::SoaTermSum;
+
+    fn planes_of(x: u64, z: u64, stride: usize) -> (Vec<u64>, Vec<u64>) {
+        let mut gx = vec![0u64; stride];
+        let mut gz = vec![0u64; stride];
+        gx[0] = x;
+        gz[0] = z;
+        (gx, gz)
+    }
+
+    /// `apply_truncation_policy`'s `apply_lossy` gate must AND `min_terms`
+    /// and `min_monomials` together -- both floors must clear before any
+    /// lossy operator (here, `CoefficientTruncator`) runs, not either one
+    /// alone. Uses a `CoefficientTruncator` cutoff that would prune the sole
+    /// live term's coefficient down to nothing (removing the row entirely
+    /// via `map_retain`'s `!c.is_empty()` check) as the observable signal
+    /// for whether pruning actually ran.
+    #[test]
+    fn min_terms_and_min_monomials_floors_are_anded_together() {
+        const N_QUBITS: usize = 4;
+
+        let build_one_term = || {
+            let mut ts: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+            let (gx, gz) = planes_of(0, 0b1, 1);
+            ts.push([&gx, &gz], SymbolicCoeff::from_real(0.001));
+            ts
+        };
+        let cutoff_cfg = |min_terms: Option<usize>, min_monomials: Option<usize>| ResolvedConfig {
+            coefficient: Some(1.0), // upper_scale 0.001 << 1.0: prunes to nothing if lossy runs
+            min_terms,
+            min_monomials,
+            ..Default::default()
+        };
+
+        // min_terms not met (1 < 5): apply_lossy must be false regardless of
+        // min_monomials, so the term survives untouched.
+        let mut ts = build_one_term();
+        apply_truncation_policy::<PauliBasis>(&mut ts, &cutoff_cfg(Some(5), None), 1);
+        assert_eq!(ts.len(), 1, "min_terms floor should have suppressed pruning");
+
+        // min_terms met (1 >= 1) but min_monomials not met (1 < 5): still no
+        // pruning -- both floors must clear, not just one.
+        let mut ts = build_one_term();
+        apply_truncation_policy::<PauliBasis>(&mut ts, &cutoff_cfg(Some(1), Some(5)), 1);
+        assert_eq!(ts.len(), 1, "min_monomials floor should have suppressed pruning even though min_terms cleared");
+
+        // Both floors clear: lossy pruning proceeds, the sole term's
+        // coefficient is pruned to nothing and the row is dropped.
+        let mut ts = build_one_term();
+        apply_truncation_policy::<PauliBasis>(&mut ts, &cutoff_cfg(Some(1), Some(1)), 1);
+        assert_eq!(ts.len(), 0, "with both floors cleared, the coefficient truncator should have pruned the row away");
     }
 }

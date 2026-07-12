@@ -18,7 +18,7 @@ pub use coeff::CoeffRepr;
 pub use truncation::TruncationPolicy;
 pub use truncators::{
     reject_surrogate_only, resolve_config, resolve_truncation, CoefficientTruncator, FlushSchedule,
-    FrequencyTruncator, ResolvedConfig, TermBudget, Truncator, WeightTruncator,
+    FrequencyTruncator, MonomialBudget, ResolvedConfig, TermBudget, Truncator, WeightTruncator,
 };
 pub use noise::{UniformNoiseModel, GateNoiseModel};
 pub use propagator::PropagationResult;

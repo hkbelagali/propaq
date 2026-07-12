@@ -37,7 +37,6 @@
 /// repeated `evaluate`/`evaluate_batch` calls (a VQE optimizer's inner loop)
 /// are cheap linear scans instead of per-call tree walks.
 ///
-use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use num_complex::Complex64;
@@ -253,7 +252,13 @@ impl SymbolicCoeff {
         let owned: Vec<SymbolicCoeff> = coeffs.into_iter().collect();
 
         let mut ops: Vec<CompiledOp> = Vec::new();
-        let mut memo: HashMap<*const Node, usize> = HashMap::new();
+        // `FxHashMap`/`FxHashSet`, not the default `std::collections::HashMap`'s
+        // SipHash-based hasher -- the same fix already applied to `prune_node`'s
+        // memo below, after profiling a real workload found SipHash's
+        // hashing/rehashing dominating that function's runtime at millions-of-keys
+        // scale. This traversal is the same shape (pointer-keyed memoization over
+        // every surviving term's DAG at build end) and reaches the same key counts.
+        let mut memo: rustc_hash::FxHashMap<*const Node, usize> = rustc_hash::FxHashMap::default();
         // Tracks every node that has already been pushed onto the work stack
         // (whether or not its `Exit` has run yet), so a node referenced by
         // more than one parent -- or by more than one of this batch's roots
@@ -261,7 +266,7 @@ impl SymbolicCoeff {
         // frames for the same shared node could both land on the stack
         // before either's subtree finishes, each redundantly re-walking
         // (though not incorrectly -- just wastefully) that whole subtree.
-        let mut scheduled: HashSet<*const Node> = HashSet::new();
+        let mut scheduled: rustc_hash::FxHashSet<*const Node> = rustc_hash::FxHashSet::default();
 
         enum Frame<'a> {
             Enter(&'a Arc<Node>),
@@ -732,18 +737,38 @@ impl CompiledCoeff {
     /// which (if any) op is "the" root -- it's the primitive a batched
     /// tape's callers use, reading out whichever indices they need
     /// (`SurrogateTerm::root` per term) after one shared scan.
+    ///
+    /// Allocates a fresh `Vec` every call -- fine for a single evaluation,
+    /// but see `evaluate_into` for a repeated-call site (e.g. one parameter
+    /// set per VQE optimizer iteration) that wants to reuse one buffer
+    /// across many calls instead.
     pub fn evaluate_all(&self, lut: &[f64]) -> Vec<f64> {
-        let mut results = vec![0.0f64; self.ops.len()];
+        let mut results = Vec::new();
+        self.evaluate_into(lut, &mut results);
+        results
+    }
+
+    /// Same computation as `evaluate_all`, writing into a caller-provided
+    /// buffer instead of allocating a new one every call. `out` is resized
+    /// to `self.ops.len()` (growing or truncating as needed); every index is
+    /// unconditionally overwritten before any later op can read it (an
+    /// invariant of the topologically-ordered tape: an op only ever
+    /// references an earlier index), so whatever `out` previously held is
+    /// irrelevant to correctness -- this exists purely to let a caller that
+    /// evaluates the same tape many times (`SurrogateModel::evaluate_batch`)
+    /// reuse one allocation instead of paying a fresh `ops.len()`-sized
+    /// allocation on every parameter set.
+    pub fn evaluate_into(&self, lut: &[f64], out: &mut Vec<f64>) {
+        out.resize(self.ops.len(), 0.0);
         for (i, op) in self.ops.iter().enumerate() {
-            results[i] = match *op {
+            out[i] = match *op {
                 CompiledOp::Scalar(c) => c,
-                CompiledOp::Add(a, b) => results[a] + results[b],
-                CompiledOp::Scale(f, inner) => f * results[inner],
-                CompiledOp::Cos(p, inner) => lut[2 * p as usize] * results[inner],
-                CompiledOp::Sin(p, inner) => lut[2 * p as usize + 1] * results[inner],
+                CompiledOp::Add(a, b) => out[a] + out[b],
+                CompiledOp::Scale(f, inner) => f * out[inner],
+                CompiledOp::Cos(p, inner) => lut[2 * p as usize] * out[inner],
+                CompiledOp::Sin(p, inner) => lut[2 * p as usize + 1] * out[inner],
             };
         }
-        results
     }
 
     /// Per-op pre-dedup monomial-instance count, mirroring `Node::count`'s

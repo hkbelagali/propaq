@@ -3,6 +3,7 @@
 from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
 from propaq._rust_core import FlushSchedule as FlushSchedule
 from propaq._rust_core import FrequencyTruncator as _RustFrequencyTruncator
+from propaq._rust_core import MonomialBudget as _RustMonomialBudget
 from propaq._rust_core import TermBudget as _RustTermBudget
 from propaq._rust_core import WeightTruncator as _RustWeightTruncator
 from propaq.truncation.base import Truncator as Truncator
@@ -24,6 +25,12 @@ class TermBudget(_RustTermBudget):
     """Term-count budget: ``max_terms`` triggers a flush; ``min_terms`` gates the lossy ops."""
 
 
+class MonomialBudget(_RustMonomialBudget):
+    """Monomial-count budget: ``max_monomials`` triggers a flush; ``min_monomials`` gates the
+    lossy ops. Structurally identical to ``TermBudget``, keyed on monomial count. Surrogate-only.
+    """
+
+
 # Register the Rust base classes so both the Python wrappers above (real
 # subclasses) and the bare Rust instances returned by a propagator's
 # ``truncators`` getter satisfy ``isinstance(_, Truncator)``.
@@ -32,6 +39,7 @@ for _base in (
     _RustCoefficientTruncator,
     _RustWeightTruncator,
     _RustTermBudget,
+    _RustMonomialBudget,
 ):
     Truncator.register(_base)
 
@@ -41,5 +49,6 @@ __all__ = [
     "CoefficientTruncator",
     "WeightTruncator",
     "TermBudget",
+    "MonomialBudget",
     "FlushSchedule",
 ]

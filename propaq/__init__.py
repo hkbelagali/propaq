@@ -177,6 +177,9 @@ from .truncation import (
     FrequencyTruncator as FrequencyTruncator,
 )
 from .truncation import (
+    MonomialBudget as MonomialBudget,
+)
+from .truncation import (
     TermBudget as TermBudget,
 )
 from .truncation import (

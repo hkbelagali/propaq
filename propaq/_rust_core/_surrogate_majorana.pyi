@@ -10,6 +10,7 @@ from ._truncators import (
     CoefficientTruncator,
     FlushSchedule,
     FrequencyTruncator,
+    MonomialBudget,
     TermBudget,
     WeightTruncator,
 )
@@ -22,8 +23,9 @@ if TYPE_CHECKING:
 # The surrogate honors every truncator, including the monomial-level
 # FrequencyTruncator/CoefficientTruncator: both are decided structurally
 # from the symbolic DAG's cached per-node bounds, with no monomial expansion
-# needed (see propaq.MD's "Truncation" section).
-_Truncator = FrequencyTruncator | CoefficientTruncator | WeightTruncator | TermBudget
+# needed (see propaq.MD's "Truncation" section). MonomialBudget is a
+# threshold-triggered flush keyed on monomial count, mirroring TermBudget.
+_Truncator = FrequencyTruncator | CoefficientTruncator | WeightTruncator | TermBudget | MonomialBudget
 _Truncation = (
     _Truncator | Sequence[_Truncator] | FrequencyTruncationPolicy | TruncationPolicy | None
 )
@@ -93,7 +95,7 @@ class MajoranaSurrogatePropagator:
 
     Arguments:
         truncation: A list of truncators (FrequencyTruncator/CoefficientTruncator/
-            WeightTruncator/TermBudget), a single truncator, a legacy
+            WeightTruncator/TermBudget/MonomialBudget), a single truncator, a legacy
             FrequencyTruncationPolicy or TruncationPolicy (decomposed), or None.
         schedule: Optional FlushSchedule controlling the lossless merge cadence.
         n_threads: Number of worker threads. Defaults to the system thread count.
