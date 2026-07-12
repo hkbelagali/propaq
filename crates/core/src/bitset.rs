@@ -27,6 +27,18 @@ impl Bitset {
         b
     }
 
+    /// Same as `from_words`, but copies directly from a borrowed slice
+    /// into the (usually inline, for realistic system sizes) `SmallVec`
+    /// -- avoiding the wasted intermediate `Vec` allocation+copy+drop that
+    /// `Bitset::from_words(slice.to_vec())` would otherwise pay for on
+    /// every call. `Words::from_slice` (a `smallvec` inherent method,
+    /// available since `u64: Copy`) does this in one copy instead of two.
+    pub fn from_slice(words: &[u64]) -> Self {
+        let mut b = Self { words: Words::from_slice(words) };
+        b.normalize();
+        b
+    }
+
     pub fn from_le_bytes(bytes: &[u8]) -> Self {
         if bytes.is_empty() {
             return Self::zero();

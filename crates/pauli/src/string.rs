@@ -299,8 +299,8 @@ impl SoaBasis for PauliBasis {
     }
 
     fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> PauliString {
-        let x = Bitset::from_words(term[0].to_vec());
-        let z = Bitset::from_words(term[1].to_vec());
+        let x = Bitset::from_slice(term[0]);
+        let z = Bitset::from_slice(term[1]);
         let weight = (&x | &z).count_ones();
         PauliString { x, z, n_qubits: n_units, weight }
     }

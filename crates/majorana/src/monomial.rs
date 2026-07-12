@@ -390,8 +390,8 @@ impl SoaBasis for MajoranaBasis {
         if n_qubits == 0 {
             return 0;
         }
-        let modes = Bitset::from_words(term[0].to_vec());
-        let p = Bitset::from_words(term[1].to_vec());
+        let modes = Bitset::from_slice(term[0]);
+        let p = Bitset::from_slice(term[1]);
         let qubit_mask = Bitset::all_ones_upto(n_qubits);
         let (single, occupied) = MajoranaMonomial::compress_single_occupied(&modes, n_qubits);
         MajoranaMonomial::weight_from_parts(&single, &occupied, &p, &qubit_mask)
@@ -400,7 +400,7 @@ impl SoaBasis for MajoranaBasis {
     fn trace(term: [&[u64]; 2], n_units: usize, fock: u64) -> f64 {
         // `trace_fock_state_impl` only reads `modes`/`n_modes`; the other
         // fields are irrelevant to it, so a throwaway monomial is fine here.
-        let modes = Bitset::from_words(term[0].to_vec());
+        let modes = Bitset::from_slice(term[0]);
         let m = MajoranaMonomial {
             modes,
             n_modes: n_units,
@@ -423,8 +423,8 @@ impl SoaBasis for MajoranaBasis {
     }
 
     fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> MajoranaMonomial {
-        let modes = Bitset::from_words(term[0].to_vec());
-        let p = Bitset::from_words(term[1].to_vec());
+        let modes = Bitset::from_slice(term[0]);
+        let p = Bitset::from_slice(term[1]);
         let n_qubits = n_units / 2;
         let weight = if n_qubits == 0 {
             0
