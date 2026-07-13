@@ -6,6 +6,8 @@
 ///
 use pyo3::prelude::*;
 
+use propaq_core::bitset::Bitset;
+use propaq_core::helpers::pyint_to_bitset;
 use propaq_core::propagator::{save_terms_to_file, PropagationResult};
 use propaq_core::soa::propagator::SoaPropagator;
 use propaq_core::truncators::{reject_surrogate_only, resolve_truncation, FlushSchedule};
@@ -79,17 +81,21 @@ impl MajoranaPropagator {
     ///     circuit: A MajoranaCircuit applied to the reference state.
     ///     initial_state: Fock state as a bitstring integer.
     ///     filename: If given, save the final terms to a gzip-compressed binary file at this path.
-    #[pyo3(signature = (observable, circuit, initial_state=0, filename=None))]
+    #[pyo3(signature = (observable, circuit, initial_state=None, filename=None))]
     fn expectation_value(
         &mut self,
         py: Python<'_>,
         observable: &MajoranaTermSum,
         circuit: &Bound<'_, PyAny>,
-        initial_state: u64,
+        initial_state: Option<&Bound<'_, PyAny>>,
         filename: Option<String>,
     ) -> PyResult<PropagationResult> {
         let mut evolved = observable.inner.copy();
-        let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state)?;
+        let initial_state = match initial_state {
+            Some(v) => pyint_to_bitset(v, observable.inner.n_units)?,
+            None => Bitset::zero(),
+        };
+        let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state.as_words())?;
         if let Some(path) = filename.as_deref() {
             save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
         }

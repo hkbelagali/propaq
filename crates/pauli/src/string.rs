@@ -71,12 +71,11 @@ impl PauliString {
         (phase, result)
     }
 
-    fn trace_fock_state_impl(&self, fock_state: u64) -> f64 {
+    fn trace_fock_state_impl(&self, fock_state: &Bitset) -> f64 {
         if !self.x.is_zero() {
             return 0.0;
         }
-        let fock_bits = Bitset::from_le_bytes(&fock_state.to_le_bytes());
-        let parity = (&self.z & &fock_bits).count_ones();
+        let parity = (&self.z & fock_state).count_ones();
         if parity % 2 == 0 { 1.0 } else { -1.0 }
     }
 }
@@ -153,8 +152,9 @@ impl PauliString {
     ///     fock_state: Computational basis state as a bitstring integer.
     /// Returns:
     ///     Expectation value of the Pauli string in the given Fock state.
-    fn trace_with_fock_state(&self, fock_state: u64) -> f64 {
-        self.trace_fock_state_impl(fock_state)
+    fn trace_with_fock_state(&self, fock_state: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let bs = pyint_to_bitset(fock_state, self.n_qubits)?;
+        Ok(self.trace_fock_state_impl(&bs))
     }
 
     /// Serialize the monomial as little-endian X bytes concatenated with Z bytes.
@@ -190,7 +190,7 @@ impl AbstractTerm for PauliString {
     fn weight(&self) -> u32 { self.weight }
     fn commutes_with(&self, other: &Self) -> bool { self.commutes_with_impl(other) }
     fn matmul_internal(&self, other: &Self) -> (Complex64, Self) { self.matmul_impl(other) }
-    fn trace_with_fock_state(&self, fock_state: u64) -> f64 { self.trace_fock_state_impl(fock_state) }
+    fn trace_with_fock_state(&self, fock_state: &Bitset) -> f64 { self.trace_fock_state_impl(fock_state) }
     fn to_bytes_vec(&self) -> Vec<u8> {
         let n_bytes = (self.n_qubits + 7) / 8;
         let mut x_bytes = self.x.to_le_bytes();
@@ -271,16 +271,15 @@ impl SoaBasis for PauliBasis {
         term[0].iter().zip(term[1]).map(|(a, b)| (a | b).count_ones()).sum()
     }
 
-    fn trace(term: [&[u64]; 2], _n_units: usize, fock: u64) -> f64 {
+    fn trace(term: [&[u64]; 2], _n_units: usize, fock: &[u64]) -> f64 {
         if term[0].iter().any(|&w| w != 0) {
             return 0.0;
         }
-        let fock_words = fock.to_le_bytes();
         let parity: u32 = term[1]
             .iter()
             .enumerate()
             .map(|(i, &w)| {
-                let f = if i == 0 { u64::from_le_bytes(fock_words) } else { 0 };
+                let f = fock.get(i).copied().unwrap_or(0);
                 (w & f).count_ones()
             })
             .sum();
@@ -324,6 +323,10 @@ mod tests {
         let zb = Bitset::from_le_bytes(&z.to_le_bytes());
         let weight = (&xb | &zb).count_ones();
         PauliString { x: xb, z: zb, n_qubits: n, weight }
+    }
+
+    fn fock(bits: u64) -> Bitset {
+        Bitset::from_le_bytes(&bits.to_le_bytes())
     }
 
     #[test]
@@ -384,24 +387,24 @@ mod tests {
     }
 
     #[test]
-    fn trace_identity_is_one() { assert_eq!(pauli(0, 0, 4).trace_fock_state_impl(0), 1.0); }
+    fn trace_identity_is_one() { assert_eq!(pauli(0, 0, 4).trace_fock_state_impl(&fock(0)), 1.0); }
 
     #[test]
-    fn trace_x_is_zero() { assert_eq!(pauli(0b01, 0, 4).trace_fock_state_impl(0), 0.0); }
+    fn trace_x_is_zero() { assert_eq!(pauli(0b01, 0, 4).trace_fock_state_impl(&fock(0)), 0.0); }
 
     #[test]
-    fn trace_z0_empty_state() { assert_eq!(pauli(0, 0b01, 4).trace_fock_state_impl(0b00), 1.0); }
+    fn trace_z0_empty_state() { assert_eq!(pauli(0, 0b01, 4).trace_fock_state_impl(&fock(0b00)), 1.0); }
 
     #[test]
-    fn trace_z0_occupied_state() { assert_eq!(pauli(0, 0b01, 4).trace_fock_state_impl(0b01), -1.0); }
+    fn trace_z0_occupied_state() { assert_eq!(pauli(0, 0b01, 4).trace_fock_state_impl(&fock(0b01)), -1.0); }
 
     #[test]
     fn trace_zz_all_combinations() {
         let zz = pauli(0, 0b11, 4);
-        assert_eq!(zz.trace_fock_state_impl(0b00),  1.0);
-        assert_eq!(zz.trace_fock_state_impl(0b01), -1.0);
-        assert_eq!(zz.trace_fock_state_impl(0b10), -1.0);
-        assert_eq!(zz.trace_fock_state_impl(0b11),  1.0);
+        assert_eq!(zz.trace_fock_state_impl(&fock(0b00)),  1.0);
+        assert_eq!(zz.trace_fock_state_impl(&fock(0b01)), -1.0);
+        assert_eq!(zz.trace_fock_state_impl(&fock(0b10)), -1.0);
+        assert_eq!(zz.trace_fock_state_impl(&fock(0b11)),  1.0);
     }
 
     // --- `PauliBasis` (SoA word-plane kernels) vs `PauliString` (AoS,
@@ -440,11 +443,12 @@ mod tests {
         assert_eq!(result.x, expected_result.x, "product x mismatch for {}", ctx());
         assert_eq!(result.z, expected_result.z, "product z mismatch for {}", ctx());
 
-        for fock in 0u64..16 {
+        for fock_bits in 0u64..16 {
+            let fock_words = [fock_bits];
             assert_eq!(
-                PauliBasis::trace(a_planes, a.n_qubits, fock),
-                a.trace_fock_state_impl(fock),
-                "trace mismatch for {} fock={fock}", ctx(),
+                PauliBasis::trace(a_planes, a.n_qubits, &fock_words),
+                a.trace_fock_state_impl(&fock(fock_bits)),
+                "trace mismatch for {} fock={fock_bits}", ctx(),
             );
         }
 

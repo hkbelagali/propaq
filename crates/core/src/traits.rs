@@ -7,11 +7,15 @@
 use std::hash::Hash;
 use num_complex::Complex64;
 
+use crate::bitset::Bitset;
+
 pub trait AbstractTerm: Clone + PartialEq + Eq + Hash + Send + Sync + 'static {
     fn weight(&self) -> u32;
     fn commutes_with(&self, other: &Self) -> bool;
     fn matmul_internal(&self, other: &Self) -> (Complex64, Self);
-    fn trace_with_fock_state(&self, fock_state: u64) -> f64;
+    /// `fock_state` is a `Bitset` (not `u64`) so that reference states with
+    /// more than 64 occupied modes/qubits don't silently truncate.
+    fn trace_with_fock_state(&self, fock_state: &Bitset) -> f64;
     fn to_bytes_vec(&self) -> Vec<u8>;
     /// XOR-fold the term's underlying bit representation down to a single u64,
     /// used as input to the multiply-shift partition hash in the propagator.

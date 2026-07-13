@@ -152,7 +152,22 @@ impl Node {
     }
 
     fn add(a: Arc<Node>, b: Arc<Node>) -> Arc<Node> {
-        let count = a.count + b.count;
+        // `saturating_add`, not plain `+`: a deep/heavily-merged circuit's
+        // true monomial count can exceed `u64::MAX`, and this project always
+        // builds in release mode, where unchecked overflow wraps silently
+        // rather than panicking -- a wrapped count can land anywhere in
+        // `[0, u64::MAX)`, including values smaller than a configured
+        // `MonomialBudget` ceiling, silently defeating the one truncation
+        // mechanism meant to bound exactly this growth. Saturating means a
+        // count that's overflowed reads as "enormous" forever after (matching
+        // `min_freq`/`max_freq`'s existing `saturating_add` convention below,
+        // which this field should have matched from the start), so
+        // `MonomialBudget`'s `>= max` check stays correct instead of going
+        // silently inert once truly saturated. `count` remains a pre-dedup
+        // upper bound, never used for evaluate/compile correctness -- this
+        // only affects `n_monomials`/`MonomialBudget`'s accuracy at the point
+        // of saturation, not the computed expectation value.
+        let count = a.count.saturating_add(b.count);
         let min_freq = a.min_freq.min(b.min_freq);
         let max_freq = a.max_freq.max(b.max_freq);
         let upper_scale = a.upper_scale.max(b.upper_scale);
@@ -778,16 +793,19 @@ impl CompiledCoeff {
     /// not a deduplicated tally. Recomputed from the flat tape rather than
     /// carried over from `Node::count` directly, since `compile`/
     /// `compile_batch` deliberately discard the original DAG's cached
-    /// fields once flattened. Plain (non-saturating) `u64` arithmetic,
-    /// matching `Node::add`'s own `a.count + b.count` -- this is a purely
-    /// informational upper bound (never used for correctness), so it
-    /// follows the same overflow tolerance already established there.
+    /// fields once flattened. `saturating_add`, matching `Node::add`'s own
+    /// fix (a real workload was found pegging this at the `u64` ceiling and
+    /// wrapping, corrupting `n_monomials`'s reported value past that point --
+    /// see `Node::add`'s doc comment for the full story) -- this is a purely
+    /// informational upper bound (never used for evaluate/compile
+    /// correctness), but `n_monomials` itself is user-facing and should read
+    /// "enormous" rather than an arbitrary wrapped remainder once saturated.
     pub fn monomial_counts(&self) -> Vec<u64> {
         let mut counts = vec![0u64; self.ops.len()];
         for (i, op) in self.ops.iter().enumerate() {
             counts[i] = match *op {
                 CompiledOp::Scalar(_) => 1,
-                CompiledOp::Add(a, b) => counts[a] + counts[b],
+                CompiledOp::Add(a, b) => counts[a].saturating_add(counts[b]),
                 CompiledOp::Scale(_, inner) => counts[inner],
                 CompiledOp::Cos(_, inner) => counts[inner],
                 CompiledOp::Sin(_, inner) => counts[inner],
@@ -989,6 +1007,23 @@ mod tests {
         let c = SymbolicCoeff::from_scalar(2.5);
         assert_eq!(c.monomial_count(), 1);
         assert!((eval(&c, &[]) - 2.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn count_saturates_instead_of_wrapping_past_u64_max() {
+        // Doubling `count` via repeated self-add reaches past `u64::MAX` in
+        // ~64 steps -- cheap enough to actually cross the ceiling in a test,
+        // unlike reproducing a real multi-billion-monomial workload.
+        let mut c = SymbolicCoeff::from_scalar(1.0);
+        for _ in 0..70 {
+            let other = c.clone();
+            c.add_assign(other);
+        }
+        assert_eq!(
+            c.monomial_count(),
+            usize::MAX,
+            "count must saturate at the ceiling, not wrap around past it"
+        );
     }
 
     #[test]

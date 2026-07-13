@@ -229,11 +229,15 @@ where
     };
     compact(terms, n, total);
 
+    // `saturating_add`, not `.sum()` (see `sum_coeffs`'s doc comment for why):
+    // this return value feeds `TruncationOutcome::monomials_after` ->
+    // `total_monomials`, part of the same monomial-count accounting chain
+    // that must not silently wrap once genuinely huge.
     let survivors = &terms.coeffs[..total];
     if total >= PAR_MIN_LEN {
-        survivors.par_iter().map(|c| c.size_hint()).sum()
+        survivors.par_iter().map(|c| c.size_hint()).reduce(|| 0usize, usize::saturating_add)
     } else {
-        survivors.iter().map(|c| c.size_hint()).sum()
+        survivors.iter().map(|c| c.size_hint()).fold(0usize, |acc, s| acc.saturating_add(s))
     }
 }
 
@@ -257,12 +261,18 @@ where
 /// Parallel sum of a per-coefficient quantity over all live terms — the SoA
 /// analogue of the old hash-partition engine's `sum_coeffs`. Used by the
 /// surrogate to recompute the live monomial count after a lossless merge.
+/// `saturating_add` via `reduce`, not `.sum()` (which wraps on overflow):
+/// every current caller passes `monomial_count()`, whose individual values
+/// are now themselves saturated at `u64::MAX`/`usize::MAX` (see
+/// `Node::add`'s doc comment) -- but summing many already-huge terms
+/// together with plain `+` could still wrap the aggregate even when no
+/// single term's own value has.
 pub fn sum_coeffs<C: CoeffRepr, F>(terms: &SoaTermSum<C>, f: F) -> usize
 where
     F: Fn(&C) -> usize + Sync,
 {
     let n = terms.len();
-    terms.coeffs[..n].par_iter().map(&f).sum()
+    terms.coeffs[..n].par_iter().map(&f).reduce(|| 0usize, usize::saturating_add)
 }
 
 /// Merge: hash-based duplicate detection and coefficient accumulation,
@@ -547,7 +557,7 @@ pub fn apply_noise_inplace<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>,
 /// Numerical-only: a whole-term real expectation isn't meaningful for the
 /// surrogate's symbolic coefficients, which instead use the per-term trace
 /// as a structural (nonzero-overlap) filter at compile time.
-pub fn expectation<B: SoaBasis>(terms: &SoaTermSum<f64>, fock_state: u64) -> f64 {
+pub fn expectation<B: SoaBasis>(terms: &SoaTermSum<f64>, fock_state: &[u64]) -> f64 {
     let n = terms.len();
     let stride = terms.stride;
     let planes = &terms.planes;
@@ -587,8 +597,9 @@ mod tests {
             Complex64::new(0.0, 1.0)
         }
         fn weight(term: [&[u64]; 2], _n_units: usize) -> u32 { term[0][0].count_ones() }
-        fn trace(term: [&[u64]; 2], _n_units: usize, fock: u64) -> f64 {
-            if term[0][0] & fock == 0 { 1.0 } else { -1.0 }
+        fn trace(term: [&[u64]; 2], _n_units: usize, fock: &[u64]) -> f64 {
+            let f = fock.first().copied().unwrap_or(0);
+            if term[0][0] & f == 0 { 1.0 } else { -1.0 }
         }
         fn key_hash(term: [&[u64]; 2]) -> u64 {
             // Deliberately *not* the identity function, so batch assignment
@@ -767,6 +778,18 @@ mod tests {
     }
 
     #[test]
+    fn sum_coeffs_saturates_instead_of_wrapping() {
+        // Two terms whose per-term quantity is already `usize::MAX` (as a
+        // real coefficient's `monomial_count()` can be, once saturated) --
+        // plain `.sum()` would wrap this well below `usize::MAX`.
+        let mut terms = make(4);
+        terms.push([&[1], &[0]], 1.0);
+        terms.push([&[2], &[0]], 1.0);
+        let summed = sum_coeffs(&terms, |_| usize::MAX);
+        assert_eq!(summed, usize::MAX);
+    }
+
+    #[test]
     fn apply_rotation_append_branch_grows_and_computes_both_branches() {
         let mut terms = make(4);
         // term=1, gen=1 => (term & gen).count_ones() == 1 (odd) => anticommutes.
@@ -833,7 +856,7 @@ mod tests {
         terms.push([&[0b01], &[0]], 2.0);
         terms.push([&[0b10], &[0]], 3.0);
         // fock=0b01: term0 & fock = 0b01 (nonzero => trace -1), term1 & fock = 0 (trace 1)
-        let total = expectation::<TestBasis>(&terms, 0b01);
+        let total = expectation::<TestBasis>(&terms, &[0b01]);
         assert!((total - (2.0 * -1.0 + 3.0 * 1.0)).abs() < 1e-12);
     }
 
@@ -880,7 +903,7 @@ mod tests {
             TestBasis::product(term, gen, out)
         }
         fn weight(term: [&[u64]; 2], n_units: usize) -> u32 { TestBasis::weight(term, n_units) }
-        fn trace(term: [&[u64]; 2], n_units: usize, fock: u64) -> f64 { TestBasis::trace(term, n_units, fock) }
+        fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64 { TestBasis::trace(term, n_units, fock) }
         fn key_hash(term: [&[u64]; 2]) -> u64 { term[0][0] % 4 }
         fn key_eq(a: [&[u64]; 2], b: [&[u64]; 2]) -> bool { a[0][0] == b[0][0] }
         fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> u64 { TestBasis::term_from_planes(term, n_units) }

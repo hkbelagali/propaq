@@ -365,7 +365,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
         py: Python<'_>,
         evolved: &mut SoaTermSum<f64>,
         circuit: &Bound<'_, PyAny>,
-        fock_state: u64,
+        fock_state: &[u64],
     ) -> PyResult<PropagationResult>
     where
         B::Term: for<'py> FromPyObject<'py>,

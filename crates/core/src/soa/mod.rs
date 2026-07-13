@@ -58,8 +58,11 @@ pub trait SoaBasis: Send + Sync + 'static {
 
     /// $\langle \psi | \text{term} | \psi \rangle$ for a computational basis
     /// state. Takes `n_units` for the same reason as `weight` (Majorana
-    /// iterates per-qubit pairs; Pauli ignores it).
-    fn trace(term: [&[u64]; 2], n_units: usize, fock: u64) -> f64;
+    /// iterates per-qubit pairs; Pauli ignores it). `fock` is a word slice
+    /// (same convention as `term`'s planes, not a `u64`) so reference states
+    /// with more than 64 occupied modes/qubits don't silently truncate;
+    /// words beyond `fock`'s length are implicitly zero.
+    fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64;
 
     /// Hash of the key-relevant plane words only (ignoring derived caches
     /// like Majorana's `p`), for `soa::kernels::merge`'s hash-based

@@ -53,7 +53,7 @@ impl MajoranaMonomial {
             % 2 == 0
     }
 
-    fn trace_fock_state_impl(&self, fock_state: u64) -> f64 {
+    fn trace_fock_state_impl(&self, fock_state: &Bitset) -> f64 {
         let n_fermionic = self.n_modes / 2;
         let mut p = 0i32;
         let mut product = 1i32;
@@ -66,7 +66,7 @@ impl MajoranaMonomial {
                 return 0.0;
             }
             if low == 1 {
-                let n_k = ((fock_state >> k) & 1) as i32;
+                let n_k = fock_state.bit(k) as i32;
                 product *= 2 * n_k - 1;
                 p += 1;
             }
@@ -276,8 +276,9 @@ impl MajoranaMonomial {
     ///     fock_state: Computational basis state as a bitstring integer.
     /// Returns:
     ///     Expectation value of the Majorana monomial in the given Fock state.
-    pub fn trace_with_fock_state(&self, fock_state: u64) -> f64 {
-        self.trace_fock_state_impl(fock_state)
+    pub fn trace_with_fock_state(&self, fock_state: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let bs = pyint_to_bitset(fock_state, self.n_modes)?;
+        Ok(self.trace_fock_state_impl(&bs))
     }
 
     /// Serialize the mode bitmask as a little-endian byte string.
@@ -303,7 +304,7 @@ impl AbstractTerm for MajoranaMonomial {
     fn weight(&self) -> u32 { self.weight }
     fn commutes_with(&self, other: &Self) -> bool { self.commutes_with_impl(other) }
     fn matmul_internal(&self, other: &Self) -> (Complex64, Self) { MajoranaMonomial::matmul_internal(self, other) }
-    fn trace_with_fock_state(&self, fock_state: u64) -> f64 { self.trace_fock_state_impl(fock_state) }
+    fn trace_with_fock_state(&self, fock_state: &Bitset) -> f64 { self.trace_fock_state_impl(fock_state) }
     fn to_bytes_vec(&self) -> Vec<u8> {
         let byte_length = (self.n_modes + 7) / 8;
         let mut bytes = self.modes.to_le_bytes();
@@ -397,7 +398,7 @@ impl SoaBasis for MajoranaBasis {
         MajoranaMonomial::weight_from_parts(&single, &occupied, &p, &qubit_mask)
     }
 
-    fn trace(term: [&[u64]; 2], n_units: usize, fock: u64) -> f64 {
+    fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64 {
         // `trace_fock_state_impl` only reads `modes`/`n_modes`; the other
         // fields are irrelevant to it, so a throwaway monomial is fine here.
         let modes = Bitset::from_slice(term[0]);
@@ -408,7 +409,8 @@ impl SoaBasis for MajoranaBasis {
             weight: 0,
             p: Bitset::zero(),
         };
-        m.trace_fock_state_impl(fock)
+        let fock_bs = Bitset::from_slice(fock);
+        m.trace_fock_state_impl(&fock_bs)
     }
 
     fn key_hash(term: [&[u64]; 2]) -> u64 {
@@ -539,6 +541,10 @@ mod tests {
         MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
     }
 
+    fn fock(bits: u64) -> Bitset {
+        Bitset::from_le_bytes(&bits.to_le_bytes())
+    }
+
     #[test]
     fn hermiticity_exp_all_residues() {
         for (len, expected) in [(0,0),(1,0),(2,1),(3,1),(4,0),(5,0),(6,1),(7,1),(8,0)] {
@@ -598,30 +604,30 @@ mod tests {
     #[test]
     fn trace_identity_any_fock() {
         let m = mon(0, 8);
-        assert_eq!(m.trace_fock_state_impl(0), 1.0);
-        assert_eq!(m.trace_fock_state_impl(0b1111), 1.0);
+        assert_eq!(m.trace_fock_state_impl(&fock(0)), 1.0);
+        assert_eq!(m.trace_fock_state_impl(&fock(0b1111)), 1.0);
     }
 
     #[test]
     fn trace_unpaired_mode_is_zero() {
         let m = mon(0b01, 8);
-        assert_eq!(m.trace_fock_state_impl(0), 0.0);
-        assert_eq!(m.trace_fock_state_impl(1), 0.0);
+        assert_eq!(m.trace_fock_state_impl(&fock(0)), 0.0);
+        assert_eq!(m.trace_fock_state_impl(&fock(1)), 0.0);
     }
 
     #[test]
-    fn trace_site0_empty_fock() { assert_eq!(mon(0b11, 8).trace_fock_state_impl(0), -1.0); }
+    fn trace_site0_empty_fock() { assert_eq!(mon(0b11, 8).trace_fock_state_impl(&fock(0)), -1.0); }
 
     #[test]
-    fn trace_site0_occupied_fock() { assert_eq!(mon(0b11, 8).trace_fock_state_impl(1), 1.0); }
+    fn trace_site0_occupied_fock() { assert_eq!(mon(0b11, 8).trace_fock_state_impl(&fock(1)), 1.0); }
 
     #[test]
     fn trace_two_sites_all_combinations() {
         let m = mon(0b1111, 8);
-        assert_eq!(m.trace_fock_state_impl(0b00), -1.0);
-        assert_eq!(m.trace_fock_state_impl(0b01),  1.0);
-        assert_eq!(m.trace_fock_state_impl(0b10),  1.0);
-        assert_eq!(m.trace_fock_state_impl(0b11), -1.0);
+        assert_eq!(m.trace_fock_state_impl(&fock(0b00)), -1.0);
+        assert_eq!(m.trace_fock_state_impl(&fock(0b01)),  1.0);
+        assert_eq!(m.trace_fock_state_impl(&fock(0b10)),  1.0);
+        assert_eq!(m.trace_fock_state_impl(&fock(0b11)), -1.0);
     }
 
     /// Cross-checks a product's incrementally-computed `weight` (and cached
@@ -832,11 +838,12 @@ mod tests {
         assert_eq!(result.p, expected_result.p, "product p mismatch for {}", ctx());
         assert_eq!(result.weight, expected_result.weight, "product weight mismatch for {}", ctx());
 
-        for fock in 0u64..16 {
+        for fock_bits in 0u64..16 {
+            let fock_words = [fock_bits];
             assert_eq!(
-                MajoranaBasis::trace(a_planes, a.n_modes, fock),
-                a.trace_fock_state_impl(fock),
-                "trace mismatch for {} fock={fock}", ctx(),
+                MajoranaBasis::trace(a_planes, a.n_modes, &fock_words),
+                a.trace_fock_state_impl(&fock(fock_bits)),
+                "trace mismatch for {} fock={fock_bits}", ctx(),
             );
         }
 

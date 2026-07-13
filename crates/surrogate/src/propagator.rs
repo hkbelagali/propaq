@@ -47,7 +47,9 @@ use std::sync::Arc;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
+use propaq_core::bitset::Bitset;
 use propaq_core::coeff::CoeffRepr;
+use propaq_core::helpers::pyint_to_bitset;
 use propaq_core::logger::Logger;
 use propaq_core::propagator::{close_progress_bar, make_progress_bar, tick_progress_bar};
 use propaq_core::soa::kernels;
@@ -187,8 +189,11 @@ where
         // Cheap running estimate (not the exact recount above), for
         // `MonomialBudget`'s `min_monomials` floor -- deliberately a
         // different name/value from `monomials_before`, which is an exact,
-        // verbose-logging-only recompute.
-        let monomials_before_estimate = self.total_monomials + pending_monomials;
+        // verbose-logging-only recompute. `saturating_add`: both operands can
+        // legitimately be near `usize::MAX` once truly huge (see
+        // `Node::add`'s doc comment) -- plain `+` wrapping here would let a
+        // `MonomialBudget` floor/ceiling silently stop comparing correctly.
+        let monomials_before_estimate = self.total_monomials.saturating_add(pending_monomials);
 
         let cfg = resolve_config(&self.truncators);
         let outcome =
@@ -205,7 +210,13 @@ where
             let wc_str = outcome.weight.map_or_else(|| "null".to_string(), |v| v.to_string());
             let mas_str = outcome.coefficient.map_or_else(|| "null".to_string(), |v| format!("{v:.3e}"));
             let terms_discarded = outcome.total_before - outcome.total_after;
-            let monomials_discarded = monomials_before - outcome.monomials_after;
+            // `saturating_sub`: truncation only ever removes monomials, so
+            // `monomials_after <= monomials_before` in exact arithmetic, but
+            // defensive here too now that both sides can independently
+            // saturate at `usize::MAX` -- a plain `-` would underflow-panic
+            // (debug) / wrap to a huge bogus value (release) in any edge case
+            // this reasoning missed.
+            let monomials_discarded = monomials_before.saturating_sub(outcome.monomials_after);
             let (total_before, total_after, monomials_after) =
                 (outcome.total_before, outcome.total_after, outcome.monomials_after);
             if let Some(ref mut log) = self.verbose_log {
@@ -229,7 +240,7 @@ where
         py: Python<'_>,
         evolved: &mut SoaTermSum<SymbolicCoeff>,
         circuit: &Bound<'_, PyAny>,
-        initial_state: u64,
+        initial_state: &[u64],
         n_params: usize,
     ) -> PyResult<SurrogateModel> {
         self.open_log()?;
@@ -310,10 +321,16 @@ where
                 let added = py.allow_threads(|| {
                     pool.install(|| kernels::apply_rotation::<B, SymbolicCoeff>(evolved, gen, param, false))
                 });
-                let added_monomials: usize =
-                    evolved.coeffs[before..before + added].iter().map(|c| c.size_hint()).sum();
+                // `saturating_add` throughout: `size_hint()` values (and
+                // their running accumulation into `pending_monomials`) can
+                // legitimately be near `usize::MAX` on a real workload -- see
+                // `Node::add`'s doc comment for why plain `+`/`.sum()` here
+                // would silently wrap instead.
+                let added_monomials: usize = evolved.coeffs[before..before + added]
+                    .iter()
+                    .fold(0usize, |acc, c| acc.saturating_add(c.size_hint()));
                 pending += added;
-                pending_monomials += added_monomials;
+                pending_monomials = pending_monomials.saturating_add(added_monomials);
 
                 self.current_qiskit_gate_idx = *qiskit_gate_idx;
 
@@ -333,7 +350,7 @@ where
                     // (both O(1) reads, no O(total_terms) pass). `pending_monomials`
                     // survives a lossless merge, so this stays accurate between
                     // truncation flushes too.
-                    let monomials = self.total_monomials + pending_monomials;
+                    let monomials = self.total_monomials.saturating_add(pending_monomials);
                     let qki = match qiskit_gate_idx {
                         Some(v) => v.to_string(),
                         None => "null".to_string(),
@@ -348,8 +365,8 @@ where
 
                 let next_is_intermediate = reversed_layer.get(idx + 1).map_or(false, |(_, _, _, ni, _)| *ni);
                 let terms_trigger = max_terms.map_or(false, |max| evolved.len() >= max);
-                let monomials_trigger =
-                    max_monomials.map_or(false, |max| self.total_monomials + pending_monomials >= max);
+                let monomials_trigger = max_monomials
+                    .map_or(false, |max| self.total_monomials.saturating_add(pending_monomials) >= max);
                 // If both ceilings cross on the same gate, `terms_trigger` wins
                 // in the logged/latched trigger name (harmless -- a flush still
                 // fires either way, this only affects which string gets logged).
@@ -374,7 +391,7 @@ where
                         deferred_threshold_trigger = Some(trigger);
                         if self.verbose_log.is_some() {
                             let live_terms = evolved.len();
-                            let live_monomials = self.total_monomials + pending_monomials;
+                            let live_monomials = self.total_monomials.saturating_add(pending_monomials);
                             let qki = self
                                 .current_qiskit_gate_idx
                                 .map_or_else(|| "null".to_string(), |v| v.to_string());
@@ -414,7 +431,8 @@ where
 
                 if let Some(ref pf) = postfix {
                     // Live count: last-flush total plus monomials added since (O(1) reads).
-                    pf.bind(py).set_item("monomials", self.total_monomials + pending_monomials)?;
+                    pf.bind(py)
+                        .set_item("monomials", self.total_monomials.saturating_add(pending_monomials))?;
                 }
                 tick_progress_bar(py, &pbar, &postfix, evolved.len())?;
                 gate_idx += 1;
@@ -488,7 +506,7 @@ fn compile_surviving_terms<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     n_units: usize,
     stride: usize,
-    initial_state: u64,
+    initial_state: &[u64],
 ) -> (CompiledCoeff, Vec<SurrogateTerm>) {
     const SHARD_OVERSUBSCRIPTION: usize = 4;
 
@@ -573,8 +591,9 @@ pub struct TruncationOutcome {
 /// the time this is called.
 ///
 /// `monomials_before_estimate` is the caller's cheap running estimate
-/// (`self.total_monomials + pending_monomials`), not an exact recount --
-/// there's no O(1) exact way to get one, unlike `total_before` (`evolved.len()`).
+/// (`self.total_monomials.saturating_add(pending_monomials)`), not an exact
+/// recount -- there's no O(1) exact way to get one, unlike `total_before`
+/// (`evolved.len()`).
 pub fn apply_truncation_policy<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     cfg: &ResolvedConfig,
@@ -669,17 +688,21 @@ impl PauliSurrogatePropagator {
     ///     observable: The Pauli observable to back-propagate.
     ///     circuit: A SurrogatePauliCircuit.
     ///     initial_state: Fock state as a bitstring integer (default 0).
-    #[pyo3(signature = (observable, circuit, initial_state=0))]
+    #[pyo3(signature = (observable, circuit, initial_state=None))]
     fn build(
         &mut self,
         py: Python<'_>,
         observable: &PauliTermSum,
         circuit: &Bound<'_, PyAny>,
-        initial_state: u64,
+        initial_state: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PauliSurrogateModel> {
         let n_params: usize = circuit.getattr("n_params")?.extract()?;
         let mut evolved = observable.inner.map_coeffs(|c| SymbolicCoeff::from_real(*c));
-        let model = self.inner.run_build(py, &mut evolved, circuit, initial_state, n_params)?;
+        let initial_state = match initial_state {
+            Some(v) => pyint_to_bitset(v, observable.inner.n_units)?,
+            None => Bitset::zero(),
+        };
+        let model = self.inner.run_build(py, &mut evolved, circuit, initial_state.as_words(), n_params)?;
         Ok(PauliSurrogateModel { inner: model })
     }
 
@@ -735,17 +758,21 @@ impl MajoranaSurrogatePropagator {
         })
     }
 
-    #[pyo3(signature = (observable, circuit, initial_state=0))]
+    #[pyo3(signature = (observable, circuit, initial_state=None))]
     fn build(
         &mut self,
         py: Python<'_>,
         observable: &MajoranaTermSum,
         circuit: &Bound<'_, PyAny>,
-        initial_state: u64,
+        initial_state: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<MajoranaSurrogateModel> {
         let n_params: usize = circuit.getattr("n_params")?.extract()?;
         let mut evolved = observable.inner.map_coeffs(|c| SymbolicCoeff::from_real(*c));
-        let model = self.inner.run_build(py, &mut evolved, circuit, initial_state, n_params)?;
+        let initial_state = match initial_state {
+            Some(v) => pyint_to_bitset(v, observable.inner.n_units)?,
+            None => Bitset::zero(),
+        };
+        let model = self.inner.run_build(py, &mut evolved, circuit, initial_state.as_words(), n_params)?;
         Ok(MajoranaSurrogateModel { inner: model })
     }
 
@@ -1019,12 +1046,12 @@ mod sharded_compile_tests {
         assert!(gate_idx as usize > 4 * N_PARAMS, "test should reuse each parameter many times");
 
         let expected: f64 = (0..numeric.len())
-            .map(|i| *numeric.coeff(i) * PauliBasis::trace(numeric.term_planes(i), numeric.n_units, FOCK))
+            .map(|i| *numeric.coeff(i) * PauliBasis::trace(numeric.term_planes(i), numeric.n_units, &[FOCK]))
             .sum();
 
         let n_units = symbolic.n_units;
         let stride = symbolic.stride;
-        let (tape, terms) = compile_surviving_terms::<PauliBasis>(&mut symbolic, n_units, stride, FOCK);
+        let (tape, terms) = compile_surviving_terms::<PauliBasis>(&mut symbolic, n_units, stride, &[FOCK]);
         assert!(!terms.is_empty(), "test did not exercise any surviving terms");
         let model = SurrogateModel::new(terms, tape, N_PARAMS);
 
@@ -1060,7 +1087,7 @@ mod sharded_compile_tests {
         let (gx1, gz1) = planes_of(0b1, 0, 1);
         ts.push([&gx1, &gz1], SymbolicCoeff::from_real(3.0));
 
-        let (_tape, terms) = compile_surviving_terms::<PauliBasis>(&mut ts, N_QUBITS, 1, FOCK);
+        let (_tape, terms) = compile_surviving_terms::<PauliBasis>(&mut ts, N_QUBITS, 1, &[FOCK]);
         assert_eq!(terms.len(), 1, "only the pure-Z row should survive");
 
         assert!(ts.coeff(0).is_empty(), "surviving row's coefficient should have been taken");
