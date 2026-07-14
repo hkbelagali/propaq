@@ -28,8 +28,11 @@ const EXP_LUT_SIZE: usize = 4096;
 /// take the Clifford in-place fast path in `kernels::apply_rotation` instead
 /// of appending: the cos-branch coefficient is negligible relative to any
 /// meaningful truncation cutoff, so dropping it exactly (rather than
-/// carrying forward a ~1e-16-scale residual) is safe in practice.
-const CLIFFORD_COS_EPS: f64 = 1e-9;
+/// carrying forward a ~1e-16-scale residual) is safe in practice. `pub` so
+/// `propaq_surrogate`'s `SurrogatePropagator` can share the same threshold
+/// for its own `GateParam::Numeric` gates instead of duplicating the magic
+/// number.
+pub const CLIFFORD_COS_EPS: f64 = 1e-9;
 
 pub struct SoaPropagator<B: SoaBasis> {
     pub noise: Option<PyObject>,

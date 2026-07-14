@@ -659,6 +659,25 @@ impl CoeffRepr for SymbolicCoeff {
         self.0 = self.0.take().map(|n| Node::scale(factor, n));
     }
 
+    /// Only `GateParam::Numeric` carries a concrete angle to test (mirrors
+    /// `f64`'s own `is_clifford_param` exactly); `GateParam::Symbolic` never
+    /// qualifies, since its angle is unknown until `evaluate` time and could
+    /// turn out to be anything -- unconditionally taking the in-place branch
+    /// there would silently discard a cos-branch that isn't actually zero.
+    /// Without this override the base trait default (`false` always) applies
+    /// to the `Numeric` case too, which is what let every Clifford-angle
+    /// (`pi/2`) numeric gate in a real circuit needlessly append a new row
+    /// (and, once later remerged, double that row's monomial `count`)
+    /// instead of using the cheap overwrite-in-place path the numerical
+    /// propagator already gets for the same angle.
+    #[inline]
+    fn is_clifford_param(param: &GateParam, eps: f64) -> bool {
+        match param {
+            GateParam::Symbolic { .. } => false,
+            GateParam::Numeric { angle } => angle.cos().abs() < eps,
+        }
+    }
+
     /// Monomial count is what actually drives memory/CPU cost for symbolic
     /// coefficients, unlike raw term count.
     #[inline]
@@ -1024,6 +1043,20 @@ mod tests {
             usize::MAX,
             "count must saturate at the ceiling, not wrap around past it"
         );
+    }
+
+    #[test]
+    fn is_clifford_param_only_flags_a_cos_zero_numeric_angle() {
+        use std::f64::consts::{FRAC_PI_2, PI};
+        const EPS: f64 = 1e-9;
+        // pi/2 (and pi/2 + k*pi): cos is exactly/near zero -> Clifford.
+        assert!(SymbolicCoeff::is_clifford_param(&GateParam::Numeric { angle: FRAC_PI_2 }, EPS));
+        assert!(SymbolicCoeff::is_clifford_param(&GateParam::Numeric { angle: FRAC_PI_2 + PI }, EPS));
+        // A generic numeric angle: cos is nowhere near zero -> not Clifford.
+        assert!(!SymbolicCoeff::is_clifford_param(&GateParam::Numeric { angle: 0.3 }, EPS));
+        // Symbolic gates never qualify -- the angle is unknown until `evaluate`
+        // time, so unconditionally discarding the cos branch would be unsound.
+        assert!(!SymbolicCoeff::is_clifford_param(&GateParam::Symbolic { param: 0 }, EPS));
     }
 
     #[test]

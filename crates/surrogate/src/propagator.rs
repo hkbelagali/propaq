@@ -53,6 +53,7 @@ use propaq_core::helpers::pyint_to_bitset;
 use propaq_core::logger::Logger;
 use propaq_core::propagator::{close_progress_bar, make_progress_bar, tick_progress_bar};
 use propaq_core::soa::kernels;
+use propaq_core::soa::propagator::CLIFFORD_COS_EPS;
 use propaq_core::soa::{SoaBasis, SoaTermSum};
 use propaq_core::traits::AbstractTerm;
 
@@ -318,19 +319,44 @@ where
             for (idx, (gen0, gen1, param, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
                 let gen = [gen0.as_slice(), gen1.as_slice()];
                 let before = evolved.len();
+                // Same Clifford in-place fast path the numerical `SoaPropagator`
+                // already takes for a `pi/2`-angle gate: without this, every such
+                // gate (numeric basis-change/Clifford rotations included) appends
+                // a new row instead of overwriting in place, needlessly doubling
+                // the affected rows' monomial `count` once a later merge
+                // recombines them -- see `SymbolicCoeff::is_clifford_param`.
+                let clifford_inplace = SymbolicCoeff::is_clifford_param(param, CLIFFORD_COS_EPS);
                 let added = py.allow_threads(|| {
-                    pool.install(|| kernels::apply_rotation::<B, SymbolicCoeff>(evolved, gen, param, false))
+                    pool.install(|| {
+                        kernels::apply_rotation::<B, SymbolicCoeff>(evolved, gen, param, clifford_inplace)
+                    })
                 });
-                // `saturating_add` throughout: `size_hint()` values (and
-                // their running accumulation into `pending_monomials`) can
-                // legitimately be near `usize::MAX` on a real workload -- see
-                // `Node::add`'s doc comment for why plain `+`/`.sum()` here
-                // would silently wrap instead.
-                let added_monomials: usize = evolved.coeffs[before..before + added]
-                    .iter()
-                    .fold(0usize, |acc, c| acc.saturating_add(c.size_hint()));
-                pending += added;
-                pending_monomials = pending_monomials.saturating_add(added_monomials);
+                // `apply_rotation` returns the touched-row count in both
+                // branches, but only the append branch actually grows
+                // `evolved` -- the in-place branch overwrites `added` rows
+                // scattered across the *existing* `[0, n)` range instead of
+                // appending a contiguous run at `[before, before+added)`.
+                // Reading that slice unconditionally would (once
+                // `clifford_inplace` can be `true` at all) read stale/unused
+                // buffer contents past the live region rather than the rows
+                // this gate actually touched. It's also unnecessary: the
+                // in-place branch only ever wraps a coefficient in a `Scale`
+                // node (a numeric Clifford angle is never `GateParam::Symbolic`),
+                // and `Node::scale`'s `count` is the inner node's `count`
+                // unchanged, so an in-place gate never changes monomial count
+                // -- there is no delta to add.
+                if !clifford_inplace {
+                    // `saturating_add` throughout: `size_hint()` values (and
+                    // their running accumulation into `pending_monomials`) can
+                    // legitimately be near `usize::MAX` on a real workload -- see
+                    // `Node::add`'s doc comment for why plain `+`/`.sum()` here
+                    // would silently wrap instead.
+                    let added_monomials: usize = evolved.coeffs[before..before + added]
+                        .iter()
+                        .fold(0usize, |acc, c| acc.saturating_add(c.size_hint()));
+                    pending += added;
+                    pending_monomials = pending_monomials.saturating_add(added_monomials);
+                }
 
                 self.current_qiskit_gate_idx = *qiskit_gate_idx;
 
@@ -1152,5 +1178,102 @@ mod monomial_budget_tests {
         let mut ts = build_one_term();
         apply_truncation_policy::<PauliBasis>(&mut ts, &cutoff_cfg(Some(1), Some(1)), 1);
         assert_eq!(ts.len(), 0, "with both floors cleared, the coefficient truncator should have pruned the row away");
+    }
+}
+
+#[cfg(test)]
+mod clifford_inplace_regression_tests {
+    use super::*;
+    use propaq_core::soa::SoaTermSum;
+
+    fn planes_of(x: u64, z: u64, stride: usize) -> (Vec<u64>, Vec<u64>) {
+        let mut gx = vec![0u64; stride];
+        let mut gz = vec![0u64; stride];
+        gx[0] = x;
+        gz[0] = z;
+        (gx, gz)
+    }
+
+    /// Regression test for the bug this file's `run_build` used to have:
+    /// every numeric gate (including a real circuit's Clifford, `pi/2`-angle
+    /// basis-change/routing rotations -- e.g. a transpiled `swap`) was applied
+    /// with `clifford_inplace` hardcoded to `false`, so an anticommuting
+    /// Clifford gate always appended a new row instead of overwriting in
+    /// place. A single anticommuting term run through `N` such gates (each
+    /// followed by a `merge`, mirroring `run_build`'s periodic merge cadence)
+    /// then has its monomial `count` double per gate even though only one
+    /// live term (and one *real* trig factor) is ever present -- exactly the
+    /// "few parameters, astronomically large monomial count" shape reported
+    /// against a real workload (see `CHANGELOG.md`: "3969 terms, ~15
+    /// quintillion monomials"). Computing `clifford_inplace` via
+    /// `SymbolicCoeff::is_clifford_param` (this fix) keeps both the term
+    /// count and the monomial count flat at 1 throughout, since a `pi/2`
+    /// rotation's cos branch is genuinely negligible and the kernel can
+    /// overwrite in place instead of branching at all.
+    #[test]
+    fn clifford_angle_numeric_gates_no_longer_inflate_monomial_count() {
+        const N_QUBITS: usize = 4;
+        const ROUNDS: usize = 40;
+        let angle = std::f64::consts::FRAC_PI_2;
+
+        let mut evolved: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+        let (gx, gz) = planes_of(0, 0b1, 1); // Z on qubit 0
+        evolved.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
+
+        // Generator anticommutes with the live Z term at every round (X on
+        // the same qubit), so every round is a genuine branch opportunity.
+        let (genx, genz) = planes_of(0b1, 0, 1);
+        let gen = [genx.as_slice(), genz.as_slice()];
+        let param = GateParam::Numeric { angle };
+
+        for _ in 0..ROUNDS {
+            let clifford_inplace = SymbolicCoeff::is_clifford_param(&param, CLIFFORD_COS_EPS);
+            assert!(clifford_inplace, "a pi/2 numeric angle must be recognized as Clifford");
+            kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(&mut evolved, gen, &param, clifford_inplace);
+            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut evolved);
+        }
+
+        assert_eq!(evolved.len(), 1, "the in-place branch must never grow the live term count");
+        let total_monomials = kernels::sum_coeffs(&evolved, |c| c.monomial_count());
+        assert_eq!(
+            total_monomials, 1,
+            "monomial count must stay flat across Clifford gates, not double per round"
+        );
+    }
+
+    /// Same circuit as above but forcing the pre-fix `clifford_inplace =
+    /// false` behavior, documenting the growth the fix eliminates: the live
+    /// term count stabilizes at 2 (the branch's two possible Pauli strings,
+    /// each gate's cos-branch and sin-branch always landing on one of the
+    /// same two keys, so `merge` finds a duplicate to fold every round), but
+    /// the monomial `count` those merges accumulate via `Node::add` still
+    /// doubles every round even though only one real trig factor (`pi/2`) is
+    /// ever involved.
+    #[test]
+    fn without_clifford_inplace_monomial_count_doubles_every_round() {
+        const N_QUBITS: usize = 4;
+        const ROUNDS: usize = 20;
+        let angle = std::f64::consts::FRAC_PI_2;
+
+        let mut evolved: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+        let (gx, gz) = planes_of(0, 0b1, 1);
+        evolved.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
+
+        let (genx, genz) = planes_of(0b1, 0, 1);
+        let gen = [genx.as_slice(), genz.as_slice()];
+        let param = GateParam::Numeric { angle };
+
+        for _ in 0..ROUNDS {
+            kernels::apply_rotation::<PauliBasis, SymbolicCoeff>(&mut evolved, gen, &param, false);
+            kernels::merge::<PauliBasis, SymbolicCoeff>(&mut evolved);
+        }
+
+        assert_eq!(evolved.len(), 2, "term count stabilizes at the branch's 2 possible Pauli strings");
+        let total_monomials = kernels::sum_coeffs(&evolved, |c| c.monomial_count());
+        assert_eq!(
+            total_monomials,
+            1usize << ROUNDS,
+            "pre-fix behavior: monomial count doubles every round despite only one real trig factor",
+        );
     }
 }
