@@ -106,8 +106,10 @@ pub struct SurrogatePropagator<B: SoaBasis> {
     /// Total monomial count across all live coefficients. Like the live term
     /// count, this is only refreshed at flush points (recomputing it every
     /// gate would require a full O(total_terms) pass, unlike the O(1)
-    /// term-count read via `SoaTermSum::len`).
-    total_monomials: usize,
+    /// term-count read via `SoaTermSum::len`). `u128`, not `usize`: an
+    /// individual coefficient's monomial count can legitimately saturate a
+    /// `u64` on a real workload (see `Node::add`'s doc comment).
+    total_monomials: u128,
     _marker: PhantomData<B>,
 }
 
@@ -174,7 +176,7 @@ where
         gate_idx: usize,
         layer_idx: usize,
         trigger: &str,
-        pending_monomials: usize,
+        pending_monomials: u128,
     ) {
         let t0 = std::time::Instant::now();
         let pool = Arc::clone(&self.pool);
@@ -191,7 +193,7 @@ where
         // `MonomialBudget`'s `min_monomials` floor -- deliberately a
         // different name/value from `monomials_before`, which is an exact,
         // verbose-logging-only recompute. `saturating_add`: both operands can
-        // legitimately be near `usize::MAX` once truly huge (see
+        // legitimately be near `u128::MAX` once truly huge (see
         // `Node::add`'s doc comment) -- plain `+` wrapping here would let a
         // `MonomialBudget` floor/ceiling silently stop comparing correctly.
         let monomials_before_estimate = self.total_monomials.saturating_add(pending_monomials);
@@ -214,7 +216,7 @@ where
             // `saturating_sub`: truncation only ever removes monomials, so
             // `monomials_after <= monomials_before` in exact arithmetic, but
             // defensive here too now that both sides can independently
-            // saturate at `usize::MAX` -- a plain `-` would underflow-panic
+            // saturate at `u128::MAX` -- a plain `-` would underflow-panic
             // (debug) / wrap to a huge bogus value (release) in any edge case
             // this reasoning missed.
             let monomials_discarded = monomials_before.saturating_sub(outcome.monomials_after);
@@ -293,12 +295,12 @@ where
 
         // Flush trigger from the budget(s); merge cadence from the schedule.
         let max_terms: Option<usize> = cfg.max_terms;
-        let max_monomials: Option<usize> = cfg.max_monomials;
+        let max_monomials: Option<u128> = cfg.max_monomials;
         let merge_max_terms: Option<usize> = self.schedule.merge_max_terms;
 
         let mut gate_idx: usize = 0;
         let mut pending: usize = 0;
-        let mut pending_monomials: usize = 0;
+        let mut pending_monomials: u128 = 0;
         let mut deferred_threshold_trigger: Option<&'static str> = None;
         // Deduplicated count as of the last merge, for the gate log's
         // `map_terms`/`outbox_terms` split (mirrors the numerical `SoaPropagator`
@@ -348,12 +350,12 @@ where
                 if !clifford_inplace {
                     // `saturating_add` throughout: `size_hint()` values (and
                     // their running accumulation into `pending_monomials`) can
-                    // legitimately be near `usize::MAX` on a real workload -- see
+                    // legitimately be near `u128::MAX` on a real workload -- see
                     // `Node::add`'s doc comment for why plain `+`/`.sum()` here
                     // would silently wrap instead.
-                    let added_monomials: usize = evolved.coeffs[before..before + added]
+                    let added_monomials: u128 = evolved.coeffs[before..before + added]
                         .iter()
-                        .fold(0usize, |acc, c| acc.saturating_add(c.size_hint()));
+                        .fold(0u128, |acc, c| acc.saturating_add(c.size_hint()));
                     pending += added;
                     pending_monomials = pending_monomials.saturating_add(added_monomials);
                 }
@@ -598,7 +600,7 @@ fn compile_surviving_terms<B: SoaBasis>(
 pub struct TruncationOutcome {
     pub total_before: usize,
     pub total_after: usize,
-    pub monomials_after: usize,
+    pub monomials_after: u128,
     pub frequency: Option<usize>,
     pub weight: Option<u32>,
     pub coefficient: Option<f64>,
@@ -623,7 +625,7 @@ pub struct TruncationOutcome {
 pub fn apply_truncation_policy<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     cfg: &ResolvedConfig,
-    monomials_before_estimate: usize,
+    monomials_before_estimate: u128,
 ) -> TruncationOutcome {
     let total_before = evolved.len();
     let min_terms = cfg.min_terms.unwrap_or(0);
@@ -1154,7 +1156,7 @@ mod monomial_budget_tests {
             ts.push([&gx, &gz], SymbolicCoeff::from_real(0.001));
             ts
         };
-        let cutoff_cfg = |min_terms: Option<usize>, min_monomials: Option<usize>| ResolvedConfig {
+        let cutoff_cfg = |min_terms: Option<usize>, min_monomials: Option<u128>| ResolvedConfig {
             coefficient: Some(1.0), // upper_scale 0.001 << 1.0: prunes to nothing if lossy runs
             min_terms,
             min_monomials,
@@ -1272,7 +1274,7 @@ mod clifford_inplace_regression_tests {
         let total_monomials = kernels::sum_coeffs(&evolved, |c| c.monomial_count());
         assert_eq!(
             total_monomials,
-            1usize << ROUNDS,
+            1u128 << ROUNDS,
             "pre-fix behavior: monomial count doubles every round despite only one real trig factor",
         );
     }

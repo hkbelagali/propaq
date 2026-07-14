@@ -59,7 +59,10 @@ use propaq_core::coeff::CoeffRepr;
 /// it into individual monomials -- see `prune`'s doc comment.
 struct Node {
     kind: NodeKind,
-    count: u64,
+    // `u128`, not `u64`: a deep/heavily-merged real circuit's pre-dedup
+    // count can exceed `u64::MAX` (see `Node::add`'s doc comment) -- `u128`
+    // pushes the saturation ceiling out to ~3.4e38.
+    count: u128,
     /// Minimum/maximum number of `Cos`/`Sin` wraps between this node and any
     /// `Scalar` leaf reachable below it. Both are **exact** (frequency is a
     /// purely structural quantity with no runtime-unknown component, unlike
@@ -153,10 +156,10 @@ impl Node {
 
     fn add(a: Arc<Node>, b: Arc<Node>) -> Arc<Node> {
         // `saturating_add`, not plain `+`: a deep/heavily-merged circuit's
-        // true monomial count can exceed `u64::MAX`, and this project always
-        // builds in release mode, where unchecked overflow wraps silently
-        // rather than panicking -- a wrapped count can land anywhere in
-        // `[0, u64::MAX)`, including values smaller than a configured
+        // true monomial count can exceed even `u128::MAX`, and this project
+        // always builds in release mode, where unchecked overflow wraps
+        // silently rather than panicking -- a wrapped count can land anywhere
+        // in `[0, u128::MAX)`, including values smaller than a configured
         // `MonomialBudget` ceiling, silently defeating the one truncation
         // mechanism meant to bound exactly this growth. Saturating means a
         // count that's overflowed reads as "enormous" forever after (matching
@@ -219,8 +222,8 @@ impl SymbolicCoeff {
     }
 
     /// Pre-dedup monomial-instance upper bound (see `Node::count`'s doc), O(1).
-    pub fn monomial_count(&self) -> usize {
-        self.0.as_ref().map_or(0, |n| n.count as usize)
+    pub fn monomial_count(&self) -> u128 {
+        self.0.as_ref().map_or(0, |n| n.count)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -681,7 +684,7 @@ impl CoeffRepr for SymbolicCoeff {
     /// Monomial count is what actually drives memory/CPU cost for symbolic
     /// coefficients, unlike raw term count.
     #[inline]
-    fn size_hint(&self) -> usize {
+    fn size_hint(&self) -> u128 {
         self.monomial_count()
     }
 
@@ -819,8 +822,9 @@ impl CompiledCoeff {
     /// informational upper bound (never used for evaluate/compile
     /// correctness), but `n_monomials` itself is user-facing and should read
     /// "enormous" rather than an arbitrary wrapped remainder once saturated.
-    pub fn monomial_counts(&self) -> Vec<u64> {
-        let mut counts = vec![0u64; self.ops.len()];
+    /// `u128`, matching `Node::count`, so this ceiling is ~3.4e38, not ~1.8e19.
+    pub fn monomial_counts(&self) -> Vec<u128> {
+        let mut counts = vec![0u128; self.ops.len()];
         for (i, op) in self.ops.iter().enumerate() {
             counts[i] = match *op {
                 CompiledOp::Scalar(_) => 1,
@@ -1029,18 +1033,18 @@ mod tests {
     }
 
     #[test]
-    fn count_saturates_instead_of_wrapping_past_u64_max() {
-        // Doubling `count` via repeated self-add reaches past `u64::MAX` in
-        // ~64 steps -- cheap enough to actually cross the ceiling in a test,
+    fn count_saturates_instead_of_wrapping_past_u128_max() {
+        // Doubling `count` via repeated self-add reaches past `u128::MAX` in
+        // ~128 steps -- cheap enough to actually cross the ceiling in a test,
         // unlike reproducing a real multi-billion-monomial workload.
         let mut c = SymbolicCoeff::from_scalar(1.0);
-        for _ in 0..70 {
+        for _ in 0..135 {
             let other = c.clone();
             c.add_assign(other);
         }
         assert_eq!(
             c.monomial_count(),
-            usize::MAX,
+            u128::MAX,
             "count must saturate at the ceiling, not wrap around past it"
         );
     }

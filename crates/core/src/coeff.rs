@@ -68,8 +68,12 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     // `1` for scalar representations (the default)
     // `SymbolicCoeff` overrides this with its monomial count,
     /// as this is the primary driver of memory usage for surrogate propagation.
+    /// `u128`, not `usize`: `SymbolicCoeff`'s monomial count is a pre-dedup
+    /// upper bound that can legitimately exceed `u64::MAX` on a real
+    /// workload (see `Node::add`'s doc comment in `symcoeff.rs`) -- `u128`
+    /// pushes the saturation ceiling from ~1.8e19 out to ~3.4e38.
     #[inline]
-    fn size_hint(&self) -> usize {
+    fn size_hint(&self) -> u128 {
         1
     }
 

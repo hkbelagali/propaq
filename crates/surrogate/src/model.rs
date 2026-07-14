@@ -148,14 +148,14 @@ impl SurrogateModel {
     /// count if their coefficient's derivation history is deep and largely
     /// unshared. `saturating_add` via `fold` (not `.sum()`, which wraps on
     /// overflow): even with each term's own count now individually saturated
-    /// at `u64::MAX` (`Node::add`'s fix), summing many already-huge terms'
+    /// at `u128::MAX` (`Node::add`'s fix), summing many already-huge terms'
     /// counts together with plain `+` can still wrap the aggregate.
-    pub fn n_monomials(&self) -> u64 {
+    pub fn n_monomials(&self) -> u128 {
         let counts = self.tape.monomial_counts();
         self.terms
             .iter()
             .filter(|t| t.root != EMPTY_ROOT)
-            .fold(0u64, |acc, t| acc.saturating_add(counts[t.root]))
+            .fold(0u128, |acc, t| acc.saturating_add(counts[t.root]))
     }
 
     /// Save to a binary file (see the module-level format notes on
@@ -435,7 +435,7 @@ impl PauliSurrogateModel {
     /// (an upper bound, not deduplicated -- `n_terms` alone doesn't say how
     /// much underlying computation a term represents).
     #[getter]
-    fn n_monomials(&self) -> u64 {
+    fn n_monomials(&self) -> u128 {
         self.inner.n_monomials()
     }
 
@@ -506,7 +506,7 @@ impl MajoranaSurrogateModel {
     /// (an upper bound, not deduplicated -- `n_terms` alone doesn't say how
     /// much underlying computation a term represents).
     #[getter]
-    fn n_monomials(&self) -> u64 {
+    fn n_monomials(&self) -> u128 {
         self.inner.n_monomials()
     }
 
@@ -582,31 +582,31 @@ mod tests {
         // once flattened and `n_monomials` has to reconstruct it from the
         // flat `CompiledOp` tape instead.
         let (model, coeffs, _overlaps) = build_shared_model();
-        let expected: u64 = coeffs.iter().map(|c| c.monomial_count() as u64).sum();
+        let expected: u128 = coeffs.iter().map(|c| c.monomial_count()).sum();
         assert_eq!(model.n_monomials(), expected);
     }
 
     #[test]
     fn n_monomials_saturates_instead_of_wrapping_when_summing_many_huge_terms() {
         // Three independent, already-individually-saturated terms: summing
-        // them with plain `+`/`.sum()` would wrap well below `u64::MAX`
-        // (`u64::MAX + u64::MAX` alone wraps to `u64::MAX - 1`), which is
+        // them with plain `+`/`.sum()` would wrap well below `u128::MAX`
+        // (`u128::MAX + u128::MAX` alone wraps to `u128::MAX - 1`), which is
         // exactly the bug `n_monomials`'s `saturating_add` fold fixes.
         let mut coeffs = Vec::new();
         for i in 0..3 {
             let mut c = SymbolicCoeff::from_scalar(1.0 + i as f64);
-            for _ in 0..70 {
+            for _ in 0..135 {
                 let other = c.clone();
                 c.add_assign(other);
             }
-            assert_eq!(c.monomial_count(), usize::MAX, "each term must itself be saturated already");
+            assert_eq!(c.monomial_count(), u128::MAX, "each term must itself be saturated already");
             coeffs.push(c);
         }
         let (tape, roots) = SymbolicCoeff::compile_batch(coeffs);
         let terms: Vec<SurrogateTerm> =
             roots.iter().map(|&root| SurrogateTerm { overlap: 1.0, root }).collect();
         let model = SurrogateModel::new(terms, tape, 1);
-        assert_eq!(model.n_monomials(), u64::MAX);
+        assert_eq!(model.n_monomials(), u128::MAX);
     }
 
     #[test]

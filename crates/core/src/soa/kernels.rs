@@ -188,7 +188,7 @@ pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &Reso
 /// then a weight + non-empty check). Returns the summed
 /// `CoeffRepr::size_hint()` of the survivors (for the surrogate, the live
 /// monomial count after trimming).
-pub fn map_retain<B: SoaBasis, C: CoeffRepr, F, K>(terms: &mut SoaTermSum<C>, map_fn: F, keep: K) -> usize
+pub fn map_retain<B: SoaBasis, C: CoeffRepr, F, K>(terms: &mut SoaTermSum<C>, map_fn: F, keep: K) -> u128
 where
     F: Fn(&mut C) + Sync,
     K: Fn([&[u64]; 2], &C) -> bool + Sync,
@@ -235,9 +235,9 @@ where
     // that must not silently wrap once genuinely huge.
     let survivors = &terms.coeffs[..total];
     if total >= PAR_MIN_LEN {
-        survivors.par_iter().map(|c| c.size_hint()).reduce(|| 0usize, usize::saturating_add)
+        survivors.par_iter().map(|c| c.size_hint()).reduce(|| 0u128, u128::saturating_add)
     } else {
-        survivors.iter().map(|c| c.size_hint()).fold(0usize, |acc, s| acc.saturating_add(s))
+        survivors.iter().map(|c| c.size_hint()).fold(0u128, |acc, s| acc.saturating_add(s))
     }
 }
 
@@ -263,16 +263,15 @@ where
 /// surrogate to recompute the live monomial count after a lossless merge.
 /// `saturating_add` via `reduce`, not `.sum()` (which wraps on overflow):
 /// every current caller passes `monomial_count()`, whose individual values
-/// are now themselves saturated at `u64::MAX`/`usize::MAX` (see
-/// `Node::add`'s doc comment) -- but summing many already-huge terms
-/// together with plain `+` could still wrap the aggregate even when no
-/// single term's own value has.
-pub fn sum_coeffs<C: CoeffRepr, F>(terms: &SoaTermSum<C>, f: F) -> usize
+/// are now themselves saturated at `u128::MAX` (see `Node::add`'s doc
+/// comment) -- but summing many already-huge terms together with plain `+`
+/// could still wrap the aggregate even when no single term's own value has.
+pub fn sum_coeffs<C: CoeffRepr, F>(terms: &SoaTermSum<C>, f: F) -> u128
 where
-    F: Fn(&C) -> usize + Sync,
+    F: Fn(&C) -> u128 + Sync,
 {
     let n = terms.len();
-    terms.coeffs[..n].par_iter().map(&f).reduce(|| 0usize, usize::saturating_add)
+    terms.coeffs[..n].par_iter().map(&f).reduce(|| 0u128, u128::saturating_add)
 }
 
 /// Merge: hash-based duplicate detection and coefficient accumulation,
@@ -747,7 +746,7 @@ mod tests {
             .filter(|&(_, c)| (c as u64) % 3 == 0)
             .collect();
         assert_eq!(terms.len(), expected.len());
-        assert_eq!(total_size, expected.len());
+        assert_eq!(total_size, expected.len() as u128);
         for (&k, &expected_v) in expected.iter() {
             assert_eq!(v[&k], expected_v, "key {k} mismatch");
         }
@@ -772,21 +771,21 @@ mod tests {
         for i in 0..n {
             terms.push([&[i as u64], &[0]], i as f64);
         }
-        let summed = sum_coeffs(&terms, |&c| c as usize);
-        let expected: usize = (0..n).sum();
+        let summed = sum_coeffs(&terms, |&c| c as u128);
+        let expected: u128 = (0..n as u128).sum();
         assert_eq!(summed, expected);
     }
 
     #[test]
     fn sum_coeffs_saturates_instead_of_wrapping() {
-        // Two terms whose per-term quantity is already `usize::MAX` (as a
+        // Two terms whose per-term quantity is already `u128::MAX` (as a
         // real coefficient's `monomial_count()` can be, once saturated) --
-        // plain `.sum()` would wrap this well below `usize::MAX`.
+        // plain `.sum()` would wrap this well below `u128::MAX`.
         let mut terms = make(4);
         terms.push([&[1], &[0]], 1.0);
         terms.push([&[2], &[0]], 1.0);
-        let summed = sum_coeffs(&terms, |_| usize::MAX);
-        assert_eq!(summed, usize::MAX);
+        let summed = sum_coeffs(&terms, |_| u128::MAX);
+        assert_eq!(summed, u128::MAX);
     }
 
     #[test]

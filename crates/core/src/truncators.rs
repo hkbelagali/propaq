@@ -197,21 +197,26 @@ impl TermBudget {
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct MonomialBudget {
+    // `u128`, not `usize`: compares against the running monomial-count
+    // estimate, whose individual per-coefficient values can legitimately
+    // saturate a `u64` (see `Node::add`'s doc comment in `symcoeff.rs`) --
+    // `u128` keeps this ceiling meaningful rather than a permanently-tripped
+    // `usize`/`u64` cap.
     #[pyo3(get, set)]
-    pub max_monomials: Option<usize>,
+    pub max_monomials: Option<u128>,
     #[pyo3(get, set)]
-    pub min_monomials: Option<usize>,
+    pub min_monomials: Option<u128>,
 }
 
 #[pymethods]
 impl MonomialBudget {
     #[new]
     #[pyo3(signature = (max_monomials=None, min_monomials=None))]
-    pub fn new(max_monomials: Option<usize>, min_monomials: Option<usize>) -> Self {
+    pub fn new(max_monomials: Option<u128>, min_monomials: Option<u128>) -> Self {
         MonomialBudget { max_monomials, min_monomials }
     }
     fn __repr__(&self) -> String {
-        let f = |v: Option<usize>| v.map_or_else(|| "None".to_string(), |x| x.to_string());
+        let f = |v: Option<u128>| v.map_or_else(|| "None".to_string(), |x| x.to_string());
         format!(
             "MonomialBudget(max_monomials={}, min_monomials={})",
             f(self.max_monomials), f(self.min_monomials),
@@ -273,8 +278,8 @@ pub struct ResolvedConfig {
     pub weight: Option<u32>,
     pub min_terms: Option<usize>,
     pub max_terms: Option<usize>,
-    pub min_monomials: Option<usize>,
-    pub max_monomials: Option<usize>,
+    pub min_monomials: Option<u128>,
+    pub max_monomials: Option<u128>,
 }
 
 /// Collapse a truncator pipeline into a flat config (last-wins per field).
