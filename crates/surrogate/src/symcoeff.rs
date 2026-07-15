@@ -37,7 +37,7 @@
 /// repeated `evaluate`/`evaluate_batch` calls (a VQE optimizer's inner loop)
 /// are cheap linear scans instead of per-call tree walks.
 ///
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use num_complex::Complex64;
 use pyo3::prelude::*;
@@ -92,58 +92,62 @@ enum NodeKind {
     Sin(u32, Arc<Node>),
 }
 
-/// A trivial, shared leaf used only as a `mem::replace` placeholder in
-/// `Node`'s custom `Drop` below -- cloning it is a cheap refcount bump (never
-/// an allocation) since one canonical instance lives for the process's whole
-/// lifetime, so it's never the clone that brings a *real* subtree's count to
-/// zero.
-fn drop_placeholder() -> Arc<Node> {
-    static PLACEHOLDER: OnceLock<Arc<Node>> = OnceLock::new();
-    Arc::clone(PLACEHOLDER.get_or_init(|| {
-        Arc::new(Node { kind: NodeKind::Scalar(0.0), count: 1, min_freq: 0, max_freq: 0, upper_scale: 0.0 })
-    }))
-}
-
 /// Without this, dropping a `Node` recurses into dropping its `Arc<Node>`
 /// children, which recurses into theirs, and so on -- for a coefficient
 /// whose history is as deep as the gate count that built it (the same
 /// "thousands deep" scenario `SymbolicCoeff::compile` is already iterative
 /// to avoid), the default derived drop stack-overflows. This walks the
-/// structure with an explicit stack instead: each node's real children are
-/// swapped out for a cheap shared placeholder (so the node's own recursive
-/// drop, triggered when it falls out of scope below, has nothing further to
-/// recurse into) and pushed onto the worklist; a child is only unwrapped
-/// (and thus queued for further unlinking) if this call is the one bringing
-/// its `Arc` refcount to zero, otherwise something else still holds it and
-/// touching only the `Arc`'s refcount is correct.
+/// structure with an explicit stack instead: a node's real children are
+/// moved out via `mem::replace(&mut node.kind, NodeKind::Scalar(0.0))`
+/// (collapsing the *variant itself*, not just the Arc pointers inside it)
+/// and pushed onto the worklist; a child is only unwrapped (and thus queued
+/// for further unlinking) if this call is the one bringing its `Arc`
+/// refcount to zero, otherwise something else still holds it and touching
+/// only the `Arc`'s refcount is correct.
+///
+/// The early-return guard matters as much as the loop: `node` falls out of
+/// scope at the end of each iteration and reinvokes this same `Drop::drop`,
+/// so for a DAG with tens of millions of nodes that reentrant call happens
+/// once per node. An earlier version left the emptied node's variant as
+/// `Add`/`Scale`/`Cos`/`Sin` (with its children merely swapped for a shared
+/// placeholder `Arc`), so every reentrant call still took the non-trivial
+/// match arm: a fresh heap-allocated `Vec` plus an atomic refcount
+/// bump/decrement on that one shared placeholder, contended across every
+/// thread dropping a tree in parallel -- profiling a real build showed this
+/// as ~29% of total runtime. Collapsing to `Scalar` up front means the
+/// reentrant call's guard is true, so it returns before touching the stack
+/// at all.
 impl Drop for Node {
     fn drop(&mut self) {
+        if matches!(self.kind, NodeKind::Scalar(_)) {
+            return;
+        }
         let mut stack: Vec<Arc<Node>> = Vec::new();
-        match &mut self.kind {
+        match std::mem::replace(&mut self.kind, NodeKind::Scalar(0.0)) {
             NodeKind::Scalar(_) => {}
             NodeKind::Add(a, b) => {
-                stack.push(std::mem::replace(a, drop_placeholder()));
-                stack.push(std::mem::replace(b, drop_placeholder()));
+                stack.push(a);
+                stack.push(b);
             }
             NodeKind::Scale(_, inner) | NodeKind::Cos(_, inner) | NodeKind::Sin(_, inner) => {
-                stack.push(std::mem::replace(inner, drop_placeholder()));
+                stack.push(inner);
             }
         }
         while let Some(arc) = stack.pop() {
             if let Ok(mut node) = Arc::try_unwrap(arc) {
-                match &mut node.kind {
+                match std::mem::replace(&mut node.kind, NodeKind::Scalar(0.0)) {
                     NodeKind::Scalar(_) => {}
                     NodeKind::Add(a, b) => {
-                        stack.push(std::mem::replace(a, drop_placeholder()));
-                        stack.push(std::mem::replace(b, drop_placeholder()));
+                        stack.push(a);
+                        stack.push(b);
                     }
                     NodeKind::Scale(_, inner) | NodeKind::Cos(_, inner) | NodeKind::Sin(_, inner) => {
-                        stack.push(std::mem::replace(inner, drop_placeholder()));
+                        stack.push(inner);
                     }
                 }
-                // `node` falls out of scope here with only the placeholder
-                // left in its fields, so its own (recursive) drop call does
-                // O(1) work, not another full subtree walk.
+                // `node.kind` is now `Scalar`, so the reentrant `Drop::drop`
+                // triggered when `node` falls out of scope here hits the
+                // guard above and does no work at all.
             }
         }
     }
