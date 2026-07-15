@@ -224,6 +224,45 @@ impl MonomialBudget {
     }
 }
 
+/// Real algebraic simplification: at every flush, collapse every group of
+/// monomials sharing the same canonical trig-factor run into one, summing
+/// their scalars (`SymbolicCoeff::simplify_sharded`) -- unlike `prune`
+/// (`FrequencyTruncator`/`CoefficientTruncator`), which only ever *removes*
+/// monomials failing a cutoff, this *merges* surviving ones, and is
+/// therefore lossless (never discards a legitimate contribution; an
+/// exact-zero-sum cancellation dropped by simplification changes no
+/// evaluated value). Surrogate-only: the numerical propagator's `f64`
+/// coefficients have no DAG to simplify.
+///
+/// Runs *before* any coefficient-cutoff pruning in the same flush, which
+/// sharpens (never loosens) `CoefficientTruncator`'s decision to the true
+/// post-merge magnitude instead of a per-derivation-path upper bound -- see
+/// `apply_truncation_policy`'s doc comment for the full rationale.
+///
+/// This is flush-triggered, not tied to the cheap per-gate merge cadence
+/// (`FlushSchedule.merge_max_terms`) -- pair it with a `MonomialBudget` (or
+/// `TermBudget`) so flushes, and therefore simplification, actually happen
+/// periodically *during* propagation. Without one, `Simplify` alone only
+/// runs once, at the final flush.
+#[pyclass(subclass, module = "propaq._rust_core")]
+#[derive(Clone)]
+pub struct Simplify {
+    #[pyo3(get, set)]
+    pub enabled: bool,
+}
+
+#[pymethods]
+impl Simplify {
+    #[new]
+    #[pyo3(signature = (enabled=true))]
+    pub fn new(enabled: bool) -> Self {
+        Simplify { enabled }
+    }
+    fn __repr__(&self) -> String {
+        format!("Simplify(enabled={})", self.enabled)
+    }
+}
+
 /// One entry in a truncation pipeline. Extracted from a Python list of the
 /// individual truncator objects (`FromPyObject` tries each variant in turn); a
 /// Python wrapper subclass instance extracts as its Rust base.
@@ -234,6 +273,7 @@ pub enum Truncator {
     Weight(WeightTruncator),
     TermBudget(TermBudget),
     MonomialBudget(MonomialBudget),
+    Simplify(Simplify),
 }
 
 impl Truncator {
@@ -247,20 +287,21 @@ impl Truncator {
             Truncator::Weight(t) => t.clone().into_py_any(py),
             Truncator::TermBudget(t) => t.clone().into_py_any(py),
             Truncator::MonomialBudget(t) => t.clone().into_py_any(py),
+            Truncator::Simplify(t) => t.clone().into_py_any(py),
         }
     }
 
     /// Whether this operator is only meaningful for surrogate (symbolic)
     /// propagation; the numerical propagator rejects these.
     pub fn is_surrogate_only(&self) -> bool {
-        matches!(self, Truncator::Frequency(_) | Truncator::MonomialBudget(_))
+        matches!(self, Truncator::Frequency(_) | Truncator::MonomialBudget(_) | Truncator::Simplify(_))
     }
 }
 
 pub fn reject_surrogate_only(truncators: &[Truncator]) -> PyResult<()> {
     if truncators.iter().any(Truncator::is_surrogate_only) {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "FrequencyTruncator/MonomialBudget only apply to surrogate propagation; \
+            "FrequencyTruncator/MonomialBudget/Simplify only apply to surrogate propagation; \
              use WeightTruncator / CoefficientTruncator / TermBudget with the numerical propagator",
         ));
     }
@@ -280,6 +321,7 @@ pub struct ResolvedConfig {
     pub max_terms: Option<usize>,
     pub min_monomials: Option<u128>,
     pub max_monomials: Option<u128>,
+    pub simplify: bool,
 }
 
 /// Collapse a truncator pipeline into a flat config (last-wins per field).
@@ -298,6 +340,7 @@ pub fn resolve_config(truncators: &[Truncator]) -> ResolvedConfig {
                 r.min_monomials = x.min_monomials;
                 r.max_monomials = x.max_monomials;
             }
+            Truncator::Simplify(x) => r.simplify = x.enabled,
         }
     }
     r
@@ -330,7 +373,7 @@ pub fn resolve_truncation(
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
         "truncation must be a truncator (FrequencyTruncator/CoefficientTruncator/\
-         WeightTruncator/TermBudget/MonomialBudget), a list of truncators, a \
+         WeightTruncator/TermBudget/MonomialBudget/Simplify), a list of truncators, a \
          TruncationPolicy, or None",
     ))
 }
@@ -388,5 +431,25 @@ mod tests {
             Truncator::MonomialBudget(MonomialBudget { min_monomials: None, max_monomials: Some(9) })
                 .is_surrogate_only()
         );
+    }
+
+    #[test]
+    fn is_surrogate_only_flags_simplify() {
+        assert!(Truncator::Simplify(Simplify { enabled: true }).is_surrogate_only());
+    }
+
+    #[test]
+    fn resolve_config_simplify_last_wins_and_defaults_to_false() {
+        let cfg = resolve_config(&[]);
+        assert!(!cfg.simplify, "simplify must default to false when no Simplify truncator is present");
+
+        let cfg = resolve_config(&[
+            Truncator::Simplify(Simplify { enabled: true }),
+            Truncator::Simplify(Simplify { enabled: false }), // last wins
+        ]);
+        assert!(!cfg.simplify);
+
+        let cfg = resolve_config(&[Truncator::Simplify(Simplify { enabled: true })]);
+        assert!(cfg.simplify);
     }
 }

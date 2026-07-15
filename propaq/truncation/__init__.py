@@ -4,6 +4,7 @@ from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
 from propaq._rust_core import FlushSchedule as FlushSchedule
 from propaq._rust_core import FrequencyTruncator as _RustFrequencyTruncator
 from propaq._rust_core import MonomialBudget as _RustMonomialBudget
+from propaq._rust_core import Simplify as _RustSimplify
 from propaq._rust_core import TermBudget as _RustTermBudget
 from propaq._rust_core import WeightTruncator as _RustWeightTruncator
 from propaq.truncation.base import Truncator as Truncator
@@ -31,6 +32,21 @@ class MonomialBudget(_RustMonomialBudget):
     """
 
 
+class Simplify(_RustSimplify):
+    """Real (lossless) algebraic simplification, surrogate-only.
+
+    At every flush, collapses monomials sharing the same canonical
+    trig-factor run into one, summing their scalars -- unlike
+    ``FrequencyTruncator``/``CoefficientTruncator``, which only ever
+    *remove* monomials, this *merges* surviving ones and never discards a
+    legitimate contribution. Runs before any coefficient-cutoff pruning in
+    the same flush, sharpening ``CoefficientTruncator``'s accuracy. This is
+    flush-triggered, not tied to the per-gate merge cadence -- pair it with
+    a ``MonomialBudget``/``TermBudget`` so it actually runs periodically
+    during propagation, not just once at the final flush.
+    """
+
+
 # Register the Rust base classes so both the Python wrappers above (real
 # subclasses) and the bare Rust instances returned by a propagator's
 # ``truncators`` getter satisfy ``isinstance(_, Truncator)``.
@@ -40,6 +56,7 @@ for _base in (
     _RustWeightTruncator,
     _RustTermBudget,
     _RustMonomialBudget,
+    _RustSimplify,
 ):
     Truncator.register(_base)
 
@@ -50,5 +67,6 @@ __all__ = [
     "WeightTruncator",
     "TermBudget",
     "MonomialBudget",
+    "Simplify",
     "FlushSchedule",
 ]

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ._truncators import FlushSchedule as FlushSchedule
     from ._truncators import FrequencyTruncator as FrequencyTruncator
     from ._truncators import MonomialBudget as MonomialBudget
+    from ._truncators import Simplify as Simplify
     from ._truncators import TermBudget as TermBudget
     from ._truncators import WeightTruncator as WeightTruncator
 

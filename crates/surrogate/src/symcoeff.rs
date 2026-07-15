@@ -439,6 +439,28 @@ impl SymbolicCoeff {
         let sin = old.map(|n| Node::scale(branch_phase, n));
         SymbolicCoeff(sin)
     }
+
+    /// Real algebraic simplification: collapse every group of monomials
+    /// that share the same canonical trig-factor run into one, summing
+    /// their scalars. Lossless -- never discards a legitimate contribution
+    /// (an exact-zero-sum cancellation is dropped, which changes no
+    /// evaluated value). This is what actually bounds `monomial_count()`,
+    /// unlike `prune` (which only ever *removes* monomials failing a
+    /// cutoff, never *merges* two surviving ones) -- see `simplify_batch`'s
+    /// doc for the algorithm and why it must run only at explicit,
+    /// infrequent points (e.g. a truncation flush), never on the per-gate
+    /// `apply_rotation_*`/`add_assign` hot path.
+    ///
+    /// Thin single-coefficient wrapper around `simplify_batch`, mirroring
+    /// `compile`'s relationship to `compile_batch` -- see that function's
+    /// doc for why a *batch* of coefficients sharing one dedup memo is what
+    /// actually needs to run at a flush (calling this once per coefficient
+    /// independently would redundantly re-dedup any subtree shared across
+    /// them, exactly the `compile()`-per-term OOM class this codebase
+    /// already found and fixed once via `compile_batch`).
+    pub fn simplify(&mut self) {
+        simplify_batch(std::slice::from_mut(self));
+    }
 }
 
 /// Combine an accumulated `scale_exp` (see `prune_node`'s doc) with one more
@@ -607,6 +629,317 @@ fn prune_node(root: &Arc<Node>, max_frequency: Option<u32>, coeff_cutoff: Option
     }
 
     memo.remove(&root_key).unwrap()
+}
+
+/// A monomial's canonical trig-factor run: `cos^cos_pow * sin^sin_pow` of
+/// `theta_param`, for every distinct `param` the monomial's derivation
+/// touched. `BTreeMap`, not a sorted `Vec` (unlike the old, removed CSR
+/// design's bit-packed `make_factor` runs): a `Vec`-based sorted-insert
+/// would cost `O(len)` per insertion (element shifting), which for a long
+/// unbranched chain of distinct-parameter wraps (one insertion per gate)
+/// sums to `O(n^2)` over the whole chain -- `BTreeMap`'s `O(log len)`
+/// insertion keeps that `O(n log n)`. `BTreeMap<K: Hash, V: Hash>` derives
+/// `Hash`/`Eq` via its canonical (sorted-by-key) iteration order, which is
+/// exactly the property that makes two independently-derived `FactorRun`s
+/// compare/hash equal iff they represent the same monomial -- no separate
+/// canonicalization step needed.
+#[derive(Clone, PartialEq, Eq, Hash, Default)]
+struct FactorRun(std::collections::BTreeMap<u32, (u32, u32)>);
+
+impl FactorRun {
+    /// Fold in one more `Cos`/`Sin` wrap on `param`, mutating in place.
+    /// `O(log len)`. Always called on an *owned* `FactorRun` freshly taken
+    /// out of a `Dedup` map via `into_iter()` (see `simplify_batch`'s
+    /// `Cos`/`Sin` exit handling) -- there is deliberately no
+    /// clone-and-return variant of this method: every call site already
+    /// holds a uniquely-owned value by the time it needs to increment one,
+    /// so a clone-based alternative would only exist to be misused (as an
+    /// earlier draft of this function did, reintroducing an `O(n^2)`
+    /// blowup over a long unbranched chain that this method's whole reason
+    /// for existing is to avoid).
+    fn increment_in_place(&mut self, param: u32, is_sin: bool) {
+        let entry = self.0.entry(param).or_insert((0, 0));
+        if is_sin { entry.1 += 1; } else { entry.0 += 1; }
+    }
+}
+
+/// A coefficient's monomial list *in flight* during `simplify_batch`, kept
+/// as a plain `Vec`, not a `FxHashMap<FactorRun, f64>` -- deliberately.
+/// `Scale`/`Cos`/`Sin` are injective per-entry transforms (see
+/// `FactorRun::increment_in_place`'s doc): applied uniformly to every entry
+/// of an already-duplicate-free list, they can never *introduce* a
+/// duplicate, so they never need hashmap machinery at all. Using a
+/// `FxHashMap` for them anyway would mean *hashing* every (growing)
+/// `FactorRun` key on every single-entry transform -- an early version of
+/// this function did exactly that, and hashing a size-`k` `FactorRun`
+/// costs `O(k)`, so doing it at every level of a `k`-deep unbranched chain
+/// summed to `O(n^2)` overall, *independent of* the clone-vs-move fix
+/// `remaining`/`take_or_clone` below already provide (that fix only
+/// avoided the *clone*, not the *hash*). Only `Add` can introduce a
+/// duplicate (two independently-derived monomials happening to canonicalize
+/// to the same run), so only `Add`'s combine step (`group`, below) pays
+/// hashing cost -- exactly where merging is actually happening, not a cost
+/// smeared across every intermediate node. The invariant "no duplicate
+/// `FactorRun`s within one `Terms`" holds by construction: `Scalar` seeds
+/// one entry, `Scale`/`Cos`/`Sin` preserve it (injective), and `Add`
+/// explicitly restores it via `group`.
+type Terms = Vec<(FactorRun, f64)>;
+
+/// Group `terms` by canonical `FactorRun`, summing scalars on collision --
+/// the actual like-term collection, and the only place in `simplify_batch`
+/// that hashes a `FactorRun` at all. `O(n)` amortized (one hash + insert per
+/// input entry).
+fn group(terms: Terms) -> Terms {
+    let mut map: rustc_hash::FxHashMap<FactorRun, f64> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(terms.len(), Default::default());
+    for (run, scalar) in terms {
+        *map.entry(run).or_insert(0.0) += scalar;
+    }
+    map.into_iter().collect()
+}
+
+/// Real algebraic simplification, batched across `coeffs`: collapse every
+/// monomial group sharing the same canonical `FactorRun` into one, summing
+/// scalars, then rebuild each coefficient's DAG from the deduped result --
+/// see `SymbolicCoeff::simplify`'s doc for why this must be batched (one
+/// shared memo across every root at once, not one call per coefficient) and
+/// why it must never run on the per-gate hot path.
+///
+/// Two passes, both iterative (explicit stack/worklist, matching every
+/// other `Node` traversal in this file -- a coefficient's DAG can be
+/// thousands of nodes deep):
+///
+/// **Pass 0** computes `remaining: FxHashMap<*const Node, u32>`, the number
+/// of times each reachable node will still be consumed (its in-DAG fan-in,
+/// plus one per `coeffs` entry that references it as a root). This is what
+/// lets Pass 1 tell whether a child's `Terms` list is uniquely owned at the
+/// moment it's consumed (`remaining` about to hit 0 -> move it out of the
+/// memo, mutate in place, no clone) or still needed by another parent later
+/// (`remaining` still positive -> clone). Without this, every consumption
+/// would have to clone defensively, which for a long unbranched chain (no
+/// sharing at all) reintroduces an `O(n)`-per-level cost (cloning every
+/// `FactorRun` in the list) that `remaining` avoids entirely for the common
+/// (unshared) case.
+///
+/// **Pass 1** is the actual dedup, a post-order `Enter`/`Exit` walk (same
+/// shape as `compile_batch`'s `Frame`) memoized by `*const Node` alone --
+/// deliberately simpler than `prune_node`'s `(pointer, depth, scale_exp)`
+/// context key: a node's fully-expanded canonical monomial list is a pure
+/// function of that subtree's own content, unlike `prune`'s doomed/safe
+/// decision, which genuinely depends on ancestor-accumulated depth/scale.
+/// Wrapping the same shared child in `Cos(5, child)` from one parent and
+/// `Sin(3, child)` from another never changes `child`'s own deduped list,
+/// only how each parent goes on to combine it -- so pointer-only
+/// memoization is correct here, not just simpler.
+///
+/// `Scalar(c)` seeds a one-entry list; `Scale`/`Cos`/`Sin` transform every
+/// entry of the (owned-or-cloned) child list in place, no hashing (see
+/// `Terms`'s doc); `Add(a, b)` concatenates two owned lists and calls
+/// `group` (the only hashing in this whole function) -- the actual like-term
+/// collection. Pass 2 rebuilds each coefficient's root from its deduped
+/// list via `rebuild_balanced`, deduping the rebuild itself by root pointer
+/// (two coefficients can share the literal same `Arc` root).
+fn simplify_batch(coeffs: &mut [SymbolicCoeff]) {
+    use rustc_hash::{FxHashMap, FxHashSet};
+
+    // Pass 0: fan-in / remaining-consumer counts.
+    let mut remaining: FxHashMap<*const Node, u32> = FxHashMap::default();
+    let mut seen0: FxHashSet<*const Node> = FxHashSet::default();
+    let mut worklist: Vec<&Arc<Node>> = Vec::new();
+    for c in coeffs.iter() {
+        if let Some(root) = &c.0 {
+            *remaining.entry(Arc::as_ptr(root)).or_insert(0) += 1;
+            if seen0.insert(Arc::as_ptr(root)) {
+                worklist.push(root);
+            }
+        }
+    }
+    while let Some(node) = worklist.pop() {
+        match &node.kind {
+            NodeKind::Scalar(_) => {}
+            NodeKind::Add(a, b) => {
+                *remaining.entry(Arc::as_ptr(a)).or_insert(0) += 1;
+                *remaining.entry(Arc::as_ptr(b)).or_insert(0) += 1;
+                if seen0.insert(Arc::as_ptr(a)) {
+                    worklist.push(a);
+                }
+                if seen0.insert(Arc::as_ptr(b)) {
+                    worklist.push(b);
+                }
+            }
+            NodeKind::Scale(_, inner) | NodeKind::Cos(_, inner) | NodeKind::Sin(_, inner) => {
+                *remaining.entry(Arc::as_ptr(inner)).or_insert(0) += 1;
+                if seen0.insert(Arc::as_ptr(inner)) {
+                    worklist.push(inner);
+                }
+            }
+        }
+    }
+
+    // Pass 1: memoized post-order dedup.
+    let mut memo: FxHashMap<*const Node, Terms> = FxHashMap::default();
+    let mut scheduled: FxHashSet<*const Node> = FxHashSet::default();
+
+    enum Frame<'a> {
+        Enter(&'a Arc<Node>),
+        Exit(&'a Arc<Node>),
+    }
+
+    /// Consume a child's `Terms` list: moved out (no clone) if this is its
+    /// last remaining consumer, cloned otherwise. `#[inline]` -- called at
+    /// every `Add`/`Scale`/`Cos`/`Sin` exit.
+    #[inline]
+    fn take_or_clone(memo: &mut FxHashMap<*const Node, Terms>, remaining: &mut FxHashMap<*const Node, u32>, ptr: *const Node) -> Terms {
+        let r = remaining.get_mut(&ptr).expect("remaining must already have an entry from pass 0");
+        *r -= 1;
+        if *r == 0 {
+            memo.remove(&ptr).expect("child must already be deduped by post-order exit ordering")
+        } else {
+            memo[&ptr].clone()
+        }
+    }
+
+    let mut stack: Vec<Frame> = Vec::new();
+    for c in coeffs.iter() {
+        if let Some(root) = &c.0 {
+            if scheduled.insert(Arc::as_ptr(root)) {
+                stack.push(Frame::Enter(root));
+            }
+        }
+    }
+    while let Some(frame) = stack.pop() {
+        match frame {
+            Frame::Enter(node) => {
+                stack.push(Frame::Exit(node));
+                match &node.kind {
+                    NodeKind::Scalar(_) => {}
+                    NodeKind::Add(a, b) => {
+                        if scheduled.insert(Arc::as_ptr(b)) {
+                            stack.push(Frame::Enter(b));
+                        }
+                        if scheduled.insert(Arc::as_ptr(a)) {
+                            stack.push(Frame::Enter(a));
+                        }
+                    }
+                    NodeKind::Scale(_, inner) | NodeKind::Cos(_, inner) | NodeKind::Sin(_, inner) => {
+                        if scheduled.insert(Arc::as_ptr(inner)) {
+                            stack.push(Frame::Enter(inner));
+                        }
+                    }
+                }
+            }
+            Frame::Exit(node) => {
+                let ptr = Arc::as_ptr(node);
+                let result: Terms = match &node.kind {
+                    NodeKind::Scalar(c) => vec![(FactorRun::default(), *c)],
+                    NodeKind::Add(a, b) => {
+                        // Order doesn't matter for correctness when `a`/`b`
+                        // are the same pointer (self-addition): each call
+                        // independently decrements `remaining`, so the
+                        // second call always sees whatever the first left
+                        // behind.
+                        let mut da = take_or_clone(&mut memo, &mut remaining, Arc::as_ptr(a));
+                        let db = take_or_clone(&mut memo, &mut remaining, Arc::as_ptr(b));
+                        da.extend(db);
+                        group(da)
+                    }
+                    NodeKind::Scale(k, inner) => {
+                        let mut m = take_or_clone(&mut memo, &mut remaining, Arc::as_ptr(inner));
+                        for (_, scalar) in m.iter_mut() {
+                            *scalar *= k;
+                        }
+                        m
+                    }
+                    NodeKind::Cos(p, inner) => {
+                        let mut m = take_or_clone(&mut memo, &mut remaining, Arc::as_ptr(inner));
+                        for (run, _) in m.iter_mut() {
+                            run.increment_in_place(*p, false);
+                        }
+                        m
+                    }
+                    NodeKind::Sin(p, inner) => {
+                        let mut m = take_or_clone(&mut memo, &mut remaining, Arc::as_ptr(inner));
+                        for (run, _) in m.iter_mut() {
+                            run.increment_in_place(*p, true);
+                        }
+                        m
+                    }
+                };
+                memo.insert(ptr, result);
+            }
+        }
+    }
+
+    // Pass 2: rebuild each coefficient's root, deduped by root pointer.
+    let mut rebuilt: FxHashMap<*const Node, Option<Arc<Node>>> = FxHashMap::default();
+    for c in coeffs.iter_mut() {
+        let ptr = match &c.0 {
+            Some(root) => Arc::as_ptr(root),
+            None => continue,
+        };
+        let new_root = rebuilt.entry(ptr).or_insert_with(|| rebuild_balanced(&memo[&ptr])).clone();
+        c.0 = new_root;
+    }
+}
+
+/// Iterative pairwise "tournament" reduction of a deduped monomial list into
+/// a balanced `Add`-tree: `O(log N)` resulting depth (not a degenerate
+/// `O(N)` left-fold chain -- a long unbranched `Add`-chain would add real
+/// depth back for every downstream `compile`/`prune`/`Drop` traversal,
+/// undermining the point of deduping), `O(N)` total `Node::add` calls, no
+/// recursion. Filters exact-zero-sum monomials -- real cancellation
+/// `prune`'s upper-bound-based check can never see, since it never merges
+/// derivation paths in the first place. `terms` is already duplicate-free by
+/// construction (see `Terms`'s doc), so no grouping happens here.
+fn rebuild_balanced(terms: &Terms) -> Option<Arc<Node>> {
+    let mut leaves: Vec<Arc<Node>> = terms
+        .iter()
+        .filter(|(_, scalar)| *scalar != 0.0)
+        .map(|(run, scalar)| build_leaf(run, *scalar))
+        .collect();
+    if leaves.is_empty() {
+        return None;
+    }
+    while leaves.len() > 1 {
+        let mut next = Vec::with_capacity(leaves.len().div_ceil(2));
+        let mut it = leaves.into_iter();
+        while let Some(a) = it.next() {
+            next.push(match it.next() {
+                Some(b) => Node::add(a, b),
+                None => a,
+            });
+        }
+        leaves = next;
+    }
+    leaves.pop()
+}
+
+/// Build one monomial's DAG leaf: `Node::scalar(scalar)` wrapped in nested
+/// `Node::cos`/`Node::sin` calls per `FactorRun` entry, ascending by
+/// `param`. Reuses the existing constructors only -- no new `NodeKind`
+/// variant, exactly mirroring how `same_parameter_at_two_gates_collapses_
+/// to_a_power` already encodes a repeated wrap as nested single wraps.
+fn build_leaf(run: &FactorRun, scalar: f64) -> Arc<Node> {
+    let mut node = Node::scalar(scalar);
+    for (&param, &(cos_pow, sin_pow)) in &run.0 {
+        for _ in 0..cos_pow {
+            node = Node::cos(param, node);
+        }
+        for _ in 0..sin_pow {
+            node = Node::sin(param, node);
+        }
+    }
+    node
+}
+
+/// Sharded parallel entry point for `simplify`, mirroring
+/// `propagator.rs::compile_surviving_terms`'s sharding exactly (same
+/// `SHARD_OVERSUBSCRIPTION` rationale: a subtree shared *across* shard
+/// boundaries is deduped once per shard instead of once globally --
+/// the accepted tradeoff for parallelism, not a new one).
+pub fn simplify_sharded(coeffs: &mut [SymbolicCoeff], n_shards: usize) {
+    let chunk = coeffs.len().div_ceil(n_shards.max(1)).max(1);
+    coeffs.par_chunks_mut(chunk).for_each(|shard| simplify_batch(shard));
 }
 
 /// Gate parameter for a symbolic rotation: either a symbolic parameter (a
@@ -1136,6 +1469,279 @@ mod tests {
         total.add_assign(path1);
         total.add_assign(path2);
         assert!((eval(&total, &lut) - 2.0 * single).abs() < 1e-12);
+    }
+
+    #[test]
+    fn simplify_collapses_two_derivation_paths_into_one_monomial() {
+        // Same construction as `two_derivation_paths_through_the_same_
+        // parameter_sum_correctly` above -- `Cos(Sin(x))` and `Sin(Cos(x))`
+        // are genuinely different node shapes evaluating to the same
+        // monomial. `simplify` is the mechanism that actually collapses
+        // them into one, unlike plain `add_assign`.
+        let lut = make_lut(1);
+        let phase = Complex64::new(0.0, -1.0);
+
+        let mut a = SymbolicCoeff::from_scalar(1.0);
+        let mut path1 = a.apply_rotation(&GateParam::symbolic(0), phase);
+        let _ = path1.apply_rotation(&GateParam::symbolic(0), phase);
+
+        let mut b = SymbolicCoeff::from_scalar(1.0);
+        let _ = b.apply_rotation(&GateParam::symbolic(0), phase);
+        let path2 = b.apply_rotation(&GateParam::symbolic(0), phase);
+
+        let mut total = SymbolicCoeff::default();
+        total.add_assign(path1);
+        total.add_assign(path2);
+        assert_eq!(total.monomial_count(), 2, "pre-simplify: still two separate derivation paths");
+
+        let single = lut[0] * lut[1];
+        total.simplify();
+        assert_eq!(total.monomial_count(), 1, "simplify must collapse the two paths into one monomial");
+        assert!((eval(&total, &lut) - 2.0 * single).abs() < 1e-12, "value must be unchanged by simplify");
+    }
+
+    #[test]
+    fn simplify_drops_exact_cancellation_to_empty() {
+        // Two paths to the identical canonical monomial with opposite-sign
+        // equal scalars: real cancellation `prune`'s upper-bound-based
+        // check can never see (it never merges derivation paths), but
+        // `simplify`'s exact like-term collection does.
+        let phase = Complex64::new(0.0, -1.0);
+        let mut a = SymbolicCoeff::from_scalar(3.0);
+        let _ = a.apply_rotation(&GateParam::symbolic(0), phase); // cos(theta_0) branch, scalar 3.0
+
+        let mut b = SymbolicCoeff::from_scalar(-3.0);
+        let _ = b.apply_rotation(&GateParam::symbolic(0), phase); // cos(theta_0) branch, scalar -3.0
+
+        let mut total = SymbolicCoeff::default();
+        total.add_assign(a);
+        total.add_assign(b);
+
+        let lut = make_lut(1);
+        assert!((eval(&total, &lut) - 0.0).abs() < 1e-12, "pre-simplify value should already be zero");
+
+        total.simplify();
+        assert!(total.is_empty(), "an exact cancellation must simplify away to nothing");
+        assert!((eval(&total, &lut) - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn simplify_is_idempotent() {
+        let lut = make_lut(1);
+        let phase = Complex64::new(0.0, -1.0);
+        let mut a = SymbolicCoeff::from_scalar(1.0);
+        let mut path1 = a.apply_rotation(&GateParam::symbolic(0), phase);
+        let _ = path1.apply_rotation(&GateParam::symbolic(0), phase);
+        let mut b = SymbolicCoeff::from_scalar(1.0);
+        let _ = b.apply_rotation(&GateParam::symbolic(0), phase);
+        let path2 = b.apply_rotation(&GateParam::symbolic(0), phase);
+
+        let mut total = SymbolicCoeff::default();
+        total.add_assign(path1);
+        total.add_assign(path2);
+
+        total.simplify();
+        let v1 = eval(&total, &lut);
+        let n1 = total.monomial_count();
+        total.simplify();
+        let v2 = eval(&total, &lut);
+        let n2 = total.monomial_count();
+
+        assert_eq!(n1, n2, "a second simplify pass on an already-simplified DAG must be a true no-op on count");
+        assert!((v1 - v2).abs() < 1e-15, "and on value");
+    }
+
+    #[test]
+    fn simplify_preserves_value_on_a_large_organic_dag() {
+        // Same construction as `compile_is_deterministic_and_evaluates_at_
+        // scale`: many merged branches mirroring what real propagation's
+        // repeated `add_assign` calls produce.
+        let n_params = 32usize;
+        let lut = make_lut(n_params);
+        let mut total = SymbolicCoeff::default();
+        let mut expected = 0.0f64;
+        for i in 0..500u32 {
+            let mut term = SymbolicCoeff::from_scalar(0.1 * (i as f64 + 1.0));
+            let p1 = i % n_params as u32;
+            let branch = if i % 2 == 0 {
+                term.apply_rotation(&GateParam::symbolic(p1), Complex64::new(0.0, -1.0))
+            } else {
+                term.apply_rotation(&GateParam::Numeric { angle: 0.05 * i as f64 }, Complex64::new(0.0, -1.0))
+            };
+            let _ = branch;
+            expected += eval(&term, &lut);
+            total.add_assign(term);
+        }
+        total.simplify();
+        assert!((eval(&total, &lut) - expected).abs() < 1e-8 * expected.abs().max(1.0));
+    }
+
+    #[test]
+    fn simplify_bounds_monomial_count_under_heavy_parameter_reuse() {
+        // Mirrors `propagator.rs`'s `shared_parameter_history_matches_f64_
+        // engine_under_fixed_angles` setup in spirit: a handful of distinct
+        // parameters, reused across many rounds of branching+merging. The
+        // pre-dedup `monomial_count()` grows with round count (real
+        // pre-dedup path-instance blowup); the true distinct-monomial count
+        // is bounded by (per-param power range), which `simplify` must
+        // actually reach.
+        const N_PARAMS: u32 = 3;
+        const ROUNDS: u32 = 14;
+        let phase = Complex64::new(0.0, -1.0);
+
+        let mut base = SymbolicCoeff::from_scalar(1.0);
+        for round in 0..ROUNDS {
+            let param = round % N_PARAMS;
+            let mut branch_a = base.clone();
+            let branch_b = branch_a.apply_rotation(&GateParam::symbolic(param), phase);
+            let mut merged = SymbolicCoeff::default();
+            merged.add_assign(branch_a);
+            merged.add_assign(branch_b);
+            base = merged;
+        }
+
+        let pre = base.monomial_count();
+        assert!(pre >= 1 << ROUNDS.min(20), "test setup should exercise real pre-dedup growth: {pre}");
+
+        let lut = make_lut(N_PARAMS as usize);
+        let before_val = eval(&base, &lut);
+
+        base.simplify();
+        let post = base.monomial_count();
+
+        // True distinct-monomial bound: each of the N_PARAMS parameters can
+        // independently reach at most ROUNDS total wraps (cos+sin powers
+        // summing to at most the number of rounds that touched it), so the
+        // count of distinct (cos_pow, sin_pow) pairs per param is bounded by
+        // (ROUNDS/N_PARAMS + 2) (+1 for the 0..=k range, +1 slack), and the
+        // monomial count is bounded by the product across params.
+        let per_param_bound = (ROUNDS / N_PARAMS + 2) as u128;
+        let bound = per_param_bound.pow(N_PARAMS);
+        assert!(
+            post <= bound,
+            "post-simplify count {post} should be polynomially bounded (<= {bound}), not exponential",
+        );
+        assert!(post * 10 < pre, "simplify should be a large real reduction, not a marginal one: pre={pre} post={post}");
+
+        let after_val = eval(&base, &lut);
+        assert!((after_val - before_val).abs() < 1e-6 * before_val.abs().max(1.0));
+    }
+
+    #[test]
+    fn simplify_sharded_matches_unsharded_on_shared_roots() {
+        const N_PARAMS: u32 = 3;
+        const ROUNDS: u32 = 10;
+        let phase = Complex64::new(0.0, -1.0);
+
+        let build = || {
+            let mut base = SymbolicCoeff::from_scalar(1.0);
+            for round in 0..ROUNDS {
+                let param = round % N_PARAMS;
+                let mut branch_a = base.clone();
+                let branch_b = branch_a.apply_rotation(&GateParam::symbolic(param), phase);
+                let mut merged = SymbolicCoeff::default();
+                merged.add_assign(branch_a);
+                merged.add_assign(branch_b);
+                base = merged;
+            }
+            base
+        };
+
+        let lut = make_lut(N_PARAMS as usize);
+
+        let mut unsharded = vec![build(); 8];
+        for c in &mut unsharded {
+            c.simplify();
+        }
+
+        let mut sharded = vec![build(); 8];
+        simplify_sharded(&mut sharded, 8);
+
+        for (a, b) in unsharded.iter().zip(sharded.iter()) {
+            assert!((eval(a, &lut) - eval(b, &lut)).abs() < 1e-9, "shard count must not change the evaluated value");
+        }
+    }
+
+    #[test]
+    fn simplify_deep_chain_does_not_overflow_the_stack() {
+        // Mirrors `dropping_a_deep_chain_does_not_overflow_the_stack`/
+        // `prune_deep_chain_does_not_overflow_the_stack`: a 200,000-deep
+        // unbranched chain of distinct-parameter wraps -- the worst case
+        // for `FactorRun` growth (one monomial whose factor run grows by
+        // one entry per level). This is exactly why `FactorRun` uses a
+        // `BTreeMap` (O(log n) insertion), why `Terms` is a plain `Vec`
+        // rather than a hashmap (see `Terms`'s doc -- hashing the growing
+        // key at every level would itself be O(n^2), independent of any
+        // cloning concern), and why `simplify_batch`'s `remaining`-tracked
+        // move-not-clone path matters: without all three, this is an
+        // `O(n^2)` blowup, not a stack overflow, but just as impractical to
+        // complete (measured ~336ms at this size with the fix; the
+        // clone-based and hash-based regressions this test guards against
+        // were both multi-second-to-minutes at 5,000-10,000 already).
+        let mut c = SymbolicCoeff::from_scalar(1.0);
+        for p in 0..200_000u32 {
+            let _ = c.apply_rotation(&GateParam::symbolic(p), Complex64::new(0.0, -1.0));
+        }
+        let lut = make_lut(200_000);
+        let before = eval(&c, &lut);
+        let start = std::time::Instant::now();
+        c.simplify();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "simplify() took {elapsed:?} on a 200,000-deep unbranched chain -- \
+             suggests FactorRun growth, the move-vs-clone path, or Terms's \
+             Vec-not-hashmap design has regressed to quadratic",
+        );
+        let after = eval(&c, &lut);
+        assert!((after - before).abs() < 1e-6 * before.abs().max(1.0));
+        assert_eq!(c.monomial_count(), 1, "an unbranched chain is already exactly one monomial");
+    }
+
+    #[test]
+    fn simplify_batch_shares_memo_across_roots_not_per_row() {
+        // A moderately expensive-to-simplify shared structure (3-way
+        // branch-then-merge over several rounds -- the same shared-diamond
+        // shape `prune_memoizes_shared_subtrees_under_coefficient_cutoff`
+        // uses), cloned into many batch entries that all share the
+        // *literal same* Arc root. If `simplify_batch` redundantly
+        // recomputed each entry's dedup independently instead of sharing
+        // one memo across the whole batch, this would take roughly (batch
+        // size) times as long as simplifying one instance.
+        let mut base = SymbolicCoeff::from_scalar(1.0);
+        let mut next_param = 0u32;
+        for _round in 0..10 {
+            let mut merged = SymbolicCoeff::default();
+            for _branch in 0..3u32 {
+                let mut b = base.clone();
+                let _ = b.apply_rotation(&GateParam::symbolic(next_param), Complex64::new(0.0, -1.0));
+                next_param += 1;
+                merged.add_assign(b);
+            }
+            base = merged;
+        }
+
+        let start_one = std::time::Instant::now();
+        let mut one = vec![base.clone()];
+        simplify_batch(&mut one);
+        let one_elapsed = start_one.elapsed();
+
+        let start_many = std::time::Instant::now();
+        let mut many = vec![base.clone(); 50];
+        simplify_batch(&mut many);
+        let many_elapsed = start_many.elapsed();
+
+        assert!(
+            many_elapsed < one_elapsed * 5 + std::time::Duration::from_millis(50),
+            "simplifying 50 batch entries sharing one root took {many_elapsed:?} vs {one_elapsed:?} \
+             for one -- suggests the memo isn't actually shared across the batch",
+        );
+
+        let lut = make_lut(next_param as usize);
+        let expected = eval(&base, &lut);
+        for c in &many {
+            assert!((eval(c, &lut) - expected).abs() < 1e-6 * expected.abs().max(1.0));
+        }
     }
 
     #[test]

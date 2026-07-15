@@ -180,6 +180,9 @@ from .truncation import (
     MonomialBudget as MonomialBudget,
 )
 from .truncation import (
+    Simplify as Simplify,
+)
+from .truncation import (
     TermBudget as TermBudget,
 )
 from .truncation import (

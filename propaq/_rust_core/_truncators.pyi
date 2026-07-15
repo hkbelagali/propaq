@@ -82,3 +82,32 @@ class MonomialBudget:
 
     def __init__(self, max_monomials: int | None = None, min_monomials: int | None = None) -> None: ...
     def __repr__(self) -> str: ...
+
+
+class Simplify:
+    """Real algebraic simplification, surrogate-only.
+
+    At every flush, collapses every group of monomials sharing the same
+    canonical trig-factor run into one, summing their scalars. Unlike
+    ``FrequencyTruncator``/``CoefficientTruncator`` (which only ever *remove*
+    monomials failing a cutoff), this *merges* surviving ones, and is
+    lossless: it never discards a legitimate contribution.
+
+    Runs before any coefficient-cutoff pruning in the same flush, which
+    sharpens (never loosens) ``CoefficientTruncator``'s decision to the true
+    post-merge magnitude rather than a per-derivation-path upper bound --
+    enabling ``Simplify`` alongside a ``CoefficientTruncator`` can therefore
+    retain a different (more accurate, typically larger) survivor set for
+    the same configured cutoff.
+
+    This is flush-triggered, not tied to the cheap per-gate merge cadence
+    (``FlushSchedule.merge_max_terms``) -- pair it with a ``MonomialBudget``
+    (or ``TermBudget``) so flushes, and therefore simplification, actually
+    happen periodically during propagation. Without one, ``Simplify`` alone
+    only runs once, at the final flush.
+    """
+
+    enabled: bool
+
+    def __init__(self, enabled: bool = True) -> None: ...
+    def __repr__(self) -> str: ...

@@ -57,13 +57,22 @@ use propaq_core::soa::propagator::CLIFFORD_COS_EPS;
 use propaq_core::soa::{SoaBasis, SoaTermSum};
 use propaq_core::traits::AbstractTerm;
 
-use crate::symcoeff::{CompiledCoeff, GateParam, SymbolicCoeff};
+use crate::symcoeff::{simplify_sharded, CompiledCoeff, GateParam, SymbolicCoeff};
 use crate::truncation::FrequencyTruncationPolicy;
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
 use propaq_core::truncators::{
     resolve_config, resolve_truncation as core_resolve_truncation, FlushSchedule, ResolvedConfig,
     Truncator,
 };
+
+/// Shard count (relative to thread count) for both `compile_surviving_terms`
+/// and `apply_truncation_policy`'s `Simplify` pass -- shared by both since
+/// they're the same tradeoff: a subtree shared *across* shard boundaries is
+/// processed once per shard instead of once globally, bounding duplication
+/// at `(thread count) x (oversubscription factor)` instead of unboundedly.
+/// See `compile_surviving_terms`'s doc comment for the full rationale
+/// (oversubscription specifically, not exactly one shard per thread).
+const SHARD_OVERSUBSCRIPTION: usize = 4;
 
 /// Resolve the flexible `truncation` constructor argument into `(FlushSchedule,
 /// [Truncator])`. The surrogate additionally accepts the legacy
@@ -536,8 +545,6 @@ fn compile_surviving_terms<B: SoaBasis>(
     stride: usize,
     initial_state: &[u64],
 ) -> (CompiledCoeff, Vec<SurrogateTerm>) {
-    const SHARD_OVERSUBSCRIPTION: usize = 4;
-
     let n = evolved.len();
     let target_shards = (rayon::current_num_threads() * SHARD_OVERSUBSCRIPTION).max(1);
     let chunk = n.div_ceil(target_shards).max(1);
@@ -618,6 +625,23 @@ pub struct TruncationOutcome {
 /// (`SymbolicCoeff::add_assign`/`is_empty` via `merge`) has already run by
 /// the time this is called.
 ///
+/// `Simplify`, when present in the pipeline, runs *before* everything else
+/// here (including the `apply_lossy` gate below -- it's lossless, unlike
+/// `prune`/`WeightTruncator`, so there's no correctness reason to defer it
+/// during warmup) and *before* `prune` specifically: `prune`'s
+/// `coeff_cutoff` decision uses `upper_scale`, a safe bound computed
+/// independently per derivation path, so two still-unmerged paths to the
+/// same canonical monomial are each judged by their own (possibly small)
+/// bound -- pruning them independently first can permanently discard a
+/// monomial whose *combined* magnitude would have cleared the cutoff.
+/// Running `Simplify` first means `prune` always sees the true, merged
+/// magnitude, sharpening (never loosening) `CoefficientTruncator`'s
+/// accuracy. This is a real, user-visible behavior change versus running
+/// `CoefficientTruncator` without `Simplify`: the same configured cutoff can
+/// retain a different (more accurate) survivor set. `FrequencyTruncator` is
+/// unaffected -- merging same-canonical-monomial siblings never changes
+/// frequency.
+///
 /// `monomials_before_estimate` is the caller's cheap running estimate
 /// (`self.total_monomials.saturating_add(pending_monomials)`), not an exact
 /// recount -- there's no O(1) exact way to get one, unlike `total_before`
@@ -631,6 +655,11 @@ pub fn apply_truncation_policy<B: SoaBasis>(
     let min_terms = cfg.min_terms.unwrap_or(0);
     let min_monomials = cfg.min_monomials.unwrap_or(0);
     let n_units = evolved.n_units;
+
+    if cfg.simplify {
+        let n_shards = (rayon::current_num_threads() * SHARD_OVERSUBSCRIPTION).max(1);
+        simplify_sharded(&mut evolved.coeffs[..total_before], n_shards);
+    }
 
     // Deferred like the numerical propagator: below min_terms/min_monomials,
     // skip the lossy filters. Both floors must clear (AND, not OR) -- each
@@ -1180,6 +1209,91 @@ mod monomial_budget_tests {
         let mut ts = build_one_term();
         apply_truncation_policy::<PauliBasis>(&mut ts, &cutoff_cfg(Some(1), Some(1)), 1);
         assert_eq!(ts.len(), 0, "with both floors cleared, the coefficient truncator should have pruned the row away");
+    }
+}
+
+#[cfg(test)]
+mod simplify_truncator_tests {
+    use super::*;
+    use propaq_core::soa::SoaTermSum;
+
+    fn planes_of(x: u64, z: u64, stride: usize) -> (Vec<u64>, Vec<u64>) {
+        let mut gx = vec![0u64; stride];
+        let mut gz = vec![0u64; stride];
+        gx[0] = x;
+        gz[0] = z;
+        (gx, gz)
+    }
+
+    /// Regression guard for `apply_truncation_policy`'s `Simplify`-before-
+    /// `prune` ordering (see that function's doc comment): two derivation
+    /// paths to the *same* canonical monomial (here, the trivial empty-run
+    /// "constant" monomial), each individually below a `CoefficientTruncator`
+    /// cutoff, but whose combined magnitude clears it. `prune`'s
+    /// `coeff_cutoff` check is per-derivation-path (`upper_scale`), so
+    /// without merging first it "salami-slices" the true contribution away;
+    /// `Simplify` merges the two 0.3-scalar paths into one 0.6-scalar
+    /// monomial before `prune` ever runs, so the true magnitude is what
+    /// gets checked against the cutoff.
+    #[test]
+    fn simplify_runs_before_prune_and_sharpens_coefficient_cutoff() {
+        const N_QUBITS: usize = 4;
+
+        let build_two_paths_to_same_monomial = || {
+            let mut ts: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+            let (gx, gz) = planes_of(0, 0b1, 1);
+            let mut coeff = SymbolicCoeff::from_real(0.3);
+            coeff.add_assign(SymbolicCoeff::from_real(0.3));
+            ts.push([&gx, &gz], coeff);
+            ts
+        };
+
+        // 0.3 < 0.5 (each path, individually) < 0.6 (the true combined sum).
+        let cutoff_cfg = |simplify: bool| ResolvedConfig {
+            coefficient: Some(0.5),
+            simplify,
+            ..Default::default()
+        };
+
+        let mut ts = build_two_paths_to_same_monomial();
+        apply_truncation_policy::<PauliBasis>(&mut ts, &cutoff_cfg(false), 1);
+        assert_eq!(
+            ts.len(), 0,
+            "without Simplify, two salami-sliced paths (0.3 each) are incorrectly pruned \
+             even though their true combined magnitude (0.6) clears the 0.5 cutoff",
+        );
+
+        let mut ts = build_two_paths_to_same_monomial();
+        apply_truncation_policy::<PauliBasis>(&mut ts, &cutoff_cfg(true), 1);
+        assert_eq!(
+            ts.len(), 1,
+            "with Simplify, the merged 0.6-scalar monomial's true magnitude clears the cutoff and survives",
+        );
+    }
+
+    /// `simplify` must default to `false` (`ResolvedConfig::default()`) and
+    /// change nothing when unset -- guards against `Simplify` being
+    /// accidentally wired in as always-on. The full existing test suite
+    /// (none of which sets `cfg.simplify`) passing unchanged is the primary
+    /// evidence for this; this test additionally pins the exact default
+    /// behavior on the same salami-slicing shape used above, so a future
+    /// change to the default is caught here specifically, not just
+    /// incidentally elsewhere.
+    #[test]
+    fn simplify_disabled_by_default_leaves_existing_pruning_behavior_unchanged() {
+        const N_QUBITS: usize = 4;
+
+        let mut ts: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
+        let (gx, gz) = planes_of(0, 0b1, 1);
+        let mut coeff = SymbolicCoeff::from_real(0.3);
+        coeff.add_assign(SymbolicCoeff::from_real(0.3));
+        ts.push([&gx, &gz], coeff);
+
+        let cfg = ResolvedConfig { coefficient: Some(0.5), ..Default::default() };
+        assert!(!cfg.simplify, "ResolvedConfig::default() must leave simplify off");
+
+        apply_truncation_policy::<PauliBasis>(&mut ts, &cfg, 1);
+        assert_eq!(ts.len(), 0, "default (Simplify-absent) behavior must match the pre-Simplify pruning outcome");
     }
 }
 

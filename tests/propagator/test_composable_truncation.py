@@ -7,6 +7,7 @@ from propaq import (
     FlushSchedule,
     FrequencyTruncator,
     MonomialBudget,
+    Simplify,
     TermBudget,
     Truncator,
     WeightTruncator,
@@ -72,6 +73,10 @@ class TestNumericalListAPI:
     def test_rejects_monomial_budget(self):
         with pytest.raises(ValueError, match="surrogate"):
             PauliPropagator(truncation=[MonomialBudget(max_monomials=100)])
+
+    def test_rejects_simplify(self):
+        with pytest.raises(ValueError, match="surrogate"):
+            PauliPropagator(truncation=[Simplify()])
 
     def test_none_valued_truncators_are_noops(self):
         obs, circ = _obs_and_circuit()
