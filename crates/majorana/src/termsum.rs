@@ -14,9 +14,6 @@ use crate::streamer::MajoranaTermStreamer;
 
 /// A mutable, weighted sum of Majorana monomials with real coefficients.
 ///
-/// See `propaq_pauli::termsum::PauliTermSum` for the rationale behind the
-/// `SoaTermSum<f64>` + key index pairing used here.
-///
 /// Arguments:
 ///     terms: Optional initial mapping of MajoranaMonomial to real coefficient.
 #[pyclass(subclass, module = "propaq._rust_core")]
@@ -94,7 +91,7 @@ impl MajoranaTermSum {
         Ok(MajoranaTermSum { inner, index })
     }
 
-    /// Add *coeff* × *term* to the sum, accumulating if the monomial is already present.
+    /// Add *coeff* * *term* to the sum, accumulating if the monomial is already present.
     fn add(&mut self, term: MajoranaMonomial, coeff: f64) {
         ensure_sized(&mut self.inner, term.n_modes);
         if let Some(&row) = self.index.get(&term) {
@@ -137,9 +134,7 @@ impl MajoranaTermSum {
         Ok(())
     }
 
-    /// Deduplicate and remove terms according to *policy*. See
-    /// `PauliTermSum::truncate` for why this rebuilds the term sum with a
-    /// plain serial pass rather than the parallel `soa::kernels::truncate`.
+    /// Deduplicate and remove terms according to *policy*.
     pub fn truncate(&mut self, policy: &Bound<'_, PyAny>) -> PyResult<()> {
         let n = self.inner.len();
         let stride = self.inner.stride;

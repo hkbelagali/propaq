@@ -4,10 +4,16 @@ from typing import TYPE_CHECKING
 
 from ._logger import Logger
 from ._majorana_propagator import PropagationResult
-from ._noise import GateNoiseModel, UniformNoiseModel
+from ._noise import GateNoiseModel, NativeNoiseModel, UniformNoiseModel
 from ._pauli_term_sum import PauliTermSum
 from ._truncation_policy import TruncationPolicy
-from ._truncators import CoefficientTruncator, FlushSchedule, TermBudget, WeightTruncator
+from ._truncators import (
+    CoefficientTruncator,
+    FlushSchedule,
+    NativeTruncator,
+    TermBudget,
+    WeightTruncator,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -15,13 +21,13 @@ if TYPE_CHECKING:
     from propaq.circuits import PauliCircuit
 
 # Truncators the numerical propagator honors (symbolic-only ones are rejected).
-_NumericalTruncator = WeightTruncator | CoefficientTruncator | TermBudget
+_NumericalTruncator = WeightTruncator | CoefficientTruncator | TermBudget | NativeTruncator
 
 class PauliPropagator:
 
     def __init__(
         self,
-        noise: UniformNoiseModel | GateNoiseModel | None = None,
+        noise: UniformNoiseModel | GateNoiseModel | NativeNoiseModel | None = None,
         truncation: _NumericalTruncator
         | Sequence[_NumericalTruncator]
         | TruncationPolicy
@@ -36,7 +42,8 @@ class PauliPropagator:
 
         Arguments:
             noise: Optional noise model. Use UniformNoiseModel for depolarising noise, or
-                wrap a custom duck-typed model in GateNoiseModel.
+                wrap a custom duck-typed model in GateNoiseModel, or load a
+                compiled C/Rust/Julia plugin via NativeNoiseModel.
             truncation: The truncation pipeline, a list of truncators
                 (WeightTruncator/CoefficientTruncator/TermBudget), a single such
                 truncator, a legacy TruncationPolicy (decomposed), or None. The
@@ -49,8 +56,8 @@ class PauliPropagator:
         ...
 
     @property
-    def noise(self) -> UniformNoiseModel | GateNoiseModel | None: ...
-    def set_noise(self, noise: UniformNoiseModel | GateNoiseModel | None = None) -> None: ...
+    def noise(self) -> UniformNoiseModel | GateNoiseModel | NativeNoiseModel | None: ...
+    def set_noise(self, noise: UniformNoiseModel | GateNoiseModel | NativeNoiseModel | None = None) -> None: ...
 
     @property
     def truncators(self) -> list[_NumericalTruncator]: ...

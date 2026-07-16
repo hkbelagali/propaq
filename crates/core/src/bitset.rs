@@ -29,10 +29,6 @@ impl Bitset {
 
     /// Same as `from_words`, but copies directly from a borrowed slice
     /// into the (usually inline, for realistic system sizes) `SmallVec`
-    /// -- avoiding the wasted intermediate `Vec` allocation+copy+drop that
-    /// `Bitset::from_words(slice.to_vec())` would otherwise pay for on
-    /// every call. `Words::from_slice` (a `smallvec` inherent method,
-    /// available since `u64: Copy`) does this in one copy instead of two.
     pub fn from_slice(words: &[u64]) -> Self {
         let mut b = Self { words: Words::from_slice(words) };
         b.normalize();
@@ -83,12 +79,12 @@ impl Bitset {
         if wi >= self.words.len() { 0 } else { (self.words[wi] >> bi) & 1 }
     }
 
-    /// Read-only access to the underlying words, used for optimised algorithms.
+    /// Read-only access to the underlying words
     pub fn as_words(&self) -> &[u64] {
         &self.words
     }
 
-    /// Bits set at positions 0 through n-1 (dense prefix mask).
+    /// Bits set at positions 0 through n-1.
     pub fn all_ones_upto(n: usize) -> Self {
         if n == 0 { return Self::zero(); }
         let n_words = (n + 63) / 64;

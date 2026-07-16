@@ -1,13 +1,6 @@
 ///
 /// The SoA propagator: applies a circuit's Pauli/Majorana rotations to a
-/// `SoaTermSum` in place, using the flag/prefix-sum/scatter kernels in
-/// `soa::kernels` instead of the hash-partition/outbox model in
-/// `propagator::AbstractPropagator`.
-///
-/// Because a `SoaTermSum` has no separate "live" (partitioned) vs "at rest"
-/// (flat map) representation — it's the same columnar storage throughout —
-/// this engine needs no `initialize_from`/`finalize_to` step: it mutates the
-/// caller's `SoaTermSum` directly for the whole run.
+/// `SoaTermSum` in place, using the flag/prefix-sum/scatter kernels.
 ///
 use pyo3::prelude::*;
 use std::io::Write;
@@ -16,6 +9,7 @@ use std::sync::Arc;
 
 use crate::coeff::CoeffRepr;
 use crate::logger::Logger;
+use crate::native_noise::{NativeNoiseHandle, NativeNoiseModel};
 use crate::noise::UniformNoiseModel;
 use crate::propagator::{close_progress_bar, make_progress_bar, tick_progress_bar, PropagationResult};
 use crate::soa::kernels;
@@ -24,14 +18,13 @@ use crate::truncators::{resolve_config, FlushSchedule, ResolvedConfig, Truncator
 
 const EXP_LUT_SIZE: usize = 4096;
 
-/// Numerical rotation angles within this distance of a cos-zero (`pi/2 + k*pi`)
-/// take the Clifford in-place fast path in `kernels::apply_rotation` instead
-/// of appending: the cos-branch coefficient is negligible relative to any
-/// meaningful truncation cutoff, so dropping it exactly (rather than
-/// carrying forward a ~1e-16-scale residual) is safe in practice. `pub` so
-/// `propaq_surrogate`'s `SurrogatePropagator` can share the same threshold
-/// for its own `GateParam::Numeric` gates instead of duplicating the magic
-/// number.
+#[derive(Clone, Copy)]
+pub enum NoiseDispatch {
+    Uniform(f64),
+    Native(NativeNoiseHandle),
+    Python,
+}
+
 pub const CLIFFORD_COS_EPS: f64 = 1e-9;
 
 pub struct SoaPropagator<B: SoaBasis> {
@@ -106,27 +99,19 @@ impl<B: SoaBasis> SoaPropagator<B> {
         Ok(())
     }
 
-    pub fn uniform_damping(&self, py: Python<'_>) -> Option<f64> {
+    pub fn resolve_noise_dispatch(&self, py: Python<'_>) -> NoiseDispatch {
         if let Some(ref noise_obj) = self.noise {
             let noise = noise_obj.bind(py);
             if let Ok(unm) = noise.extract::<PyRef<UniformNoiseModel>>() {
-                return Some(unm.damping);
+                return NoiseDispatch::Uniform(unm.damping);
+            }
+            if let Ok(nnm) = noise.extract::<PyRef<NativeNoiseModel>>() {
+                return NoiseDispatch::Native(*nnm.handle());
             }
         }
-        None
+        NoiseDispatch::Python
     }
 
-    /// Merge (dedup) the live terms, then apply the resolved weight/coefficient
-    /// cutoffs unless doing so would drop the surviving count below
-    /// `min_terms`.
-    ///
-    /// Unlike the hash-partition engine's `retain_by_policy_masked` (which
-    /// approximated a `min_terms` floor by truncating only a sampled subset
-    /// of partitions), a flat SoA array has no partitions to sample from; the
-    /// simplest faithful substitute is to skip truncation entirely for this
-    /// call when it would breach the floor, which is conservative (keeps
-    /// more terms than the floor requires) rather than attempting to land
-    /// exactly on it.
     fn flush_and_maybe_truncate<C: CoeffRepr>(
         &mut self,
         evolved: &mut SoaTermSum<C>,
@@ -140,10 +125,8 @@ impl<B: SoaBasis> SoaPropagator<B> {
         pool.install(|| kernels::merge::<B, C>(evolved));
         let total_before = evolved.len();
 
-        // A weight or coefficient cutoff is the only lossy term-level filter
-        // for the numerical propagator; `None` cfg (a noise pre-flush) or a
-        // cfg with neither filter means "flush (merge) only".
-        let Some(cfg) = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some()) else {
+        let Some(cfg) = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some() || c.native.is_some())
+        else {
             return;
         };
         let min_terms = cfg.min_terms.unwrap_or(0);
@@ -159,14 +142,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
 
         pool.install(|| kernels::truncate::<B, C>(evolved, cfg));
         let total_after = evolved.len();
-        if total_after < min_terms {
-            // Truncation would breach the floor; this can't be un-done
-            // without re-deriving the pre-truncation set, so (matching the
-            // conservative intent above) we simply don't reach this branch
-            // in practice unless `min_terms` itself exceeds what the
-            // pre-truncation weight/coefficient policy would keep — log it
-            // and move on rather than silently keep fewer terms than asked.
-        }
+        if total_after < min_terms { }
 
         if let Some(ref mut log) = self.verbose_log {
             let actual_discarded = total_before - total_after;
@@ -184,37 +160,38 @@ impl<B: SoaBasis> SoaPropagator<B> {
         }
     }
 
-    /// Apply per-term damping to all live terms.
     fn apply_layer_noise<C: CoeffRepr>(
         &mut self,
         py: Python<'_>,
         evolved: &mut SoaTermSum<C>,
-        damping: Option<f64>,
+        dispatch: NoiseDispatch,
         gate_idx: usize,
         layer_idx: usize,
     ) -> PyResult<()> {
         if self.noise.is_none() {
             return Ok(());
         }
-        if let Some(d) = damping {
-            let exp_lut: Vec<f64> = (0..=EXP_LUT_SIZE).map(|w| (-d * w as f64).exp()).collect();
-            let pool = Arc::clone(&self.pool);
-            py.allow_threads(|| pool.install(|| kernels::apply_noise_inplace::<B, C>(evolved, &exp_lut)));
-        } else {
-            // Generic Python noise: merge first so weight/coefficient stats
-            // are deduplicated, then call the Python damping model per live
-            // term directly — the SoA columns are already the flat
-            // representation the old engine had to round-trip through
-            // `finalize_to`/`initialize_from` to obtain.
-            py.allow_threads(|| self.flush_and_maybe_truncate(evolved, None, gate_idx, layer_idx, "noise"));
-            let noise = self.noise.as_ref().unwrap().bind(py);
-            let n = evolved.len();
-            let stride = evolved.stride;
-            for i in 0..n {
-                let s = i * stride;
-                let w = B::weight([&evolved.planes[0][s..s + stride], &evolved.planes[1][s..s + stride]], evolved.n_units);
-                let factor: f64 = noise.call_method1("damping_factor", (w, 0u32))?.extract()?;
-                evolved.coeffs[i].scale_real(factor);
+        match dispatch {
+            NoiseDispatch::Uniform(d) => {
+                let exp_lut: Vec<f64> = (0..=EXP_LUT_SIZE).map(|w| (-d * w as f64).exp()).collect();
+                let pool = Arc::clone(&self.pool);
+                py.allow_threads(|| pool.install(|| kernels::apply_noise_inplace::<B, C>(evolved, &exp_lut)));
+            }
+            NoiseDispatch::Native(handle) => {
+                let pool = Arc::clone(&self.pool);
+                py.allow_threads(|| pool.install(|| kernels::apply_noise_native::<B, C>(evolved, &handle)));
+            }
+            NoiseDispatch::Python => {
+                py.allow_threads(|| self.flush_and_maybe_truncate(evolved, None, gate_idx, layer_idx, "noise"));
+                let noise = self.noise.as_ref().unwrap().bind(py);
+                let n = evolved.len();
+                let stride = evolved.stride;
+                for i in 0..n {
+                    let s = i * stride;
+                    let w = B::weight([&evolved.planes[0][s..s + stride], &evolved.planes[1][s..s + stride]], evolved.n_units);
+                    let factor: f64 = noise.call_method1("damping_factor", (w, 0u32))?.extract()?;
+                    evolved.coeffs[i].scale_real(factor);
+                }
             }
         }
         Ok(())
@@ -269,7 +246,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
         let merge_max_terms: Option<usize> = self.schedule.merge_max_terms;
 
         let mut n_terms: Vec<usize> = Vec::new();
-        let damping = self.uniform_damping(py);
+        let dispatch = self.resolve_noise_dispatch(py);
         let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = make_progress_bar(py, self.progress_bar, total_rotations)?;
 
@@ -283,7 +260,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
         let mut pending: usize = 0;
         let pool = Arc::clone(&self.pool);
         for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
-            self.apply_layer_noise(py, evolved, damping, gate_idx, layer_idx)?;
+            self.apply_layer_noise(py, evolved, dispatch, gate_idx, layer_idx)?;
 
             let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
             for (idx, (gen0, gen1, param, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
@@ -380,10 +357,6 @@ impl<B: SoaBasis> SoaPropagator<B> {
     }
 }
 
-/// Best-effort discard stats for the verbose log: which live terms the
-/// upcoming `kernels::truncate` call would drop, summed as L1/max |coeff|.
-/// Only computed when verbose logging is on (it's an extra pass over the
-/// live terms purely for diagnostics).
 fn discarded_coeff_stats<B: SoaBasis, C: CoeffRepr>(
     terms: &SoaTermSum<C>,
     cfg: &ResolvedConfig,
@@ -396,8 +369,13 @@ fn discarded_coeff_stats<B: SoaBasis, C: CoeffRepr>(
     for i in 0..n {
         let s = i * stride;
         let term = [&terms.planes[0][s..s + stride], &terms.planes[1][s..s + stride]];
-        let weight_ok = cfg.weight.is_none_or(|w| B::weight(term, terms.n_units) <= w);
-        let kept = weight_ok && terms.coeffs[i].passes_coeff_cutoff(cc);
+        let kept = if let Some(nt) = &cfg.native {
+            let w = B::weight(term, terms.n_units);
+            nt.keep(w, terms.coeffs[i].magnitude(), 0)
+        } else {
+            let weight_ok = cfg.weight.is_none_or(|w| B::weight(term, terms.n_units) <= w);
+            weight_ok && terms.coeffs[i].passes_coeff_cutoff(cc)
+        };
         if !kept {
             let mag = terms.coeffs[i].magnitude();
             l1 += mag;

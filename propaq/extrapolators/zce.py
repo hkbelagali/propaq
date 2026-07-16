@@ -29,6 +29,7 @@ from propaq.truncation import CoefficientTruncator, WeightTruncator
 
 @dataclass
 class ZCEResult:
+    """Result of a zero-cutoff extrapolation run, including the fitted parameters and covariance."""
     zero_cutoff_value: float
     """Extrapolated expectation value at zero cutoff."""
 
@@ -57,6 +58,7 @@ class ZeroCutoffExtrapolator(ABC):
     """Cutoff values to sweep over for the extrapolation."""
 
     def __init__(self, fitting_fn: Callable, cutoff_values: list[float]) -> None:
+        """Construct a ZeroCutoffExtrapolator with a fitting function and cutoff values."""
         self.fitting_fn = fitting_fn
         self.cutoff_values = list(cutoff_values)
 

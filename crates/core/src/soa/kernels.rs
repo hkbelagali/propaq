@@ -1,18 +1,11 @@
 ///
-/// Thread-safe data-parallel kernels over `SoaTermSum` columns: flag ->
-/// prefix-sum -> scatter. Every scatter here writes to a destination index
-/// produced by a prefix sum over a flag array, which is a bijection onto a
-/// contiguous output range — so parallel workers never write the same slot
-/// twice and no locking is needed.
+/// Kernels for hot per-term loops over term sum columns, shared by 
+/// the Pauli, Majorana, and surrogate propagators. 
 ///
-/// Kernel bodies destructure `&mut SoaTermSum<C>` into its individual
-/// fields (`planes`, `coeffs`, `flags`, `index`, `aux_planes`, `aux_coeffs`)
-/// up front, since a method that *returns* a borrow of one field (e.g. a
-/// hypothetical `terms.aux_mut()`) would tie up `&mut terms` for that
-/// borrow's whole lifetime and block disjoint access to sibling fields in
-/// the same pass. Destructuring gets independent `&mut` borrows to each
-/// field directly instead. `soa::kernels` can see these otherwise-private
-/// fields because it's a child module of `soa`.
+/// The kernels process the data in a SoA (struct of arrays) layout. 
+/// The term sum struct is decomposed into its constituent arrays 
+/// consisting of the term planes, coefficients, flags, indices 
+/// and auxiliary storage. They operate on this data in parallel.
 ///
 use rayon::prelude::*;
 use smallvec::{smallvec, SmallVec};
@@ -21,17 +14,8 @@ use crate::coeff::CoeffRepr;
 use crate::soa::{SoaBasis, SoaTermSum};
 use crate::truncators::ResolvedConfig;
 
-/// Per-term product scratch: inline up to 256 qubits/modes (4 `u64` words),
-/// matching `Bitset`'s own inline capacity, so `apply_rotation`'s hot
-/// per-term loop doesn't heap-allocate for the overwhelming majority of
-/// realistic system sizes. Spills to the heap only beyond that, same as
-/// `Bitset`.
 type ProductScratch = SmallVec<[u64; 4]>;
 
-/// Wraps a raw pointer to allow moving it into a parallel closure. Safety
-/// relies on the caller only ever deriving disjoint offsets from it (see
-/// each call site's `// SAFETY` note) — the same pattern used by the
-/// hash-partition engine's outbox transpose.
 struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
 unsafe impl<T> Sync for SendPtr<T> {}
@@ -44,13 +28,6 @@ impl<T> SendPtr<T> {
 /// tasks below this size is pure overhead.
 const PAR_MIN_LEN: usize = 512;
 
-/// Parallel exclusive prefix sum: `index[i]` = number of `true` flags in
-/// `flags[..i]`. Returns the number of `true` flags overall (also the
-/// destination range `[0, total)`).
-///
-/// Implemented as a blocked two-pass scan: per-chunk sums computed in
-/// parallel, a short sequential scan over the (few) chunk totals, then a
-/// second parallel pass writing each chunk's running offset.
 pub fn prefix_sum(flags: &[u32], index: &mut [usize]) -> usize {
     let n = flags.len();
     if n == 0 {
@@ -95,11 +72,6 @@ pub fn prefix_sum(flags: &[u32], index: &mut [usize]) -> usize {
     total
 }
 
-/// Scatter the elements flagged in `flags` from the live primary region
-/// `[0, n)` into the auxiliary buffers at the positions given by `index`,
-/// then swap the auxiliary buffers into place as the new primary storage of
-/// length `total`. Shared by truncate (flag = kept) and merge (flag =
-/// run-start).
 fn compact<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
     let stride = terms.stride;
     terms.ensure_aux_capacity(total);
@@ -113,8 +85,7 @@ fn compact<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
             if flags[i] != 0 {
                 let dst = index[i];
                 // SAFETY: `index` is the exclusive prefix sum of `flags`, so
-                // distinct flagged `i` map to distinct `dst` in [0, total) —
-                // no two iterations ever write the same words.
+                // distinct flagged `i` map to distinct `dst` in [0, total)
                 unsafe {
                     let s = &src[i * stride..(i + 1) * stride];
                     std::ptr::copy_nonoverlapping(s.as_ptr(), dst_ptr.add(dst * stride), stride);
@@ -132,7 +103,7 @@ fn compact<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
     let run_coeff = |i: usize| {
         if flags[i] != 0 {
             let dst = index[i];
-            // SAFETY: see above — `dst` is unique per flagged `i`.
+            // SAFETY: see above, `dst` is unique per flagged `i`.
             unsafe { *coeffs_ptr.add(dst) = coeffs[i].clone(); }
         }
     };
@@ -145,9 +116,6 @@ fn compact<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
     terms.swap_in_aux(total);
 }
 
-/// Truncate: drop terms failing the resolved weight/coefficient policy.
-/// Stream compaction — no hashing, no dedup (callers merge first if
-/// duplicate keys are possible).
 pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &ResolvedConfig) {
     let n = terms.len();
     if n == 0 {
@@ -158,7 +126,22 @@ pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &Reso
     let cc = cfg.coefficient.unwrap_or(0.0);
     terms.ensure_scratch_capacity(n);
 
-    {
+    if let Some(nt) = &cfg.native {
+        let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
+        let weight_of = |i: usize| -> u32 {
+            let s = i * stride;
+            B::weight([&planes[0][s..s + stride], &planes[1][s..s + stride]], n_units)
+        };
+        if n >= PAR_MIN_LEN {
+            let n_chunks = rayon::current_num_threads().max(1);
+            let chunk_size = n.div_ceil(n_chunks);
+            flags[..n].par_chunks_mut(chunk_size).enumerate().for_each(|(chunk_idx, chunk)| {
+                truncate_native_chunk(chunk, chunk_idx * chunk_size, coeffs, &weight_of, nt);
+            });
+        } else {
+            truncate_native_chunk(&mut flags[..n], 0, coeffs, &weight_of, nt);
+        }
+    } else {
         let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
         let iskept = |i: usize| -> bool {
             let s = i * stride;
@@ -180,14 +163,33 @@ pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &Reso
     compact(terms, n, total);
 }
 
-/// Mutate every live coefficient in place via `map_fn`, then drop entries
-/// for which `keep` returns `false` — the SoA analogue of the old
-/// hash-partition engine's `map_and_retain_coeffs_inplace`. Used by the
-/// surrogate's truncation pass (trim-then-filter each coefficient in one
-/// traversal, e.g. `trim_high_frequency`/`deduplicate`/`trim_small_scalars`
-/// then a weight + non-empty check). Returns the summed
-/// `CoeffRepr::size_hint()` of the survivors (for the surrogate, the live
-/// monomial count after trimming).
+/// Fills `flag_chunk` (a contiguous slice of `flags` starting at global
+/// index `base`) via a native truncator plugin: tries its optional batch
+/// entry point once for the whole chunk before falling back to one
+/// scalar `keep` call per term, mirroring `apply_noise_native_chunk`'s
+/// FFI-amortization shape.
+fn truncate_native_chunk<C: CoeffRepr>(
+    flag_chunk: &mut [u32],
+    base: usize,
+    coeffs: &[C],
+    weight_of: &impl Fn(usize) -> u32,
+    nt: &crate::native_truncator::NativeTruncator,
+) {
+    let weights: Vec<u32> = (0..flag_chunk.len()).map(|j| weight_of(base + j)).collect();
+    let magnitudes: Vec<f64> = (0..flag_chunk.len()).map(|j| coeffs[base + j].magnitude()).collect();
+    let active_modes = vec![0u32; flag_chunk.len()];
+    let mut keep = vec![0u8; flag_chunk.len()];
+    if nt.try_keep_batch(&weights, &magnitudes, &active_modes, &mut keep) {
+        for (f, &k) in flag_chunk.iter_mut().zip(&keep) {
+            *f = k as u32;
+        }
+    } else {
+        for (j, f) in flag_chunk.iter_mut().enumerate() {
+            *f = nt.keep(weights[j], magnitudes[j], 0) as u32;
+        }
+    }
+}
+
 pub fn map_retain<B: SoaBasis, C: CoeffRepr, F, K>(terms: &mut SoaTermSum<C>, map_fn: F, keep: K) -> u128
 where
     F: Fn(&mut C) + Sync,
@@ -229,10 +231,6 @@ where
     };
     compact(terms, n, total);
 
-    // `saturating_add`, not `.sum()` (see `sum_coeffs`'s doc comment for why):
-    // this return value feeds `TruncationOutcome::monomials_after` ->
-    // `total_monomials`, part of the same monomial-count accounting chain
-    // that must not silently wrap once genuinely huge.
     let survivors = &terms.coeffs[..total];
     if total >= PAR_MIN_LEN {
         survivors.par_iter().map(|c| c.size_hint()).reduce(|| 0u128, u128::saturating_add)
@@ -241,12 +239,6 @@ where
     }
 }
 
-/// Parallel per-coefficient fold across all live terms, merged via
-/// `combine` — the SoA analogue of the old hash-partition engine's
-/// `fold_coeffs`. Not currently called from anywhere (its former caller, a
-/// global frequency histogram for `MonomialBudget`'s importance-ranked
-/// removal, was deleted along with that truncator); kept as a generic,
-/// tested primitive in case a future cross-coefficient aggregate needs one.
 pub fn fold_coeffs<C: CoeffRepr, T, ID, F, R>(terms: &SoaTermSum<C>, identity: ID, fold: F, combine: R) -> T
 where
     T: Send,
@@ -258,14 +250,6 @@ where
     terms.coeffs[..n].par_iter().fold(&identity, &fold).reduce(&identity, &combine)
 }
 
-/// Parallel sum of a per-coefficient quantity over all live terms — the SoA
-/// analogue of the old hash-partition engine's `sum_coeffs`. Used by the
-/// surrogate to recompute the live monomial count after a lossless merge.
-/// `saturating_add` via `reduce`, not `.sum()` (which wraps on overflow):
-/// every current caller passes `monomial_count()`, whose individual values
-/// are now themselves saturated at `u128::MAX` (see `Node::add`'s doc
-/// comment) -- but summing many already-huge terms together with plain `+`
-/// could still wrap the aggregate even when no single term's own value has.
 pub fn sum_coeffs<C: CoeffRepr, F>(terms: &SoaTermSum<C>, f: F) -> u128
 where
     F: Fn(&C) -> u128 + Sync,
@@ -274,27 +258,6 @@ where
     terms.coeffs[..n].par_iter().map(&f).reduce(|| 0u128, u128::saturating_add)
 }
 
-/// Merge: hash-based duplicate detection and coefficient accumulation,
-/// replacing an earlier sort-then-scan pass entirely (both a plain
-/// `key_cmp` sort and, before that, a radix-bucketed variant — both proved
-/// slower in practice than this on real workloads; see `propaq.MD`).
-///
-/// Two terms with the same key always produce the same
-/// `SoaBasis::key_hash` (that's the trait's contract), so partitioning rows
-/// into `n_batches` groups by (bits of) that hash guarantees every instance
-/// of a given duplicate group lands in the same batch. Each batch is then
-/// processed by exactly one worker, building its own transient `hash ->
-/// candidate rows` map (collisions resolved by `key_eq`) — so accumulating
-/// a duplicate's coefficient into its canonical row never needs
-/// cross-worker synchronization: no two batches ever touch the same row.
-/// This is average-case O(n) (a hash lookup/insert per row) rather than the
-/// sort's O(n log n) comparisons, and the per-row work is a few integer ops
-/// plus a hashmap probe rather than a multi-word comparison.
-///
-/// Finishes with the same flag -> prefix-sum -> compact used by `truncate`:
-/// every row starts flagged "kept", the batch pass flips duplicates to
-/// "drop", and `compact` does the parallel, alias-free scatter into the
-/// deduplicated result.
 pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
     let n = terms.len();
     if n <= 1 {
@@ -321,11 +284,9 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
 
     let n_batches = if parallel { rayon::current_num_threads().max(1).next_power_of_two() } else { 1 };
     let batch_mask = (n_batches - 1) as u64;
-    // Upper bits of the hash pick the batch, keeping the lower bits (used by
-    // each batch's own `FxHashMap` bucketing) as uncorrelated as possible.
+
     let batch_of = |h: u64| -> usize { ((h >> 32) & batch_mask) as usize };
 
-    // Every row starts "kept"; the batch pass below flips duplicates to 0.
     {
         let SoaTermSum { flags, .. } = &mut *terms;
         if parallel {
@@ -340,10 +301,6 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
         let coeffs_ptr = SendPtr(coeffs.as_mut_ptr());
         let flags_ptr = SendPtr(flags.as_mut_ptr());
         let process_batch = |bid: usize| {
-            // Transient per-batch map: hash -> candidate row indices seen so
-            // far in this batch (almost always exactly one; a `SmallVec`
-            // avoids a heap allocation for the common case), verified by
-            // `key_eq` to resolve the rare true hash collision.
             let mut seen: rustc_hash::FxHashMap<u64, SmallVec<[usize; 2]>> =
                 rustc_hash::FxHashMap::with_capacity_and_hasher(n.div_ceil(n_batches), Default::default());
             for i in 0..n {
@@ -397,14 +354,6 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
 /// surrogate, the symbolic analogue keyed by a parameter index) to every
 /// live term.
 ///
-/// Terms that commute with `G` are untouched. Terms that anticommute branch:
-/// the original slot keeps the cos-branch coefficient in place, and a new
-/// term (`G`'s product with the original) is appended with the sin-branch
-/// coefficient. When the branch is a pure rotation by `pi/2` (the Clifford
-/// gates emitted by circuit decomposition), the cos branch vanishes and the
-/// new term overwrites the original slot in place instead of appending —
-/// Clifford gates map distinct terms to distinct terms bijectively, so no
-/// growth is needed.
 pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     terms: &mut SoaTermSum<C>,
     gen: [&[u64]; 2],
@@ -440,11 +389,6 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     }
 
     if clifford_inplace {
-        // In-place branch: overwrite term i with its product, scale its
-        // coefficient by the sin branch. No growth, no append: Clifford
-        // gates map distinct terms to distinct terms bijectively, so every
-        // flagged row only ever touches its own index, which lets this run
-        // as plain disjoint chunk parallelism with no unsafe code.
         let live = n * stride;
         let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
         let [p0, p1] = planes;
@@ -459,8 +403,6 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
             let mut scratch0: ProductScratch = smallvec![0u64; stride];
             let mut scratch1: ProductScratch = smallvec![0u64; stride];
             let phase = B::product([&*x_row, &*z_row], gen, [&mut scratch0, &mut scratch1]);
-            // cos branch is ~0 for a pure pi/2 rotation; discard it and keep
-            // only the sin-branch coefficient in place of the original term.
             *c = c.apply_rotation(param, phase);
             x_row.copy_from_slice(&scratch0);
             z_row.copy_from_slice(&scratch1);
@@ -527,10 +469,6 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     total_new
 }
 
-/// Scale every coefficient by a per-term real damping factor looked up from
-/// `weight`. In-place, no auxiliary storage needed (mirrors the numerical
-/// depolarizing-noise identity: `c -> c * (1 - lambda * [P_i != I])`, or more
-/// generally any per-weight LUT).
 pub fn apply_noise_inplace<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, exp_lut: &[f64]) {
     let n = terms.len();
     if n == 0 {
@@ -552,10 +490,56 @@ pub fn apply_noise_inplace<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>,
     }
 }
 
-/// Parallel map-reduce expectation value: `sum(coeff[i] * trace(term[i]))`.
-/// Numerical-only: a whole-term real expectation isn't meaningful for the
-/// surrogate's symbolic coefficients, which instead use the per-term trace
-/// as a structural (nonzero-overlap) filter at compile time.
+/// Applies per-term damping via a dynamically loaded native plugin
+/// (`crate::native_noise::NativeNoiseHandle`) instead of the built-in
+/// exp-LUT.
+pub fn apply_noise_native<B: SoaBasis, C: CoeffRepr>(
+    terms: &mut SoaTermSum<C>,
+    handle: &crate::native_noise::NativeNoiseHandle,
+) {
+    let n = terms.len();
+    if n == 0 {
+        return;
+    }
+    let stride = terms.stride;
+    let n_units = terms.n_units;
+    let SoaTermSum { planes, coeffs, .. } = terms;
+    let weight_of = |i: usize| -> u32 {
+        let s = i * stride;
+        B::weight([&planes[0][s..s + stride], &planes[1][s..s + stride]], n_units)
+    };
+
+    if n >= PAR_MIN_LEN {
+        let n_chunks = rayon::current_num_threads().max(1);
+        let chunk_size = n.div_ceil(n_chunks);
+        coeffs[..n].par_chunks_mut(chunk_size).enumerate().for_each(|(chunk_idx, chunk)| {
+            apply_noise_native_chunk(chunk, chunk_idx * chunk_size, &weight_of, handle);
+        });
+    } else {
+        apply_noise_native_chunk(&mut coeffs[..n], 0, &weight_of, handle);
+    }
+}
+
+fn apply_noise_native_chunk<C: CoeffRepr>(
+    chunk: &mut [C],
+    base: usize,
+    weight_of: &impl Fn(usize) -> u32,
+    handle: &crate::native_noise::NativeNoiseHandle,
+) {
+    let weights: Vec<u32> = (0..chunk.len()).map(|j| weight_of(base + j)).collect();
+    let active_modes = vec![0u32; chunk.len()];
+    let mut factors = vec![0f64; chunk.len()];
+    if handle.try_damping_batch(&weights, &active_modes, &mut factors) {
+        for (c, &f) in chunk.iter_mut().zip(&factors) {
+            c.scale_real(f);
+        }
+    } else {
+        for (j, c) in chunk.iter_mut().enumerate() {
+            c.scale_real(handle.damping_factor(weights[j], 0));
+        }
+    }
+}
+
 pub fn expectation<B: SoaBasis>(terms: &SoaTermSum<f64>, fock_state: &[u64]) -> f64 {
     let n = terms.len();
     let stride = terms.stride;
@@ -578,12 +562,6 @@ mod tests {
     use crate::truncators::ResolvedConfig;
     use num_complex::Complex64;
 
-    /// Minimal single-word, single-plane test basis: `commutes` and
-    /// `product` are toy XOR-parity rules (not a real algebra), just enough
-    /// to exercise the kernels' flag/prefix-sum/scatter machinery
-    /// independent of any real physics — `PauliBasis`/`MajoranaBasis`
-    /// (downstream crates) carry their own algebra-level cross-checks
-    /// against the pre-rewrite AoS implementations.
     struct TestBasis;
     impl SoaBasis for TestBasis {
         type Term = u64;
@@ -601,9 +579,6 @@ mod tests {
             if term[0][0] & f == 0 { 1.0 } else { -1.0 }
         }
         fn key_hash(term: [&[u64]; 2]) -> u64 {
-            // Deliberately *not* the identity function, so batch assignment
-            // (which uses the upper bits) isn't trivially the same as the
-            // key itself — exercises the general hash-based-merge path.
             let x = term[0][0];
             let mut z = x.wrapping_add(0x9E3779B97F4A7C15);
             z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
@@ -702,18 +677,12 @@ mod tests {
         assert_eq!(values(&terms)[&1], 1e-3);
     }
 
-    // --- `map_retain` / `fold_coeffs` / `sum_coeffs`: the generic
-    // primitives added for the surrogate's SoA port (they replace the old
-    // hash-partition engine's `map_and_retain_coeffs_inplace`/`fold_coeffs`/
-    // `sum_coeffs`, used by its monomial-budget truncation).
-
     #[test]
     fn map_retain_scales_then_filters_and_returns_size_hint_sum() {
         let mut terms = make(4);
         terms.push([&[1], &[0]], 1.0); // weight 1
         terms.push([&[3], &[0]], 2.0); // weight 2
         terms.push([&[7], &[0]], 3.0); // weight 3
-        // map: double every coefficient; keep: weight <= 2.
         let total_size = map_retain::<TestBasis, f64, _, _>(
             &mut terms,
             |c| *c *= 2.0,
@@ -734,7 +703,7 @@ mod tests {
         for i in 0..n {
             terms.push([&[i as u64], &[0]], i as f64);
         }
-        // map: add 1; keep: value divisible by 3 (arbitrary, exercises both passes at scale).
+
         let total_size = map_retain::<TestBasis, f64, _, _>(
             &mut terms,
             |c| *c += 1.0,
@@ -778,9 +747,6 @@ mod tests {
 
     #[test]
     fn sum_coeffs_saturates_instead_of_wrapping() {
-        // Two terms whose per-term quantity is already `u128::MAX` (as a
-        // real coefficient's `monomial_count()` can be, once saturated) --
-        // plain `.sum()` would wrap this well below `u128::MAX`.
         let mut terms = make(4);
         terms.push([&[1], &[0]], 1.0);
         terms.push([&[2], &[0]], 1.0);
@@ -791,20 +757,15 @@ mod tests {
     #[test]
     fn apply_rotation_append_branch_grows_and_computes_both_branches() {
         let mut terms = make(4);
-        // term=1, gen=1 => (term & gen).count_ones() == 1 (odd) => anticommutes.
+
         terms.push([&[1], &[0]], 2.0);
         let gen = [&[1u64][..], &[0u64][..]];
         let angle = 0.3f64;
         let added = apply_rotation::<TestBasis, f64>(&mut terms, gen, &angle, false);
         assert_eq!(added, 1);
         assert_eq!(terms.len(), 2);
-        // cos branch stays in place at row 0 (term unchanged: term ^ 0 identity
-        // isn't computed for the untouched cos branch — only the coefficient
-        // is scaled).
         assert_eq!(terms.term_plane(0, 0)[0], 1);
         assert!((terms.coeff(0) - 2.0 * angle.cos()).abs() < 1e-12);
-        // sin branch appended at row 1 with the product term (1^1=0) and the
-        // sin-scaled coefficient (phase i => -phase.im = -1, matching TestBasis's product phase).
         assert_eq!(terms.term_plane(1, 0)[0], 0);
         assert!((terms.coeff(1) - (2.0 * angle.sin() * -1.0)).abs() < 1e-12);
     }
@@ -830,8 +791,6 @@ mod tests {
         let added = apply_rotation::<TestBasis, f64>(&mut terms, gen, &angle, true);
         assert_eq!(added, 1);
         assert_eq!(terms.len(), 2, "in-place branch must not grow the container");
-        // Row 0 overwritten in place with the product (1^1=0) and the sin
-        // branch coefficient.
         assert_eq!(terms.term_plane(0, 0)[0], 0);
         assert!((terms.coeff(0) - (2.0 * angle.sin() * -1.0)).abs() < 1e-9);
         assert_eq!(terms.term_plane(1, 0)[0], 0b10);
@@ -854,14 +813,9 @@ mod tests {
         let mut terms = make(4);
         terms.push([&[0b01], &[0]], 2.0);
         terms.push([&[0b10], &[0]], 3.0);
-        // fock=0b01: term0 & fock = 0b01 (nonzero => trace -1), term1 & fock = 0 (trace 1)
         let total = expectation::<TestBasis>(&terms, &[0b01]);
         assert!((total - (2.0 * -1.0 + 3.0 * 1.0)).abs() < 1e-12);
     }
-
-    // --- Large-N variants that exceed `PAR_MIN_LEN`, exercising the
-    // parallel/unsafe scatter paths (`SendPtr`, `par_chunks_mut`,
-    // blocked prefix-sum) instead of only the serial fallbacks above.
 
     const BIG: usize = 5_000;
 
@@ -881,17 +835,6 @@ mod tests {
         assert_eq!(got, expected);
     }
 
-    // --- Hash-based `merge` correctness at scale, including a basis that
-    // deliberately forces hash collisions to exercise the `key_eq`
-    // collision-resolution path (`SmallVec` candidate lists with more than
-    // one entry), not just the common one-hash-one-key case.
-
-    /// Same algebra as `TestBasis`, but `key_hash` maps every key to one of
-    /// only 4 buckets — guaranteeing frequent collisions between genuinely
-    /// different keys within the same hash bucket (and, by extension, the
-    /// same `merge` batch), so `seen`'s per-hash `SmallVec` in `merge` must
-    /// actually walk multiple candidates and use `key_eq` to pick the right
-    /// one (or correctly decide none match).
     struct CollidingTestBasis;
     impl SoaBasis for CollidingTestBasis {
         type Term = u64;
@@ -911,8 +854,6 @@ mod tests {
 
     #[test]
     fn merge_resolves_hash_collisions_correctly() {
-        // 50 distinct keys, all colliding into 4 hash buckets (key_hash =
-        // key % 4), each key appearing a different number of times.
         let n_keys = 50u64;
         let mut terms = make(4);
         let mut expected_counts = std::collections::HashMap::new();
@@ -957,11 +898,6 @@ mod tests {
 
     #[test]
     fn merge_dedups_and_accumulates_at_scale_diverse_keys() {
-        // Deterministic splitmix64-style scramble spanning the full u64
-        // range as the *term value itself* (not just the hash), with only
-        // 137 distinct residues repeating — exercises `merge` at a scale
-        // that forces the parallel multi-batch path with realistic key
-        // diversity (unlike the low-cardinality tests above).
         let n = 50_000usize;
         let mut terms = make(4);
         let mut seed = 0x9E3779B97F4A7C15u64;
@@ -987,8 +923,6 @@ mod tests {
     #[test]
     fn merge_parallel_dedups_and_accumulates_large() {
         let mut terms = make(4);
-        // Every key in [0, 100) appears (BIG/100) times with coefficient 1.0;
-        // after merge each unique key's coefficient must equal its multiplicity.
         for i in 0..BIG {
             terms.push([&[(i % 100) as u64], &[0]], 1.0);
         }
@@ -1008,8 +942,6 @@ mod tests {
         }
         let cfg = ResolvedConfig { weight: Some(2), ..Default::default() };
         truncate::<TestBasis, f64>(&mut terms, &cfg);
-        // Kept keys are those with popcount <= 2: 0,1,2,3,4,5,6 all have
-        // popcount<=2 except 7 (0b111, popcount 3); only key 7 is dropped.
         let expected_kept = BIG - BIG / 8;
         assert_eq!(terms.len(), expected_kept);
         assert!(!values(&terms).contains_key(&7));
@@ -1018,21 +950,14 @@ mod tests {
     #[test]
     fn apply_rotation_parallel_append_matches_serial_reference() {
         let mut terms = make(4);
-        // Half anticommute with gen=1 (odd term), half commute (even term).
         for i in 0..BIG {
             terms.push([&[i as u64], &[0]], 1.0);
         }
         let gen = [&[1u64][..], &[0u64][..]];
-        // TestBasis::commutes flags `!((term & gen).count_ones() % 2 == 0)`;
-        // with gen=1, `term & 1` is 1 iff `term` (== i here) is odd, so the
-        // anticommuting rows are exactly the odd-indexed ones.
         let expected_added = (0..BIG).filter(|&i| i % 2 == 1).count();
         let added = apply_rotation::<TestBasis, f64>(&mut terms, gen, &0.4, false);
         assert_eq!(added, expected_added);
         assert_eq!(terms.len(), BIG + expected_added);
-        // Every appended row's term must be its source row's term XOR 1, and
-        // every original row whose term is odd must have had its coefficient
-        // scaled by cos(0.4) (untouched rows keep coefficient 1.0 exactly).
         for i in 0..BIG {
             let is_anticommuting = i % 2 == 1;
             if is_anticommuting {

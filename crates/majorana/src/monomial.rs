@@ -30,11 +30,6 @@ pub struct MajoranaMonomial {
     #[pyo3(get)]
     pub is_number_preserving: bool,
     pub weight: u32,
-    /// Cached parallel-prefix XOR-scan value used by `compute_weight_for`.
-    /// `p` is linear in `modes` under XOR (see `weight_and_p_from_product`),
-    /// so it can be combined via a single XOR on every product instead of
-    /// recomputing the O(log n_qubits) scan from scratch each time. Purely
-    /// a derived cache of `modes`/`n_modes` — excluded from `Eq`/`Hash`.
     pub p: Bitset,
 }
 
@@ -87,12 +82,6 @@ impl MajoranaMonomial {
         (single, occupied)
     }
 
-    /// Inclusive parallel-prefix XOR-scan of `single` over `[0, n_qubits)`:
-    /// `p[k] = single[0] ^ single[1] ^ ... ^ single[k]`. This is the
-    /// expensive O(log n_qubits) `shl`-heavy part — linear in `single`
-    /// under XOR, so callers on the hot path should prefer combining two
-    /// already-scanned `p` values (`weight_and_p_from_product`) over calling
-    /// this directly.
     fn scan_p(single: &Bitset, n_qubits: usize, qubit_mask: &Bitset) -> Bitset {
         let mut p = single.clone();
         let mut shift = 1usize;
@@ -123,9 +112,6 @@ impl MajoranaMonomial {
         Self::weight_from_parts(&single, &occupied, &p, &qubit_mask)
     }
 
-    /// Full (weight, p) computation from scratch — used at "fresh"
-    /// construction sites (not the hot multiplication path) so `p` doesn't
-    /// need a second, separate scan later.
     pub fn weight_and_p_for(modes: &Bitset, n_modes: usize) -> (u32, Bitset) {
         let n_qubits = n_modes / 2;
         if n_qubits == 0 { return (0, Bitset::zero()); }
@@ -136,10 +122,6 @@ impl MajoranaMonomial {
         (weight, p)
     }
 
-    /// Fast path used by `matmul_internal`: `p` for the product is exactly
-    /// `self_p ^ other_p` (the prefix-scan is linear in `modes` under XOR),
-    /// so this needs no scan at all — only the cheap `single`/`occupied`
-    /// compression on the already-XORed `result_modes`.
     pub(crate) fn weight_and_p_from_product(
         result_modes: &Bitset,
         n_modes: usize,
@@ -338,12 +320,6 @@ impl Hash for MajoranaMonomial {
     fn hash<H: Hasher>(&self, state: &mut H) { self.modes.hash(state); }
 }
 
-/// SoA engine seam for Majorana monomials. Plane 0 is `modes` (the term's
-/// identity); plane 1 is the cached prefix-XOR-scan `p` — not part of
-/// identity (`key_hash`/`key_eq` ignore it), but it must travel with a term
-/// through sort/compaction/append the same way `modes` does, since it's what lets
-/// `weight`/`product` avoid an O(log n_qubits) rescan on every call (see the
-/// `p` field's doc comment on `MajoranaMonomial` above).
 pub struct MajoranaBasis;
 
 impl SoaBasis for MajoranaBasis {
@@ -361,10 +337,6 @@ impl SoaBasis for MajoranaBasis {
     }
 
     fn product(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64 {
-        // gen @ term, matching `matmul_internal(self=gen, other=term)`. `p`
-        // combines by a plain XOR (linear in `modes`, see
-        // `weight_and_p_from_product`) — no rescan needed, so unlike
-        // `weight`/`term_from_planes` this needs no `n_units`.
         for i in 0..out[0].len() {
             out[0][i] = gen[0][i] ^ term[0][i];
             out[1][i] = gen[1][i] ^ term[1][i];
@@ -630,9 +602,6 @@ mod tests {
         assert_eq!(m.trace_fock_state_impl(&fock(0b11)), -1.0);
     }
 
-    /// Cross-checks a product's incrementally-computed `weight` (and cached
-    /// `p`) against a from-scratch recomputation on the result's own modes
-    /// — the oracle for every weight/`p`-related test in this module.
     fn assert_weight_and_p_correct(result: &MajoranaMonomial) {
         let expected_weight = MajoranaMonomial::compute_weight_for(&result.modes, result.n_modes);
         assert_eq!(result.weight, expected_weight, "weight mismatch for modes={:?}", result.modes);
@@ -706,19 +675,6 @@ mod tests {
         assert!(!a.commutes_with_impl(&b));
     }
 
-    // --- Incremental weight/p correctness (see `weight_and_p_from_product`) ---
-    //
-    // The fast path in `matmul_internal` relies on the parallel-prefix
-    // XOR-scan being linear under XOR of its input: `p(A^B) == p(A) ^ p(B)`.
-    // This was verified analytically and against 3.3M+ trials of an
-    // independent simulation before implementation; the tests below port
-    // that verification into the suite so a future change can't silently
-    // break it. Every test compares `matmul_internal`'s incrementally
-    // computed `weight`/`p` against `compute_weight_for`/`weight_and_p_for`
-    // (the from-scratch, unchanged-since-inception reference) as the oracle.
-
-    /// Deterministic splitmix64 PRNG — avoids a `rand` dev-dependency for
-    /// what's otherwise a one-file, test-only need.
     struct Rng(u64);
     impl Rng {
         fn next_u64(&mut self) -> u64 {
@@ -888,10 +844,6 @@ mod tests {
 
     #[test]
     fn majorana_basis_key_eq_and_hash_ignore_p_plane() {
-        // Two monomials with identical modes must be key_eq (and key_hash
-        // equally) regardless of what garbage sits in the (unused-for-
-        // identity) p plane — merge's parallel-batch correctness depends on
-        // key_eq/key_hash agreeing, and neither may read `p`.
         let stride = 1;
         let a = mon(0b0101, 8);
         let (a0, a1) = planes_of(&a, stride);

@@ -1,21 +1,12 @@
 ///
 /// Export the core Rust functionality to Python via PyO3.
 ///
-/// No longer overrides the global allocator (mimalloc was removed): that
-/// was justified by the old shard-based propagator's cross-thread free
-/// pattern (a term allocated by one thread's `apply_gate_inplace` call,
-/// later freed by a different thread's outbox flush) — real-workload A/B
-/// testing after the SoA rewrite showed mimalloc measurably *slower* than
-/// the system allocator on the numerical propagators, which no longer have
-/// that pattern (columnar buffers grow rarely via amortized doubling; the
-/// hash-based merge's per-batch maps are allocated and dropped by the same
-/// thread). The surrogate propagator (since ported onto the same SoA engine,
-/// with its `SymbolicCoeff` coefficient later rewritten onto a persistent
-/// DAG) wasn't shown to depend on mimalloc either, and removing a global
-/// allocator override is the simpler default absent evidence it helps.
 use pyo3::prelude::*;
 
-use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
+use propaq_core::{
+    TruncationPolicy, UniformNoiseModel, GateNoiseModel, NativeNoiseModel, NativeTruncator,
+    PropagationResult, Logger,
+};
 use propaq_core::truncators::{
     CoefficientTruncator, FlushSchedule, FrequencyTruncator, MonomialBudget, Simplify, TermBudget,
     WeightTruncator,
@@ -45,6 +36,7 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TruncationPolicy>()?;
     m.add_class::<UniformNoiseModel>()?;
     m.add_class::<GateNoiseModel>()?;
+    m.add_class::<NativeNoiseModel>()?;
     m.add_class::<MajoranaPropagator>()?;
     m.add_class::<PauliPropagator>()?;
     m.add_class::<PropagationResult>()?;
@@ -56,6 +48,7 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<WeightTruncator>()?;
     m.add_class::<TermBudget>()?;
     m.add_class::<MonomialBudget>()?;
+    m.add_class::<NativeTruncator>()?;
     m.add_class::<Simplify>()?;
     m.add_class::<PauliSurrogateModel>()?;
     m.add_class::<MajoranaSurrogateModel>()?;

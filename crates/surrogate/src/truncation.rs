@@ -6,12 +6,7 @@ use pyo3::prelude::*;
 use propaq_core::truncators::{FlushSchedule, FrequencyTruncator, TermBudget, Truncator, WeightTruncator};
 
 const DEFAULT_MAX_TERMS: usize = 10_000_000;
-/// Default finer merge cadence - merge (dedup duplicate Pauli strings into
-/// the maps) after every gate that adds a term, without truncating. Merging
-/// is O(1) per term regardless of prior history under the symbolic DAG
-/// coefficient representation, so eager merging keeps live term count
-/// minimal at all times rather than drifting toward path count within a
-/// truncation window.
+/// Default finer merge cadence
 const DEFAULT_MERGE_MAX_TERMS: usize = 1;
 
 #[pyclass(module = "propaq._rust_core")]
@@ -75,10 +70,6 @@ impl FrequencyTruncationPolicy {
 }
 
 impl FrequencyTruncationPolicy {
-    /// Decompose this legacy policy into the composable `(FlushSchedule,
-    /// [Truncator])` shape the surrogate propagator runs internally. Each cutoff
-    /// becomes its own core truncator (a bound that is `None` on both sides is
-    /// omitted), and `merge_max_terms` becomes the schedule.
     pub fn decompose(&self) -> (FlushSchedule, Vec<Truncator>) {
         let schedule = FlushSchedule { merge_max_terms: self.merge_max_terms };
         let mut ops = Vec::new();

@@ -26,6 +26,7 @@ class VariationalSurrogateModel:
         parameter_sources: list[ParamSource],
         qiskit_parameters: tuple[Parameter, ...],
     ):
+        """Construct a VariationalSurrogateModel from a compiled surrogate model and its Qiskit parameter sources."""
         self._model = model
         self._parameter_sources = parameter_sources
         self.parameters = qiskit_parameters

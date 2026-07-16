@@ -7,38 +7,6 @@
 /// merging/truncation reuse `soa::kernels::merge`/`map_retain` the same way
 /// the numerical propagators do.
 ///
-/// `SymbolicCoeff` (`crate::symcoeff`) represents a coefficient as a
-/// persistent DAG (`Scalar`/`Add`/`Scale`/`Cos`/`Sin` nodes, built via `Arc`),
-/// not an expanded monomial list — every gate application and every merge is
-/// O(1) regardless of how large a coefficient's prior history already is, no
-/// monomial ever touched on the hot path. This replaced an earlier CSR/trie
-/// design (interned support/exponent tables reconciled at every flush) after
-/// real profiling showed that design's per-gate cost scaling with live
-/// monomial count was the dominant source of allocator/thread-contention
-/// overhead in practice (see `propaq.MD`/project memory for the diagnosis
-/// and the ProPauli reference design this port is based on).
-///
-/// Every `Truncator` is honored, including the monomial-level
-/// `FrequencyTruncator`/`CoefficientTruncator` — despite first appearances,
-/// neither needs an expanded per-monomial view of a coefficient's history.
-/// `SymbolicCoeff::prune` decides both cutoffs structurally, from cached
-/// per-node bounds, dropping whole doomed subtrees in O(1) without ever
-/// visiting their insides (see `symcoeff.rs`'s module doc and `prune`'s doc
-/// comment for the algorithm).
-///
-/// `MonomialBudget` is a threshold-triggered flush keyed on the live
-/// monomial-count estimate (`SymbolicCoeff::monomial_count`, summed), exactly
-/// mirroring `TermBudget`'s role (a *when to flush* decision, not a removal
-/// strategy) but on monomial count instead of term count — since a handful
-/// of terms can carry an astronomically larger monomial count than their row
-/// count suggests, `TermBudget` alone doesn't bound the dimension that
-/// actually drives memory/CPU cost here. This is a different, much simpler
-/// mechanism than the *old* `MonomialBudget` that was removed during the DAG
-/// rewrite (a global, cross-coefficient, rank-ordered *importance removal*
-/// requiring a histogram) — that one doesn't extend to this structural
-/// design, but a plain threshold trigger reusing `prune`/`map_retain` (the
-/// same machinery every other truncator already uses for removal) does.
-///
 use std::io::{BufWriter, Write};
 use std::fs::OpenOptions;
 use std::marker::PhantomData;
@@ -61,8 +29,8 @@ use crate::symcoeff::{simplify_sharded, CompiledCoeff, GateParam, SymbolicCoeff}
 use crate::truncation::FrequencyTruncationPolicy;
 use crate::model::{SurrogateModel, SurrogateTerm, PauliSurrogateModel, MajoranaSurrogateModel};
 use propaq_core::truncators::{
-    resolve_config, resolve_truncation as core_resolve_truncation, FlushSchedule, ResolvedConfig,
-    Truncator,
+    reject_numerical_only, resolve_config, resolve_truncation as core_resolve_truncation, FlushSchedule,
+    ResolvedConfig, Truncator,
 };
 
 /// Shard count (relative to thread count) for both `compile_surviving_terms`
@@ -93,11 +61,6 @@ fn resolve_truncation(
     core_resolve_truncation(truncation, schedule)
 }
 
-/// Surrogate propagator: drives a `SoaTermSum<SymbolicCoeff>` directly via
-/// `soa::kernels`, generic over the basis (`PauliBasis`/`MajoranaBasis`).
-/// Holds its own thread pool rather than wrapping `AbstractPropagator` — the
-/// same shape as the numerical `SoaPropagator<B>`, plus the surrogate-only
-/// interning/monomial-tracking state.
 pub struct SurrogatePropagator<B: SoaBasis> {
     pool: Arc<rayon::ThreadPool>,
     /// Flush/merge cadence (when to truncate), separate from the operators.
@@ -311,20 +274,10 @@ where
         let mut pending: usize = 0;
         let mut pending_monomials: u128 = 0;
         let mut deferred_threshold_trigger: Option<&'static str> = None;
-        // Deduplicated count as of the last merge, for the gate log's
-        // `map_terms`/`outbox_terms` split (mirrors the numerical `SoaPropagator`
-        // — there's no physical partition/outbox distinction in a flat SoA
-        // array, only "merged" vs "appended since the last merge").
         let mut merged_len = evolved.len();
 
         let pool = Arc::clone(&self.pool);
         for (layer_idx, layer_data) in circuit_data.iter().rev().enumerate() {
-            // Note: no per-layer noise here. The old engine's
-            // `self.inner.uniform_damping(py)` always saw `noise: None` for the
-            // surrogate propagator (neither `PauliSurrogatePropagator` nor
-            // `MajoranaSurrogatePropagator` ever exposed a way to set it — no
-            // `noise`/`set_noise` on either pyclass), so that branch was
-            // unreachable dead code; removed rather than carried forward.
 
             let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
             for (idx, (gen0, gen1, param, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
@@ -734,6 +687,7 @@ impl PauliSurrogatePropagator {
         logger: Option<PyObject>,
     ) -> PyResult<Self> {
         let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
+        reject_numerical_only(&truncators)?;
         Ok(PauliSurrogatePropagator {
             inner: SurrogatePropagator::new(schedule, truncators, n_threads, progress_bar, logger)?,
         })
@@ -786,6 +740,7 @@ impl PauliSurrogatePropagator {
     fn set_truncation(&mut self, truncation: Option<Bound<'_, PyAny>>) -> PyResult<()> {
         let (schedule, truncators) =
             resolve_truncation(truncation.as_ref(), Some(self.inner.schedule.clone()))?;
+        reject_numerical_only(&truncators)?;
         self.inner.schedule = schedule;
         self.inner.truncators = truncators;
         Ok(())
@@ -810,6 +765,7 @@ impl MajoranaSurrogatePropagator {
         logger: Option<PyObject>,
     ) -> PyResult<Self> {
         let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
+        reject_numerical_only(&truncators)?;
         Ok(MajoranaSurrogatePropagator {
             inner: SurrogatePropagator::new(schedule, truncators, n_threads, progress_bar, logger)?,
         })
@@ -856,6 +812,7 @@ impl MajoranaSurrogatePropagator {
     fn set_truncation(&mut self, truncation: Option<Bound<'_, PyAny>>) -> PyResult<()> {
         let (schedule, truncators) =
             resolve_truncation(truncation.as_ref(), Some(self.inner.schedule.clone()))?;
+        reject_numerical_only(&truncators)?;
         self.inner.schedule = schedule;
         self.inner.truncators = truncators;
         Ok(())

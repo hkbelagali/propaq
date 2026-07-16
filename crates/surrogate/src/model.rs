@@ -27,53 +27,20 @@ use rayon::prelude::*;
 
 use crate::symcoeff::CompiledCoeff;
 
-/// A single compiled term's evaluation data: its structural overlap with the
-/// initial state and a `root` index into the model's *shared* `tape`
-/// (`SurrogateModel::tape`). Deliberately holds nothing else -- in
-/// particular no Pauli/Majorana string, and (since the compile-tape fix) no
-/// longer its own `CompiledCoeff` either. `evaluate` needs `overlap` and
-/// `tape[root]`'s evaluated value together (the term itself was only ever
-/// used to compute `overlap` once, during propagation, and to identify the
-/// term for save/load, which no longer round-trips it -- see `propaq.MD`),
-/// so `SurrogateModel` no longer carries an `AbstractTerm` generic parameter
-/// at all: the same concrete type backs both `PauliSurrogateModel` and
-/// `MajoranaSurrogateModel`.
 pub struct SurrogateTerm {
-    /// `term.trace_with_fock_state(initial_state)`; nonzero by construction.
-    /// Independent of the gate parameters, computed once at build end.
     pub overlap: f64,
-    /// Index into the owning `SurrogateModel::tape`; `usize::MAX` sentinel
-    /// for a structurally-empty (zero) coefficient. `usize`, not `u32`: a
-    /// real large model's merged tape has been observed to exceed
-    /// `u32::MAX` total ops (see `CompiledOp`'s doc comment in `symcoeff.rs`).
     pub root: usize,
 }
 
 /// Sentinel `SurrogateTerm::root` value for a structurally-empty coefficient
-/// (no ops in the shared tape to reference).
 const EMPTY_ROOT: usize = usize::MAX;
 
 thread_local! {
-    /// Per-worker-thread scratch buffer for `evaluate_batch`, reused across
-    /// every parameter set that lands on this thread instead of allocating a
-    /// fresh `tape.ops.len()`-sized `Vec` per call -- see
-    /// `CompiledCoeff::evaluate_into`.
     static EVAL_SCRATCH: RefCell<Vec<f64>> = RefCell::new(Vec::new());
 }
 
 /// Compiled output of a surrogate propagation run.
 ///
-/// Contains only terms with nonzero structural overlap (filter is structural,
-/// not coefficient-dependent). `tape` is ONE shared, topologically-ordered op
-/// tape produced by `SymbolicCoeff::compile_batch` (per build shard) plus
-/// `CompiledCoeff::merge_shards` -- every term's coefficient is a `root`
-/// index into this single tape rather than an independently-compiled
-/// `CompiledCoeff` of its own, so a DAG subtree shared across many terms
-/// (extremely common under heavy parameter reuse) is stored and evaluated at
-/// most once per build shard, not once per referencing term -- see
-/// `propaq.MD`'s "Evaluate & persistence" section for why this replaced the
-/// earlier per-term-`CompiledCoeff` design. Call `evaluate` with parameter
-/// angles to obtain the expectation value without re-running propagation.
 pub struct SurrogateModel {
     pub terms: Vec<SurrogateTerm>,
     pub tape: CompiledCoeff,
@@ -86,11 +53,6 @@ impl SurrogateModel {
     }
 
     /// Evaluate the expectation value for the given parameter angles.
-    ///
-    /// `params[i]` is the angle (in radians) for parameter index `i`.
-    /// Length must be at least `self.n_params`. Does ONE full linear scan of
-    /// the shared `tape` (not one scan per term -- see `SurrogateModel`'s
-    /// doc comment), then a parallel weighted-sum reduction over `terms`.
     pub fn evaluate(&self, params: &[f64]) -> f64 {
         let lut = Self::make_lut(params);
         let results = self.tape.evaluate_all(&lut);
@@ -101,19 +63,7 @@ impl SurrogateModel {
     }
 
     /// Evaluate for many parameter assignments at once. Parallelizes across
-    /// assignments; each assignment reuses one thread-local scratch buffer
-    /// across calls instead of allocating a fresh `tape.ops.len()`-sized
-    /// `Vec` per parameter set (`CompiledCoeff::evaluate_into`) -- for a
-    /// large tape evaluated over many parameter sets (a VQE optimizer's
-    /// inner loop, potentially thousands of calls against the same built
-    /// model), this removes what was previously a fresh full-tape
-    /// allocation on every single call. The per-term weighted sum below is
-    /// sequential, not `terms.par_iter()` (unlike the single-shot
-    /// `evaluate`): the outer parallelism here is already across parameter
-    /// sets, and nesting a second rayon-parallel reduction while holding the
-    /// scratch buffer's `RefCell` borrow would risk a work-stealing thread
-    /// re-entering the same thread-local buffer before the borrow is
-    /// released (a `BorrowMutError` panic).
+    /// assignments.
     pub fn evaluate_batch(&self, param_sets: &[Vec<f64>]) -> Vec<f64> {
         param_sets
             .par_iter()
@@ -141,15 +91,7 @@ impl SurrogateModel {
     }
 
     /// Total pre-dedup monomial-instance count across every surviving term
-    /// (an upper bound, not deduplicated -- see `CompiledCoeff::monomial_counts`),
-    /// summing each term's own root's count in the shared tape. `n_terms`
-    /// alone doesn't say how much underlying computation a term represents:
-    /// a handful of terms can each still expand to an astronomical monomial
-    /// count if their coefficient's derivation history is deep and largely
-    /// unshared. `saturating_add` via `fold` (not `.sum()`, which wraps on
-    /// overflow): even with each term's own count now individually saturated
-    /// at `u128::MAX` (`Node::add`'s fix), summing many already-huge terms'
-    /// counts together with plain `+` can still wrap the aggregate.
+    /// (an upper bound, not deduplicated)
     pub fn n_monomials(&self) -> u128 {
         let counts = self.tape.monomial_counts();
         self.terms
@@ -160,21 +102,6 @@ impl SurrogateModel {
 
     /// Save to a binary file (see the module-level format notes on
     /// `MAGIC`/`FORMAT_VERSION`).
-    ///
-    /// Both the shared `tape` and the term array are split into
-    /// ~`current_num_threads()` contiguous shards, each serialized and
-    /// gzip-compressed independently and in parallel -- previously the tape
-    /// was serialized/compressed as one single-threaded block (reasoned to
-    /// be cheap enough, since it's bounded by shard-count x distinct-node-
-    /// count rather than term count), but a real large model showed this was
-    /// still the dominant serial cost in `save`: "bounded relative to the old
-    /// per-term design" does not mean "small" at multi-million-term scale.
-    /// `CompiledCoeff::serialize_shards_with` fuses each shard's
-    /// serialization with `gzip_block` in one pass (rather than collecting
-    /// every shard's raw bytes into a `Vec<Vec<u8>>` first and compressing
-    /// that afterward), so we never hold a full second raw-bytes copy of the
-    /// tape alongside `self.tape` itself -- see its doc comment for why no
-    /// index reindexing is needed either, unlike `merge_shards`.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let target_shards = rayon::current_num_threads().max(1);
 
@@ -261,15 +188,7 @@ impl SurrogateModel {
             r.read_exact(&mut blob)?;
             tape_blobs.push(blob);
         }
-        // Decompress AND parse each shard in one fused step per shard (not
-        // "decompress every shard, then parse every shard") -- otherwise the
-        // compressed blobs, the fully-decompressed raw bytes, and the final
-        // parsed ops all end up resident simultaneously, multiplying peak
-        // memory several-fold over the file's on-disk size (a real bug found
-        // on a 200GB file ballooning past 750GB in RAM). `into_par_iter()`
-        // consumes `tape_blobs` so each blob is dropped as soon as its own
-        // shard's decompression+parse finishes, and each shard's transient
-        // decompressed buffer never outlives that one closure call.
+        // Decompress AND parse each shard in one fused step per shard.
         let tape_shards: Vec<CompiledCoeff> = tape_blobs
             .into_par_iter()
             .map(|blob| -> std::io::Result<CompiledCoeff> {
@@ -310,23 +229,10 @@ impl SurrogateModel {
 }
 
 /// Magic bytes and format version stamped at the head of every saved model.
-/// Bumped three times in quick succession: 6 -> 7 when `SurrogateTerm`
-/// stopped carrying its own compiled tape (only a `root` index into one
-/// model-wide shared `tape`); 7 -> 8 when `root`'s width grew from `u32` to
-/// `usize` (`u32` was observed to overflow on a real multi-million-term
-/// model's merged tape -- see `CompiledOp`'s doc comment in `symcoeff.rs`);
-/// 8 -> 9 when the tape gained its own shard-length index (previously one
-/// single block, which turned out to still be `save`'s dominant serial cost
-/// at real scale -- see `save`'s doc comment). Old files fail to load with a
-/// clear error rather than being silently misparsed (see `load`'s version
-/// check).
 const MAGIC: u32 = u32::from_le_bytes(*b"PQSM");
 const FORMAT_VERSION: u32 = 9;
 
-/// Serialize one term into `buf` (uncompressed): overlap (f64le) then root
-/// (u64le, regardless of the in-memory `usize` width, for portability) --
-/// 16 bytes, no longer a whole `CompiledCoeff` per term (see
-/// `SurrogateModel`'s doc comment).
+/// Serialize one term into `buf` (uncompressed)
 fn write_term_into(buf: &mut Vec<u8>, st: &SurrogateTerm) {
     buf.extend_from_slice(&st.overlap.to_le_bytes());
     buf.extend_from_slice(&(st.root as u64).to_le_bytes());
@@ -466,8 +372,6 @@ impl MajoranaSurrogateModel {
         Ok(py.allow_threads(|| self.inner.evaluate(&params)))
     }
 
-    /// Evaluate many parameter assignments at once (parallelized across
-    /// assignments); returns one expectation value per assignment.
     fn evaluate_batch(&self, py: Python<'_>, param_sets: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
         for (i, params) in param_sets.iter().enumerate() {
             if params.len() < self.inner.n_params {
@@ -502,9 +406,6 @@ impl MajoranaSurrogateModel {
         self.inner.n_terms()
     }
 
-    /// Total pre-dedup monomial-instance count across every surviving term
-    /// (an upper bound, not deduplicated -- `n_terms` alone doesn't say how
-    /// much underlying computation a term represents).
     #[getter]
     fn n_monomials(&self) -> u128 {
         self.inner.n_monomials()
@@ -525,12 +426,6 @@ mod tests {
     use num_complex::Complex64;
     use propaq_core::coeff::CoeffRepr;
 
-    /// Build a small model with deliberate `Arc`-level sharing across term
-    /// roots (several terms branching off one common prefix), evaluate it
-    /// via the shared-tape path, and cross-check against the value the
-    /// *old* per-term algorithm would have produced (`SymbolicCoeff::compile`
-    /// + `CompiledCoeff::evaluate`, summed by hand) -- not just internal
-    /// self-consistency with the new code path.
     fn build_shared_model() -> (SurrogateModel, Vec<SymbolicCoeff>, Vec<f64>) {
         let phase = Complex64::new(0.0, -1.0);
         let mut base = SymbolicCoeff::from_scalar(1.0);
@@ -575,12 +470,6 @@ mod tests {
 
     #[test]
     fn n_monomials_matches_the_original_node_count_sum() {
-        // `SymbolicCoeff::monomial_count()` reads `Node::count` directly off
-        // the (still-owned, uncompiled) DAG -- the ground truth this test
-        // cross-checks `SurrogateModel::n_monomials`'s tape-recomputed
-        // version against, since `compile_batch` discards `Node::count`
-        // once flattened and `n_monomials` has to reconstruct it from the
-        // flat `CompiledOp` tape instead.
         let (model, coeffs, _overlaps) = build_shared_model();
         let expected: u128 = coeffs.iter().map(|c| c.monomial_count()).sum();
         assert_eq!(model.n_monomials(), expected);
@@ -588,10 +477,6 @@ mod tests {
 
     #[test]
     fn n_monomials_saturates_instead_of_wrapping_when_summing_many_huge_terms() {
-        // Three independent, already-individually-saturated terms: summing
-        // them with plain `+`/`.sum()` would wrap well below `u128::MAX`
-        // (`u128::MAX + u128::MAX` alone wraps to `u128::MAX - 1`), which is
-        // exactly the bug `n_monomials`'s `saturating_add` fold fixes.
         let mut coeffs = Vec::new();
         for i in 0..3 {
             let mut c = SymbolicCoeff::from_scalar(1.0 + i as f64);

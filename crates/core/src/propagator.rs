@@ -4,19 +4,6 @@
 /// engine (`soa::propagator::SoaPropagator`) and the surrogate propagator
 /// (`propaq_surrogate::propagator::SurrogatePropagator`).
 ///
-/// This file used to also hold `AbstractPropagator<M, C>`, a hash-partition/
-/// outbox engine: each thread owned a disjoint partition of the term space as
-/// a hashmap, plus a set of outboxes for terms belonging to other partitions,
-/// with gate application processing both and a parallel-transpose flush
-/// merging outboxes into partition maps before truncation. The numerical
-/// propagators were rewritten onto the columnar SoA engine (see `soa::mod`'s
-/// doc comment) because that model paid a rayon fork/join and a hashmap
-/// insert per gate per term; the surrogate propagator was the last remaining
-/// consumer and has since been ported onto `SoaTermSum<SymbolicCoeff>` +
-/// `soa::kernels` too (interning/reconcile, monomial-budget truncation, and
-/// model build all now read/write columnar storage directly), so
-/// `AbstractPropagator` and its partition-specific helpers were deleted.
-///
 use pyo3::prelude::*;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::fs::OpenOptions;

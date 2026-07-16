@@ -14,13 +14,6 @@ use crate::streamer::PauliTermStreamer;
 
 /// A mutable, weighted sum of Pauli strings with real coefficients.
 ///
-/// Backed by `SoaTermSum<f64>` (contiguous `x`/`z` bit-planes plus a
-/// coefficient column) rather than a hashmap. `add`/`__setitem__` still need
-/// O(1) accumulate-or-overwrite-by-key, so this wrapper keeps a small
-/// `PauliString -> row` index alongside the columns; the propagation hot
-/// path (`PauliPropagator`) never sees or needs this index, since a gate
-/// application only ever appends or mutates in place by row, not by key.
-///
 /// Arguments:
 ///     terms: Optional initial mapping of PauliString to real coefficient.
 #[pyclass(subclass, module = "propaq._rust_core")]
@@ -30,10 +23,7 @@ pub struct PauliTermSum {
 }
 
 /// If `inner` is still empty and hasn't been sized yet, (re)initialize it for
-/// `n_qubits`. A `PauliTermSum` holds one system throughout its life; the
-/// size is fixed by whichever term is inserted first (mirroring
-/// `save_terms_to_file`'s existing assumption that all keys share one
-/// `system_size`, taken from an arbitrary first entry).
+/// `n_qubits`. 
 fn ensure_sized(inner: &mut SoaTermSum<f64>, n_qubits: usize) {
     if inner.len() == 0 && inner.n_units != n_qubits {
         *inner = SoaTermSum::new(n_qubits, PauliBasis::stride_words(n_qubits));
@@ -47,14 +37,6 @@ fn planes_of(term: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {
     (gx, gz)
 }
 
-/// Materialize the columnar storage into the flat map format the existing
-/// file I/O (`save_terms_to_file`/`load_terms_from_file`/`TermStreamer`) and
-/// `AbstractTerm` machinery already understand — those work directly against
-/// `PauliString`/`f64` and don't need to change for this rewrite. The
-/// surrogate propagator no longer bridges through this: it seeds its own
-/// `SoaTermSum<SymbolicCoeff>` straight from `SoaTermSum::map_coeffs`
-/// (`propaq_surrogate::propagator`), which stays columnar end-to-end and
-/// avoids the per-term hashmap this function builds.
 pub fn materialize(terms: &SoaTermSum<f64>) -> FxHashMap<PauliString, f64> {
     let n = terms.len();
     let mut map = FxHashMap::default();
@@ -149,12 +131,6 @@ impl PauliTermSum {
         Ok(())
     }
 
-    /// Deduplicate and remove terms according to *policy*. Not on the
-    /// propagation hot path (the propagator's internal truncation uses the
-    /// parallel `soa::kernels::truncate`), so this rebuilds the term sum with
-    /// a plain serial pass — the same order of work the old hashmap
-    /// `retain()` did, just without the retained entries' order being
-    /// hash-scattered.
     pub fn truncate(&mut self, policy: &Bound<'_, PyAny>) -> PyResult<()> {
         let n = self.inner.len();
         let stride = self.inner.stride;

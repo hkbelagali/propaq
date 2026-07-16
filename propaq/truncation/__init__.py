@@ -4,6 +4,7 @@ from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
 from propaq._rust_core import FlushSchedule as FlushSchedule
 from propaq._rust_core import FrequencyTruncator as _RustFrequencyTruncator
 from propaq._rust_core import MonomialBudget as _RustMonomialBudget
+from propaq._rust_core import NativeTruncator as _RustNativeTruncator
 from propaq._rust_core import Simplify as _RustSimplify
 from propaq._rust_core import TermBudget as _RustTermBudget
 from propaq._rust_core import WeightTruncator as _RustWeightTruncator
@@ -36,14 +37,16 @@ class Simplify(_RustSimplify):
     """Real (lossless) algebraic simplification, surrogate-only.
 
     At every flush, collapses monomials sharing the same canonical
-    trig-factor run into one, summing their scalars -- unlike
-    ``FrequencyTruncator``/``CoefficientTruncator``, which only ever
-    *remove* monomials, this *merges* surviving ones and never discards a
-    legitimate contribution. Runs before any coefficient-cutoff pruning in
-    the same flush, sharpening ``CoefficientTruncator``'s accuracy. This is
-    flush-triggered, not tied to the per-gate merge cadence -- pair it with
-    a ``MonomialBudget``/``TermBudget`` so it actually runs periodically
-    during propagation, not just once at the final flush.
+    trig-factor run into one, summing their scalars.
+    """
+
+
+class NativeTruncator(_RustNativeTruncator):
+    """Truncation policy backed by a dynamically loaded C, Rust, or
+    AOT-compiled Julia shared library, called directly per term with no
+    GIL and no Python call overhead. Numerical-only (the surrogate
+    propagators reject it): see ``propaq.MD`` / ``examples/plugins/``
+    for the ABI contract and example plugins.
     """
 
 
@@ -57,6 +60,7 @@ for _base in (
     _RustTermBudget,
     _RustMonomialBudget,
     _RustSimplify,
+    _RustNativeTruncator,
 ):
     Truncator.register(_base)
 
@@ -68,5 +72,6 @@ __all__ = [
     "TermBudget",
     "MonomialBudget",
     "Simplify",
+    "NativeTruncator",
     "FlushSchedule",
 ]

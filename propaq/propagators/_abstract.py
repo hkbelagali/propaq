@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
     from propaq._rust_core import (
         GateNoiseModel,
+        NativeNoiseModel,
         PropagationResult,
         TruncationPolicy,
         UniformNoiseModel,
@@ -19,11 +20,11 @@ class AbstractPropagator(ABC):
 
     @property
     @abstractmethod
-    def noise(self) -> UniformNoiseModel | GateNoiseModel | None:
+    def noise(self) -> UniformNoiseModel | GateNoiseModel | NativeNoiseModel | None:
         """The current noise model, or None."""
 
     @abstractmethod
-    def set_noise(self, noise: UniformNoiseModel | GateNoiseModel | None = None) -> None:
+    def set_noise(self, noise: UniformNoiseModel | GateNoiseModel | NativeNoiseModel | None = None) -> None:
         """Replace the noise model."""
 
     @property

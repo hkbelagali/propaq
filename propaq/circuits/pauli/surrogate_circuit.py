@@ -31,6 +31,9 @@ class SurrogatePauliCircuit:
     """
 
     def __init__(self, layers: list[list[SurrogateRotation]]):
+        """
+        Construct a SurrogatePauliCircuit from a list of layers of surrogate rotations.
+        """
         self._layers = layers
         self.parameter_sources: list[ParamSource] = []
         self.qiskit_parameters: tuple = ()

@@ -4,20 +4,13 @@
 /// Since we're doing a merging-BFS, we provide the functionality to control 
 /// when to flush the outboxes, and when to truncate the live terms. The 
 /// latter will always require a flush, but the former can be done independently 
-/// in a lossless manner. Despite the parallel transpose, the flush operations 
-/// are still the dominant source of walltime in the propagators,
-/// so a finer cadence will reduce peak memory usage at the expense of time. 
+/// in a lossless manner. 
 ///
 use pyo3::prelude::*;
 
+use crate::native_truncator::NativeTruncator;
 use crate::truncation::TruncationPolicy;
 
-/// Default finer merge cadence (see `FlushSchedule`). Merging is O(1) per
-/// term regardless of prior history under the DAG symbolic-coefficient
-/// representation (and was already cheap for the numerical propagator), so
-/// the default is to merge after every gate that adds a term, keeping live
-/// term count minimal at all times rather than drifting toward path count
-/// within a flush window.
 pub const DEFAULT_MERGE_MAX_TERMS: usize = 1;
 
 /// When to do the finer lossless merge. 
@@ -62,10 +55,6 @@ impl Default for FlushSchedule {
     }
 }
 
-/// Drop monomials whose symbolic branch count (frequency) exceeds `frequency`.
-/// The numerical propagator rejects it. A monomial with `l`
-/// trig factors has expected squared magnitude `(1/2)^l` over uniform random
-/// angles, so this bounds the approximation order.
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct FrequencyTruncator {
@@ -88,9 +77,6 @@ impl FrequencyTruncator {
     }
 }
 
-/// Drop contributions whose coefficient magnitude is below `coefficient`. For
-/// the numerical propagator this drops whole terms with `|coeff| < coefficient`;
-/// for the surrogate it drops monomials with `|scalar| < coefficient`
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct CoefficientTruncator {
@@ -168,40 +154,9 @@ impl TermBudget {
     }
 }
 
-/// Monomial-count budget: `max_monomials` triggers a flush-and-truncate once
-/// the live monomial-count estimate reaches it; `min_monomials` is the count
-/// below which the lossy operators are suppressed (only lossless dedup/merge
-/// runs) -- structurally identical in role to `TermBudget`, just keyed on
-/// monomial count instead of term count. Surrogate-only: the numerical
-/// propagator's `f64` coefficients have a monomial count of exactly 1 always
-/// (identical to term count by construction), making this budget meaningless
-/// there.
-///
-/// Both bounds compare against `SymbolicCoeff::monomial_count`'s running
-/// total, which is a **monotonically non-decreasing upper bound, not an
-/// exact count** (merging never fuses/cancels counts, only sums them) --
-/// `max_monomials` can therefore fire the flush a little before the true
-/// count would reach it (conservative, the safe direction for a ceiling),
-/// and `min_monomials` can clear a little before the true count does
-/// (the anti-conservative direction for a floor, but unavoidable without an
-/// expensive exact recount at every flush, and consistent with how this
-/// count is treated everywhere else in this codebase). Either field `None`
-/// disables that bound.
-///
-/// This is a different, much simpler mechanism than the `MonomialBudget`
-/// that existed before the symbolic-DAG rewrite (a global, cross-coefficient,
-/// rank-ordered *importance removal* requiring a histogram) -- that one was
-/// deliberately removed as unnecessary complexity. This one only decides
-/// *when* to flush, reusing the same `prune`/`map_retain` machinery every
-/// other truncator already uses for the actual removal.
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct MonomialBudget {
-    // `u128`, not `usize`: compares against the running monomial-count
-    // estimate, whose individual per-coefficient values can legitimately
-    // saturate a `u64` (see `Node::add`'s doc comment in `symcoeff.rs`) --
-    // `u128` keeps this ceiling meaningful rather than a permanently-tripped
-    // `usize`/`u64` cap.
     #[pyo3(get, set)]
     pub max_monomials: Option<u128>,
     #[pyo3(get, set)]
@@ -224,26 +179,6 @@ impl MonomialBudget {
     }
 }
 
-/// Real algebraic simplification: at every flush, collapse every group of
-/// monomials sharing the same canonical trig-factor run into one, summing
-/// their scalars (`SymbolicCoeff::simplify_sharded`) -- unlike `prune`
-/// (`FrequencyTruncator`/`CoefficientTruncator`), which only ever *removes*
-/// monomials failing a cutoff, this *merges* surviving ones, and is
-/// therefore lossless (never discards a legitimate contribution; an
-/// exact-zero-sum cancellation dropped by simplification changes no
-/// evaluated value). Surrogate-only: the numerical propagator's `f64`
-/// coefficients have no DAG to simplify.
-///
-/// Runs *before* any coefficient-cutoff pruning in the same flush, which
-/// sharpens (never loosens) `CoefficientTruncator`'s decision to the true
-/// post-merge magnitude instead of a per-derivation-path upper bound -- see
-/// `apply_truncation_policy`'s doc comment for the full rationale.
-///
-/// This is flush-triggered, not tied to the cheap per-gate merge cadence
-/// (`FlushSchedule.merge_max_terms`) -- pair it with a `MonomialBudget` (or
-/// `TermBudget`) so flushes, and therefore simplification, actually happen
-/// periodically *during* propagation. Without one, `Simplify` alone only
-/// runs once, at the final flush.
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct Simplify {
@@ -263,9 +198,6 @@ impl Simplify {
     }
 }
 
-/// One entry in a truncation pipeline. Extracted from a Python list of the
-/// individual truncator objects (`FromPyObject` tries each variant in turn); a
-/// Python wrapper subclass instance extracts as its Rust base.
 #[derive(Clone, FromPyObject)]
 pub enum Truncator {
     Frequency(FrequencyTruncator),
@@ -274,11 +206,10 @@ pub enum Truncator {
     TermBudget(TermBudget),
     MonomialBudget(MonomialBudget),
     Simplify(Simplify),
+    Native(NativeTruncator),
 }
 
 impl Truncator {
-    /// Re-materialize this operator as its Python truncator object (for the
-    /// propagators' `truncators` getter).
     pub fn to_object(&self, py: Python<'_>) -> PyResult<PyObject> {
         use pyo3::IntoPyObjectExt;
         match self {
@@ -288,13 +219,20 @@ impl Truncator {
             Truncator::TermBudget(t) => t.clone().into_py_any(py),
             Truncator::MonomialBudget(t) => t.clone().into_py_any(py),
             Truncator::Simplify(t) => t.clone().into_py_any(py),
+            Truncator::Native(t) => t.clone().into_py_any(py),
         }
     }
 
-    /// Whether this operator is only meaningful for surrogate (symbolic)
-    /// propagation; the numerical propagator rejects these.
     pub fn is_surrogate_only(&self) -> bool {
         matches!(self, Truncator::Frequency(_) | Truncator::MonomialBudget(_) | Truncator::Simplify(_))
+    }
+
+    /// `NativeTruncator` operates on a concrete per-term coefficient
+    /// magnitude (`CoeffRepr::magnitude`), which the surrogate's
+    /// `SymbolicCoeff` doesn't have during build (structural pruning
+    /// there uses cached per-node bounds instead).
+    pub fn is_numerical_only(&self) -> bool {
+        matches!(self, Truncator::Native(_))
     }
 }
 
@@ -308,11 +246,24 @@ pub fn reject_surrogate_only(truncators: &[Truncator]) -> PyResult<()> {
     Ok(())
 }
 
-/// The distinct truncation operations resolved from a pipeline. The list is
-/// collapsed into at most one of each kind. `None` disables. The pure filters commute,
-/// and the budgets are always applied by the propagator at the appropriate stage, so
-/// list order is immaterial.
-#[derive(Default, Clone, Copy)]
+pub fn reject_numerical_only(truncators: &[Truncator]) -> PyResult<()> {
+    if truncators.iter().any(Truncator::is_numerical_only) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "NativeTruncator only applies to numerical propagation (it decides per-term based on a \
+             concrete coefficient magnitude, which the surrogate's symbolic coefficients don't have \
+             during build); use it with PauliPropagator/MajoranaPropagator instead",
+        ));
+    }
+    Ok(())
+}
+
+/// Not `Copy` (unlike before `Native` was added): `NativeTruncator` holds
+/// an `Arc`-shared plugin handle, so every consumer now gets its own
+/// (cheap, refcount-bumping) `.clone()` rather than an implicit bitwise
+/// copy. Every call site already binds this to a single local and reads
+/// through a reference or moves it once, so this required no changes
+/// beyond dropping the derive.
+#[derive(Default, Clone)]
 pub struct ResolvedConfig {
     pub frequency: Option<usize>,
     pub coefficient: Option<f64>,
@@ -322,6 +273,9 @@ pub struct ResolvedConfig {
     pub min_monomials: Option<u128>,
     pub max_monomials: Option<u128>,
     pub simplify: bool,
+    /// When set, fully replaces the weight/coefficient cutoff comparison
+    /// in `kernels::truncate` with the plugin's own per-term decision.
+    pub native: Option<NativeTruncator>,
 }
 
 /// Collapse a truncator pipeline into a flat config (last-wins per field).
@@ -341,6 +295,7 @@ pub fn resolve_config(truncators: &[Truncator]) -> ResolvedConfig {
                 r.max_monomials = x.max_monomials;
             }
             Truncator::Simplify(x) => r.simplify = x.enabled,
+            Truncator::Native(x) => r.native = Some(x.clone()),
         }
     }
     r
@@ -373,7 +328,7 @@ pub fn resolve_truncation(
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
         "truncation must be a truncator (FrequencyTruncator/CoefficientTruncator/\
-         WeightTruncator/TermBudget/MonomialBudget/Simplify), a list of truncators, a \
+         WeightTruncator/TermBudget/MonomialBudget/Simplify/NativeTruncator), a list of truncators, a \
          TruncationPolicy, or None",
     ))
 }
