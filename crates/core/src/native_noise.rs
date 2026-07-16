@@ -18,7 +18,7 @@
 /// `propaq_noise_damping_batch` is an optional performance path: if
 /// present, the hot loop calls it once per rayon chunk instead of once
 /// per term, which lets performance-sensitive plugin authors (C, Rust,
-/// or AOT-compiled Julia via `PackageCompiler.compile_shlib`) amortize
+/// or AOT-compiled Julia via `PackageCompiler.create_library`) amortize
 /// the FFI boundary cost across many terms.
 ///
 /// ## Safety contract
