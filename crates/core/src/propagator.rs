@@ -44,11 +44,6 @@ pub fn make_progress_bar(
     if !enabled {
         return Ok((None, None));
     }
-    py.import("warnings")?.call_method1(
-        "warn",
-        ("propaq: the progress bar term count stays stale between truncation \
-          flushes. Reduce `truncation_threshold` for more frequent updates.",),
-    )?;
     let tqdm = py.import("tqdm.auto")?;
     let postfix = pyo3::types::PyDict::new(py);
     let kwargs = pyo3::types::PyDict::new(py);

@@ -21,17 +21,23 @@ class GateEvent:
     """Average wall time per gate (ms) since the previous gate event, or None for the first event."""
     qiskit_gate_idx: int | None
     """Index of the originating Qiskit gate, or None for non-Qiskit circuits or old log files."""
+    monomials: int | None
+    """Live monomial count (surrogate propagators only), or None for numerical propagators."""
 
 
 @dataclass
 class TruncationEvent:
-    """Class representing a logged truncation event."""
+    """Class representing a logged truncation event (numerical propagators only).
+
+    See `SurrogateFlushEvent` for the surrogate propagators' equivalent.
+    """
     gate_idx: int
     """Index of the gate at which truncation was triggered."""
     layer_idx: int
     """Index of the layer at which truncation was triggered."""
     trigger: str
-    """Trigger for truncation (e.g. "term_count", "weight_cutoff", "coeff_cutoff")."""
+    """What triggered this flush: "noise" (Python noise-model callback boundary),
+    "threshold" (`max_terms` reached), or "final" (end-of-circuit flush)."""
     terms_before: int
     """Deduplicated term count before truncation."""
     terms_after: int
@@ -52,6 +58,92 @@ class TruncationEvent:
     """Index of the originating Qiskit gate at time of truncation, or None for non-Qiskit circuits."""
 
 
+@dataclass
+class SurrogateFlushEvent:
+    """Class representing a logged surrogate flush/truncation event.
+
+    Emitted by the surrogate propagators in place of `TruncationEvent`: term
+    counts play the same role, but coefficients are symbolic, so magnitude-based
+    stats (`discarded_coeff_l1`/`discarded_coeff_max`) are replaced by
+    monomial-count stats, and the cutoffs are the surrogate truncators'
+    (`FrequencyTruncator`/`WeightTruncator`/`CoefficientTruncator`).
+    """
+    gate_idx: int
+    """Index of the gate at which the flush was triggered."""
+    layer_idx: int
+    """Index of the layer at which the flush was triggered."""
+    trigger: str
+    """What triggered this flush: "threshold" (`max_terms` reached),
+    "monomial_threshold" (`max_monomials` reached), or "final" (end-of-build flush)."""
+    terms_before: int
+    """Deduplicated term count before truncation."""
+    terms_after: int
+    """Term count after truncation."""
+    terms_discarded: int
+    """Number of terms discarded."""
+    monomials_before: int
+    """Exact total monomial count across all live coefficients before truncation."""
+    monomials_after: int
+    """Exact total monomial count across all live coefficients after truncation."""
+    monomials_discarded: int
+    """Number of monomials discarded."""
+    frequency: int | None
+    """`FrequencyTruncator` cutoff used, if applicable."""
+    weight: int | None
+    """`WeightTruncator` cutoff used, if applicable."""
+    coefficient: float | None
+    """`CoefficientTruncator` cutoff used, if applicable."""
+    elapsed_ms: float
+    """Wall time (ms) for the full flush+truncation step."""
+    qiskit_gate_idx: int | None
+    """Index of the originating Qiskit gate at time of the flush, or None for non-Qiskit circuits."""
+
+
+@dataclass
+class SurrogateFlushDeferredEvent:
+    """Class representing a surrogate flush whose trigger fired mid-intermediate-gate-run.
+
+    The flush itself is deferred to the next non-intermediate gate boundary
+    (logged separately as a `SurrogateFlushEvent`); this event only records
+    that the trigger latched and why the flush didn't happen immediately.
+    """
+    gate_idx: int
+    """Index of the gate at which the trigger latched."""
+    layer_idx: int
+    """Index of the layer at which the trigger latched."""
+    trigger: str
+    """Which threshold latched: "threshold" or "monomial_threshold"."""
+    terms: int
+    """Live term count at the time the trigger latched."""
+    monomials: int
+    """Live (estimated) monomial count at the time the trigger latched."""
+    reason: str
+    """Why the flush was deferred (currently always "intermediate_boundary")."""
+    qiskit_gate_idx: int | None
+    """Index of the originating Qiskit gate, or None for non-Qiskit circuits."""
+
+
+@dataclass
+class SurrogateMergeEvent:
+    """Class representing a surrogate merge-only cadence event (no truncation).
+
+    Emitted when `merge_max_terms` triggers a dedup merge between truncation
+    flushes; term/monomial counts are refreshed but no lossy truncator runs.
+    """
+    gate_idx: int
+    """Index of the gate at which the merge occurred."""
+    layer_idx: int
+    """Index of the layer at which the merge occurred."""
+    terms_before: int
+    """Term count before the merge (may include duplicates)."""
+    terms_after: int
+    """Deduplicated term count after the merge."""
+    monomials_after: int
+    """Exact total monomial count across all live coefficients after the merge."""
+    qiskit_gate_idx: int | None
+    """Index of the originating Qiskit gate, or None for non-Qiskit circuits."""
+
+
 class LogParser:
     """
     Parse a propaq JSONL log file into typed event lists.
@@ -62,11 +154,17 @@ class LogParser:
         self._filename = filename
         self._gate_events: list[GateEvent] = []
         self._truncation_events: list[TruncationEvent] = []
+        self._surrogate_flush_events: list[SurrogateFlushEvent] = []
+        self._surrogate_flush_deferred_events: list[SurrogateFlushDeferredEvent] = []
+        self._surrogate_merge_events: list[SurrogateMergeEvent] = []
         self._load()
 
     def _load(self) -> None:
         self._gate_events.clear()
         self._truncation_events.clear()
+        self._surrogate_flush_events.clear()
+        self._surrogate_flush_deferred_events.clear()
+        self._surrogate_merge_events.clear()
         with open(self._filename) as f:
             for line in f:
                 line = line.strip()
@@ -82,6 +180,7 @@ class LogParser:
                         outbox_terms=ev["outbox_terms"],
                         avg_ms_per_gate=ev.get("avg_ms_per_gate"),
                         qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                        monomials=ev.get("monomials"),
                     ))
                 elif kind == "truncation":
                     self._truncation_events.append(TruncationEvent(
@@ -98,6 +197,42 @@ class LogParser:
                         elapsed_ms=ev["elapsed_ms"],
                         qiskit_gate_idx=ev.get("qiskit_gate_idx"),
                     ))
+                elif kind == "surrogate_flush":
+                    self._surrogate_flush_events.append(SurrogateFlushEvent(
+                        gate_idx=ev["gate_idx"],
+                        layer_idx=ev["layer_idx"],
+                        trigger=ev["trigger"],
+                        terms_before=ev["terms_before"],
+                        terms_after=ev["terms_after"],
+                        terms_discarded=ev["terms_discarded"],
+                        monomials_before=ev["monomials_before"],
+                        monomials_after=ev["monomials_after"],
+                        monomials_discarded=ev["monomials_discarded"],
+                        frequency=ev["frequency"],
+                        weight=ev["weight"],
+                        coefficient=ev["coefficient"],
+                        elapsed_ms=ev["elapsed_ms"],
+                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                    ))
+                elif kind == "surrogate_flush_deferred":
+                    self._surrogate_flush_deferred_events.append(SurrogateFlushDeferredEvent(
+                        gate_idx=ev["gate_idx"],
+                        layer_idx=ev["layer_idx"],
+                        trigger=ev["trigger"],
+                        terms=ev["terms"],
+                        monomials=ev["monomials"],
+                        reason=ev["reason"],
+                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                    ))
+                elif kind == "surrogate_merge":
+                    self._surrogate_merge_events.append(SurrogateMergeEvent(
+                        gate_idx=ev["gate_idx"],
+                        layer_idx=ev["layer_idx"],
+                        terms_before=ev["terms_before"],
+                        terms_after=ev["terms_after"],
+                        monomials_after=ev["monomials_after"],
+                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                    ))
 
     def reload(self) -> None:
         """Re-read the log file, picking up any new events appended since construction."""
@@ -110,8 +245,23 @@ class LogParser:
 
     @property
     def truncation_events(self) -> list[TruncationEvent]:
-        """All truncation events in file order."""
+        """All truncation events in file order (numerical propagators only)."""
         return self._truncation_events
+
+    @property
+    def surrogate_flush_events(self) -> list[SurrogateFlushEvent]:
+        """All surrogate flush/truncation events in file order (surrogate propagators only)."""
+        return self._surrogate_flush_events
+
+    @property
+    def surrogate_flush_deferred_events(self) -> list[SurrogateFlushDeferredEvent]:
+        """All deferred-flush-trigger events in file order (surrogate propagators only)."""
+        return self._surrogate_flush_deferred_events
+
+    @property
+    def surrogate_merge_events(self) -> list[SurrogateMergeEvent]:
+        """All merge-only cadence events in file order (surrogate propagators only)."""
+        return self._surrogate_merge_events
 
     @property
     def gate_indices(self) -> list[int]:
@@ -129,18 +279,24 @@ class LogParser:
         return [e.outbox_terms for e in self._gate_events]
 
     @property
+    def monomials(self) -> list[int | None]:
+        """Live monomial count sampled at each logged gate (surrogate propagators
+        only; None per entry for numerical propagators or old log files)."""
+        return [e.monomials for e in self._gate_events]
+
+    @property
     def terms_before(self) -> list[int]:
-        """Deduplicated term count before each truncation."""
+        """Deduplicated term count before each truncation (numerical propagators only)."""
         return [e.terms_before for e in self._truncation_events]
 
     @property
     def terms_after(self) -> list[int]:
-        """Term count after each truncation."""
+        """Term count after each truncation (numerical propagators only)."""
         return [e.terms_after for e in self._truncation_events]
 
     @property
     def terms_discarded(self) -> list[int]:
-        """Number of terms dropped at each truncation."""
+        """Number of terms dropped at each truncation (numerical propagators only)."""
         return [e.terms_discarded for e in self._truncation_events]
 
     @property
@@ -165,5 +321,20 @@ class LogParser:
 
     @property
     def elapsed_ms(self) -> list[float]:
-        """Wall time (ms) for each flush+truncation step."""
+        """Wall time (ms) for each flush+truncation step (numerical propagators only)."""
         return [e.elapsed_ms for e in self._truncation_events]
+
+    @property
+    def monomials_before(self) -> list[int]:
+        """Exact total monomial count before each surrogate flush (surrogate propagators only)."""
+        return [e.monomials_before for e in self._surrogate_flush_events]
+
+    @property
+    def monomials_after(self) -> list[int]:
+        """Exact total monomial count after each surrogate flush (surrogate propagators only)."""
+        return [e.monomials_after for e in self._surrogate_flush_events]
+
+    @property
+    def monomials_discarded(self) -> list[int]:
+        """Number of monomials dropped at each surrogate flush (surrogate propagators only)."""
+        return [e.monomials_discarded for e in self._surrogate_flush_events]
