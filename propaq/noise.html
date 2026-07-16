@@ -59,6 +59,12 @@
 
             </li>
             <li>
+                    <a class="class" href="#NativeNoiseModel">NativeNoiseModel</a>
+                            <ul class="memberlist">
+                </ul>
+
+            </li>
+            <li>
                     <a class="class" href="#UniformNoiseModel">UniformNoiseModel</a>
                             <ul class="memberlist">
                 </ul>
@@ -74,19 +80,16 @@
                     <a class="class" href="#FrequencyTruncationPolicy">FrequencyTruncationPolicy</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="variable" href="#FrequencyTruncationPolicy.truncation_range">truncation_range</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#FrequencyTruncationPolicy.merge_max_terms">merge_max_terms</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#FrequencyTruncationPolicy.monomial_range">monomial_range</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.max_frequency">max_frequency</a>
                         </li>
                         <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.weight_cutoff">weight_cutoff</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#FrequencyTruncationPolicy.truncation_range">truncation_range</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#FrequencyTruncationPolicy.merge_max_terms">merge_max_terms</a>
                         </li>
                 </ul>
 
@@ -114,15 +117,16 @@
 
                         <label class="view-source-button" for="mod-noise-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos">1</span></a><span class="sd">&quot;&quot;&quot;propaq noise models.&quot;&quot;&quot;</span>
-</span><span id="L-2"><a href="#L-2"><span class="linenos">2</span></a>
-</span><span id="L-3"><a href="#L-3"><span class="linenos">3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq._rust_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">FrequencyTruncationPolicy</span> <span class="k">as</span> <span class="n">FrequencyTruncationPolicy</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos">4</span></a>
-</span><span id="L-5"><a href="#L-5"><span class="linenos">5</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.gate</span><span class="w"> </span><span class="kn">import</span> <span class="n">GateNoiseModel</span> <span class="k">as</span> <span class="n">GateNoiseModel</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos">6</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.truncation</span><span class="w"> </span><span class="kn">import</span> <span class="n">TruncationPolicy</span> <span class="k">as</span> <span class="n">TruncationPolicy</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos">7</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.uniform</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniformNoiseModel</span> <span class="k">as</span> <span class="n">UniformNoiseModel</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos">8</span></a>
-</span><span id="L-9"><a href="#L-9"><span class="linenos">9</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;GateNoiseModel&quot;</span><span class="p">,</span> <span class="s2">&quot;UniformNoiseModel&quot;</span><span class="p">,</span> <span class="s2">&quot;TruncationPolicy&quot;</span><span class="p">,</span> <span class="s2">&quot;FrequencyTruncationPolicy&quot;</span><span class="p">]</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;propaq noise models.&quot;&quot;&quot;</span>
+</span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
+</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq._rust_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">FrequencyTruncationPolicy</span> <span class="k">as</span> <span class="n">FrequencyTruncationPolicy</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.gate</span><span class="w"> </span><span class="kn">import</span> <span class="n">GateNoiseModel</span> <span class="k">as</span> <span class="n">GateNoiseModel</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.native</span><span class="w"> </span><span class="kn">import</span> <span class="n">NativeNoiseModel</span> <span class="k">as</span> <span class="n">NativeNoiseModel</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.truncation</span><span class="w"> </span><span class="kn">import</span> <span class="n">TruncationPolicy</span> <span class="k">as</span> <span class="n">TruncationPolicy</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.uniform</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniformNoiseModel</span> <span class="k">as</span> <span class="n">UniformNoiseModel</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;GateNoiseModel&quot;</span><span class="p">,</span> <span class="s2">&quot;NativeNoiseModel&quot;</span><span class="p">,</span> <span class="s2">&quot;UniformNoiseModel&quot;</span><span class="p">,</span> <span class="s2">&quot;TruncationPolicy&quot;</span><span class="p">,</span> <span class="s2">&quot;FrequencyTruncationPolicy&quot;</span><span class="p">]</span>
 </span></pre></div>
 
 
@@ -138,19 +142,13 @@
 
     </div>
     <a class="headerlink" href="#GateNoiseModel"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="GateNoiseModel-8"><a href="#GateNoiseModel-8"><span class="linenos">8</span></a><span class="k">class</span><span class="w"> </span><span class="nc">GateNoiseModel</span><span class="p">(</span><span class="n">_RustGateNoiseModel</span><span class="p">):</span>
-</span><span id="GateNoiseModel-9"><a href="#GateNoiseModel-9"><span class="linenos">9</span></a>    <span class="k">pass</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="GateNoiseModel-8"><a href="#GateNoiseModel-8"><span class="linenos"> 8</span></a><span class="k">class</span><span class="w"> </span><span class="nc">GateNoiseModel</span><span class="p">(</span><span class="n">_RustGateNoiseModel</span><span class="p">):</span>
+</span><span id="GateNoiseModel-9"><a href="#GateNoiseModel-9"><span class="linenos"> 9</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Python noise model class&quot;&quot;&quot;</span>
+</span><span id="GateNoiseModel-10"><a href="#GateNoiseModel-10"><span class="linenos">10</span></a>    <span class="k">pass</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>Noise model that delegates to an inner Python object's damping_factor and apply_noise.</p>
-
-<h6 id="arguments">Arguments:</h6>
-
-<ul>
-<li><strong>inner:</strong>  Python object exposing damping_factor(weight, active_modes) -> float
-and apply_noise(term_sum) methods.</li>
-</ul>
+            <div class="docstring"><p>Python noise model class</p>
 </div>
 
 
@@ -161,6 +159,37 @@ and apply_noise(term_sum) methods.</li>
                                 <dd id="GateNoiseModel.damping_factor" class="function"><a href="_rust_core.html#GateNoiseModel.damping_factor">damping_factor</a></dd>
                 <dd id="GateNoiseModel.apply_noise" class="function"><a href="_rust_core.html#GateNoiseModel.apply_noise">apply_noise</a></dd>
                 <dd id="GateNoiseModel.inner" class="variable"><a href="_rust_core.html#GateNoiseModel.inner">inner</a></dd>
+
+            </div>
+                                </dl>
+                            </div>
+                </section>
+                <section id="NativeNoiseModel">
+                            <input id="NativeNoiseModel-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr class">
+            
+    <span class="def">class</span>
+    <span class="name">NativeNoiseModel</span><wbr>(<span class="base"><a href="_rust_core.html#NativeNoiseModel">propaq._rust_core.NativeNoiseModel</a></span>):
+
+                <label class="view-source-button" for="NativeNoiseModel-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#NativeNoiseModel"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="NativeNoiseModel-8"><a href="#NativeNoiseModel-8"><span class="linenos"> 8</span></a><span class="k">class</span><span class="w"> </span><span class="nc">NativeNoiseModel</span><span class="p">(</span><span class="n">_RustNativeNoiseModel</span><span class="p">):</span>
+</span><span id="NativeNoiseModel-9"><a href="#NativeNoiseModel-9"><span class="linenos"> 9</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Rust/C/AOT-compiled Julia noise model class&quot;&quot;&quot;</span>
+</span><span id="NativeNoiseModel-10"><a href="#NativeNoiseModel-10"><span class="linenos">10</span></a>    <span class="k">pass</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Rust/C/AOT-compiled Julia noise model class</p>
+</div>
+
+
+                            <div class="inherited">
+                                <h5>Inherited Members</h5>
+                                <dl>
+                                    <div><dt><a href="_rust_core.html#NativeNoiseModel">propaq._rust_core.NativeNoiseModel</a></dt>
+                                <dd id="NativeNoiseModel.damping_factor" class="function"><a href="_rust_core.html#NativeNoiseModel.damping_factor">damping_factor</a></dd>
 
             </div>
                                 </dl>
@@ -177,18 +206,13 @@ and apply_noise(term_sum) methods.</li>
 
     </div>
     <a class="headerlink" href="#UniformNoiseModel"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="UniformNoiseModel-8"><a href="#UniformNoiseModel-8"><span class="linenos">8</span></a><span class="k">class</span><span class="w"> </span><span class="nc">UniformNoiseModel</span><span class="p">(</span><span class="n">_RustUniformNoiseModel</span><span class="p">):</span>
-</span><span id="UniformNoiseModel-9"><a href="#UniformNoiseModel-9"><span class="linenos">9</span></a>    <span class="k">pass</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="UniformNoiseModel-8"><a href="#UniformNoiseModel-8"><span class="linenos"> 8</span></a><span class="k">class</span><span class="w"> </span><span class="nc">UniformNoiseModel</span><span class="p">(</span><span class="n">_RustUniformNoiseModel</span><span class="p">):</span>
+</span><span id="UniformNoiseModel-9"><a href="#UniformNoiseModel-9"><span class="linenos"> 9</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Uniform noise model class&quot;&quot;&quot;</span>
+</span><span id="UniformNoiseModel-10"><a href="#UniformNoiseModel-10"><span class="linenos">10</span></a>    <span class="k">pass</span>
 </span></pre></div>
 
 
-            <div class="docstring"><p>Exponential damping noise: each term of weight w is scaled by $\exp(-\gamma w)$, where $w$ is the term's Pauli weight.</p>
-
-<h6 id="arguments">Arguments:</h6>
-
-<ul>
-<li><strong>damping:</strong>  Damping rate $\gamma$.</li>
-</ul>
+            <div class="docstring"><p>Uniform noise model class</p>
 </div>
 
 
@@ -233,8 +257,8 @@ and apply_noise(term_sum) methods.</li>
                                     <div><dt><a href="_rust_core.html#TruncationPolicy">propaq._rust_core.TruncationPolicy</a></dt>
                                 <dd id="TruncationPolicy.should_truncate" class="function"><a href="_rust_core.html#TruncationPolicy.should_truncate">should_truncate</a></dd>
                 <dd id="TruncationPolicy.weight_cutoff" class="variable"><a href="_rust_core.html#TruncationPolicy.weight_cutoff">weight_cutoff</a></dd>
-                <dd id="TruncationPolicy.truncation_range" class="variable"><a href="_rust_core.html#TruncationPolicy.truncation_range">truncation_range</a></dd>
                 <dd id="TruncationPolicy.coeff_cutoff" class="variable"><a href="_rust_core.html#TruncationPolicy.coeff_cutoff">coeff_cutoff</a></dd>
+                <dd id="TruncationPolicy.truncation_range" class="variable"><a href="_rust_core.html#TruncationPolicy.truncation_range">truncation_range</a></dd>
 
             </div>
                                 </dl>
@@ -252,6 +276,32 @@ and apply_noise(term_sum) methods.</li>
     
     
 
+                            <div id="FrequencyTruncationPolicy.max_frequency" class="classattr">
+                                <div class="attr variable">
+            <span class="name">max_frequency</span>
+
+        
+    </div>
+    <a class="headerlink" href="#FrequencyTruncationPolicy.max_frequency"></a>
+    
+            <div class="docstring"><p>Drop monomials with more than this many trig factors (None = no limit).</p>
+</div>
+
+
+                            </div>
+                            <div id="FrequencyTruncationPolicy.weight_cutoff" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight_cutoff</span>
+
+        
+    </div>
+    <a class="headerlink" href="#FrequencyTruncationPolicy.weight_cutoff"></a>
+    
+            <div class="docstring"><p>Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).</p>
+</div>
+
+
+                            </div>
                             <div id="FrequencyTruncationPolicy.truncation_range" class="classattr">
                                 <div class="attr variable">
             <span class="name">truncation_range</span>
@@ -276,47 +326,6 @@ and apply_noise(term_sum) methods.</li>
             <div class="docstring"><p>Finer lossless merge cadence: when this many terms accumulate in the
 outboxes since the last flush, collapse duplicate Pauli strings into the
 partition maps (no truncation). <code>None</code> disables the finer cadence.</p>
-</div>
-
-
-                            </div>
-                            <div id="FrequencyTruncationPolicy.monomial_range" class="classattr">
-                                <div class="attr variable">
-            <span class="name">monomial_range</span>
-
-        
-    </div>
-    <a class="headerlink" href="#FrequencyTruncationPolicy.monomial_range"></a>
-    
-            <div class="docstring"><p>The (min_monomials, max_monomials) pair controlling when a flush's
-monomial-level truncation fires (once live count exceeds
-<code>max_monomials</code>) and how far it reduces the count once it does.</p>
-</div>
-
-
-                            </div>
-                            <div id="FrequencyTruncationPolicy.max_frequency" class="classattr">
-                                <div class="attr variable">
-            <span class="name">max_frequency</span>
-
-        
-    </div>
-    <a class="headerlink" href="#FrequencyTruncationPolicy.max_frequency"></a>
-    
-            <div class="docstring"><p>Drop monomials with more than this many trig factors (None = no limit).</p>
-</div>
-
-
-                            </div>
-                            <div id="FrequencyTruncationPolicy.weight_cutoff" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight_cutoff</span>
-
-        
-    </div>
-    <a class="headerlink" href="#FrequencyTruncationPolicy.weight_cutoff"></a>
-    
-            <div class="docstring"><p>Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).</p>
 </div>
 
 
