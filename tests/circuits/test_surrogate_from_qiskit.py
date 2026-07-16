@@ -134,14 +134,6 @@ class TestFromQiskitAgreesWithConcrete:
         assert variational.parameters == (theta,)
 
     def test_numeric_gates_stay_numeric(self, kind):
-        # Regression: purely-numeric gates (and the constant residual of an
-        # otherwise-parameterized angle) must become numeric rotations
-        # (`angle` set, `param_index is None`), NOT symbolic parameter slots.
-        # Symbolic constants write a factor into every monomial's mask and
-        # count toward its frequency, so treating numeric gates as symbolic
-        # makes purely-numeric circuit stretches explode combinatorially
-        # (monomials far exceeding the term count) instead of collapsing to one
-        # monomial per term.
         theta = Parameter("theta")
         qc = QuantumCircuit(N_QUBITS)
         qc.rz(0.7, 0)              # pure numeric
