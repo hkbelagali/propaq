@@ -139,6 +139,9 @@ from .extrapolators import ZeroNoiseExtrapolator as ZeroNoiseExtrapolator
 from .extrapolators import ZNEResult as ZNEResult
 from .log_parser import GateEvent as GateEvent
 from .log_parser import LogParser as LogParser
+from .log_parser import SurrogateFlushDeferredEvent as SurrogateFlushDeferredEvent
+from .log_parser import SurrogateFlushEvent as SurrogateFlushEvent
+from .log_parser import SurrogateMergeEvent as SurrogateMergeEvent
 from .log_parser import TruncationEvent as TruncationEvent
 from .models import (
     MajoranaSurrogateModel as MajoranaSurrogateModel,
