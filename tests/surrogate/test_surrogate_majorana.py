@@ -108,6 +108,10 @@ class TestNumericalAgreement:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
 class TestFrequencyTruncation:
+    """`FrequencyTruncator`/`max_frequency` are monomial-level, but decided
+    structurally by `SymbolicCoeff::prune` -- no monomial expansion needed.
+    See `propaq.MD`'s "Truncation" section."""
+
     def _circuit_and_obs(self):
         obs = MajoranaTermSum({mm(0b0011): 1.0})
         gens = [mm(0b0110), mm(0b1001), mm(0b0101)]
@@ -164,9 +168,9 @@ class TestParameterReuseDedup:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
     def test_merge_cadence_matches_with_shared_parameters(self):
-        """Forcing a merge after every gate (which triggers `post_merge` /
-        `deduplicate` on the parameter-space runs) must not change the result
-        relative to deferring every merge to the final truncation flush."""
+        """Forcing a merge after every gate (which triggers `post_merge` on
+        the DAG's `Add` accumulation) must not change the result relative to
+        deferring every merge to the final truncation flush."""
         obs, sc, circ, params = self._reused_param_circuit()
         exact = numerical_ev(obs, circ)
 

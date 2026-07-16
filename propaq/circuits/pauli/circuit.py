@@ -22,6 +22,9 @@ class PauliCircuit:
         self,
         rotations_or_layers: list[PauliRotation] | list[list[PauliRotation]],
     ):
+        """
+        Construct a PauliCircuit from a list of rotations or a list of layers of rotations.
+        """
         if rotations_or_layers and isinstance(rotations_or_layers[0], list):
             self._layers: list[list[PauliRotation]] = rotations_or_layers
         else:

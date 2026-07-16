@@ -1,15 +1,18 @@
 ///
-/// impl for the Majorana propagator, which works with observables 
-/// represented in the Majorana operator basis. The propagator is 
-/// just a wrapper around the generic `AbstractPropagator`, incorporating 
-/// the Majorana algebra and the Majorana monomial representation.
+/// impl for the Majorana propagator, which works with observables
+/// represented in the Majorana operator basis. The propagator is
+/// just a wrapper around the generic `SoaPropagator`, incorporating
+/// the Majorana algebra via `MajoranaBasis`.
 ///
 use pyo3::prelude::*;
 
-use propaq_core::propagator::{AbstractPropagator, PropagationResult};
+use propaq_core::bitset::Bitset;
+use propaq_core::helpers::pyint_to_bitset;
+use propaq_core::propagator::{save_terms_to_file, PropagationResult};
+use propaq_core::soa::propagator::SoaPropagator;
 use propaq_core::truncators::{reject_surrogate_only, resolve_truncation, FlushSchedule};
 
-use crate::monomial::MajoranaMonomial;
+use crate::monomial::MajoranaBasis;
 use crate::termsum::MajoranaTermSum;
 
 /// Back-propagates Majorana observables through quantum circuits in the Heisenberg picture.
@@ -19,14 +22,14 @@ use crate::termsum::MajoranaTermSum;
 ///     truncation: A list of truncators
 ///         (WeightTruncator, CoefficientTruncator, TermBudget), a single such
 ///         truncator, a legacy TruncationPolicy (decomposed), or None. The
-///         symbolic-only FrequencyTruncator/MonomialBudget are rejected.
+///         symbolic-only FrequencyTruncator is rejected.
 ///     schedule: Optional FlushSchedule controlling the lossless merge cadence.
 ///     n_threads: Number of worker threads. Defaults to the system thread count.
 ///     progress_bar: Display a tqdm progress bar during propagation.
 ///     logger: Optional Logger for verbose JSON Lines event logging.
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaPropagator {
-    inner: AbstractPropagator<MajoranaMonomial, f64>,
+    inner: SoaPropagator<MajoranaBasis>,
 }
 
 #[pymethods]
@@ -45,7 +48,7 @@ impl MajoranaPropagator {
         let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
         reject_surrogate_only(&truncators)?;
         Ok(MajoranaPropagator {
-            inner: AbstractPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
+            inner: SoaPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
         })
     }
 
@@ -64,8 +67,11 @@ impl MajoranaPropagator {
         filename: Option<String>,
     ) -> PyResult<MajoranaTermSum> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_propagate(py, &mut evolved, circuit, filename.as_deref())?;
-        Ok(MajoranaTermSum { inner: evolved })
+        self.inner.run_propagate(py, &mut evolved, circuit)?;
+        if let Some(path) = filename.as_deref() {
+            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        }
+        Ok(MajoranaTermSum::from_soa(evolved))
     }
 
     /// Compute the expectation value of *observable* in the state prepared by *circuit*.
@@ -75,17 +81,25 @@ impl MajoranaPropagator {
     ///     circuit: A MajoranaCircuit applied to the reference state.
     ///     initial_state: Fock state as a bitstring integer.
     ///     filename: If given, save the final terms to a gzip-compressed binary file at this path.
-    #[pyo3(signature = (observable, circuit, initial_state=0, filename=None))]
+    #[pyo3(signature = (observable, circuit, initial_state=None, filename=None))]
     fn expectation_value(
         &mut self,
         py: Python<'_>,
         observable: &MajoranaTermSum,
         circuit: &Bound<'_, PyAny>,
-        initial_state: u64,
+        initial_state: Option<&Bound<'_, PyAny>>,
         filename: Option<String>,
     ) -> PyResult<PropagationResult> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state, filename.as_deref())
+        let initial_state = match initial_state {
+            Some(v) => pyint_to_bitset(v, observable.inner.n_units)?,
+            None => Bitset::zero(),
+        };
+        let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state.as_words())?;
+        if let Some(path) = filename.as_deref() {
+            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        }
+        Ok(result)
     }
 
     #[getter]

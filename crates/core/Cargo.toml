@@ -11,3 +11,4 @@ rustc-hash = "2"
 hashbrown = { version = "0.15", features = ["rayon"] }
 smallvec = { version = "1", features = ["union"] }
 flate2 = "1"
+libloading = "0.8"

@@ -1,22 +1,14 @@
 ///
 /// Export the core Rust functionality to Python via PyO3.
-/// 
-/// The propagation (especially symbolic) will generate an
-/// enormous number of memory allocations. Due to the shard-based
-/// parallelism, the default allocator would likely suffer from 
-/// contention and fragmentation. Therefore, we use mimalloc 
-/// as the global allocator, which is designed for high-performance 
-/// multithreaded workloads.
-use mimalloc::MiMalloc;
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
-
+///
 use pyo3::prelude::*;
 
-use propaq_core::{TruncationPolicy, UniformNoiseModel, GateNoiseModel, PropagationResult, Logger};
+use propaq_core::{
+    TruncationPolicy, UniformNoiseModel, GateNoiseModel, NativeNoiseModel, NativeTruncator,
+    PropagationResult, Logger,
+};
 use propaq_core::truncators::{
-    CoefficientTruncator, FlushSchedule, FrequencyTruncator, MonomialBudget, TermBudget,
+    CoefficientTruncator, FlushSchedule, FrequencyTruncator, MonomialBudget, Simplify, TermBudget,
     WeightTruncator,
 };
 use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator, MajoranaTermStreamer};
@@ -44,6 +36,7 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TruncationPolicy>()?;
     m.add_class::<UniformNoiseModel>()?;
     m.add_class::<GateNoiseModel>()?;
+    m.add_class::<NativeNoiseModel>()?;
     m.add_class::<MajoranaPropagator>()?;
     m.add_class::<PauliPropagator>()?;
     m.add_class::<PropagationResult>()?;
@@ -55,6 +48,8 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<WeightTruncator>()?;
     m.add_class::<TermBudget>()?;
     m.add_class::<MonomialBudget>()?;
+    m.add_class::<NativeTruncator>()?;
+    m.add_class::<Simplify>()?;
     m.add_class::<PauliSurrogateModel>()?;
     m.add_class::<MajoranaSurrogateModel>()?;
     m.add_class::<PauliSurrogatePropagator>()?;

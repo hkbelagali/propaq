@@ -28,6 +28,7 @@ class SurrogateMajoranaCircuit:
     """
 
     def __init__(self, layers: list[list[SurrogateMajoranaRotation]], n_modes: int):
+        """Construct a SurrogateMajoranaCircuit from a list of layers of surrogate rotations."""
         self._layers = layers
         self.n_modes = n_modes
         self.parameter_sources: list[ParamSource] = []

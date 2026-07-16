@@ -7,6 +7,7 @@ from propaq import (
     FlushSchedule,
     FrequencyTruncator,
     MonomialBudget,
+    Simplify,
     TermBudget,
     Truncator,
     WeightTruncator,
@@ -73,6 +74,10 @@ class TestNumericalListAPI:
         with pytest.raises(ValueError, match="surrogate"):
             PauliPropagator(truncation=[MonomialBudget(max_monomials=100)])
 
+    def test_rejects_simplify(self):
+        with pytest.raises(ValueError, match="surrogate"):
+            PauliPropagator(truncation=[Simplify()])
+
     def test_none_valued_truncators_are_noops(self):
         obs, circ = _obs_and_circuit()
         a = _ev(
@@ -87,7 +92,7 @@ class TestNumericalListAPI:
 class TestCrossPropagator:
     """The same truncator objects drive both propagators."""
 
-    def test_shared_weight_and_coeff_truncators(self):
+    def test_shared_weight_coefficient_and_term_budget_truncators(self):
         from propaq import PauliSurrogatePropagator, SurrogatePauliCircuit
 
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
@@ -98,7 +103,47 @@ class TestCrossPropagator:
         num = PauliPropagator(truncation=ops).expectation_value(obs, circ, initial_state=0)
         assert isinstance(num.expectation_value, float)
 
-        # Surrogate: the same objects are accepted (it honors a superset).
+        # Surrogate: the same objects are accepted -- `CoefficientTruncator`
+        # is decided structurally by `SymbolicCoeff::prune`, no monomial
+        # expansion needed (see `propaq.MD`'s "Truncation" section).
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
         model = PauliSurrogatePropagator(truncation=ops).build(obs, sc, initial_state=0)
         assert isinstance(model.evaluate([0.3]), float)
+
+    def test_surrogate_and_numerical_coefficient_truncator_boundary_cases_agree(self):
+        """Numerical `CoefficientTruncator` filters on the exact runtime
+        `|coefficient|`; the surrogate filters on a structural upper bound
+        that ignores unresolved trig factors (which can only shrink the
+        true value further -- see `SymbolicCoeff::prune`'s doc comment).
+        The two aren't the same quantity for intermediate cutoffs, but they
+        must still agree at the boundaries: a cutoff near zero prunes
+        nothing for either, and a cutoff far above any real coefficient
+        prunes everything for both."""
+        from propaq import PauliSurrogatePropagator, SurrogatePauliCircuit
+
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        circ = PauliCircuit([PauliRotation(ps(0b0001, 0), 0.3)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
+        angle = [0.3]
+
+        exact_num = PauliPropagator(truncation=None).expectation_value(obs, circ, initial_state=0).expectation_value
+        exact_surr = PauliSurrogatePropagator(truncation=None).build(obs, sc, initial_state=0).evaluate(angle)
+        assert exact_num == pytest.approx(exact_surr, rel=1e-9)
+
+        tiny_num = PauliPropagator(
+            truncation=[CoefficientTruncator(1e-15)]
+        ).expectation_value(obs, circ, initial_state=0).expectation_value
+        tiny_surr = PauliSurrogatePropagator(
+            truncation=[CoefficientTruncator(1e-15)]
+        ).build(obs, sc, initial_state=0).evaluate(angle)
+        assert tiny_num == pytest.approx(exact_num, rel=1e-9)
+        assert tiny_surr == pytest.approx(exact_surr, rel=1e-9)
+
+        huge_num = PauliPropagator(
+            truncation=[CoefficientTruncator(1e9)]
+        ).expectation_value(obs, circ, initial_state=0).expectation_value
+        huge_surr = PauliSurrogatePropagator(
+            truncation=[CoefficientTruncator(1e9)]
+        ).build(obs, sc, initial_state=0).evaluate(angle)
+        assert huge_num == pytest.approx(0.0, abs=1e-12)
+        assert huge_surr == pytest.approx(0.0, abs=1e-12)

@@ -51,6 +51,7 @@ impl UniformNoiseModel {
         Ok(())
     }
 }
+// TODO: Add dephasing noise model.
 
 /// Noise model that delegates to an inner Python object's damping_factor and apply_noise.
 ///

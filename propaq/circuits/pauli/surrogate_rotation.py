@@ -40,6 +40,9 @@ class SurrogateRotation:
         is_intermediate: bool = False,
         qiskit_gate_idx: int | None = None,
     ):
+        """
+        Construct a SurrogateRotation from a generator and either a parameter index or an angle.
+        """
         if (param_index is None) == (angle is None):
             raise ValueError(
                 "SurrogateRotation requires exactly one of `param_index` "

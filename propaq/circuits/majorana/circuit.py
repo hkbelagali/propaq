@@ -25,6 +25,9 @@ class MajoranaCircuit:
         rotations_or_layers: list[MajoranaRotation] | list[list[MajoranaRotation]],
         n_modes: int,
     ):
+        """
+        Construct a MajoranaCircuit from a list of rotations or a list of layers of rotations.
+        """
         if rotations_or_layers and isinstance(rotations_or_layers[0], list):
             self._layers: list[list[MajoranaRotation]] = rotations_or_layers
         else:

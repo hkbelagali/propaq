@@ -1,15 +1,18 @@
 ///
-/// impl for the Pauli propagator, which works with observables 
-/// represented in the Pauli operator basis. The propagator is 
-/// just a wrapper around the generic `AbstractPropagator`, incorporating 
-/// the Pauli algebra and the Pauli string representation.
+/// impl for the Pauli propagator, which works with observables
+/// represented in the Pauli operator basis. The propagator is
+/// just a wrapper around the generic `SoaPropagator`, incorporating
+/// the Pauli algebra via `PauliBasis`.
 ///
 use pyo3::prelude::*;
 
-use propaq_core::propagator::{AbstractPropagator, PropagationResult};
+use propaq_core::bitset::Bitset;
+use propaq_core::helpers::pyint_to_bitset;
+use propaq_core::propagator::{save_terms_to_file, PropagationResult};
+use propaq_core::soa::propagator::SoaPropagator;
 use propaq_core::truncators::{reject_surrogate_only, resolve_truncation, FlushSchedule};
 
-use crate::string::PauliString;
+use crate::string::PauliBasis;
 use crate::termsum::PauliTermSum;
 
 /// Back-propagates Pauli observables through quantum circuits in the Heisenberg picture.
@@ -18,14 +21,14 @@ use crate::termsum::PauliTermSum;
 ///     noise: Optional noise model (UniformNoiseModel, GateNoiseModel, or custom).
 ///     truncation: A list of truncators (WeightTruncator, CoefficientTruncator, TermBudget), a single such
 ///         truncator, a legacy TruncationPolicy (decomposed), or None. The
-///         symbolic-only FrequencyTruncator/MonomialBudget are rejected.
+///         symbolic-only FrequencyTruncator is rejected.
 ///     schedule: Optional FlushSchedule controlling the lossless merge cadence.
 ///     n_threads: Number of worker threads. Defaults to the system thread count.
 ///     progress_bar: Display a tqdm progress bar during propagation.
 ///     logger: Optional Logger for verbose JSON Lines event logging.
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliPropagator {
-    inner: AbstractPropagator<PauliString, f64>,
+    inner: SoaPropagator<PauliBasis>,
 }
 
 #[pymethods]
@@ -44,7 +47,7 @@ impl PauliPropagator {
         let (schedule, truncators) = resolve_truncation(truncation.as_ref(), schedule)?;
         reject_surrogate_only(&truncators)?;
         Ok(PauliPropagator {
-            inner: AbstractPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
+            inner: SoaPropagator::new(noise, schedule, truncators, n_threads, progress_bar, logger)?,
         })
     }
 
@@ -63,8 +66,11 @@ impl PauliPropagator {
         filename: Option<String>,
     ) -> PyResult<PauliTermSum> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_propagate(py, &mut evolved, circuit, filename.as_deref())?;
-        Ok(PauliTermSum { inner: evolved })
+        self.inner.run_propagate(py, &mut evolved, circuit)?;
+        if let Some(path) = filename.as_deref() {
+            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        }
+        Ok(PauliTermSum::from_soa(evolved))
     }
 
     /// Compute the expectation value of *observable* in the state prepared by *circuit*.
@@ -74,17 +80,25 @@ impl PauliPropagator {
     ///     circuit: A PauliCircuit applied to the reference state.
     ///     initial_state: Computational basis reference state as a bitstring integer.
     ///     filename: If given, save the final terms to a gzip-compressed binary file at this path.
-    #[pyo3(signature = (observable, circuit, initial_state=0, filename=None))]
+    #[pyo3(signature = (observable, circuit, initial_state=None, filename=None))]
     fn expectation_value(
         &mut self,
         py: Python<'_>,
         observable: &PauliTermSum,
         circuit: &Bound<'_, PyAny>,
-        initial_state: u64,
+        initial_state: Option<&Bound<'_, PyAny>>,
         filename: Option<String>,
     ) -> PyResult<PropagationResult> {
         let mut evolved = observable.inner.copy();
-        self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state, filename.as_deref())
+        let initial_state = match initial_state {
+            Some(v) => pyint_to_bitset(v, observable.inner.n_units)?,
+            None => Bitset::zero(),
+        };
+        let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state.as_words())?;
+        if let Some(path) = filename.as_deref() {
+            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        }
+        Ok(result)
     }
 
     /// The noise model used during propagation, if any.

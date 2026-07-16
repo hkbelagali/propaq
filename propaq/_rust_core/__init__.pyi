@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from ._majorana_term_streamer import MajoranaTermStreamer as MajoranaTermStreamer
     from ._majorana_term_sum import MajoranaTermSum as MajoranaTermSum
     from ._noise import GateNoiseModel as GateNoiseModel
+    from ._noise import NativeNoiseModel as NativeNoiseModel
     from ._noise import UniformNoiseModel as UniformNoiseModel
     from ._pauli_propagator import PauliPropagator as PauliPropagator
     from ._pauli_string import PauliString as PauliString
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from ._truncators import FlushSchedule as FlushSchedule
     from ._truncators import FrequencyTruncator as FrequencyTruncator
     from ._truncators import MonomialBudget as MonomialBudget
+    from ._truncators import NativeTruncator as NativeTruncator
+    from ._truncators import Simplify as Simplify
     from ._truncators import TermBudget as TermBudget
     from ._truncators import WeightTruncator as WeightTruncator
 

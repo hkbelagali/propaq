@@ -11,6 +11,7 @@ from ._truncators import (
     FlushSchedule,
     FrequencyTruncator,
     MonomialBudget,
+    Simplify,
     TermBudget,
     WeightTruncator,
 )
@@ -20,9 +21,16 @@ if TYPE_CHECKING:
 
     from propaq.circuits.majorana.surrogate_circuit import SurrogateMajoranaCircuit
 
-# The surrogate honors every truncator, plus the legacy policies.
+# The surrogate honors every truncator, including the monomial-level
+# FrequencyTruncator/CoefficientTruncator: both are decided structurally
+# from the symbolic DAG's cached per-node bounds, with no monomial expansion
+# needed (see propaq.MD's "Truncation" section). MonomialBudget is a
+# threshold-triggered flush keyed on monomial count, mirroring TermBudget.
+# Simplify is real (lossless) algebraic simplification -- pair it with a
+# MonomialBudget/TermBudget so it actually runs periodically, not just once
+# at the final flush.
 _Truncator = (
-    FrequencyTruncator | CoefficientTruncator | WeightTruncator | TermBudget | MonomialBudget
+    FrequencyTruncator | CoefficientTruncator | WeightTruncator | TermBudget | MonomialBudget | Simplify
 )
 _Truncation = (
     _Truncator | Sequence[_Truncator] | FrequencyTruncationPolicy | TruncationPolicy | None
@@ -46,6 +54,15 @@ class MajoranaSurrogateModel:
     @property
     def n_terms(self) -> int:
         """Number of compiled terms (zero-overlap terms excluded)."""
+        ...
+
+    @property
+    def n_monomials(self) -> int:
+        """
+        Total pre-dedup monomial-instance count across every surviving term
+        (an upper bound, not deduplicated). `n_terms` alone doesn't say how
+        much underlying computation a term represents.
+        """
         ...
 
     def evaluate(self, params: list[float]) -> float:
@@ -84,8 +101,8 @@ class MajoranaSurrogatePropagator:
 
     Arguments:
         truncation: A list of truncators (FrequencyTruncator/CoefficientTruncator/
-            WeightTruncator/TermBudget/MonomialBudget), a single truncator, a legacy
-            FrequencyTruncationPolicy or TruncationPolicy (decomposed), or None.
+            WeightTruncator/TermBudget/MonomialBudget/Simplify), a single truncator, a
+            legacy FrequencyTruncationPolicy or TruncationPolicy (decomposed), or None.
         schedule: Optional FlushSchedule controlling the lossless merge cadence.
         n_threads: Number of worker threads. Defaults to the system thread count.
         progress_bar: Display a tqdm progress bar during propagation.

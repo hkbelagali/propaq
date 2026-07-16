@@ -27,6 +27,14 @@ impl Bitset {
         b
     }
 
+    /// Same as `from_words`, but copies directly from a borrowed slice
+    /// into the (usually inline, for realistic system sizes) `SmallVec`
+    pub fn from_slice(words: &[u64]) -> Self {
+        let mut b = Self { words: Words::from_slice(words) };
+        b.normalize();
+        b
+    }
+
     pub fn from_le_bytes(bytes: &[u8]) -> Self {
         if bytes.is_empty() {
             return Self::zero();
@@ -71,16 +79,16 @@ impl Bitset {
         if wi >= self.words.len() { 0 } else { (self.words[wi] >> bi) & 1 }
     }
 
-    /// Read-only access to the underlying words, used for optimised algorithms.
+    /// Read-only access to the underlying words
     pub fn as_words(&self) -> &[u64] {
         &self.words
     }
 
-    /// Bits set at positions 0 through n-1 (dense prefix mask).
+    /// Bits set at positions 0 through n-1.
     pub fn all_ones_upto(n: usize) -> Self {
         if n == 0 { return Self::zero(); }
         let n_words = (n + 63) / 64;
-        let mut words: Words = std::iter::repeat(!0u64).take(n_words).collect();
+        let mut words: Words = Words::from_elem(!0u64, n_words);
         let rem = n % 64;
         if rem != 0 { *words.last_mut().unwrap() = (1u64 << rem) - 1; }
         Self::from_words(words)
@@ -92,7 +100,7 @@ impl Bitset {
         let word_shift = shift / 64;
         let bit_shift  = shift % 64;
         let new_len = self.words.len() + word_shift + if bit_shift > 0 { 1 } else { 0 };
-        let mut words: Words = std::iter::repeat(0u64).take(new_len).collect();
+        let mut words: Words = Words::from_elem(0u64, new_len);
         for (i, &w) in self.words.iter().enumerate() {
             let lo = if bit_shift > 0 { w << bit_shift } else { w };
             let hi = if bit_shift > 0 { w >> (64 - bit_shift) } else { 0 };
@@ -102,10 +110,6 @@ impl Bitset {
             }
         }
         Self::from_words(words)
-    }
-
-    fn word(&self, i: usize) -> u64 {
-        self.words.get(i).copied().unwrap_or(0)
     }
 
     fn normalize(&mut self) {
@@ -119,7 +123,10 @@ impl BitAnd for &Bitset {
     type Output = Bitset;
     fn bitand(self, rhs: &Bitset) -> Bitset {
         let len = self.words.len().min(rhs.words.len());
-        let words: Words = (0..len).map(|i| self.words[i] & rhs.words[i]).collect();
+        let mut words = Words::from_elem(0u64, len);
+        for i in 0..len {
+            words[i] = self.words[i] & rhs.words[i];
+        }
         Bitset::from_words(words)
     }
 }
@@ -127,8 +134,15 @@ impl BitAnd for &Bitset {
 impl BitXor for &Bitset {
     type Output = Bitset;
     fn bitxor(self, rhs: &Bitset) -> Bitset {
-        let len = self.words.len().max(rhs.words.len());
-        let words: Words = (0..len).map(|i| self.word(i) ^ rhs.word(i)).collect();
+        let min_len = self.words.len().min(rhs.words.len());
+        let max_len = self.words.len().max(rhs.words.len());
+        let mut words = Words::from_elem(0u64, max_len);
+        for i in 0..min_len {
+            words[i] = self.words[i] ^ rhs.words[i];
+        }
+        // Tail beyond the shorter operand: XOR with 0 is a copy.
+        let longer = if self.words.len() > rhs.words.len() { self } else { rhs };
+        words[min_len..max_len].copy_from_slice(&longer.words[min_len..max_len]);
         Bitset::from_words(words)
     }
 }
@@ -136,8 +150,15 @@ impl BitXor for &Bitset {
 impl BitOr for &Bitset {
     type Output = Bitset;
     fn bitor(self, rhs: &Bitset) -> Bitset {
-        let len = self.words.len().max(rhs.words.len());
-        let words: Words = (0..len).map(|i| self.word(i) | rhs.word(i)).collect();
+        let min_len = self.words.len().min(rhs.words.len());
+        let max_len = self.words.len().max(rhs.words.len());
+        let mut words = Words::from_elem(0u64, max_len);
+        for i in 0..min_len {
+            words[i] = self.words[i] | rhs.words[i];
+        }
+        // Tail beyond the shorter operand: OR with 0 is a copy.
+        let longer = if self.words.len() > rhs.words.len() { self } else { rhs };
+        words[min_len..max_len].copy_from_slice(&longer.words[min_len..max_len]);
         Bitset::from_words(words)
     }
 }

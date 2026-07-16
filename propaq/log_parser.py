@@ -58,6 +58,7 @@ class LogParser:
     """
 
     def __init__(self, filename: str) -> None:
+        """Build a LogParser for the given log file, reading all events into memory."""
         self._filename = filename
         self._gate_events: list[GateEvent] = []
         self._truncation_events: list[TruncationEvent] = []

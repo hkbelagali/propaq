@@ -2,6 +2,7 @@
 Correctness tests for the surrogate Pauli propagator.
 """
 
+import json
 import math
 import os
 import tempfile
@@ -13,6 +14,7 @@ from propaq import (
     FlushSchedule,
     FrequencyTruncationPolicy,
     FrequencyTruncator,
+    Logger,
     MonomialBudget,
     PauliPropagator,
     PauliString,
@@ -144,6 +146,10 @@ class TestNumericalAgreement:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
 class TestFrequencyTruncation:
+    """`FrequencyTruncator`/`max_frequency` are monomial-level, but decided
+    structurally by `SymbolicCoeff::prune` -- no monomial expansion needed.
+    See `propaq.MD`'s "Truncation" section."""
+
     def _circuit_and_obs(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
@@ -186,36 +192,6 @@ class TestFrequencyTruncation:
         ).build(obs, sc, initial_state=0)
         numerical = numerical_ev(obs, circ)
         assert model.evaluate(angles) == pytest.approx(numerical, rel=1e-9)
-
-
-class TestMonomialRangeTruncation:
-    """Exercise the importance-ranking (frequency desc, |scalar| asc) path."""
-
-    def _circuit_and_obs(self):
-        obs = PauliTermSum({ps(0, 0b0001): 1.0})
-        gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
-        angles = [0.3, 0.7, 1.1]
-        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
-        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
-        return obs, sc, circ, angles
-
-    def test_generous_monomial_range_is_exact(self):
-        """A monomial_range far above the live count never truncates -> exact."""
-        obs, sc, circ, angles = self._circuit_and_obs()
-        policy = FrequencyTruncationPolicy()
-        policy.monomial_range = (1_000, 1_000_000)
-        model = PauliSurrogatePropagator(truncation=policy).build(obs, sc, initial_state=0)
-        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
-
-    def test_tight_monomial_range_runs_and_stays_finite(self):
-        """A tiny monomial_range forces the importance-ranking removal path."""
-        obs, sc, circ, angles = self._circuit_and_obs()
-        policy = FrequencyTruncationPolicy()
-        policy.monomial_range = (1, 2)
-        model = PauliSurrogatePropagator(truncation=policy).build(obs, sc, initial_state=0)
-        val = model.evaluate(angles)
-        assert math.isfinite(val)
-        assert model.n_terms >= 0
 
 
 class TestMergeCadence:
@@ -275,9 +251,9 @@ class TestParameterReuseDedup:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
     def test_merge_cadence_matches_with_shared_parameters(self):
-        """Forcing a merge after every gate (which triggers `post_merge` /
-        `deduplicate` on the parameter-space runs) must not change the result
-        relative to deferring every merge to the final truncation flush."""
+        """Forcing a merge after every gate (which triggers `post_merge` on
+        the DAG's `Add` accumulation) must not change the result relative to
+        deferring every merge to the final truncation flush."""
         obs, sc, circ, params = self._reused_param_circuit()
         exact = numerical_ev(obs, circ)
 
@@ -347,13 +323,6 @@ class TestComposableTruncation:
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
-    def test_single_truncator_accepted(self):
-        obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(truncation=FrequencyTruncator(3)).build(
-            obs, sc, initial_state=0
-        )
-        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
-
     def test_coefficient_truncator_tiny_threshold_is_exact(self):
         obs, sc, circ, angles = self._circ()
         model = PauliSurrogatePropagator(
@@ -368,6 +337,14 @@ class TestComposableTruncation:
         ).build(obs, sc, initial_state=0)
         # |scalar| < 1e9 for every real monomial, so all get pruned at the flush.
         assert model.evaluate(angles) == pytest.approx(0.0, abs=1e-12)
+
+    def test_single_truncator_accepted(self):
+        """A bare truncator (not wrapped in a list) is accepted directly."""
+        obs, sc, circ, angles = self._circ()
+        model = PauliSurrogatePropagator(truncation=WeightTruncator(3)).build(
+            obs, sc, initial_state=0
+        )
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
     def test_weight_truncator_matches_legacy_weight_cutoff(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
@@ -387,27 +364,20 @@ class TestComposableTruncation:
         obs, sc, circ, angles = self._circ()
         sched = FlushSchedule(merge_max_terms=500_000)
         model = PauliSurrogatePropagator(
-            schedule=sched, truncation=[FrequencyTruncator(3), TermBudget(max_terms=1_000_000)]
+            schedule=sched, truncation=[WeightTruncator(4), TermBudget(max_terms=1_000_000)]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
-    def test_monomial_budget_operator_runs(self):
-        obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[MonomialBudget(min_monomials=1, max_monomials=2)]
-        ).build(obs, sc, initial_state=0)
-        assert math.isfinite(model.evaluate(angles))
-
     def test_schedule_and_truncators_getters(self):
         prop = PauliSurrogatePropagator(
-            truncation=[FrequencyTruncator(3), WeightTruncator(2)]
+            truncation=[TermBudget(max_terms=10), WeightTruncator(2)]
         )
         trs = prop.truncators
         assert len(trs) == 2
         assert isinstance(prop.schedule, FlushSchedule)
         assert prop.schedule.merge_max_terms is not None  # default-on cadence
         # set_truncation preserves the schedule and replaces operators
-        prop.set_truncation([CoefficientTruncator(1e-8)])
+        prop.set_truncation([WeightTruncator(5)])
         assert len(prop.truncators) == 1
 
     def test_none_truncation_is_lossless_exact(self):
@@ -428,9 +398,59 @@ class TestComposableTruncation:
     def test_none_valued_truncators_are_noop_exact(self):
         obs, sc, circ, angles = self._circ()
         model = PauliSurrogatePropagator(
-            truncation=[FrequencyTruncator(None), CoefficientTruncator(None), WeightTruncator(None)]
+            truncation=[
+                FrequencyTruncator(None), CoefficientTruncator(None), WeightTruncator(None),
+                MonomialBudget(None, None),
+            ]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_explicit_schedule_plus_monomial_budget(self):
+        """`MonomialBudget` composed with another operator (mirrors
+        `test_explicit_schedule_plus_operators`, but with a monomial-count
+        budget instead of a term-count one) must not change the exact
+        result for a circuit this small."""
+        obs, sc, circ, angles = self._circ()
+        sched = FlushSchedule(merge_max_terms=500_000)
+        model = PauliSurrogatePropagator(
+            schedule=sched,
+            truncation=[WeightTruncator(4), MonomialBudget(max_monomials=1_000_000)],
+        ).build(obs, sc, initial_state=0)
+        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
+
+    def test_monomial_budget_triggers_mid_propagation_flush(self, tmp_path):
+        """A small `max_monomials` on a circuit with heavy parameter reuse
+        (enough monomial growth to cross the budget before the final flush)
+        must actually fire a `"monomial_threshold"`-triggered flush during
+        propagation, not just the unconditional flush at the very end."""
+        obs = PauliTermSum({ps(0, 0b0001): 1.0})
+        params = [0.3, 0.6, 0.9]
+        gens = [
+            ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0),
+            ps(0b1000, 0), ps(0b0001, 0b0010), ps(0b0010, 0b0100),
+        ]
+        angles = [params[i % 3] for i in range(len(gens))]
+        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
+        sc = SurrogatePauliCircuit.from_pauli_circuit(
+            circ, param_indices=[i % 3 for i in range(len(gens))]
+        )
+
+        log_file = tmp_path / "monomial_budget.jsonl"
+        PauliSurrogatePropagator(
+            truncation=[MonomialBudget(max_monomials=2)],
+            logger=Logger(str(log_file), log_every=1),
+        ).build(obs, sc, initial_state=0)
+
+        events = []
+        with open(log_file) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+        triggers = {e.get("trigger") for e in events if e.get("event") == "surrogate_flush"}
+        assert "monomial_threshold" in triggers, (
+            f"expected a monomial_threshold-triggered flush, got triggers={triggers}"
+        )
 
 class TestLoschmidtEcho:
     def test_echo_recovers_initial(self):

@@ -6,8 +6,8 @@ use propaq_majorana::monomial::MajoranaMonomial;
 
 fn make_mon(bits: u64, n_modes: usize) -> MajoranaMonomial {
     let modes = Bitset::from_le_bytes(&bits.to_le_bytes());
-    let weight = MajoranaMonomial::compute_weight_for(&modes, n_modes);
-    MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight }
+    let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
+    MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
 }
 
 fn build_termsum(n_terms: usize, n_modes: usize) -> AbstractTermSum<MajoranaMonomial> {

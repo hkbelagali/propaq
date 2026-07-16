@@ -15,6 +15,7 @@ from propaq.propagators._abstract import AbstractPropagator
 
 @dataclass
 class ZNEResult:
+    """Result of a zero-noise extrapolation run, including the fitted parameters and covariance."""
     zero_noise_value: float
     """Extrapolated expectation value at zero noise."""
 
@@ -40,6 +41,7 @@ class ZeroNoiseExtrapolator:
     """Noise values to sweep over for the extrapolation."""
 
     def __init__(self, fitting_fn: Callable, noise_values: list[float]) -> None:
+        """Construct a ZeroNoiseExtrapolator with a fitting function and noise values."""
         self.fitting_fn = fitting_fn
         self.noise_values = list(noise_values)
 

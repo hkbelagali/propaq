@@ -32,6 +32,9 @@ class PauliRotation:
     """Index of the originating Qiskit gate in the source circuit, or None for non-Qiskit circuits."""
 
     def __init__(self, generator: PauliString, angle: float, is_intermediate: bool = False, qiskit_gate_idx: int | None = None):
+        """
+        Construct a PauliRotation from a generator and an angle.
+        """
         self.generator = generator
         self.angle = angle
         self.is_intermediate = is_intermediate

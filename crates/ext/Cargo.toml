@@ -17,4 +17,3 @@ propaq-majorana = { path = "../majorana" }
 propaq-pauli = { path = "../pauli" }
 propaq-surrogate = { path = "../surrogate" }
 pyo3 = { version = "0.23", features = ["num-complex"] }
-mimalloc = "0.1.52"
