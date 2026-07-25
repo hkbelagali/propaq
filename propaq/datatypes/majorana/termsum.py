@@ -25,7 +25,7 @@ def _xx_plus_yy_terms(theta, i: int, j: int, n_modes: int) -> list[tuple[Majoran
     for k in range(lo + 1, hi):
         jw_string |= (1 << (2 * k)) | (1 << (2 * k + 1))
 
-    sign = 1 if d % 2 == 1 else -1
+    sign = 1 if ((d - 1) // 2) % 2 == 0 else -1
 
     if i > j:
         m1_bits = BitMask((1 << (2 * hi)) | jw_string | (1 << (2 * lo + 1)))
