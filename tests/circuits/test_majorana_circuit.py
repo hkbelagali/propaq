@@ -30,7 +30,7 @@ def test_from_qiskit_translates_supported_gates():
     qc.append(XXPlusYYGate(1.0), [0, 1])
 
     mc = MajoranaCircuit.from_qiskit(qc, n_modes=4)
-    # p(0.5) → 1 rotation; rz(0.3) → 1 rotation; xx_plus_yy(1.0) → 2 rotations
+    # p(0.5) gives 1 rotation; rz(0.3) gives 1 rotation; xx_plus_yy(1.0) gives 2 rotations
     assert len(mc.rotations) == 4
 
     assert mc.rotations[0].angle == pytest.approx(-0.5)   # p(0.5): angle = -0.5
@@ -46,11 +46,23 @@ def test_from_qiskit_translates_cp_gate():
     assert angles == pytest.approx([-0.4, -0.4, 0.4])
 
 
-def test_from_qiskit_fails_fast_on_unsupported():
+def test_from_qiskit_fails_fast_on_non_unitary_op():
+    qc = QuantumCircuit(1)
+    qc.reset(0)
+    with pytest.raises(ValueError, match="non-unitary"):
+        MajoranaCircuit.from_qiskit(qc, n_modes=2)
+
+
+def test_from_qiskit_decomposes_unsupported_gate():
+    from propaq.circuits._gates import _decompose_cache
+    _decompose_cache.clear()
+
     qc = QuantumCircuit(1)
     qc.h(0)
-    with pytest.raises(ValueError, match="Unsupported gate h"):
-        MajoranaCircuit.from_qiskit(qc, n_modes=2)
+    with pytest.warns(UserWarning, match="not natively supported"):
+        mc = MajoranaCircuit.from_qiskit(qc, n_modes=2)
+    assert len(mc.rotations) > 0
+    assert mc.rotations[0].qiskit_gate_idx == 0
 
 
 def test_from_qiskit_swap_gate():
@@ -58,7 +70,7 @@ def test_from_qiskit_swap_gate():
     qc = QuantumCircuit(2)
     qc.append(SwapGate(), [0, 1])
     mc = MajoranaCircuit.from_qiskit(qc, n_modes=4)
-    # SWAP → 3 rotations (two cross-site terms + one four-mode term)
+    # SWAP gives 3 rotations (two cross-site terms + one four-mode term)
     assert len(mc.rotations) == 3
     import math
     expected_angles = sorted([-math.pi / 2, -math.pi / 2, math.pi / 2])
@@ -70,7 +82,7 @@ def test_from_qiskit_x_gate():
     qc = QuantumCircuit(2)
     qc.append(XGate(), [0])
     mc = MajoranaCircuit.from_qiskit(qc, n_modes=4)
-    # X on qubit 0 → 1 rotation with angle π
+
     assert len(mc.rotations) == 1
     import math
     assert mc.rotations[0].angle == pytest.approx(math.pi)

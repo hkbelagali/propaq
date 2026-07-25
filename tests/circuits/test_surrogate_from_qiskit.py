@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from qiskit.circuit.library import XXPlusYYGate
+from qiskit.circuit.library import CXGate, HGate, TGate, XXPlusYYGate
 from qiskit.quantum_info import SparsePauliOp
 
 from propaq import (
@@ -101,14 +101,27 @@ def _affine_circuit() -> tuple[QuantumCircuit, Parameter, Parameter]:
 
 
 def _x_and_swap_circuit() -> tuple[QuantumCircuit, Parameter]:
-    # x/swap have no Qiskit gate parameters at all; this exercises the constant-only
-    # code path (no free Parameter) mixed with a genuinely parameterized gate.
     theta = Parameter("theta")
     qc = QuantumCircuit(N_QUBITS)
     qc.x(0)
     qc.swap(0, 1)
     qc.rz(theta, 2)
     return qc, theta
+
+
+def _random_arbitrary_gate_circuit(seed: int) -> tuple[QuantumCircuit, list[Parameter]]:
+    """Small circuit mixing arbitrary (non-native) gates with free Parameters."""
+    theta = Parameter("theta")
+    phi = Parameter("phi")
+    rng = np.random.default_rng(seed)
+    qc = QuantumCircuit(N_QUBITS)
+    qc.append(HGate(), [0])
+    qc.append(CXGate(), [0, 1])
+    qc.rz(theta, 1)
+    qc.append(TGate(), [2])
+    qc.append(XXPlusYYGate(phi, float(rng.uniform(0, 2 * np.pi))), [0, 2])
+    qc.ry(theta + phi, 0)
+    return qc, [theta, phi]
 
 
 @pytest.mark.parametrize("kind", ["pauli", "majorana"])
@@ -126,9 +139,6 @@ class TestFromQiskitAgreesWithConcrete:
     def test_shared_parameter_collapses_n_params(self, kind):
         qc, theta = _bare_parameter_circuit()
         variational, circuit = _variational_model(kind, qc)
-        # theta shared (bare, scale 1.0) across rz+p -> 1 slot. The concrete
-        # rz(0.4) is baked in as a *numeric* rotation (folded into the scalar,
-        # no symbolic mask factor), so it consumes no parameter slot.
         assert circuit.n_params == 1
         assert variational.n_params == 1
         assert variational.parameters == (theta,)
@@ -145,13 +155,10 @@ class TestFromQiskitAgreesWithConcrete:
         numeric = [r for r in rotations if r.param_index is None]
         symbolic = [r for r in rotations if r.param_index is not None]
 
-        # Every numeric rotation carries a concrete angle and no param slot.
         assert numeric, "expected numeric rotations for the concrete-angle gates"
         assert all(r.angle is not None for r in numeric)
-        # Exactly one symbolic slot (theta); the 0.5 constant is numeric.
         assert circuit.n_params == 1
         assert all(r.angle is None for r in symbolic)
-        # No ParamSource is a constant (parameter=None) slot anymore.
         assert all(src.parameter is not None for src in circuit.parameter_sources)
 
     def test_xx_plus_yy_symbolic_beta(self, kind):
@@ -195,8 +202,6 @@ class TestFromQiskitAgreesWithConcrete:
         variational, _ = _variational_model(kind, qc)
         binding = {theta: 0.7, phi: -0.3}
         by_dict = variational.evaluate(binding)
-        # `.parameters` order is implementation-defined (Parameter sets aren't ordered
-        # by declaration), so build the positional sequence from it directly.
         by_seq = variational.evaluate([binding[p] for p in variational.parameters])
         assert by_seq == pytest.approx(by_dict)
 
@@ -207,8 +212,29 @@ class TestFromQiskitAgreesWithConcrete:
         with pytest.raises(ValueError, match="not affine"):
             _from_qiskit(kind, qc)
 
-    def test_unsupported_gate_raises(self, kind):
+    def test_non_unitary_op_raises(self, kind):
+        qc = QuantumCircuit(1)
+        qc.reset(0)
+        with pytest.raises(ValueError, match="non-unitary"):
+            _from_qiskit(kind, qc)
+
+    def test_previously_unsupported_gate_now_decomposes(self, kind):
+        from propaq.circuits._gates import _decompose_cache
+        _decompose_cache.clear()
+
         qc = QuantumCircuit(1)
         qc.h(0)
-        with pytest.raises(ValueError, match="Unsupported gate h"):
-            _from_qiskit(kind, qc)
+        with pytest.warns(UserWarning, match="not natively supported"):
+            circuit = _from_qiskit(kind, qc)
+        assert circuit.rotations
+
+    @pytest.mark.parametrize("seed", range(3))
+    def test_random_arbitrary_gate_circuit_matches_concrete(self, kind, seed):
+        qc, params = _random_arbitrary_gate_circuit(seed)
+        variational, _ = _variational_model(kind, qc)
+        rng = np.random.default_rng(seed + 10)
+        for _ in range(5):
+            binding = {p: float(rng.uniform(-np.pi, np.pi)) for p in params}
+            got = variational.evaluate(binding)
+            want = _concrete_ev(kind, qc, binding)
+            assert got == pytest.approx(want, abs=1e-9)
