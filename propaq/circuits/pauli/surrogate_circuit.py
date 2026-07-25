@@ -4,7 +4,7 @@ from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
 
 from ...datatypes.pauli.pauli import PauliString
-from ...datatypes.pauli.termsum import PauliTermSum, _cp_terms, _rz_terms, _xx_plus_yy_terms
+from .._gates import PAULI, gate_terms
 from .._qiskit_symbolic import ParamIndexPool, ParamSource, expand_affine_rotation
 from .circuit import PauliCircuit
 from .surrogate_rotation import SurrogateRotation
@@ -125,8 +125,12 @@ class SurrogatePauliCircuit:
         be parameterized with `qiskit.circuit.Parameter`s. Each gate angle may be
         any affine (real-linear) combination of Parameters, e.g. `2*theta + phi + 1`.
 
-        Supports the same gate set as `PauliCircuit.from_qiskit`: xx_plus_yy, p,
-        rz, cp, x, swap.
+        Gates in the native rotation basis (xx_plus_yy, p, rz, rx, ry, cp, x, swap)
+        are converted directly. Any other gate is decomposed via Qiskit's
+        transpiler into that basis first (see `propaq.circuits._gates`), which
+        works for arbitrary unitary gates as long as any free `Parameter`s survive
+        the decomposition affinely, at the cost of a `UserWarning` and however many
+        rotations the decomposition produces.
 
         Arguments:
             qc: A Qiskit QuantumCircuit to convert.
@@ -144,12 +148,6 @@ class SurrogatePauliCircuit:
                 rot.is_intermediate = i < len(rots) - 1
             return rots
 
-        def _expand_all(terms) -> list[SurrogateRotation]:
-            rots: list[SurrogateRotation] = []
-            for gen, coeff in terms:
-                rots.extend(expand_affine_rotation(gen, coeff, pool, SurrogateRotation, None))
-            return rots
-
         all_layers: list[list[SurrogateRotation]] = []
         qiskit_gate_idx: int = 0
 
@@ -161,61 +159,17 @@ class SurrogatePauliCircuit:
 
                 if instr.name in ["measure", "barrier"]:
                     continue
-                if instr.name not in ["xx_plus_yy", "p", "rz", "cp", "x", "swap"]:
-                    raise ValueError(
-                        f"Unsupported gate {instr.name} in Qiskit circuit. "
-                        "Supported gates: xx_plus_yy, p, rz, cp, x, swap."
-                    )
 
                 q_indices = [qc.find_bit(q).index for q in qargs]
+                groups = gate_terms(instr, q_indices, n_qubits, PAULI)
 
-                if instr.name == "xx_plus_yy":
-                    if len(qargs) != 2:
-                        raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
-                    i, j = q_indices
-                    beta = instr.params[1] if len(instr.params) > 1 else 0.0
-
-                    rots: list[SurrogateRotation] = []
-                    rots.extend(_expand_all(_rz_terms(-beta, j, n_qubits)))
-                    rots.extend(_expand_all(_xx_plus_yy_terms(instr.params[0], i, j, n_qubits)))
-                    rots.extend(_expand_all(_rz_terms(beta, j, n_qubits)))
-
-                    _mark_intermediate(rots)
-                    for rot in rots:
-                        rot.qiskit_gate_idx = qiskit_gate_idx
-                    layer_rots.extend(rots)
-                    qiskit_gate_idx += 1
-                    continue
-
-                elif instr.name == "p":
-                    terms = _rz_terms(instr.params[0], q_indices[0], n_qubits)
-
-                elif instr.name == "rz":
-                    terms = _rz_terms(instr.params[0], q_indices[0], n_qubits)
-
-                elif instr.name == "cp":
-                    if len(qargs) != 2:
-                        raise ValueError("cp gate must have exactly 2 qubits.")
-                    i, j = q_indices
-                    terms = _cp_terms(instr.params[0], i, j, n_qubits)
-
-                elif instr.name == "swap":
-                    if len(qargs) != 2:
-                        raise ValueError("swap gate must have exactly 2 qubits.")
-                    swap_sum = PauliTermSum[PauliString].from_swap(instr, q_indices, n_qubits)
-                    terms = [(gen, coeff.real) for gen, coeff in swap_sum.items()]
-
-                elif instr.name == "x":
-                    if len(qargs) != 1:
-                        raise ValueError("x gate must have exactly 1 qubit.")
-                    x_sum = PauliTermSum[PauliString].from_x(instr, q_indices, n_qubits)
-                    terms = [(gen, coeff.real) for gen, coeff in x_sum.items()]
-
-                else:
-                    raise ValueError(f"Unsupported gate {instr.name}.")
-
-                rots = _expand_all(terms)
-                _mark_intermediate(rots)
+                rots: list[SurrogateRotation] = []
+                for group in groups:
+                    group_rots: list[SurrogateRotation] = []
+                    for gen, angle in group:
+                        group_rots.extend(expand_affine_rotation(gen, angle, pool, SurrogateRotation, None))
+                    _mark_intermediate(group_rots)
+                    rots.extend(group_rots)
                 for rot in rots:
                     rot.qiskit_gate_idx = qiskit_gate_idx
                 layer_rots.extend(rots)
