@@ -7,9 +7,10 @@ rotation basis (FALLBACK_BASIS).
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
-from functools import lru_cache
-from typing import Any, Callable
+from functools import cache
+from typing import Any
 
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import Instruction
@@ -17,14 +18,26 @@ from qiskit.quantum_info import SparsePauliOp
 
 from ..datatypes.majorana.termsum import (
     MajoranaTermSum,
+)
+from ..datatypes.majorana.termsum import (
     _cp_terms as _majorana_cp_terms,
+)
+from ..datatypes.majorana.termsum import (
     _rz_terms as _majorana_rz_terms,
+)
+from ..datatypes.majorana.termsum import (
     _xx_plus_yy_terms as _majorana_xx_plus_yy_terms,
 )
 from ..datatypes.pauli.termsum import (
     PauliTermSum,
+)
+from ..datatypes.pauli.termsum import (
     _cp_terms as _pauli_cp_terms,
+)
+from ..datatypes.pauli.termsum import (
     _rz_terms as _pauli_rz_terms,
+)
+from ..datatypes.pauli.termsum import (
     _xx_plus_yy_terms as _pauli_xx_plus_yy_terms,
 )
 
@@ -53,7 +66,7 @@ MAJORANA = _Rep(
 )
 
 
-@lru_cache(maxsize=None)
+@cache
 def _unit_pauli_term(termsum_cls: type, label: str) -> tuple[Any, float]:
     """(generator, unit coefficient) for a weight-1 Pauli label, via from_sparse_pauli_op."""
     term_sum = termsum_cls.from_sparse_pauli_op(SparsePauliOp(label))
