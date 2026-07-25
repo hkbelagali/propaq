@@ -125,7 +125,7 @@ class MajoranaCircuit:
         return mc
 
     def inverse(self):
-        """Return a new MajoranaCircuit with reversed order and negated angles (U†)."""
+        """Return a new MajoranaCircuit with reversed order and negated angles (U-dagger)."""
         reversed_layers = [_compound_gate_reversed(layer) for layer in reversed(self._layers)]
         mc = MajoranaCircuit.__new__(MajoranaCircuit)
         mc._layers = reversed_layers

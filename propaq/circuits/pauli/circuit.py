@@ -118,7 +118,7 @@ class PauliCircuit:
         return circ
 
     def inverse(self) -> "PauliCircuit":
-        """Return a new PauliCircuit with reversed order and negated angles (U†)."""
+        """Return a new PauliCircuit with reversed order and negated angles (U-dagger)."""
         reversed_layers = [_compound_gate_reversed(layer) for layer in reversed(self._layers)]
         circ = PauliCircuit.__new__(PauliCircuit)
         circ._layers = reversed_layers
