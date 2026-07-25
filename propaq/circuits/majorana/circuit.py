@@ -4,7 +4,8 @@
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
 
-from ...datatypes import MajoranaMonomial, MajoranaTermSum
+from ...datatypes import MajoranaMonomial
+from .._gates import MAJORANA, gate_terms
 from .._utils import compound_gate_reversed as _compound_gate_reversed
 from .rotation import MajoranaRotation
 
@@ -12,8 +13,8 @@ from .rotation import MajoranaRotation
 class MajoranaCircuit:
     """
     Class representing a circuit in the Majorana representation.
-    
-    The circuit is represented as a list of layers, where each layer is a list of 
+
+    The circuit is represented as a list of layers, where each layer is a list of
     gates that can be applied in parallel.
     """
 
@@ -55,7 +56,7 @@ class MajoranaCircuit:
     ):
         """
         Construct a MajoranaCircuit from lists of generators and angles.
-        
+
         Arguments:
             generators: A list of MajoranaMonomials.
             angles: A list of angles.
@@ -72,10 +73,11 @@ class MajoranaCircuit:
         """
         Construct a MajoranaCircuit from a Qiskit QuantumCircuit.
 
-        ### TODO: 
-        Currently, only a subset of Qiskit gates are supported. Supported gates 
-        include those that arise in the Local Unitary Cluster Jastrow (LUCJ) ansatz. 
-        However, we hope to extend this to a more general set of gates in the future.
+        Gates in the native rotation basis (xx_plus_yy, p, rz, rx, ry, cp, x, swap) are
+        converted directly. Any other gate is decomposed via Qiskit's transpiler into
+        that basis first (see `propaq.circuits._gates`), which works for arbitrary
+        unitary gates, including multi-qubit `UnitaryGate`s, at the cost of a
+        `UserWarning` and however many rotations the decomposition produces.
 
         Arguments:
             qc: A Qiskit QuantumCircuit to convert.
@@ -100,71 +102,15 @@ class MajoranaCircuit:
 
                 if instr.name in ["measure", "barrier"]:
                     continue
-                if instr.name not in ["xx_plus_yy", "p", "rz", "cp", "x", "swap"]:
-                    raise ValueError(
-                        f"Unsupported gate {instr.name} in Qiskit circuit. "
-                        "Supported gates: xx_plus_yy, p, rz, cp, x, swap."
-                    )
 
                 q_indices = [qc.find_bit(q).index for q in qargs]
+                groups = gate_terms(instr, q_indices, n_modes, MAJORANA)
 
-                if instr.name == "xx_plus_yy":
-                    if len(qargs) != 2:
-                        raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
-                    beta = float(instr.params[1]) if len(instr.params) > 1 else 0.0
-
-                    rots: list[MajoranaRotation] = []
-                    if abs(beta) > 1e-14:
-                        rz_sum = MajoranaTermSum[MajoranaMonomial].from_rz_angle(
-                            q_indices[1], -beta, n_modes
-                        )
-                        for gen, ang in rz_sum.items():
-                            rots.append(MajoranaRotation(gen, float(ang.real)))
-
-                    majoranasum: MajoranaTermSum[MajoranaMonomial] = (
-                        MajoranaTermSum[MajoranaMonomial].from_xx_plus_yy(instr, q_indices, n_modes)
-                    )
-                    for gen, ang in majoranasum.items():
-                        rots.append(MajoranaRotation(gen, float(ang.real)))
-
-                    if abs(beta) > 1e-14:
-                        rz_neg_sum = MajoranaTermSum[MajoranaMonomial].from_rz_angle(
-                            q_indices[1], beta, n_modes
-                        )
-                        for gen, ang in rz_neg_sum.items():
-                            rots.append(MajoranaRotation(gen, float(ang.real)))
-
-                    _mark_intermediate(rots)
-                    for rot in rots:
-                        rot.qiskit_gate_idx = qiskit_gate_idx
-                    layer_rots.extend(rots)
-                    qiskit_gate_idx += 1
-                    continue
-
-                elif instr.name == "p":
-                    majoranasum = MajoranaTermSum[MajoranaMonomial].from_phase(instr, q_indices, n_modes)
-
-                elif instr.name == "rz":
-                    majoranasum = MajoranaTermSum[MajoranaMonomial].from_rz(instr, q_indices, n_modes)
-
-                elif instr.name == "cp":
-                    if len(qargs) != 2:
-                        raise ValueError("cp gate must have exactly 2 qubits.")
-                    majoranasum = MajoranaTermSum[MajoranaMonomial].from_cp(instr, q_indices, n_modes)
-
-                elif instr.name == "swap":
-                    if len(qargs) != 2:
-                        raise ValueError("swap gate must have exactly 2 qubits.")
-                    majoranasum = MajoranaTermSum[MajoranaMonomial].from_swap(instr, q_indices, n_modes)
-
-                elif instr.name == "x":
-                    if len(qargs) != 1:
-                        raise ValueError("x gate must have exactly 1 qubit.")
-                    majoranasum = MajoranaTermSum[MajoranaMonomial].from_x(instr, q_indices, n_modes)
-
-                items = list(majoranasum.items())
-                rots = [MajoranaRotation(gen, float(ang.real)) for gen, ang in items]
-                _mark_intermediate(rots)
+                rots: list[MajoranaRotation] = []
+                for group in groups:
+                    group_rots = [MajoranaRotation(gen, float(angle)) for gen, angle in group]
+                    _mark_intermediate(group_rots)
+                    rots.extend(group_rots)
                 for rot in rots:
                     rot.qiskit_gate_idx = qiskit_gate_idx
                 layer_rots.extend(rots)
