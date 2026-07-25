@@ -52,7 +52,7 @@ NON_UNITARY_OPS = frozenset(
 class _Rep:
     """Bundles the representation-specific term helpers gate_terms dispatches to."""
 
-    termsum_cls: type
+    termsum_cls: type[PauliTermSum] | type[MajoranaTermSum]
     rz_terms: Callable[..., list[tuple[Any, Any]]]
     cp_terms: Callable[..., list[tuple[Any, Any]]]
     xx_plus_yy_terms: Callable[..., list[tuple[Any, Any]]]
@@ -67,7 +67,7 @@ MAJORANA = _Rep(
 
 
 @cache
-def _unit_pauli_term(termsum_cls: type, label: str) -> tuple[Any, float]:
+def _unit_pauli_term(termsum_cls: type[PauliTermSum] | type[MajoranaTermSum], label: str) -> tuple[Any, float]:
     """(generator, unit coefficient) for a weight-1 Pauli label, via from_sparse_pauli_op."""
     term_sum = termsum_cls.from_sparse_pauli_op(SparsePauliOp(label))
     (gen, coeff), = term_sum.items()
@@ -79,7 +79,9 @@ def _single_pauli_terms(rep: _Rep, axis: str, angle: Any, qubit: int, width: int
     n_qubits = rep.qubits_in_width(width)
     label = ["I"] * n_qubits
     label[n_qubits - 1 - qubit] = axis
-    gen, unit_coeff = _unit_pauli_term(rep.termsum_cls, "".join(label))
+    # A class object is always hashable at runtime; mypy just doesn't see a
+    # Generic subclass's `type[...]` as satisfying `Hashable` here.
+    gen, unit_coeff = _unit_pauli_term(rep.termsum_cls, "".join(label))  # type: ignore[arg-type]
     return [(gen, angle * unit_coeff)]
 
 
