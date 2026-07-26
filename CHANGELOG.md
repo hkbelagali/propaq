@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - `MajoranaTermSum._xx_plus_yy_terms`'s relative sign between its two Majorana monomials was computed with period 2 in the qubit gap (`1 if d % 2 == 1 else -1`), but the correct sign (from reordering the JW string into canonical bit order) has period 4. This gave us the wrong sign for `XXPlusYYGate(theta, beta)` on non-adjacent qubits with `beta != 0` at gaps `d % 4 in (2, 3)`.
 
+### Changed
+- Add hydrogen chain benchmarks and remove old stale benchmarks.
+- `.github/workflows/benchmarks.yml`: the ASV (Python) benchmark job now runs unconditionally on every PR push, instead of only when the PR is labeled `benchmark`. The Criterion (Rust) job now also runs automatically on every push to `main` (post-merge tracking), in addition to its existing PR label.
+
 ## [0.1.0] - 2026-06-29
 
 ### Added 

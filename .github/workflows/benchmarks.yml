@@ -2,11 +2,13 @@ name: benchmarks
 
 on:
   pull_request:
-    types: [labeled]
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main]
 
 jobs:
   asv-bench:
-    if: contains(github.event.pull_request.labels.*.name, 'benchmark')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +34,9 @@ jobs:
           path: .asv/results/
 
   criterion-bench:
-    if: contains(github.event.pull_request.labels.*.name, 'benchmark')
+    if: |
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'benchmark')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
