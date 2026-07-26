@@ -8,6 +8,9 @@
     "pythons": ["3.12"],
     "build_cache_size": 2,
     "build_dependencies": ["maturin>=1.7,<2"],
+    "build_command": [
+        "python -m pip wheel --no-deps --no-build-isolation -w {build_cache_dir} {build_dir}"
+    ],
     "install_command": [
         "in-dir={build_dir} python -m pip install --no-build-isolation -e {build_dir}"
     ]
