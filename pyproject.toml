@@ -57,7 +57,7 @@ docs = [
     "pdoc>=14",
 ]
 cirq = [
-    "cirq~=1.6.1",
+    "cirq~=1.6.0",
 ]
 
 [tool.maturin]
