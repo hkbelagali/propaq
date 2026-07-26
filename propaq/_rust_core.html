@@ -74,19 +74,19 @@
                                 <a class="function" href="#MajoranaMonomial.to_bytes">to_bytes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.modes">modes</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#MajoranaMonomial.weight">weight</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaMonomial.length">length</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaMonomial.modes">modes</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.length">length</a>
+                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
                         </li>
                 </ul>
 
@@ -107,13 +107,13 @@
                                 <a class="variable" href="#PauliString.z">z</a>
                         </li>
                         <li>
+                                <a class="variable" href="#PauliString.x">x</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#PauliString.n_qubits">n_qubits</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliString.weight">weight</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#PauliString.x">x</a>
                         </li>
                 </ul>
 
@@ -221,13 +221,13 @@
                                 <a class="function" href="#TruncationPolicy.should_truncate">should_truncate</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#TruncationPolicy.coeff_cutoff">coeff_cutoff</a>
                         </li>
                         <li>
                                 <a class="variable" href="#TruncationPolicy.truncation_range">truncation_range</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
                         </li>
                 </ul>
 
@@ -287,13 +287,13 @@
                                 <a class="function" href="#MajoranaPropagator.set_truncation">set_truncation</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaPropagator.schedule">schedule</a>
+                                <a class="variable" href="#MajoranaPropagator.truncators">truncators</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaPropagator.noise">noise</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaPropagator.truncators">truncators</a>
+                                <a class="variable" href="#MajoranaPropagator.schedule">schedule</a>
                         </li>
                 </ul>
 
@@ -314,13 +314,13 @@
                                 <a class="function" href="#PauliPropagator.set_truncation">set_truncation</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliPropagator.noise">noise</a>
+                                <a class="variable" href="#PauliPropagator.schedule">schedule</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliPropagator.truncators">truncators</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliPropagator.schedule">schedule</a>
+                                <a class="variable" href="#PauliPropagator.noise">noise</a>
                         </li>
                 </ul>
 
@@ -356,13 +356,13 @@
                                 <a class="variable" href="#FrequencyTruncationPolicy.merge_max_terms">merge_max_terms</a>
                         </li>
                         <li>
-                                <a class="variable" href="#FrequencyTruncationPolicy.weight_cutoff">weight_cutoff</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.max_frequency">max_frequency</a>
                         </li>
                         <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.truncation_range">truncation_range</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#FrequencyTruncationPolicy.weight_cutoff">weight_cutoff</a>
                         </li>
                 </ul>
 
@@ -407,10 +407,10 @@
                     <a class="class" href="#TermBudget">TermBudget</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="variable" href="#TermBudget.min_terms">min_terms</a>
+                                <a class="variable" href="#TermBudget.max_terms">max_terms</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TermBudget.max_terms">max_terms</a>
+                                <a class="variable" href="#TermBudget.min_terms">min_terms</a>
                         </li>
                 </ul>
 
@@ -419,10 +419,10 @@
                     <a class="class" href="#MonomialBudget">MonomialBudget</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="variable" href="#MonomialBudget.max_monomials">max_monomials</a>
+                                <a class="variable" href="#MonomialBudget.min_monomials">min_monomials</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MonomialBudget.min_monomials">min_monomials</a>
+                                <a class="variable" href="#MonomialBudget.max_monomials">max_monomials</a>
                         </li>
                 </ul>
 
@@ -461,13 +461,13 @@
                                 <a class="function" href="#PauliSurrogateModel.load">load</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliSurrogateModel.n_monomials">n_monomials</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#PauliSurrogateModel.n_terms">n_terms</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliSurrogateModel.n_params">n_params</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#PauliSurrogateModel.n_monomials">n_monomials</a>
                         </li>
                 </ul>
 
@@ -488,13 +488,13 @@
                                 <a class="function" href="#MajoranaSurrogateModel.load">load</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogateModel.n_monomials">n_monomials</a>
+                                <a class="variable" href="#MajoranaSurrogateModel.n_params">n_params</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaSurrogateModel.n_terms">n_terms</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogateModel.n_params">n_params</a>
+                                <a class="variable" href="#MajoranaSurrogateModel.n_monomials">n_monomials</a>
                         </li>
                 </ul>
 
@@ -509,10 +509,10 @@
                                 <a class="function" href="#PauliSurrogatePropagator.set_truncation">set_truncation</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliSurrogatePropagator.truncators">truncators</a>
+                                <a class="variable" href="#PauliSurrogatePropagator.schedule">schedule</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliSurrogatePropagator.schedule">schedule</a>
+                                <a class="variable" href="#PauliSurrogatePropagator.truncators">truncators</a>
                         </li>
                 </ul>
 
@@ -527,10 +527,10 @@
                                 <a class="function" href="#MajoranaSurrogatePropagator.set_truncation">set_truncation</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogatePropagator.truncators">truncators</a>
+                                <a class="variable" href="#MajoranaSurrogatePropagator.schedule">schedule</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogatePropagator.schedule">schedule</a>
+                                <a class="variable" href="#MajoranaSurrogatePropagator.truncators">truncators</a>
                         </li>
                 </ul>
 
@@ -720,30 +720,6 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
-                            <div id="MajoranaMonomial.modes" class="classattr">
-                                <div class="attr variable">
-            <span class="name">modes</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.modes"></a>
-    
-            <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
-</div>
-
-
-                            </div>
-                            <div id="MajoranaMonomial.is_number_preserving" class="classattr">
-                                <div class="attr variable">
-            <span class="name">is_number_preserving</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.is_number_preserving"></a>
-    
-    
-
-                            </div>
                             <div id="MajoranaMonomial.weight" class="classattr">
                                 <div class="attr variable">
             <span class="name">weight</span>
@@ -753,6 +729,32 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
     <a class="headerlink" href="#MajoranaMonomial.weight"></a>
     
             <div class="docstring"><p>Pauli weight of this monomial under the Jordan-Wigner mapping.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaMonomial.length" class="classattr">
+                                <div class="attr variable">
+            <span class="name">length</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.length"></a>
+    
+            <div class="docstring"><p>Number of active Majorana modes in the monomial (popcount of the mode bitmask).</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaMonomial.modes" class="classattr">
+                                <div class="attr variable">
+            <span class="name">modes</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.modes"></a>
+    
+            <div class="docstring"><p>The active mode indices as a Python integer bitmask.</p>
 </div>
 
 
@@ -768,17 +770,15 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
     
 
                             </div>
-                            <div id="MajoranaMonomial.length" class="classattr">
+                            <div id="MajoranaMonomial.is_number_preserving" class="classattr">
                                 <div class="attr variable">
-            <span class="name">length</span>
+            <span class="name">is_number_preserving</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaMonomial.length"></a>
+    <a class="headerlink" href="#MajoranaMonomial.is_number_preserving"></a>
     
-            <div class="docstring"><p>Number of active Majorana modes in the monomial (popcount of the mode bitmask).</p>
-</div>
-
+    
 
                             </div>
                 </section>
@@ -896,6 +896,19 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
+                            <div id="PauliString.x" class="classattr">
+                                <div class="attr variable">
+            <span class="name">x</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliString.x"></a>
+    
+            <div class="docstring"><p>X-component bitmask as a Python int.</p>
+</div>
+
+
+                            </div>
                             <div id="PauliString.n_qubits" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_qubits</span>
@@ -916,19 +929,6 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
     <a class="headerlink" href="#PauliString.weight"></a>
     
             <div class="docstring"><p>Number of non-identity single-qubit Pauli operators (popcount of x | z).</p>
-</div>
-
-
-                            </div>
-                            <div id="PauliString.x" class="classattr">
-                                <div class="attr variable">
-            <span class="name">x</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliString.x"></a>
-    
-            <div class="docstring"><p>X-component bitmask as a Python int.</p>
 </div>
 
 
@@ -1452,17 +1452,6 @@ Defaults to (None, $10^7$).</li>
 
 
                             </div>
-                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight_cutoff</span>
-
-        
-    </div>
-    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
-    
-    
-
-                            </div>
                             <div id="TruncationPolicy.coeff_cutoff" class="classattr">
                                 <div class="attr variable">
             <span class="name">coeff_cutoff</span>
@@ -1485,6 +1474,17 @@ Defaults to (None, $10^7$).</li>
             <div class="docstring"><p>The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.</p>
 </div>
 
+
+                            </div>
+                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight_cutoff</span>
+
+        
+    </div>
+    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
+    
+    
 
                             </div>
                 </section>
@@ -1771,15 +1771,15 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
 
 
                             </div>
-                            <div id="MajoranaPropagator.schedule" class="classattr">
+                            <div id="MajoranaPropagator.truncators" class="classattr">
                                 <div class="attr variable">
-            <span class="name">schedule</span>
+            <span class="name">truncators</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaPropagator.schedule"></a>
+    <a class="headerlink" href="#MajoranaPropagator.truncators"></a>
     
-            <div class="docstring"><p>The flush/merge schedule.</p>
+            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
 </div>
 
 
@@ -1795,15 +1795,15 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
     
 
                             </div>
-                            <div id="MajoranaPropagator.truncators" class="classattr">
+                            <div id="MajoranaPropagator.schedule" class="classattr">
                                 <div class="attr variable">
-            <span class="name">truncators</span>
+            <span class="name">schedule</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaPropagator.truncators"></a>
+    <a class="headerlink" href="#MajoranaPropagator.schedule"></a>
     
-            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
+            <div class="docstring"><p>The flush/merge schedule.</p>
 </div>
 
 
@@ -1914,15 +1914,15 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
 
 
                             </div>
-                            <div id="PauliPropagator.noise" class="classattr">
+                            <div id="PauliPropagator.schedule" class="classattr">
                                 <div class="attr variable">
-            <span class="name">noise</span>
+            <span class="name">schedule</span>
 
         
     </div>
-    <a class="headerlink" href="#PauliPropagator.noise"></a>
+    <a class="headerlink" href="#PauliPropagator.schedule"></a>
     
-            <div class="docstring"><p>The noise model used during propagation, if any.</p>
+            <div class="docstring"><p>The flush/merge schedule.</p>
 </div>
 
 
@@ -1940,15 +1940,15 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
 
 
                             </div>
-                            <div id="PauliPropagator.schedule" class="classattr">
+                            <div id="PauliPropagator.noise" class="classattr">
                                 <div class="attr variable">
-            <span class="name">schedule</span>
+            <span class="name">noise</span>
 
         
     </div>
-    <a class="headerlink" href="#PauliPropagator.schedule"></a>
+    <a class="headerlink" href="#PauliPropagator.noise"></a>
     
-            <div class="docstring"><p>The flush/merge schedule.</p>
+            <div class="docstring"><p>The noise model used during propagation, if any.</p>
 </div>
 
 
@@ -2062,19 +2062,6 @@ partition maps (no truncation). <code>None</code> disables the finer cadence.</p
 
 
                             </div>
-                            <div id="FrequencyTruncationPolicy.weight_cutoff" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight_cutoff</span>
-
-        
-    </div>
-    <a class="headerlink" href="#FrequencyTruncationPolicy.weight_cutoff"></a>
-    
-            <div class="docstring"><p>Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).</p>
-</div>
-
-
-                            </div>
                             <div id="FrequencyTruncationPolicy.max_frequency" class="classattr">
                                 <div class="attr variable">
             <span class="name">max_frequency</span>
@@ -2097,6 +2084,19 @@ partition maps (no truncation). <code>None</code> disables the finer cadence.</p
     <a class="headerlink" href="#FrequencyTruncationPolicy.truncation_range"></a>
     
             <div class="docstring"><p>The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.</p>
+</div>
+
+
+                            </div>
+                            <div id="FrequencyTruncationPolicy.weight_cutoff" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight_cutoff</span>
+
+        
+    </div>
+    <a class="headerlink" href="#FrequencyTruncationPolicy.weight_cutoff"></a>
+    
+            <div class="docstring"><p>Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).</p>
 </div>
 
 
@@ -2229,17 +2229,6 @@ propagators. Either field <code>None</code> disables that bound.</p>
 </div>
 
 
-                            <div id="TermBudget.min_terms" class="classattr">
-                                <div class="attr variable">
-            <span class="name">min_terms</span>
-
-        
-    </div>
-    <a class="headerlink" href="#TermBudget.min_terms"></a>
-    
-    
-
-                            </div>
                             <div id="TermBudget.max_terms" class="classattr">
                                 <div class="attr variable">
             <span class="name">max_terms</span>
@@ -2247,6 +2236,17 @@ propagators. Either field <code>None</code> disables that bound.</p>
         
     </div>
     <a class="headerlink" href="#TermBudget.max_terms"></a>
+    
+    
+
+                            </div>
+                            <div id="TermBudget.min_terms" class="classattr">
+                                <div class="attr variable">
+            <span class="name">min_terms</span>
+
+        
+    </div>
+    <a class="headerlink" href="#TermBudget.min_terms"></a>
     
     
 
@@ -2264,17 +2264,6 @@ propagators. Either field <code>None</code> disables that bound.</p>
     
     
 
-                            <div id="MonomialBudget.max_monomials" class="classattr">
-                                <div class="attr variable">
-            <span class="name">max_monomials</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MonomialBudget.max_monomials"></a>
-    
-    
-
-                            </div>
                             <div id="MonomialBudget.min_monomials" class="classattr">
                                 <div class="attr variable">
             <span class="name">min_monomials</span>
@@ -2282,6 +2271,17 @@ propagators. Either field <code>None</code> disables that bound.</p>
         
     </div>
     <a class="headerlink" href="#MonomialBudget.min_monomials"></a>
+    
+    
+
+                            </div>
+                            <div id="MonomialBudget.max_monomials" class="classattr">
+                                <div class="attr variable">
+            <span class="name">max_monomials</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MonomialBudget.max_monomials"></a>
     
     
 
@@ -2429,21 +2429,6 @@ assignments); returns one expectation value per assignment.</p>
 
 
                             </div>
-                            <div id="PauliSurrogateModel.n_monomials" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_monomials</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliSurrogateModel.n_monomials"></a>
-    
-            <div class="docstring"><p>Total pre-dedup monomial-instance count across every surviving term
-(an upper bound, not deduplicated -- <code><a href="#PauliSurrogateModel.n_terms">n_terms</a></code> alone doesn't say how
-much underlying computation a term represents).</p>
-</div>
-
-
-                            </div>
                             <div id="PauliSurrogateModel.n_terms" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_terms</span>
@@ -2466,6 +2451,21 @@ much underlying computation a term represents).</p>
     <a class="headerlink" href="#PauliSurrogateModel.n_params"></a>
     
             <div class="docstring"><p>Number of parameter indices used by this model.</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliSurrogateModel.n_monomials" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_monomials</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogateModel.n_monomials"></a>
+    
+            <div class="docstring"><p>Total pre-dedup monomial-instance count across every surviving term
+(an upper bound, not deduplicated -- <code><a href="#PauliSurrogateModel.n_terms">n_terms</a></code> alone doesn't say how
+much underlying computation a term represents).</p>
 </div>
 
 
@@ -2539,13 +2539,13 @@ much underlying computation a term represents).</p>
     
 
                             </div>
-                            <div id="MajoranaSurrogateModel.n_monomials" class="classattr">
+                            <div id="MajoranaSurrogateModel.n_params" class="classattr">
                                 <div class="attr variable">
-            <span class="name">n_monomials</span>
+            <span class="name">n_params</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaSurrogateModel.n_monomials"></a>
+    <a class="headerlink" href="#MajoranaSurrogateModel.n_params"></a>
     
     
 
@@ -2561,13 +2561,13 @@ much underlying computation a term represents).</p>
     
 
                             </div>
-                            <div id="MajoranaSurrogateModel.n_params" class="classattr">
+                            <div id="MajoranaSurrogateModel.n_monomials" class="classattr">
                                 <div class="attr variable">
-            <span class="name">n_params</span>
+            <span class="name">n_monomials</span>
 
         
     </div>
-    <a class="headerlink" href="#MajoranaSurrogateModel.n_params"></a>
+    <a class="headerlink" href="#MajoranaSurrogateModel.n_monomials"></a>
     
     
 
@@ -2643,19 +2643,6 @@ constructor's <code>truncation</code>). The current schedule is preserved.</p>
 
 
                             </div>
-                            <div id="PauliSurrogatePropagator.truncators" class="classattr">
-                                <div class="attr variable">
-            <span class="name">truncators</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliSurrogatePropagator.truncators"></a>
-    
-            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
-</div>
-
-
-                            </div>
                             <div id="PauliSurrogatePropagator.schedule" class="classattr">
                                 <div class="attr variable">
             <span class="name">schedule</span>
@@ -2665,6 +2652,19 @@ constructor's <code>truncation</code>). The current schedule is preserved.</p>
     <a class="headerlink" href="#PauliSurrogatePropagator.schedule"></a>
     
             <div class="docstring"><p>The flush/merge schedule.</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliSurrogatePropagator.truncators" class="classattr">
+                                <div class="attr variable">
+            <span class="name">truncators</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogatePropagator.truncators"></a>
+    
+            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
 </div>
 
 
@@ -2713,19 +2713,6 @@ constructor's <code>truncation</code>). The current schedule is preserved.</p>
 
 
                             </div>
-                            <div id="MajoranaSurrogatePropagator.truncators" class="classattr">
-                                <div class="attr variable">
-            <span class="name">truncators</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaSurrogatePropagator.truncators"></a>
-    
-            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
-</div>
-
-
-                            </div>
                             <div id="MajoranaSurrogatePropagator.schedule" class="classattr">
                                 <div class="attr variable">
             <span class="name">schedule</span>
@@ -2735,6 +2722,19 @@ constructor's <code>truncation</code>). The current schedule is preserved.</p>
     <a class="headerlink" href="#MajoranaSurrogatePropagator.schedule"></a>
     
             <div class="docstring"><p>The flush/merge schedule.</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaSurrogatePropagator.truncators" class="classattr">
+                                <div class="attr variable">
+            <span class="name">truncators</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogatePropagator.truncators"></a>
+    
+            <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
 </div>
 
 
