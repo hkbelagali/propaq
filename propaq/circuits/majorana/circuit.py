@@ -1,5 +1,6 @@
 """Circuit representation for circuits in the Majorana representation."""
 
+from typing import TYPE_CHECKING
 
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
@@ -8,6 +9,9 @@ from ...datatypes import MajoranaMonomial
 from .._gates import MAJORANA, gate_terms
 from .._utils import compound_gate_reversed as _compound_gate_reversed
 from .rotation import MajoranaRotation
+
+if TYPE_CHECKING:
+    import cirq
 
 
 class MajoranaCircuit:
@@ -115,6 +119,70 @@ class MajoranaCircuit:
                     rot.qiskit_gate_idx = qiskit_gate_idx
                 layer_rots.extend(rots)
                 qiskit_gate_idx += 1
+
+            if layer_rots:
+                all_layers.append(layer_rots)
+
+        mc = cls.__new__(cls)
+        mc._layers = all_layers
+        mc.n_modes = n_modes
+        return mc
+
+    @classmethod
+    def from_cirq(cls, circuit: "cirq.Circuit", n_modes: int):
+        """
+        Construct a MajoranaCircuit from a Cirq Circuit.
+
+        Gates in the native rotation basis (ZPowGate, XPowGate, YPowGate, CZPowGate,
+        SWAP, PhasedISwapPowGate) are converted directly. Any other gate is
+        decomposed via Cirq's own decomposition protocol into that basis first (see
+        `propaq.circuits._cirq_gates`), which works for arbitrary unitary gates.
+
+        Requires the optional `cirq` dependency: `pip install propaq[cirq]`.
+
+        Arguments:
+            circuit: A Cirq Circuit to convert. Qubits are indexed by their sorted
+                order (`sorted(circuit.all_qubits())`), not by any coordinate value.
+            n_modes: The number of Majorana modes in the system.
+
+        Returns:
+            A MajoranaCircuit initialized with the given Cirq circuit.
+        """
+        try:
+            import cirq  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "Cirq support requires the optional 'cirq' extra: pip install propaq[cirq]"
+            ) from exc
+
+        from .._cirq_gates import cirq_gate_terms
+
+        qubits = sorted(circuit.all_qubits())
+        qmap = {q: i for i, q in enumerate(qubits)}
+
+        def _mark_intermediate(rots: list[MajoranaRotation]) -> list[MajoranaRotation]:
+            for i, rot in enumerate(rots):
+                rot.is_intermediate = i < len(rots) - 1
+            return rots
+
+        all_layers: list[list[MajoranaRotation]] = []
+        gate_idx: int = 0
+
+        for moment in circuit:
+            layer_rots: list[MajoranaRotation] = []
+            for op in moment.operations:
+                q_indices = [qmap[q] for q in op.qubits]
+                groups = cirq_gate_terms(op, q_indices, n_modes, MAJORANA)
+
+                rots: list[MajoranaRotation] = []
+                for group in groups:
+                    group_rots = [MajoranaRotation(gen, float(angle)) for gen, angle in group]
+                    _mark_intermediate(group_rots)
+                    rots.extend(group_rots)
+                for rot in rots:
+                    rot.qiskit_gate_idx = gate_idx
+                layer_rots.extend(rots)
+                gate_idx += 1
 
             if layer_rots:
                 all_layers.append(layer_rots)

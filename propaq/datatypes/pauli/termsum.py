@@ -146,13 +146,15 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
 
     @classmethod
     def from_swap(
-        cls, instr: Instruction, q_indices: list[int], n_modes: int
+        cls, instr: "Instruction | None", q_indices: list[int], n_modes: int
     ) -> "PauliTermSum[PauliString]":
         """
         Construct from a SWAP gate between q_indices[0] and q_indices[1].
 
         Arguments:
-            instr: The instruction representing the gate.
+            instr: The instruction representing the gate, if any (unused; SWAP
+                carries no gate parameters). `None` when called from a non-Qiskit
+                frontend, e.g. propaq.circuits._cirq_gates.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of qubits in the system.
         """
