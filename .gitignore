@@ -15,6 +15,10 @@ Cargo.lock
 _site/
 site/
 
+# ASV benchmark working directories
+.asv/
+results/
+
 # Playground files
 scratch.py
 
