@@ -10,9 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Arbitrary Qiskit gate support in `PauliCircuit.from_qiskit`, `MajoranaCircuit.from_qiskit`, `SurrogatePauliCircuit.from_qiskit`, and `SurrogateMajoranaCircuit.from_qiskit`. Gates outside the native rotation basis (`xx_plus_yy`, `p`, `rz`, `rx`, `ry`, `cp`, `x`, `swap`) are now decomposed via Qiskit's transpiler into that basis instead of raising, via a new shared dispatch module `propaq/circuits/_gates.py`. Emits a `UserWarning` naming the gate and the resulting rotation count, since decomposition cost varies a lot by gate.
 - `rx`/`ry` added to the native rotation basis, closing the basis under Qiskit's standard ZXZ Euler decomposition and letting the transpiler-based fallback reach essentially any 1- or 2-qubit gate, and multi-qubit `UnitaryGate`s, without it.
 - Random-Qiskit-gate test coverage: `tests/circuits/test_arbitrary_gates.py`, `tests/propagator/test_loschmidt_random_gates.py`, and random-arbitrary-gate coverage added to `tests/circuits/test_surrogate_from_qiskit.py`.
+- Optional Cirq support, mirroring the Qiskit architecture: `from_cirq` on `PauliCircuit`, `MajoranaCircuit`, `SurrogatePauliCircuit`, and `SurrogateMajoranaCircuit`, gated behind a new `cirq` extra (`pip install propaq[cirq]`).
 
 ### Fixed
 - `MajoranaTermSum._xx_plus_yy_terms`'s relative sign between its two Majorana monomials was computed with period 2 in the qubit gap (`1 if d % 2 == 1 else -1`), but the correct sign (from reordering the JW string into canonical bit order) has period 4. This gave us the wrong sign for `XXPlusYYGate(theta, beta)` on non-adjacent qubits with `beta != 0` at gaps `d % 4 in (2, 3)`.
+- `MajoranaTermSum.from_swap` had the analogous bug, but distributed differently across its three monomials.
 
 ### Changed
 - Add hydrogen chain benchmarks and remove old stale benchmarks.

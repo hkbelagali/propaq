@@ -1,5 +1,6 @@
 """Circuit representation for circuits in the Pauli representation."""
 
+from typing import TYPE_CHECKING
 
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
@@ -8,6 +9,9 @@ from ...datatypes.pauli.pauli import PauliString
 from .._gates import PAULI, gate_terms
 from .._utils import compound_gate_reversed as _compound_gate_reversed
 from .rotation import PauliRotation
+
+if TYPE_CHECKING:
+    import cirq
 
 
 class PauliCircuit:
@@ -109,6 +113,69 @@ class PauliCircuit:
                     rot.qiskit_gate_idx = qiskit_gate_idx
                 layer_rots.extend(rots)
                 qiskit_gate_idx += 1
+
+            if layer_rots:
+                all_layers.append(layer_rots)
+
+        circ = cls.__new__(cls)
+        circ._layers = all_layers
+        return circ
+
+    @classmethod
+    def from_cirq(cls, circuit: "cirq.Circuit") -> "PauliCircuit":
+        """
+        Construct a PauliCircuit from a Cirq Circuit.
+
+        Gates in the native rotation basis (ZPowGate, XPowGate, YPowGate, CZPowGate,
+        SWAP, PhasedISwapPowGate) are converted directly. Any other gate is
+        decomposed via Cirq's own decomposition protocol into that basis first (see
+        `propaq.circuits._cirq_gates`), which works for arbitrary unitary gates.
+
+        Requires the optional `cirq` dependency: `pip install propaq[cirq]`.
+
+        Arguments:
+            circuit: A Cirq Circuit to convert. Qubits are indexed by their sorted
+                order (`sorted(circuit.all_qubits())`), not by any coordinate value.
+
+        Returns:
+            A PauliCircuit initialized with the given Cirq circuit.
+        """
+        try:
+            import cirq  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "Cirq support requires the optional 'cirq' extra: pip install propaq[cirq]"
+            ) from exc
+
+        from .._cirq_gates import cirq_gate_terms
+
+        qubits = sorted(circuit.all_qubits())
+        qmap = {q: i for i, q in enumerate(qubits)}
+        n_qubits = len(qubits)
+
+        def _mark_intermediate(rots: list[PauliRotation]) -> list[PauliRotation]:
+            for i, rot in enumerate(rots):
+                rot.is_intermediate = i < len(rots) - 1
+            return rots
+
+        all_layers: list[list[PauliRotation]] = []
+        gate_idx: int = 0
+
+        for moment in circuit:
+            layer_rots: list[PauliRotation] = []
+            for op in moment.operations:
+                q_indices = [qmap[q] for q in op.qubits]
+                groups = cirq_gate_terms(op, q_indices, n_qubits, PAULI)
+
+                rots: list[PauliRotation] = []
+                for group in groups:
+                    group_rots = [PauliRotation(gen, float(angle)) for gen, angle in group]
+                    _mark_intermediate(group_rots)
+                    rots.extend(group_rots)
+                for rot in rots:
+                    rot.qiskit_gate_idx = gate_idx
+                layer_rots.extend(rots)
+                gate_idx += 1
 
             if layer_rots:
                 all_layers.append(layer_rots)

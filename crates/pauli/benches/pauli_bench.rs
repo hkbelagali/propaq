@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use propaq_core::bitset::Bitset;
 use propaq_core::termsum::AbstractTermSum;
@@ -102,12 +104,22 @@ fn bench_termsum_norm_squared(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_commutes_with,
-    bench_matmul,
-    bench_termsum_add,
-    bench_termsum_merge,
-    bench_termsum_norm_squared,
-);
+fn ci_config() -> Criterion {
+    Criterion::default()
+        .warm_up_time(Duration::from_millis(300))
+        .measurement_time(Duration::from_secs(1))
+        .sample_size(10)
+        .without_plots()
+}
+
+criterion_group! {
+    name = benches;
+    config = ci_config();
+    targets =
+        bench_commutes_with,
+        bench_matmul,
+        bench_termsum_add,
+        bench_termsum_merge,
+        bench_termsum_norm_squared,
+}
 criterion_main!(benches);

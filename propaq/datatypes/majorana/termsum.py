@@ -226,13 +226,15 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
 
     @classmethod
     def from_swap(
-        cls, instr: Instruction, q_indices: list[int], n_modes: int
+        cls, instr: "Instruction | None", q_indices: list[int], n_modes: int
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a SWAP gate between q_indices[0] and q_indices[1].
 
         Arguments:
-            instr: The instruction representing the gate.
+            instr: The instruction representing the gate, if any (unused; SWAP
+                carries no gate parameters). `None` when called from a non-Qiskit
+                frontend, e.g. propaq.circuits._cirq_gates.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
         """
@@ -245,7 +247,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         for k in range(lo + 1, hi):
             jw_string |= (1 << (2 * k)) | (1 << (2 * k + 1))
 
-        sign = 1 if d % 2 == 1 else -1
+        sign = 1 if ((d - 1) // 2) % 2 == 1 else -1
 
         m1_bits = BitMask((1 << (2 * lo)) | jw_string | (1 << (2 * hi + 1)))
         m2_bits = BitMask((1 << (2 * lo + 1)) | jw_string | (1 << (2 * hi)))
@@ -254,9 +256,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         )
 
         term_sum = cls()
-        term_sum.add(MajoranaMonomial(m1_bits, n_modes, is_number_preserving=False), sign * angle)
-        term_sum.add(MajoranaMonomial(m2_bits, n_modes, is_number_preserving=False), -sign * angle)
-        term_sum.add(MajoranaMonomial(m3_bits, n_modes), -angle)
+        term_sum.add(MajoranaMonomial(m1_bits, n_modes, is_number_preserving=False), angle)
+        term_sum.add(MajoranaMonomial(m2_bits, n_modes, is_number_preserving=False), -angle)
+        term_sum.add(MajoranaMonomial(m3_bits, n_modes), sign * angle)
 
         return term_sum
 

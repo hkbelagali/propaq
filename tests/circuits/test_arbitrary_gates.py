@@ -1,8 +1,5 @@
-"""Tests that from_qiskit accepts arbitrary Qiskit gates via transpile-based decomposition.
-
-Each representation's from_qiskit (PauliCircuit, MajoranaCircuit) is exercised against
-gates well outside the native rotation basis (xx_plus_yy, p, rz, rx, ry, cp, x, swap),
-including multi-qubit UnitaryGate instances, and cross-checked against Statevector.
+"""
+Tests that from_qiskit accepts arbitrary Qiskit gates via transpile-based decomposition.
 """
 
 import numpy as np
@@ -153,6 +150,31 @@ def test_random_circuit_matches_statevector(rep_name, seed):
         want = sv.expectation_value(SparsePauliOp(label)).real
         got = _expectation(rep_name, qc, label)
         assert np.isclose(got, want, atol=1e-6), f"seed={seed} ({rep_name}), obs={label}: {got} vs {want}"
+
+
+@pytest.mark.parametrize("rep_name", REPS)
+@pytest.mark.parametrize("n_qubits", [3, 4, 5, 6])
+@pytest.mark.parametrize("gap", [1, 2, 3, 4, 5])
+def test_swap_composed_with_prior_rotation_matches_statevector(rep_name, n_qubits, gap):
+    if gap >= n_qubits:
+        pytest.skip("gap too large for this qubit count")
+    lo, hi = 0, gap
+
+    qc = QuantumCircuit(n_qubits)
+    qc.ry(1.9009273926518704 * np.pi, lo)
+    qc.swap(lo, hi)
+    sv = Statevector(qc)
+
+    for q in (lo, hi):
+        for p in ("X", "Y"):
+            chars = ["I"] * n_qubits
+            chars[q] = p
+            label = "".join(reversed(chars))
+            want = sv.expectation_value(SparsePauliOp(label)).real
+            got = _expectation(rep_name, qc, label)
+            assert np.isclose(got, want, atol=1e-6), (
+                f"gap={gap} n_qubits={n_qubits} ({rep_name}), obs={label}: {got} vs {want}"
+            )
 
 
 @pytest.mark.parametrize("rep_name", REPS)

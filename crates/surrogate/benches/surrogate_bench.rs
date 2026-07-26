@@ -21,6 +21,8 @@
 //! real propagation uses to grow coefficients, so building benchmark inputs
 //! the same way keeps them representative instead of synthetic.
 
+use std::time::Duration;
+
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use num_complex::Complex64;
 
@@ -454,16 +456,26 @@ fn bench_prune_shared_parameters(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_apply_gate_inplace,
-    bench_apply_rotation_by_prior_history,
-    bench_compile_by_size,
-    bench_evaluate_by_size,
-    bench_evaluate_batch,
-    bench_compile_batch_vs_per_term_under_sharing,
-    bench_flush_and_retain,
-    bench_prune_by_size,
-    bench_prune_shared_parameters,
-);
+fn ci_config() -> Criterion {
+    Criterion::default()
+        .warm_up_time(Duration::from_millis(300))
+        .measurement_time(Duration::from_secs(1))
+        .sample_size(10)
+        .without_plots()
+}
+
+criterion_group! {
+    name = benches;
+    config = ci_config();
+    targets =
+        bench_apply_gate_inplace,
+        bench_apply_rotation_by_prior_history,
+        bench_compile_by_size,
+        bench_evaluate_by_size,
+        bench_evaluate_batch,
+        bench_compile_batch_vs_per_term_under_sharing,
+        bench_flush_and_retain,
+        bench_prune_by_size,
+        bench_prune_shared_parameters,
+}
 criterion_main!(benches);
