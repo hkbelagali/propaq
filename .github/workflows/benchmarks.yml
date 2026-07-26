@@ -25,6 +25,9 @@ jobs:
       - name: Install ASV and build tools
         run: pip install asv virtualenv "maturin>=1.7,<2"
 
+      - name: Register ASV machine info
+        run: asv machine --yes
+
       - name: Run ASV benchmarks (quick mode)
         run: asv run --quick --show-stderr HEAD^!
 
