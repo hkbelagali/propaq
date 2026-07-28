@@ -10,7 +10,6 @@ pub mod noise;
 pub mod native_noise;
 pub mod native_truncator;
 pub mod helpers;
-pub mod termsum;
 pub mod propagator;
 pub mod logger;
 pub mod streamer;
