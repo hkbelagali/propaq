@@ -314,7 +314,7 @@ pub fn resolve_truncation(
     schedule: Option<FlushSchedule>,
 ) -> PyResult<(FlushSchedule, Vec<Truncator>)> {
     let Some(obj) = truncation else {
-        return Ok((schedule.unwrap_or_else(FlushSchedule::none), Vec::new()));
+        return Ok((schedule.unwrap_or_default(), Vec::new()));
     };
     if let Ok(legacy) = obj.extract::<PyRef<TruncationPolicy>>() {
         let (decomposed, ops) = legacy.decompose();

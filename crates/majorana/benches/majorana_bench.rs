@@ -98,7 +98,7 @@ fn bench_termsum_merge(c: &mut Criterion) {
             bench.iter_batched(
                 || (build_termsum(n, n_modes), build_termsum(n, n_modes)),
                 |(mut ts1, ts2)| {
-                    ts1.merge(black_box(&ts2));
+                    let _ = ts1.merge(black_box(&ts2));
                     black_box(ts1)
                 },
                 BatchSize::SmallInput,

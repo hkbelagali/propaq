@@ -357,3 +357,44 @@ def test_to_sparse_pauli_op_round_trip():
 def test_to_sparse_pauli_op_empty_raises():
     with pytest.raises(ValueError):
         MajoranaTermSum().to_sparse_pauli_op()
+
+
+def test_default_dtype_is_float64():
+    assert MajoranaTermSum().dtype == "float64"
+
+
+def test_float32_dtype_round_trip():
+    m = mon(0b0011)
+    ts = MajoranaTermSum(dtype="float32")
+    ts.add(m, 1.5)
+    assert ts.dtype == "float32"
+    assert ts[m] == pytest.approx(1.5, rel=1e-6)
+
+
+def test_float32_copy_keeps_dtype():
+    ts = MajoranaTermSum(dtype="float32")
+    ts.add(mon(0b0011), 1.0)
+    assert ts.copy().dtype == "float32"
+
+
+def test_float32_save_load_round_trips_as_float64(tmp_path):
+    m = mon(0b0011)
+    ts = MajoranaTermSum(dtype="float32")
+    ts.add(m, 1.5)
+    path = str(tmp_path / "ts32.gz")
+    ts.save(path)
+    loaded = MajoranaTermSum.from_file(path)
+    assert loaded.dtype == "float64"
+    assert loaded[m] == pytest.approx(1.5, rel=1e-6)
+
+
+def test_merge_mismatched_dtype_raises():
+    ts64 = MajoranaTermSum()
+    ts32 = MajoranaTermSum(dtype="float32")
+    with pytest.raises(ValueError):
+        ts64.merge(ts32)
+
+
+def test_unknown_dtype_raises():
+    with pytest.raises(ValueError):
+        MajoranaTermSum(dtype="float16")

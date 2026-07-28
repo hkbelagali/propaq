@@ -540,14 +540,14 @@ fn apply_noise_native_chunk<C: CoeffRepr>(
     }
 }
 
-pub fn expectation<B: SoaBasis>(terms: &SoaTermSum<f64>, fock_state: &[u64]) -> f64 {
+pub fn expectation<B: SoaBasis, C: CoeffRepr>(terms: &SoaTermSum<C>, fock_state: &[u64]) -> f64 {
     let n = terms.len();
     let stride = terms.stride;
     let planes = &terms.planes;
     let value_of = |i: usize| -> f64 {
         let s = i * stride;
         let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
-        terms.coeffs[i] * B::trace(term, terms.n_units, fock_state)
+        terms.coeffs[i].to_f64() * B::trace(term, terms.n_units, fock_state)
     };
     if n >= PAR_MIN_LEN {
         (0..n).into_par_iter().map(value_of).sum()
@@ -813,7 +813,7 @@ mod tests {
         let mut terms = make(4);
         terms.push([&[0b01], &[0]], 2.0);
         terms.push([&[0b10], &[0]], 3.0);
-        let total = expectation::<TestBasis>(&terms, &[0b01]);
+        let total = expectation::<TestBasis, f64>(&terms, &[0b01]);
         assert!((total - (2.0 * -1.0 + 3.0 * 1.0)).abs() < 1e-12);
     }
 
