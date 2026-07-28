@@ -92,7 +92,7 @@ impl MajoranaTermSum {
     }
 
     /// Add *coeff* * *term* to the sum, accumulating if the monomial is already present.
-    fn add(&mut self, term: MajoranaMonomial, coeff: f64) {
+    pub fn add(&mut self, term: MajoranaMonomial, coeff: f64) {
         ensure_sized(&mut self.inner, term.n_modes);
         if let Some(&row) = self.index.get(&term) {
             self.inner.coeffs[row] += coeff;
@@ -113,7 +113,7 @@ impl MajoranaTermSum {
     }
 
     /// Add all terms from *other* into this sum.
-    fn merge(&mut self, other: &MajoranaTermSum) {
+    pub fn merge(&mut self, other: &MajoranaTermSum) {
         let n = other.inner.len();
         for i in 0..n {
             let term = MajoranaBasis::term_from_planes(other.inner.term_planes(i), other.inner.n_units);
@@ -191,7 +191,7 @@ impl MajoranaTermSum {
     }
 
     /// Return the sum of |coefficient|² over all terms.
-    fn norm_squared(&self) -> f64 {
+    pub fn norm_squared(&self) -> f64 {
         self.inner.coeffs[..self.inner.len()].iter().map(|c| c * c).sum()
     }
 
