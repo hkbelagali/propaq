@@ -708,9 +708,9 @@ impl PauliSurrogatePropagator {
         initial_state: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PauliSurrogateModel> {
         let n_params: usize = circuit.getattr("n_params")?.extract()?;
-        let mut evolved = observable.inner.map_coeffs(|c| SymbolicCoeff::from_real(*c));
+        let mut evolved = observable.as_f64().map_coeffs(|c| SymbolicCoeff::from_real(*c));
         let initial_state = match initial_state {
-            Some(v) => pyint_to_bitset(v, observable.inner.n_units)?,
+            Some(v) => pyint_to_bitset(v, observable.n_units())?,
             None => Bitset::zero(),
         };
         let model = self.inner.run_build(py, &mut evolved, circuit, initial_state.as_words(), n_params)?;
@@ -780,9 +780,9 @@ impl MajoranaSurrogatePropagator {
         initial_state: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<MajoranaSurrogateModel> {
         let n_params: usize = circuit.getattr("n_params")?.extract()?;
-        let mut evolved = observable.inner.map_coeffs(|c| SymbolicCoeff::from_real(*c));
+        let mut evolved = observable.as_f64().map_coeffs(|c| SymbolicCoeff::from_real(*c));
         let initial_state = match initial_state {
-            Some(v) => pyint_to_bitset(v, observable.inner.n_units)?,
+            Some(v) => pyint_to_bitset(v, observable.n_units())?,
             None => Bitset::zero(),
         };
         let model = self.inner.run_build(py, &mut evolved, circuit, initial_state.as_words(), n_params)?;

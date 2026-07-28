@@ -1,13 +1,13 @@
 ///
-/// Coefficient representation trait and implementations for Pauli/Majorana strings. 
-/// propaq currently supports two coefficient types - numerical and symbolic. 
-/// For generalizability and performance, the coefficient representation is 
+/// Coefficient representation trait and implementations for Pauli/Majorana strings.
+/// propaq currently supports numerical (f64, f32) and symbolic coefficient types.
+/// For generalizability and performance, the coefficient representation is
 /// abstract into a trait `CoeffRepr`, which is implemented concretely for
-/// `f64` (numerical) and `SymbolicCoeff` (symbolic). Doing so
+/// `f64` and `f32` (numerical) and `SymbolicCoeff` (symbolic). Doing so
 /// allows one to easily extend the library to a new basis if and when required!
 ///
-/// Numerical coefficients are represented as `f64`: propaq only propagates
-/// Hermitian operators, so coefficients remain real throughout a run.
+/// Numerical coefficients are real: propaq only propagates Hermitian
+/// operators, so coefficients remain real throughout a run.
 ///
 /// As many of the operations on coefficients are on the hot path, 
 /// as many methods as possible should be `#[inline]`-able for performance. 
@@ -69,6 +69,11 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     #[inline]
     fn magnitude(&self) -> f64 { 0.0 }
 
+    /// Widen this coefficient to its real f64 value (signed, not abs).
+    /// Only meaningful for numerical reprs; defaults to magnitude.
+    #[inline]
+    fn to_f64(&self) -> f64 { self.magnitude() }
+
     #[inline]
     fn is_clifford_param(_param: &Self::GateParam, _eps: f64) -> bool { false }
 
@@ -116,6 +121,64 @@ impl CoeffRepr for f64 {
     #[inline]
     fn magnitude(&self) -> f64 {
         self.abs()
+    }
+
+    #[inline]
+    fn to_f64(&self) -> f64 {
+        *self
+    }
+
+    #[inline]
+    fn is_clifford_param(angle: &f64, eps: f64) -> bool {
+        angle.cos().abs() < eps
+    }
+}
+
+/// Single-precision numerical coefficient.
+impl CoeffRepr for f32 {
+    type GateParam = f64;
+
+    #[inline]
+    fn from_real(c: f64) -> Self {
+        c as f32
+    }
+
+    #[inline]
+    fn add_assign(&mut self, other: Self) {
+        *self += other;
+    }
+
+    #[inline]
+    fn apply_rotation(&mut self, angle: &f64, phase: Complex64) -> Self {
+        let (sin_t, cos_t) = angle.sin_cos();
+        debug_assert!(phase.re.abs() < 1e-9, "rotation phase must be +- i for real coefficients");
+        let sin_branch = *self * (sin_t as f32) * (-phase.im as f32);
+        *self *= cos_t as f32;
+        sin_branch
+    }
+
+    #[inline]
+    fn scale_real(&mut self, factor: f64) {
+        *self *= factor as f32;
+    }
+
+    fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
+        obj.getattr("angle")?.extract()
+    }
+
+    #[inline]
+    fn passes_coeff_cutoff(&self, cutoff: f64) -> bool {
+        (*self as f64).abs() >= cutoff
+    }
+
+    #[inline]
+    fn magnitude(&self) -> f64 {
+        *self as f64
+    }
+
+    #[inline]
+    fn to_f64(&self) -> f64 {
+        *self as f64
     }
 
     #[inline]

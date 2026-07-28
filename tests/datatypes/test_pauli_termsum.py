@@ -112,3 +112,52 @@ def test_to_sparse_pauli_op_round_trip():
 def test_to_sparse_pauli_op_empty_raises():
     with pytest.raises(ValueError):
         PauliTermSum().to_sparse_pauli_op()
+
+
+def test_default_dtype_is_float64():
+    assert PauliTermSum().dtype == "float64"
+
+
+def test_float32_dtype_round_trip():
+    a = ps(0b0001, 0)
+    ts = PauliTermSum(dtype="float32")
+    ts.add(a, 1.5)
+    assert ts.dtype == "float32"
+    assert ts[a] == pytest.approx(1.5, rel=1e-6)
+
+
+def test_float32_accumulate():
+    a = ps(0b0001, 0)
+    ts = PauliTermSum(dtype="float32")
+    ts.add(a, 1.0)
+    ts.add(a, 2.0)
+    assert ts[a] == pytest.approx(3.0, rel=1e-6)
+
+
+def test_float32_copy_keeps_dtype():
+    ts = PauliTermSum(dtype="float32")
+    ts.add(ps(0b0001, 0), 1.0)
+    assert ts.copy().dtype == "float32"
+
+
+def test_float32_save_load_round_trips_as_float64(tmp_path):
+    a = ps(0b0001, 0)
+    ts = PauliTermSum(dtype="float32")
+    ts.add(a, 1.5)
+    path = str(tmp_path / "ts32.gz")
+    ts.save(path)
+    loaded = PauliTermSum.from_file(path)
+    assert loaded.dtype == "float64"
+    assert loaded[a] == pytest.approx(1.5, rel=1e-6)
+
+
+def test_merge_mismatched_dtype_raises():
+    ts64 = PauliTermSum()
+    ts32 = PauliTermSum(dtype="float32")
+    with pytest.raises(ValueError):
+        ts64.merge(ts32)
+
+
+def test_unknown_dtype_raises():
+    with pytest.raises(ValueError):
+        PauliTermSum(dtype="float16")

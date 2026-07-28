@@ -4,13 +4,23 @@ from ._pauli_term_streamer import PauliTermStreamer
 from ._truncation_policy import TruncationPolicy
 
 class PauliTermSum:
-    def __init__(self, terms: dict[PauliString, complex] | None = None) -> None:
+    def __init__(
+        self,
+        terms: dict[PauliString, complex] | None = None,
+        dtype: str | None = None,
+    ) -> None:
         """
         Initialize a Pauli term sum.
 
         Arguments:
             terms: Optional dictionary mapping PauliMonomials to complex coefficients.
+            dtype: Coefficient precision, "float64" (default) or "float32".
         """
+        ...
+
+    @property
+    def dtype(self) -> str:
+        """Coefficient precision: "float64" or "float32"."""
         ...
 
     def add(self, term: PauliString, coeff: complex) -> None:
@@ -22,7 +32,12 @@ class PauliTermSum:
         ...
 
     def merge(self, other: PauliTermSum) -> None:
-        """Add all terms from *other* into this sum."""
+        """
+        Add all terms from *other* into this sum.
+
+        Raises:
+            ValueError: If *other* has a different dtype.
+        """
         ...
 
     def truncate(self, policy: TruncationPolicy) -> None:

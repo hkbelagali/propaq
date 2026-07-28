@@ -13,7 +13,7 @@ use propaq_core::soa::propagator::SoaPropagator;
 use propaq_core::truncators::{reject_surrogate_only, resolve_truncation, FlushSchedule};
 
 use crate::string::PauliBasis;
-use crate::termsum::PauliTermSum;
+use crate::termsum::{PauliTermSum, Storage};
 
 /// Back-propagates Pauli observables through quantum circuits in the Heisenberg picture.
 ///
@@ -65,12 +65,24 @@ impl PauliPropagator {
         circuit: &Bound<'_, PyAny>,
         filename: Option<String>,
     ) -> PyResult<PauliTermSum> {
-        let mut evolved = observable.inner.copy();
-        self.inner.run_propagate(py, &mut evolved, circuit)?;
-        if let Some(path) = filename.as_deref() {
-            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        match &observable.inner {
+            Storage::F64(s) => {
+                let mut evolved = s.copy();
+                self.inner.run_propagate(py, &mut evolved, circuit)?;
+                if let Some(path) = filename.as_deref() {
+                    save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+                }
+                Ok(PauliTermSum::from_soa(evolved))
+            }
+            Storage::F32(s) => {
+                let mut evolved = s.copy();
+                self.inner.run_propagate(py, &mut evolved, circuit)?;
+                if let Some(path) = filename.as_deref() {
+                    save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+                }
+                Ok(PauliTermSum::from_soa_f32(evolved))
+            }
         }
-        Ok(PauliTermSum::from_soa(evolved))
     }
 
     /// Compute the expectation value of *observable* in the state prepared by *circuit*.
@@ -89,16 +101,28 @@ impl PauliPropagator {
         initial_state: Option<&Bound<'_, PyAny>>,
         filename: Option<String>,
     ) -> PyResult<PropagationResult> {
-        let mut evolved = observable.inner.copy();
         let initial_state = match initial_state {
-            Some(v) => pyint_to_bitset(v, observable.inner.n_units)?,
+            Some(v) => pyint_to_bitset(v, observable.n_units())?,
             None => Bitset::zero(),
         };
-        let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state.as_words())?;
-        if let Some(path) = filename.as_deref() {
-            save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+        match &observable.inner {
+            Storage::F64(s) => {
+                let mut evolved = s.copy();
+                let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state.as_words())?;
+                if let Some(path) = filename.as_deref() {
+                    save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+                }
+                Ok(result)
+            }
+            Storage::F32(s) => {
+                let mut evolved = s.copy();
+                let result = self.inner.run_expectation_value(py, &mut evolved, circuit, initial_state.as_words())?;
+                if let Some(path) = filename.as_deref() {
+                    save_terms_to_file(&crate::termsum::materialize(&evolved), path)?;
+                }
+                Ok(result)
+            }
         }
-        Ok(result)
     }
 
     /// The noise model used during propagation, if any.

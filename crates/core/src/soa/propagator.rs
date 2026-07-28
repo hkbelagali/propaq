@@ -340,10 +340,10 @@ impl<B: SoaBasis> SoaPropagator<B> {
         Ok(())
     }
 
-    pub fn run_expectation_value(
+    pub fn run_expectation_value<C: CoeffRepr>(
         &mut self,
         py: Python<'_>,
-        evolved: &mut SoaTermSum<f64>,
+        evolved: &mut SoaTermSum<C>,
         circuit: &Bound<'_, PyAny>,
         fock_state: &[u64],
     ) -> PyResult<PropagationResult>
@@ -352,7 +352,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
     {
         let n_terms = self.run_propagation_inner(py, evolved, circuit, true)?;
         let pool = Arc::clone(&self.pool);
-        let total = pool.install(|| kernels::expectation::<B>(evolved, fock_state));
+        let total = pool.install(|| kernels::expectation::<B, C>(evolved, fock_state));
         Ok(PropagationResult { n_terms, expectation_value: total })
     }
 }

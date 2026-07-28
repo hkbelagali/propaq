@@ -4,13 +4,23 @@ from ._noise import GateNoiseModel, UniformNoiseModel
 from ._truncation_policy import TruncationPolicy
 
 class MajoranaTermSum:
-    def __init__(self, terms: dict[MajoranaMonomial, complex] | None = None) -> None: 
+    def __init__(
+        self,
+        terms: dict[MajoranaMonomial, complex] | None = None,
+        dtype: str | None = None,
+    ) -> None:
         """
         Initialize the Majorana term sum.
 
         Arguments:
             terms: A dictionary mapping Majorana monomials to their coefficients.
+            dtype: Coefficient precision, "float64" (default) or "float32".
         """
+        ...
+
+    @property
+    def dtype(self) -> str:
+        """Coefficient precision: "float64" or "float32"."""
         ...
 
     def add(self, term: MajoranaMonomial, coeff: complex) -> None: 
@@ -30,12 +40,15 @@ class MajoranaTermSum:
             factor: The factor by which to scale the term sum.
         """
         ...
-    def merge(self, other: MajoranaTermSum) -> None: 
+    def merge(self, other: MajoranaTermSum) -> None:
         """
         Merge another term sum into this one.
 
         Arguments:
-            other: The other term sum to merge.
+            other: The other term sum to merge. Must have the same dtype as this one.
+
+        Raises:
+            ValueError: If *other* has a different dtype.
         """
         ...
     def truncate(self, policy: TruncationPolicy) -> None:
