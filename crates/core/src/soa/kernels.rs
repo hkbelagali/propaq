@@ -300,27 +300,33 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
         let SoaTermSum { planes, coeffs, flags, hashes, .. } = &mut *terms;
         let coeffs_ptr = SendPtr(coeffs.as_mut_ptr());
         let flags_ptr = SendPtr(flags.as_mut_ptr());
+        // Open-addressing, SIMD-probed table
         let process_batch = |bid: usize| {
-            let mut seen: rustc_hash::FxHashMap<u64, SmallVec<[usize; 2]>> =
-                rustc_hash::FxHashMap::with_capacity_and_hasher(n.div_ceil(n_batches), Default::default());
+            let mut seen: hashbrown::HashTable<usize> =
+                hashbrown::HashTable::with_capacity(n.div_ceil(n_batches));
             for i in 0..n {
                 if batch_of(hashes[i]) != bid {
                     continue;
                 }
                 let s = i * stride;
                 let term_i = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
-                let candidates = seen.entry(hashes[i]).or_default();
-                let canonical = candidates.iter().copied().find(|&cand| {
-                    let sc = cand * stride;
-                    B::key_eq(term_i, [&planes[0][sc..sc + stride], &planes[1][sc..sc + stride]])
-                });
-                match canonical {
-                    Some(canonical) => {
-                        // SAFETY: `canonical` was pushed into `candidates`
-                        // by this same `bid`'s pass (candidates are only
-                        // ever recorded under the `batch_of(hashes[i]) ==
-                        // bid` gate above), and `key_hash`/`key_eq` agree by
-                        // the trait's contract, so every duplicate of
+                let h = hashes[i];
+                let entry = seen.entry(
+                    h,
+                    |&cand| {
+                        let sc = cand * stride;
+                        B::key_eq(term_i, [&planes[0][sc..sc + stride], &planes[1][sc..sc + stride]])
+                    },
+                    |&cand| hashes[cand],
+                );
+                match entry {
+                    hashbrown::hash_table::Entry::Occupied(occ) => {
+                        let canonical = *occ.get();
+                        // SAFETY: `canonical` was inserted into `seen` by
+                        // this same `bid`'s pass (entries are only ever
+                        // recorded under the `batch_of(hashes[i]) == bid`
+                        // gate above), and `key_hash`/`key_eq` agree by the
+                        // trait's contract, so every duplicate of
                         // `canonical` is guaranteed to land in this same
                         // batch. No other concurrently-running batch (which
                         // owns a disjoint set of `bid` values) ever touches
@@ -332,7 +338,9 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
                             *flags_ptr.add(i) = 0;
                         }
                     }
-                    None => candidates.push(i),
+                    hashbrown::hash_table::Entry::Vacant(vac) => {
+                        vac.insert(i);
+                    }
                 }
             }
         };
