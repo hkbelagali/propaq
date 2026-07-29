@@ -303,7 +303,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
                     pending = 0;
                     merged_len = evolved.len();
                 } else if !next_is_intermediate && merge_max_terms.map_or(false, |m| pending >= m) {
-                    py.allow_threads(|| pool.install(|| kernels::merge::<B, C>(evolved)));
+                    py.allow_threads(|| self.flush_and_maybe_truncate(evolved, Some(&cfg), gate_idx, layer_idx, "merge"));
                     pending = 0;
                     merged_len = evolved.len();
                 }

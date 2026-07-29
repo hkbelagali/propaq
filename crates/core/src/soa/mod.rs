@@ -46,6 +46,14 @@ pub struct SoaTermSum<C: CoeffRepr> {
     index: Vec<usize>,
 
     hashes: Vec<u64>,
+
+    // One reusable hash table per merge batch -- cleared (not reallocated) and reused across
+    // every `merge()` call instead of being built from scratch each time. Merge runs on nearly
+    // every gate, so allocating fresh multi-million-entry tables every call was a large,
+    // avoidable cost (confirmed by profiling: this was the single largest hotspot in the whole
+    // propagator, and pyrauli's equivalent `DirtySet` already reuses its backing storage the
+    // same way via `clear()` + conditional `reserve()`).
+    merge_tables: Vec<hashbrown::HashTable<usize>>,
     len: usize,
     pub stride: usize,
     pub n_units: usize,
@@ -61,6 +69,7 @@ impl<C: CoeffRepr> SoaTermSum<C> {
             flags: Vec::new(),
             index: Vec::new(),
             hashes: Vec::new(),
+            merge_tables: Vec::new(),
             len: 0,
             stride,
             n_units,
@@ -159,6 +168,16 @@ impl<C: CoeffRepr> SoaTermSum<C> {
         }
     }
 
+    /// Grow the reusable merge-table pool to at least `n_batches` tables. Tables already
+    /// present are left as-is (still holding their allocated capacity from prior merges);
+    /// callers must `.clear()` each table before reuse, same as `flags`/`index`/`hashes`
+    /// are logically "reset" (via overwrite) rather than reallocated between calls.
+    pub(crate) fn ensure_merge_tables_capacity(&mut self, n_batches: usize) {
+        if self.merge_tables.len() < n_batches {
+            self.merge_tables.resize_with(n_batches, hashbrown::HashTable::new);
+        }
+    }
+
     pub fn copy(&self) -> Self where C: Clone {
         let s = self.stride;
         SoaTermSum {
@@ -169,6 +188,7 @@ impl<C: CoeffRepr> SoaTermSum<C> {
             flags: Vec::new(),
             index: Vec::new(),
             hashes: Vec::new(),
+            merge_tables: Vec::new(),
             len: self.len,
             stride: self.stride,
             n_units: self.n_units,
@@ -186,6 +206,7 @@ impl<C: CoeffRepr> SoaTermSum<C> {
             flags: Vec::new(),
             index: Vec::new(),
             hashes: Vec::new(),
+            merge_tables: Vec::new(),
             len: self.len,
             stride: self.stride,
             n_units: self.n_units,

@@ -296,14 +296,19 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
         }
     }
 
+    terms.ensure_merge_tables_capacity(n_batches);
     {
-        let SoaTermSum { planes, coeffs, flags, hashes, .. } = &mut *terms;
+        let SoaTermSum { planes, coeffs, flags, hashes, merge_tables, .. } = &mut *terms;
         let coeffs_ptr = SendPtr(coeffs.as_mut_ptr());
         let flags_ptr = SendPtr(flags.as_mut_ptr());
-        // Open-addressing, SIMD-probed table
-        let process_batch = |bid: usize| {
-            let mut seen: hashbrown::HashTable<usize> =
-                hashbrown::HashTable::with_capacity(n.div_ceil(n_batches));
+        // Open-addressing, SIMD-probed table. `seen` is a *reused* table (cleared, not
+        // reallocated) from `merge_tables` -- this runs on nearly every gate, so building a
+        // fresh multi-million-entry table from scratch every call was the single largest
+        // hotspot in the whole propagator (confirmed by profiling). Reusing backing storage
+        // across calls, only clearing between them, mirrors what pyrauli's own merge
+        // structure (`DirtySet`) already does.
+        let process_batch = |(bid, seen): (usize, &mut hashbrown::HashTable<usize>)| {
+            seen.clear();
             for i in 0..n {
                 if batch_of(hashes[i]) != bid {
                     continue;
@@ -345,9 +350,9 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
             }
         };
         if parallel {
-            (0..n_batches).into_par_iter().for_each(process_batch);
+            merge_tables[..n_batches].par_iter_mut().enumerate().for_each(process_batch);
         } else {
-            (0..n_batches).for_each(process_batch);
+            merge_tables[..n_batches].iter_mut().enumerate().for_each(process_batch);
         }
     }
 
