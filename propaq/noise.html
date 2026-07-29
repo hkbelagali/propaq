@@ -83,10 +83,10 @@
                                 <a class="variable" href="#FrequencyTruncationPolicy.max_frequency">max_frequency</a>
                         </li>
                         <li>
-                                <a class="variable" href="#FrequencyTruncationPolicy.merge_max_terms">merge_max_terms</a>
+                                <a class="variable" href="#FrequencyTruncationPolicy.weight_cutoff">weight_cutoff</a>
                         </li>
                         <li>
-                                <a class="variable" href="#FrequencyTruncationPolicy.weight_cutoff">weight_cutoff</a>
+                                <a class="variable" href="#FrequencyTruncationPolicy.merge_max_terms">merge_max_terms</a>
                         </li>
                         <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.truncation_range">truncation_range</a>
@@ -289,6 +289,19 @@
 
 
                             </div>
+                            <div id="FrequencyTruncationPolicy.weight_cutoff" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight_cutoff</span>
+
+        
+    </div>
+    <a class="headerlink" href="#FrequencyTruncationPolicy.weight_cutoff"></a>
+    
+            <div class="docstring"><p>Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).</p>
+</div>
+
+
+                            </div>
                             <div id="FrequencyTruncationPolicy.merge_max_terms" class="classattr">
                                 <div class="attr variable">
             <span class="name">merge_max_terms</span>
@@ -300,19 +313,6 @@
             <div class="docstring"><p>Finer lossless merge cadence: when this many terms accumulate in the
 outboxes since the last flush, collapse duplicate Pauli strings into the
 partition maps (no truncation). <code>None</code> disables the finer cadence.</p>
-</div>
-
-
-                            </div>
-                            <div id="FrequencyTruncationPolicy.weight_cutoff" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight_cutoff</span>
-
-        
-    </div>
-    <a class="headerlink" href="#FrequencyTruncationPolicy.weight_cutoff"></a>
-    
-            <div class="docstring"><p>Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).</p>
 </div>
 
 
