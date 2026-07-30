@@ -122,32 +122,27 @@ impl<B: SoaBasis> SoaPropagator<B> {
     ) {
         let t0 = std::time::Instant::now();
         let pool = Arc::clone(&self.pool);
-        pool.install(|| kernels::merge::<B, C>(evolved));
-        let total_before = evolved.len();
 
-        let Some(cfg) = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some() || c.native.is_some())
-        else {
-            return;
-        };
-        let min_terms = cfg.min_terms.unwrap_or(0);
-        if total_before < min_terms {
-            return;
-        }
-
-        let (disc_l1, disc_max) = if self.verbose_log.is_some() {
-            discarded_coeff_stats::<B, C>(evolved, cfg)
-        } else {
-            (0.0, 0.0)
+        // Approximate: computed on the pre-dedup state (duplicates not yet merged), so this can
+        // slightly over-report what will actually be discarded once same-key coefficients are
+        // summed. Verbose logging is an opt-in debug feature; `merge_and_truncate` doing dedup,
+        // cutoff, and compaction in one pass (deliberately, to avoid a second full compact per
+        // cycle -- see its doc comment) means there's no longer a clean post-merge/pre-truncate
+        // checkpoint to compute this exactly.
+        let active_cfg = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some() || c.native.is_some());
+        let (disc_l1, disc_max) = match (active_cfg, &self.verbose_log) {
+            (Some(cfg), Some(_)) => discarded_coeff_stats::<B, C>(evolved, cfg),
+            _ => (0.0, 0.0),
         };
 
-        pool.install(|| kernels::truncate::<B, C>(evolved, cfg));
-        let total_after = evolved.len();
-        if total_after < min_terms { }
+        let (total_before, total_after) = pool.install(|| kernels::merge_and_truncate::<B, C>(evolved, cfg));
 
         if let Some(ref mut log) = self.verbose_log {
             let actual_discarded = total_before - total_after;
-            let wc_str = cfg.weight.map_or_else(|| "null".to_string(), |w| w.to_string());
-            let cc = cfg.coefficient.unwrap_or(0.0);
+            let wc_str = active_cfg
+                .and_then(|c| c.weight)
+                .map_or_else(|| "null".to_string(), |w| w.to_string());
+            let cc = active_cfg.and_then(|c| c.coefficient).unwrap_or(0.0);
             let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
             let qki = match self.current_qiskit_gate_idx {
                 Some(v) => v.to_string(),
