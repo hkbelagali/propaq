@@ -41,7 +41,9 @@ from ..datatypes.pauli.termsum import (
     _xx_plus_yy_terms as _pauli_xx_plus_yy_terms,
 )
 
-NATIVE_GATES = frozenset({"xx_plus_yy", "p", "rz", "cp", "x", "swap", "rx", "ry"})
+NATIVE_GATES = frozenset(
+    {"xx_plus_yy", "p", "rz", "cp", "x", "swap", "rx", "ry", "rzz", "rxx", "ryy", "rzx"}
+)
 FALLBACK_BASIS = ["rz", "rx", "ry", "cp", "swap", "x", "xx_plus_yy"]
 NON_UNITARY_OPS = frozenset(
     {"reset", "delay", "initialize", "if_else", "while_loop", "for_loop", "switch_case"}
@@ -83,6 +85,41 @@ def _single_pauli_terms(rep: _Rep, axis: str, angle: Any, qubit: int, width: int
     # Generic subclass's `type[...]` as satisfying `Hashable` here.
     gen, unit_coeff = _unit_pauli_term(rep.termsum_cls, "".join(label))  # type: ignore[arg-type]
     return [(gen, angle * unit_coeff)]
+
+
+def _two_pauli_terms(
+    rep: _Rep, axis_i: str, axis_j: str, angle: Any, i: int, j: int, width: int
+) -> list[tuple[Any, Any]]:
+    """Terms for a two-qubit Pauli-axis rotation (RZZ/RXX/RYY/RZX) as ONE generator.
+
+    These gates are literally `exp(-i*theta/2 * P_i (x) P_j)` -- a single Pauli rotation about a
+    weight-2 generator, exactly the form the propagator kernels consume. Having no entry here is
+    far more costly than the weight-1 case: `rzz` then falls through to `_decompose`, which routes
+    it via `cp` and produces FIVE rotations (`Z_i, Z_j, Z_iZ_j, Z_i, Z_j`) whose single-qubit
+    pairs are exact inverses that commute with the `Z_iZ_j` term and cancel outright. They are not
+    free while they exist -- each splits every anticommuting term into a real, non-negligible
+    branch -- and three of the five are merge-triggering, so one `rzz` cost three merge+truncate
+    cycles instead of one.
+
+    Generator weight costs the kernels nothing: for `stride == 1`, `commutes_at_word`/
+    `product_at_word` are O(1) in the weight, so the weight-2 form is strictly cheaper than any
+    decomposition of it.
+    """
+    n_qubits = rep.qubits_in_width(width)
+    label = ["I"] * n_qubits
+    label[n_qubits - 1 - i] = axis_i
+    label[n_qubits - 1 - j] = axis_j
+    gen, unit_coeff = _unit_pauli_term(rep.termsum_cls, "".join(label))  # type: ignore[arg-type]
+    return [(gen, angle * unit_coeff)]
+
+
+# Qiskit two-qubit Pauli-axis rotations, keyed to the (axis_i, axis_j) of their generator.
+_TWO_AXIS_GATES: dict[str, tuple[str, str]] = {
+    "rzz": ("Z", "Z"),
+    "rxx": ("X", "X"),
+    "ryy": ("Y", "Y"),
+    "rzx": ("Z", "X"),
+}
 
 
 def _is_negligible(x: Any) -> bool:
@@ -180,6 +217,13 @@ def gate_terms(instr: Instruction, q_indices: list[int], width: int, rep: _Rep) 
         if len(q_indices) != 1:
             raise ValueError("ry gate must have exactly 1 qubit.")
         return [_single_pauli_terms(rep, "Y", instr.params[0], q_indices[0], width)]
+
+    if name in _TWO_AXIS_GATES:
+        if len(q_indices) != 2:
+            raise ValueError(f"{name} gate must have exactly 2 qubits.")
+        axis_i, axis_j = _TWO_AXIS_GATES[name]
+        i, j = q_indices
+        return [_two_pauli_terms(rep, axis_i, axis_j, instr.params[0], i, j, width)]
 
     groups = []
     for sub_instr, local_indices in _decompose(instr):

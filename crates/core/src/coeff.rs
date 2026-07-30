@@ -77,6 +77,26 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     #[inline]
     fn is_clifford_param(_param: &Self::GateParam, _eps: f64) -> bool { false }
 
+    /// The other half of the Clifford-angle condition. A Pauli rotation `exp(-i*theta*G)` is
+    /// Clifford exactly when `theta` is a multiple of `pi/2`; `is_clifford_param` covers
+    /// `cos(theta) == 0` (theta = pi/2 mod pi, where the rotation maps an anticommuting term
+    /// wholly onto `G*term`), and this covers `sin(theta) == 0` (theta = 0 mod pi), where the
+    /// rotation leaves every term's Pauli content alone and merely scales anticommuting terms by
+    /// `cos(theta)` -- which is `+-1`.
+    ///
+    /// Returns `Some(cos(theta))` in that case, `None` otherwise. This matters far more than it
+    /// looks: without it, a `theta = pi` rotation takes the generic splitting path, which counts
+    /// the anticommuting rows, appends a brand-new row for every one of them, writes a
+    /// `sin(pi) == 0` coefficient into each, and then relies on the next truncation to delete
+    /// them all. Qiskit's transpiler emits exactly such rotations routinely (a Hadamard lowers to
+    /// one `cos == 0` rotation plus one `theta = pi` rotation), so this is a hot case, not a
+    /// corner case.
+    ///
+    /// Defaults to `None` so symbolic/surrogate coefficients -- whose `GateParam` is a parameter
+    /// index with no numeric angle to test -- keep the generic path unchanged.
+    #[inline]
+    fn phase_only_scale(_param: &Self::GateParam, _eps: f64) -> Option<f64> { None }
+
     /// Extract the gate parameter from a Python rotation object.
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
 }
@@ -132,6 +152,12 @@ impl CoeffRepr for f64 {
     fn is_clifford_param(angle: &f64, eps: f64) -> bool {
         angle.cos().abs() < eps
     }
+
+    #[inline]
+    fn phase_only_scale(angle: &f64, eps: f64) -> Option<f64> {
+        let (sin_t, cos_t) = angle.sin_cos();
+        (sin_t.abs() < eps).then_some(cos_t)
+    }
 }
 
 /// Single-precision numerical coefficient.
@@ -184,5 +210,11 @@ impl CoeffRepr for f32 {
     #[inline]
     fn is_clifford_param(angle: &f64, eps: f64) -> bool {
         angle.cos().abs() < eps
+    }
+
+    #[inline]
+    fn phase_only_scale(angle: &f64, eps: f64) -> Option<f64> {
+        let (sin_t, cos_t) = angle.sin_cos();
+        (sin_t.abs() < eps).then_some(cos_t)
     }
 }
