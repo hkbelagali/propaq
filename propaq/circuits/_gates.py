@@ -92,13 +92,13 @@ def _two_pauli_terms(
 ) -> list[tuple[Any, Any]]:
     """Terms for a two-qubit Pauli-axis rotation (RZZ/RXX/RYY/RZX) as ONE generator.
 
-    These gates are literally `exp(-i*theta/2 * P_i (x) P_j)` -- a single Pauli rotation about a
+    These gates are literally `exp(-i*theta/2 * P_i (x) P_j)`, a single Pauli rotation about a
     weight-2 generator, exactly the form the propagator kernels consume. Having no entry here is
     far more costly than the weight-1 case: `rzz` then falls through to `_decompose`, which routes
     it via `cp` and produces FIVE rotations (`Z_i, Z_j, Z_iZ_j, Z_i, Z_j`) whose single-qubit
     pairs are exact inverses that commute with the `Z_iZ_j` term and cancel outright. They are not
-    free while they exist -- each splits every anticommuting term into a real, non-negligible
-    branch -- and three of the five are merge-triggering, so one `rzz` cost three merge+truncate
+    free while they exist: each splits every anticommuting term into a real, non-negligible
+    branch, and three of the five are merge-triggering, so one `rzz` cost three merge+truncate
     cycles instead of one.
 
     Generator weight costs the kernels nothing: for `stride == 1`, `commutes_at_word`/

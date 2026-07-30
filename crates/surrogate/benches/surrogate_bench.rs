@@ -7,7 +7,7 @@
 //! Gate application runs through `propaq_core::soa::kernels` over a
 //! `SoaTermSum<SymbolicCoeff>`, the same as the numerical propagators.
 //! `SymbolicCoeff` (`crate::symcoeff`) represents a coefficient as a
-//! persistent DAG built via `Arc`, not an expanded monomial list -- every gate
+//! persistent DAG built via `Arc`, not an expanded monomial list, so every gate
 //! application and every merge is O(1) regardless of how large a
 //! coefficient's prior history already is. The key confirmation of that
 //! property is `bench_apply_rotation_by_prior_history`: unlike the earlier
@@ -17,7 +17,7 @@
 //! `SymbolicCoeff`'s internal node representation is crate-private by design,
 //! so all coefficient data here is built through the public
 //! `SymbolicCoeff`/`CoeffRepr` API (`from_real`, `apply_rotation`,
-//! `add_assign`) rather than constructed directly -- `apply_rotation` is what
+//! `add_assign`) rather than constructed directly. `apply_rotation` is what
 //! real propagation uses to grow coefficients, so building benchmark inputs
 //! the same way keeps them representative instead of synthetic.
 
@@ -160,7 +160,7 @@ fn bench_apply_gate_inplace(c: &mut Criterion) {
 /// `apply_rotation` calls (cos branch mutates in place, sin branch is added
 /// back in), each step wrapping the existing history in one more DAG node.
 /// This is the same growth real propagation produces, just replayed directly
-/// instead of driven by a propagator -- and, unlike the old CSR/trie design's
+/// instead of driven by a propagator. Unlike the old CSR/trie design's
 /// monomial list, each step here is O(1) regardless of `steps` so far, which
 /// is exactly what `bench_apply_rotation_by_prior_history` below confirms.
 fn grown_coeff(steps: u32) -> SymbolicCoeff {
@@ -176,7 +176,7 @@ fn grown_coeff(steps: u32) -> SymbolicCoeff {
 /// `apply_rotation` call must stay flat as a function of how much prior
 /// history (`steps`, spanning three orders of magnitude of pre-dedup
 /// monomial-instance count) a coefficient already carries, since every gate
-/// application only ever wraps the existing `Arc<Node>` in one new node --
+/// application only ever wraps the existing `Arc<Node>` in one new node;
 /// it never touches, copies, or re-walks the coefficient's existing history.
 /// Under the earlier CSR/trie design this cost scaled with the live monomial
 /// count instead (an O(n) `for head in &self.heads` scan per gate), which was
@@ -199,12 +199,12 @@ fn bench_apply_rotation_by_prior_history(c: &mut Criterion) {
 }
 
 /// `compile()`'s cost (a one-time, memoized flatten into a flat op tape) as a
-/// function of prior history size -- run once per term at build end, not per
+/// function of prior history size, run once per term at build end, not per
 /// gate, so unlike `apply_rotation` this is expected to grow with `steps`
 /// (there's no way to evaluate a coefficient without visiting its distinct
 /// nodes at least once); the benchmark tracks that growth stays linear in
 /// distinct node count, not exponential, even though each `grown_coeff(steps)`
-/// call here builds a single linear chain (no shared subtrees) -- the
+/// call here builds a single linear chain (no shared subtrees). The
 /// dedicated `compile_memoizes_shared_subtrees_polynomial_not_exponential`
 /// unit test in `symcoeff.rs` is what actually exercises memoization.
 fn bench_compile_by_size(c: &mut Criterion) {
@@ -219,7 +219,7 @@ fn bench_compile_by_size(c: &mut Criterion) {
 }
 
 /// `CompiledCoeff::evaluate` (a linear scan over the flattened tape) as a
-/// function of tape size -- this is what a VQE optimizer's inner loop calls
+/// function of tape size. This is what a VQE optimizer's inner loop calls
 /// repeatedly (`evaluate_batch`), so its cost per call is what actually
 /// matters for optimization wall time, not `compile()`'s one-time cost above.
 fn bench_evaluate_by_size(c: &mut Criterion) {
@@ -243,7 +243,7 @@ fn bench_evaluate_by_size(c: &mut Criterion) {
 /// of the shared-tape scan `evaluate` now does; this tracks that the batch
 /// path amortizes rather than regresses. Built via `compile_batch` (not 64
 /// independent `compile()` calls) since that's how `run_build` actually
-/// produces a `SurrogateModel` now -- see `bench_compile_batch_vs_per_term_under_sharing`
+/// produces a `SurrogateModel` now. See `bench_compile_batch_vs_per_term_under_sharing`
 /// below for the head-to-head comparison between the two.
 fn bench_evaluate_batch(c: &mut Criterion) {
     use propaq_surrogate::model::{SurrogateModel, SurrogateTerm};
@@ -381,7 +381,7 @@ fn bench_flush_and_retain(c: &mut Criterion) {
 /// `grown_coeff`'s construction (every branch's frequency keeps climbing and
 /// every factor has magnitude exactly 1), so this measures the pure
 /// traversal/memoization overhead of walking a coefficient that turns out to
-/// need no pruning at all -- the common case for a coefficient whose cutoffs
+/// need no pruning at all, the common case for a coefficient whose cutoffs
 /// were tuned for some *other*, larger term.
 fn bench_prune_by_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("SymbolicCoeff/prune_by_prior_history");
@@ -421,7 +421,7 @@ fn bench_prune_by_size(c: &mut Criterion) {
 /// `prune`'s cost under heavy parameter reuse: a shared prefix branched and
 /// merged over several rounds (the 2-parent-diamond-then-merge pattern real
 /// propagation produces every gate). This is the scenario the bucketed
-/// memoization design specifically targets -- without it, cost would compound
+/// memoization design specifically targets: without it, cost would compound
 /// multiplicatively per round; with it, cost should stay close to linear in
 /// total distinct nodes regardless of round count.
 fn bench_prune_shared_parameters(c: &mut Criterion) {

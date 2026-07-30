@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 # from the symbolic DAG's cached per-node bounds, with no monomial expansion
 # needed (see propaq.MD's "Truncation" section). MonomialBudget is a
 # threshold-triggered flush keyed on monomial count, mirroring TermBudget.
-# Simplify is real (lossless) algebraic simplification -- pair it with a
+# Simplify is real (lossless) algebraic simplification. Pair it with a
 # MonomialBudget/TermBudget so it actually runs periodically, not just once
 # at the final flush.
 _Truncator = (

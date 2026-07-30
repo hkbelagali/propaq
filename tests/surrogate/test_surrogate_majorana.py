@@ -109,7 +109,7 @@ class TestNumericalAgreement:
 
 class TestFrequencyTruncation:
     """`FrequencyTruncator`/`max_frequency` are monomial-level, but decided
-    structurally by `SymbolicCoeff::prune` -- no monomial expansion needed.
+    structurally by `SymbolicCoeff::prune`, no monomial expansion needed.
     See `propaq.MD`'s "Truncation" section."""
 
     def _circuit_and_obs(self):

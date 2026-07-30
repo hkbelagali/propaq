@@ -8,7 +8,7 @@ import math
 import warnings
 from typing import TYPE_CHECKING, Any
 
-from ._gates import _Rep, _single_pauli_terms
+from ._gates import _Rep, _single_pauli_terms, _two_pauli_terms
 
 if TYPE_CHECKING:
     import cirq
@@ -25,7 +25,15 @@ def _is_native(op: cirq.Operation) -> bool:
     if isinstance(gate, cirq.SwapPowGate):
         return bool(gate.exponent == 1)
     return isinstance(
-        gate, cirq.ZPowGate | cirq.XPowGate | cirq.YPowGate | cirq.CZPowGate | cirq.PhasedISwapPowGate
+        gate,
+        cirq.ZPowGate
+        | cirq.XPowGate
+        | cirq.YPowGate
+        | cirq.CZPowGate
+        | cirq.PhasedISwapPowGate
+        | cirq.ZZPowGate
+        | cirq.XXPowGate
+        | cirq.YYPowGate,
     )
 
 
@@ -99,6 +107,12 @@ def cirq_gate_terms(
     ordered and must not be reordered or merged. Between groups, each boundary is
     a genuine completed-gate boundary (mirrors _gates.py's grouping, which bounds
     truncation/merge deferral to one real gate's own native expansion size).
+
+    `ZZPowGate`/`XXPowGate`/`YYPowGate` are handled as a single weight-2 generator via
+    `_two_pauli_terms` (see its docstring in _gates.py for why). Their angle convention:
+    `ZZ**t` has unitary `diag(1, e^(i*pi*t), e^(i*pi*t), 1)`, which is `exp(-i*(pi*t)/2 * ZZ)`
+    up to a global phase, so the generator angle is `pi * exponent`, matching the single-qubit
+    `ZPowGate`/`XPowGate`/`YPowGate` cases below.
     """
     import cirq
 
@@ -136,6 +150,21 @@ def cirq_gate_terms(
         if len(q_indices) != 1:
             raise ValueError("YPowGate must have exactly 1 qubit.")
         return [_single_pauli_terms(rep, "Y", math.pi * gate.exponent, q_indices[0], width)]
+
+    # See this function's docstring for the angle convention used here.
+    _TWO_AXIS_CIRQ = (
+        (cirq.ZZPowGate, "Z", "Z"),
+        (cirq.XXPowGate, "X", "X"),
+        (cirq.YYPowGate, "Y", "Y"),
+    )
+    for gate_cls, axis_i, axis_j in _TWO_AXIS_CIRQ:
+        if isinstance(gate, gate_cls):
+            if len(q_indices) != 2:
+                raise ValueError(f"{gate_cls.__name__} must have exactly 2 qubits.")
+            i, j = q_indices
+            return [
+                _two_pauli_terms(rep, axis_i, axis_j, math.pi * gate.exponent, i, j, width)
+            ]
 
     if isinstance(gate, cirq.CZPowGate):
         if len(q_indices) != 2:

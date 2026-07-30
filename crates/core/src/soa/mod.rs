@@ -9,35 +9,49 @@ use num_complex::Complex64;
 
 use crate::coeff::CoeffRepr;
 
+/// The algebra a `SoaTermSum` needs from its term representation (Pauli, Majorana, etc.) to
+/// run the shared kernels in `soa::kernels`. A term is encoded as two parallel `u64` word
+/// planes (`[x_words, z_words]` for Pauli, an analogous symplectic pair for Majorana), each
+/// `stride_words(n_units)` words long.
 pub trait SoaBasis: Send + Sync + 'static {
+    /// The owned, per-term representation used at the Python/FFI boundary (e.g. `PauliString`).
     type Term: Clone + Send + Sync;
 
+    /// Number of `u64` words needed to store one term's plane for `n_units` qubits/modes.
     fn stride_words(n_units: usize) -> usize {
         let width = n_units.next_power_of_two().max(1);
         width.div_ceil(64)
     }
 
+    /// True if `term` commutes with generator `gen`.
     fn commutes(term: [&[u64]; 2], gen: [&[u64]; 2]) -> bool;
 
+    /// Computes `gen * term`, writing the result into `out` and returning its phase factor.
     fn product(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64;
 
+    /// The term's weight (number of non-identity single-qubit/mode factors).
     fn weight(term: [&[u64]; 2], n_units: usize) -> u32;
 
+    /// The term's expectation value trace against a computational basis state `fock`.
     fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64;
 
+    /// Hash of `term`'s key (its algebraic content, ignoring any coefficient), for the merge
+    /// hash table. Must agree with `key_eq`.
     fn key_hash(term: [&[u64]; 2]) -> u64;
 
+    /// True if `a` and `b` have identical key content. Must agree with `key_hash`.
     fn key_eq(a: [&[u64]; 2], b: [&[u64]; 2]) -> bool;
 
+    /// Reconstructs the owned `Self::Term` from its word planes.
     fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> Self::Term;
 
+    /// Writes `term`'s word planes into `out`.
     fn term_into_planes(term: &Self::Term, n_units: usize, out: [&mut [u64]; 2]);
 
-    /// If `gen`'s nonzero bits all live in a single stride-word, returns that word's index --
-    /// letting callers use `commutes_at_word`/`product_at_word` (O(1) in the number of words,
-    /// touching only that one word of any term) instead of the fully generic `commutes`/
-    /// `product` (O(stride), scanning every word of every term). This is exactly the common
-    /// case for single-qubit gates (Rz/Rx/Ry) in circuits with more than 64 qubits.
+    /// If `gen`'s nonzero bits all live in a single stride-word, returns that word's index,
+    /// letting callers use `commutes_at_word`/`product_at_word` (O(1) in the number of words)
+    /// instead of the fully generic `commutes`/`product` (O(stride)). This is the common case
+    /// for single-qubit gates (Rz/Rx/Ry) in circuits with more than 64 qubits.
     ///
     /// Default: always `None`, so bases with a different product/phase algebra (e.g. Majorana,
     /// whose product isn't the same X/Z symplectic formula) safely fall back to the generic
@@ -57,18 +71,23 @@ pub trait SoaBasis: Send + Sync + 'static {
 
     /// Product restricted to the single word `local_word` identified: writes the new word's
     /// (x, z) bits and returns the phase. Must agree exactly with `Self::product` for that
-    /// `gen`/`term` pair (only word `local_word` of `term` actually changes; the phase's
+    /// `gen`/`term` pair. Only word `local_word` of `term` actually changes; the phase's
     /// dependence on the rest of the term telescopes away identically between `term` and the
-    /// full product, since they're equal everywhere outside that one word). Only ever called
+    /// full product, since they are equal everywhere outside that one word. Only ever called
     /// when `local_word` returned `Some` for the same `gen`.
     fn product_at_word(_term_word: [u64; 2], _gen_word: [u64; 2]) -> ([u64; 2], Complex64) {
         unimplemented!("product_at_word must be implemented whenever local_word can return Some")
     }
 }
 
+/// Structure-of-Arrays storage for a sum of terms (Pauli strings, Majorana monomials, or their
+/// symbolic analogues), backing the kernels in `soa::kernels`. Rows `[0, len)` are live; extra
+/// capacity beyond `len` is uninitialized scratch space, grown geometrically by `ensure_capacity`.
 pub struct SoaTermSum<C: CoeffRepr> {
+    /// The two word planes (`[x_words, z_words]` for Pauli), each `stride * cap()` words long.
     pub planes: [Vec<u64>; 2],
 
+    /// Per-row coefficients, parallel to `planes`.
     pub coeffs: Vec<C>,
 
     aux_planes: [Vec<u64>; 2],
@@ -79,34 +98,36 @@ pub struct SoaTermSum<C: CoeffRepr> {
 
     hashes: Vec<u64>,
     // Double-buffer for `hashes`, mirroring `aux_planes`/`aux_coeffs`. Needed because
-    // `hashbrown::HashTable::entry`'s hasher closure (`|&cand| hashes[cand]`) gets called for
-    // *existing* entries whenever a table grows -- if `hashes[]` for old rows weren't kept
-    // correct across compactions, a grow event would redistribute a stale-hashed entry into the
-    // wrong bucket, permanently orphaning it (a real duplicate that silently never merges again
-    // for the rest of the run). So `hashes` must be relocated by `compact()` in lockstep with
-    // `planes`/`coeffs`, not just recomputed wholesale every `merge()` call.
+    // `hashbrown::HashTable::entry`'s hasher closure (`|&cand| hashes[cand]`) is called for
+    // existing entries whenever a table grows. If `hashes[]` for old rows weren't kept correct
+    // across compactions, a grow event would redistribute a stale-hashed entry into the wrong
+    // bucket, permanently orphaning it. So `hashes` is relocated by `compact()` in lockstep
+    // with `planes`/`coeffs`, not just recomputed wholesale every `merge()` call.
     aux_hashes: Vec<u64>,
 
-    // One reusable hash table per merge batch -- cleared (not reallocated) and reused across
+    // One reusable hash table per merge batch, cleared (not reallocated) and reused across
     // every `merge()` call instead of being built from scratch each time. Merge runs on nearly
     // every gate, so allocating fresh multi-million-entry tables every call was a large,
-    // avoidable cost (confirmed by profiling: this was the single largest hotspot in the whole
-    // propagator, and pyrauli's equivalent `DirtySet` already reuses its backing storage the
-    // same way via `clear()` + conditional `reserve()`).
+    // avoidable cost: profiling found this was the single largest hotspot in the propagator,
+    // and pyrauli's equivalent `DirtySet` reuses its backing storage the same way.
     merge_tables: Vec<hashbrown::HashTable<usize>>,
     // Rows `[0, merge_synced_len)` are exactly the rows already inserted into `merge_tables`,
-    // keyed by their *current* physical index (kept valid across compaction by
+    // keyed by their current physical index (kept valid across compaction by
     // `compact()`/`remap_merge_index`). Rows `[merge_synced_len, len())` are new since the last
-    // `merge()` call and not yet tracked. `0` means "not trustworthy, do a full rebuild" --
+    // `merge()` call and not yet tracked. `0` means "not trustworthy, do a full rebuild":
     // covers first-ever merge, post-`copy()`/`map_coeffs()`, and post-invalidation (see
     // `invalidate_merge_index`) as one code path.
     merge_synced_len: usize,
     len: usize,
+    /// Number of `u64` words per row in each plane.
     pub stride: usize,
+    /// Number of qubits (Pauli) or modes (Majorana) this term sum's rows are sized for.
     pub n_units: usize,
 }
 
 impl<C: CoeffRepr> SoaTermSum<C> {
+    /// Creates an empty term sum sized for `n_units` qubits/modes at the given `stride`
+    /// (typically `B::stride_words(n_units)` for the relevant `SoaBasis`).
     pub fn new(n_units: usize, stride: usize) -> Self {
         SoaTermSum {
             planes: [Vec::new(), Vec::new()],
@@ -125,34 +146,43 @@ impl<C: CoeffRepr> SoaTermSum<C> {
         }
     }
 
+    /// Number of live rows.
     #[inline]
     pub fn len(&self) -> usize { self.len }
 
     #[inline]
     fn cap(&self) -> usize { self.coeffs.len() }
 
+    /// True if there are no live rows.
     #[inline]
     pub fn is_empty(&self) -> bool { self.len == 0 }
 
+    /// The live portion (`[0, len * stride)`) of word plane `p` (0 or 1), across every row.
     #[inline]
     pub fn plane(&self, p: usize) -> &[u64] {
         &self.planes[p][..self.len * self.stride]
     }
 
+    /// Row `i`'s slice of word plane `p`.
     #[inline]
     pub fn term_plane(&self, i: usize, p: usize) -> &[u64] {
         let s = self.stride;
         &self.planes[p][i * s..(i + 1) * s]
     }
 
+    /// Both of row `i`'s word plane slices, as `SoaBasis` methods expect them.
     #[inline]
     pub fn term_planes(&self, i: usize) -> [&[u64]; 2] {
         [self.term_plane(i, 0), self.term_plane(i, 1)]
     }
 
+    /// Row `i`'s coefficient.
     #[inline]
     pub fn coeff(&self, i: usize) -> &C { &self.coeffs[i] }
 
+    /// Grows `planes`/`coeffs` so at least `needed_len` rows fit, doubling capacity (with a
+    /// floor of 16) rather than growing exactly to `needed_len`. No-op if capacity already
+    /// suffices.
     pub fn ensure_capacity(&mut self, needed_len: usize) {
         if needed_len <= self.cap() {
             return;
@@ -164,11 +194,15 @@ impl<C: CoeffRepr> SoaTermSum<C> {
         self.coeffs.resize(new_cap, C::default());
     }
 
+    /// Sets the live row count directly, without touching capacity. Callers must have already
+    /// written valid data into `[0, new_len)`.
     pub fn set_len(&mut self, new_len: usize) {
         debug_assert!(new_len <= self.cap());
         self.len = new_len;
     }
 
+    /// Appends one new row with the given word planes and coefficient, growing capacity if
+    /// needed.
     pub fn push(&mut self, term_planes: [&[u64]; 2], coeff: C) {
         self.ensure_capacity(self.len + 1);
         let s = self.stride;
@@ -179,6 +213,7 @@ impl<C: CoeffRepr> SoaTermSum<C> {
         self.len += 1;
     }
 
+    /// Truncates to zero live rows. Does not shrink or clear any underlying capacity.
     pub fn clear(&mut self) {
         self.len = 0;
     }
@@ -207,17 +242,18 @@ impl<C: CoeffRepr> SoaTermSum<C> {
     }
 
     /// Marks the persisted merge index as untrustworthy, forcing the next `merge()` call to do
-    /// a full rebuild instead of an incremental one. Required whenever a row's *key* (its
-    /// Pauli/Majorana content) changes without going through `compact()` -- e.g. `apply_rotation`'s
-    /// Clifford in-place rewrite, which overwrites an existing row at a fixed physical index.
-    /// Without this, a persisted table entry for that row would silently point at stale content:
-    /// not a wrong coefficient (lookups always dereference live content), but a ghost duplicate
-    /// entry that accumulates over the run, since the row gets re-inserted under its new key the
-    /// next time the table is rebuilt while the stale entry is still sitting there.
+    /// a full rebuild instead of an incremental one. Required whenever a row's key (its
+    /// Pauli/Majorana content) changes without going through `compact()`, e.g.
+    /// `apply_rotation`'s Clifford in-place rewrite, which overwrites an existing row at a
+    /// fixed physical index. Without this, a persisted table entry for that row would silently
+    /// point at stale content: not a wrong coefficient (lookups always dereference live
+    /// content), but a ghost duplicate entry that accumulates over the run, since the row gets
+    /// re-inserted under its new key the next time the table is rebuilt while the stale entry
+    /// is still sitting there.
     ///
-    /// Deliberately does not clear `merge_tables` here -- that happens lazily, once, inside
-    /// `merge()`'s own `merge_synced_len == 0` gate, so several Clifford gates between two merges
-    /// don't pay for clearing more than once.
+    /// Deliberately does not clear `merge_tables` here; that happens lazily, once, inside
+    /// `merge()`'s own `merge_synced_len == 0` gate, so several Clifford gates between two
+    /// merges don't pay for clearing more than once.
     pub(crate) fn invalidate_merge_index(&mut self) {
         self.merge_synced_len = 0;
     }
@@ -248,13 +284,13 @@ impl<C: CoeffRepr> SoaTermSum<C> {
     }
 
     /// Clears the merge-table pool, reusing each table's allocated capacity rather than
-    /// reallocating -- same rationale as `ensure_merge_tables_capacity`. Replaces the
-    /// `merge_tables.iter_mut().for_each(|t| t.clear())` block that used to be duplicated
-    /// inline in `merge()`/`merge_and_truncate()`.
+    /// reallocating, for the same reason as `ensure_merge_tables_capacity`.
     pub(crate) fn clear_merge_tables(&mut self) {
         self.merge_tables.iter_mut().for_each(|t| t.clear());
     }
 
+    /// Deep-copies the live rows into a fresh term sum, with an empty merge index (the copy
+    /// starts untracked; its first `merge()` call does a full rebuild).
     pub fn copy(&self) -> Self where C: Clone {
         let s = self.stride;
         SoaTermSum {
@@ -274,6 +310,9 @@ impl<C: CoeffRepr> SoaTermSum<C> {
         }
     }
 
+    /// Maps every live row's coefficient through `f`, producing a new term sum with a
+    /// (possibly different) coefficient representation. Like `copy`, the result starts with an
+    /// empty merge index.
     pub fn map_coeffs<C2: CoeffRepr>(&self, f: impl Fn(&C) -> C2) -> SoaTermSum<C2> {
         let s = self.stride;
         let live = self.len * s;

@@ -4,11 +4,11 @@
 /// A symbolic coefficient is a persistent DAG of nodes:
 ///
 /// ```text
-/// Scalar(c)              -- a numeric leaf
-/// Add(a, b)               -- a + b
-/// Scale(k, a)             -- k * a, k a real constant
-/// Cos(p, a)               -- cos(theta_p) * a
-/// Sin(p, a)               -- sin(theta_p) * a
+/// Scalar(c)      a numeric leaf
+/// Add(a, b)      a + b
+/// Scale(k, a)    k * a, k a real constant
+/// Cos(p, a)      cos(theta_p) * a
+/// Sin(p, a)      sin(theta_p) * a
 /// ```
 ///
 /// built via `Arc` so that wrapping an existing coefficient (every gate
@@ -131,15 +131,21 @@ impl SymbolicCoeff {
         self.0.as_ref().map_or(0, |n| n.count)
     }
 
+    /// True if this coefficient's DAG is empty (the additive identity).
     pub fn is_empty(&self) -> bool {
         self.0.is_none()
     }
 
+    /// Compiles this single coefficient into a flat, evaluable `CompiledCoeff` tape.
+    /// See `compile_batch` for compiling many coefficients with a shared, deduplicated tape.
     pub fn compile(&self) -> CompiledCoeff {
         let (tape, _roots) = SymbolicCoeff::compile_batch(std::iter::once(self.clone()));
         tape
     }
 
+    /// Compiles many coefficients into one shared `CompiledCoeff` tape via an iterative
+    /// post-order DAG walk, deduplicating structurally shared subtrees by `Arc` pointer
+    /// identity. Returns the tape together with each input's root index into it.
     pub fn compile_batch(
         coeffs: impl IntoIterator<Item = SymbolicCoeff>,
     ) -> (CompiledCoeff, Vec<usize>) {
@@ -215,6 +221,10 @@ impl SymbolicCoeff {
         (CompiledCoeff { ops }, roots)
     }
 
+    /// Drops subtrees of the DAG that cannot contribute past the given bounds: `max_frequency`
+    /// caps how many gate applications (Cos/Sin depth) a surviving subtree may still see, and
+    /// `coeff_cutoff` drops subtrees whose scale magnitude cannot exceed the cutoff. Both are
+    /// optional; passing neither is a no-op.
     pub fn prune(&mut self, max_frequency: Option<u32>, coeff_cutoff: Option<f64>) {
         if max_frequency.is_none() && coeff_cutoff.is_none() {
             return;
@@ -247,6 +257,8 @@ impl SymbolicCoeff {
         SymbolicCoeff(sin)
     }
 
+    /// Simplifies this coefficient's DAG in place (constant folding, structural dedup). See
+    /// `simplify_batch`/`simplify_sharded` for simplifying many coefficients with shared memoization.
     pub fn simplify(&mut self) {
         simplify_batch(std::slice::from_mut(self));
     }
@@ -580,14 +592,21 @@ fn build_leaf(run: &FactorRun, scalar: f64) -> Arc<Node> {
     node
 }
 
+/// Simplifies `coeffs` in parallel, split into `n_shards` contiguous chunks, each shard
+/// sharing one `simplify_batch` memo. Splitting loses cross-shard structural sharing, so this
+/// is a throughput/memo-sharing tradeoff, not a strict improvement over one big `simplify_batch`.
 pub fn simplify_sharded(coeffs: &mut [SymbolicCoeff], n_shards: usize) {
     let chunk = coeffs.len().div_ceil(n_shards.max(1)).max(1);
     coeffs.par_chunks_mut(chunk).for_each(|shard| simplify_batch(shard));
 }
 
+/// The gate parameter carried by a surrogate rotation: either a free symbolic parameter index
+/// (kept as a `Cos`/`Sin` node, resolved later at evaluation time) or a concrete numeric angle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GateParam {
+    /// A free variational parameter, resolved later against a lookup table of angles.
     Symbolic { param: u32 },
+    /// A fixed, concrete rotation angle.
     Numeric { angle: f64 },
 }
 
@@ -641,6 +660,45 @@ impl CoeffRepr for SymbolicCoeff {
         }
     }
 
+    /// The `sin(theta) ~ 0` companion to `is_clifford_param`, for concrete angles only. A
+    /// symbolic gate has no numeric angle to test, since its coefficient is a `Cos`/`Sin` node
+    /// in the expression tree resolved later at evaluation time, so it keeps the generic path.
+    ///
+    /// This matters more for the surrogate than for the numeric backends: taking the generic
+    /// path here would append a whole extra monomial per anticommuting term carrying a
+    /// `Sin(pi) = 0` factor, permanently enlarging the symbolic expression tree that every
+    /// later gate then has to carry. Scaling the surviving terms by `cos(theta) = +-1` instead
+    /// adds a single `Scale` node and no monomials at all.
+    #[inline]
+    fn phase_only_scale(param: &GateParam, eps: f64) -> Option<f64> {
+        match param {
+            GateParam::Symbolic { .. } => None,
+            GateParam::Numeric { angle } => {
+                let (sin_t, cos_t) = angle.sin_cos();
+                (sin_t.abs() < eps).then_some(cos_t)
+            }
+        }
+    }
+
+    /// A concrete angle contributes an ordinary real factor, which `scale_real` folds into the
+    /// expression tree as a single `Scale` node, so the Clifford lookup table is usable for the
+    /// surrogate too. A symbolic parameter is not: its contribution is a `Sin` node whose
+    /// value is unknown until evaluation, so there is no real scalar to hand back and the
+    /// generic path must be taken.
+    ///
+    /// Deriving the factor from `param`/`phase` (rather than routing a probe coefficient
+    /// through `apply_rotation(..).to_f64()`, as the table builder used to) is what fixes the
+    /// surrogate: `SymbolicCoeff` overrides neither `to_f64` nor `magnitude`, so that probe
+    /// returned the trait default `0.0`, and every Clifford gate with a concrete angle zeroed
+    /// the whole observable.
+    #[inline]
+    fn clifford_branch_sign(param: &GateParam, phase: Complex64) -> Option<f64> {
+        match param {
+            GateParam::Symbolic { .. } => None,
+            GateParam::Numeric { angle } => Some(angle.sin() * (-phase.im)),
+        }
+    }
+
     #[inline]
     fn size_hint(&self) -> u128 {
         self.monomial_count()
@@ -683,12 +741,17 @@ fn shift_op(op: CompiledOp, offset: usize) -> CompiledOp {
     }
 }
 
+/// A flat, linearized form of one or more `SymbolicCoeff` DAGs: a sequence of ops where each op
+/// may reference the (already-computed) result of an earlier op by index. Structurally shared
+/// subtrees across the compiled coefficients appear once, evaluated once.
 #[derive(Clone, Debug, Default)]
 pub struct CompiledCoeff {
     ops: Vec<CompiledOp>,
 }
 
 impl CompiledCoeff {
+    /// Evaluates the tape against `lut` (indexed `[2*p, 2*p+1]` as `[cos(theta_p), sin(theta_p)]`
+    /// per parameter `p`), returning the value at the last op. Empty tapes evaluate to 0.0.
     pub fn evaluate(&self, lut: &[f64]) -> f64 {
         if self.ops.is_empty() {
             return 0.0;
@@ -697,12 +760,16 @@ impl CompiledCoeff {
         results[self.ops.len() - 1]
     }
 
+    /// Evaluates every op in the tape against `lut`, returning the full intermediate results
+    /// vector (index i holds op i's value). Use `evaluate` if only the final value is needed.
     pub fn evaluate_all(&self, lut: &[f64]) -> Vec<f64> {
         let mut results = Vec::new();
         self.evaluate_into(lut, &mut results);
         results
     }
 
+    /// Same as `evaluate_all`, writing into a caller-supplied buffer to avoid a fresh
+    /// allocation across repeated evaluations of the same tape.
     pub fn evaluate_into(&self, lut: &[f64], out: &mut Vec<f64>) {
         out.resize(self.ops.len(), 0.0);
         for (i, op) in self.ops.iter().enumerate() {
@@ -716,6 +783,8 @@ impl CompiledCoeff {
         }
     }
 
+    /// Pre-dedup monomial-instance upper bound for every op in the tape (index i holds op i's
+    /// count). See `SymbolicCoeff::monomial_count` for the single-coefficient version.
     pub fn monomial_counts(&self) -> Vec<u128> {
         let mut counts = vec![0u128; self.ops.len()];
         for (i, op) in self.ops.iter().enumerate() {
@@ -730,14 +799,20 @@ impl CompiledCoeff {
         counts
     }
 
+    /// Number of ops in the tape.
     pub fn len(&self) -> usize {
         self.ops.len()
     }
 
+    /// True if the tape has no ops.
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
     }
 
+    /// Concatenates several independently compiled tapes into one, shifting each shard's
+    /// internal operand indices by its offset in the merged tape. Returns the merged tape
+    /// together with each shard's starting offset (so a shard's own root indices can be
+    /// translated into the merged tape's index space).
     pub fn merge_shards(shards: Vec<CompiledCoeff>) -> (CompiledCoeff, Vec<usize>) {
         let mut ops: Vec<CompiledOp> = Vec::with_capacity(shards.iter().map(|s| s.ops.len()).sum());
         let mut offsets: Vec<usize> = Vec::with_capacity(shards.len());
@@ -751,6 +826,8 @@ impl CompiledCoeff {
         (CompiledCoeff { ops }, offsets)
     }
 
+    /// Serializes the tape to a compact binary format, appended to `buf`. Pairs with
+    /// `deserialize`.
     pub fn serialize(&self, buf: &mut Vec<u8>) {
         serialize_ops(&self.ops, buf);
     }
@@ -760,6 +837,8 @@ impl CompiledCoeff {
         CompiledCoeff { ops: deserialize_ops(b, pos) }
     }
 
+    /// Splits the tape into `n_shards` contiguous chunks, serializes each independently in
+    /// parallel, and maps `f` over each serialized buffer (e.g. to write it out or hash it).
     pub fn serialize_shards_with<T: Send>(
         &self,
         n_shards: usize,
@@ -776,6 +855,9 @@ impl CompiledCoeff {
             .collect()
     }
 
+    /// Concatenates several tapes without shifting operand indices; callers must ensure the
+    /// shards' indices are already consistent with the concatenated layout (unlike
+    /// `merge_shards`, which does the index shifting itself).
     pub fn concat(shards: Vec<CompiledCoeff>) -> CompiledCoeff {
         let mut ops = Vec::with_capacity(shards.iter().map(|s| s.ops.len()).sum());
         for shard in shards {
@@ -906,6 +988,25 @@ mod tests {
         assert!(SymbolicCoeff::is_clifford_param(&GateParam::Numeric { angle: FRAC_PI_2 + PI }, EPS));
         assert!(!SymbolicCoeff::is_clifford_param(&GateParam::Numeric { angle: 0.3 }, EPS));
         assert!(!SymbolicCoeff::is_clifford_param(&GateParam::Symbolic { param: 0 }, EPS));
+    }
+
+    #[test]
+    fn phase_only_scale_flags_sin_zero_numeric_angles_and_never_symbolic() {
+        use std::f64::consts::{FRAC_PI_2, PI};
+        const EPS: f64 = 1e-9;
+
+        // theta = 0 and theta = pi are the `sin == 0` cases; cos is +1 and -1 respectively.
+        assert_eq!(SymbolicCoeff::phase_only_scale(&GateParam::Numeric { angle: 0.0 }, EPS), Some(1.0));
+        let at_pi = SymbolicCoeff::phase_only_scale(&GateParam::Numeric { angle: PI }, EPS)
+            .expect("theta = pi has sin == 0");
+        assert!((at_pi + 1.0).abs() < EPS, "cos(pi) should be -1, got {at_pi}");
+
+        // The two halves of the Clifford-angle condition must not overlap: pi/2 is the
+        // `cos == 0` case and belongs to `is_clifford_param`, not here.
+        assert_eq!(SymbolicCoeff::phase_only_scale(&GateParam::Numeric { angle: FRAC_PI_2 }, EPS), None);
+        assert_eq!(SymbolicCoeff::phase_only_scale(&GateParam::Numeric { angle: 0.3 }, EPS), None);
+        // A symbolic parameter has no angle to test, so it must keep the generic path.
+        assert_eq!(SymbolicCoeff::phase_only_scale(&GateParam::Symbolic { param: 0 }, EPS), None);
     }
 
     #[test]
@@ -1141,7 +1242,7 @@ mod tests {
         let elapsed = start.elapsed();
         assert!(
             elapsed < std::time::Duration::from_secs(10),
-            "simplify() took {elapsed:?} on a 200,000-deep unbranched chain -- \
+            "simplify() took {elapsed:?} on a 200,000-deep unbranched chain: \
              suggests FactorRun growth, the move-vs-clone path, or Terms's \
              Vec-not-hashmap design has regressed to quadratic",
         );
@@ -1178,7 +1279,7 @@ mod tests {
         assert!(
             many_elapsed < one_elapsed * 5 + std::time::Duration::from_millis(50),
             "simplifying 50 batch entries sharing one root took {many_elapsed:?} vs {one_elapsed:?} \
-             for one -- suggests the memo isn't actually shared across the batch",
+             for one: suggests the memo isn't actually shared across the batch",
         );
 
         let lut = make_lut(next_param as usize);
@@ -1509,7 +1610,7 @@ mod tests {
         let elapsed = start.elapsed();
         assert!(
             elapsed < std::time::Duration::from_secs(2),
-            "prune() took {elapsed:?} for a 3-way/12-round shared structure -- \
+            "prune() took {elapsed:?} for a 3-way/12-round shared structure: \
              suggests memoization by (node, scale bucket) isn't sharing repeated visits",
         );
 
@@ -1655,3 +1756,4 @@ mod tests {
         );
     }
 }
+

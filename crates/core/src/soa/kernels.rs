@@ -1,10 +1,10 @@
 ///
-/// Kernels for hot per-term loops over term sum columns, shared by 
-/// the Pauli, Majorana, and surrogate propagators. 
+/// Kernels for hot per-term loops over term sum columns, shared by
+/// the Pauli, Majorana, and surrogate propagators.
 ///
-/// The kernels process the data in a SoA (struct of arrays) layout. 
-/// The term sum struct is decomposed into its constituent arrays 
-/// consisting of the term planes, coefficients, flags, indices 
+/// The kernels process the data in a SoA (struct of arrays) layout.
+/// The term sum struct is decomposed into its constituent arrays
+/// consisting of the term planes, coefficients, flags, indices
 /// and auxiliary storage. They operate on this data in parallel.
 ///
 use rayon::prelude::*;
@@ -24,10 +24,13 @@ impl<T> SendPtr<T> {
     unsafe fn add(&self, idx: usize) -> *mut T { unsafe { self.0.add(idx) } }
 }
 
-/// Chunk size floor below which a pass runs serially: splitting into rayon
+/// Chunk size floor below which a pass runs serially. Splitting into rayon
 /// tasks below this size is pure overhead.
 const PAR_MIN_LEN: usize = 512;
 
+/// Computes the exclusive prefix sum of `flags` into `index`, returning the total sum.
+/// Used to assign each surviving (nonzero-flag) row a unique destination slot before a
+/// compaction or append pass. Runs in parallel above `PAR_MIN_LEN`, serially below it.
 pub fn prefix_sum(flags: &[u32], index: &mut [usize]) -> usize {
     let n = flags.len();
     if n == 0 {
@@ -72,32 +75,24 @@ pub fn prefix_sum(flags: &[u32], index: &mut [usize]) -> usize {
     total
 }
 
+/// Removes rows with `flags[i] == 0` and compacts the survivors down to `[0, total)`, picking
+/// an in-place or a scatter strategy (see `compact_in_place` and `compact_scatter`).
+///
+/// Skips all work when `total == n`: nothing was removed, so compaction is the identity, and so
+/// is `remap_merge_index` (every tracked slot already maps to itself). This case is common:
+/// the benchmark merge cadence flushes after every splitting gate, and many cycles remove
+/// nothing at all.
 fn compact<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
-    // Nothing was removed: every flag is set, so `index[i] == i` and compaction is the identity.
-    // Skipping it also correctly skips `remap_merge_index`, which is the identity in this case
-    // too (it would map each tracked slot `old` to `index[old] == old`, and recompute
-    // `merge_synced_len` to the value it already holds -- `total` in the `old_synced >= n`
-    // branch, `index[old_synced] == old_synced` otherwise). Worth special-casing because the
-    // benchmark merge cadence (`merge_max_terms=1`) flushes after every splitting gate, so a
-    // good fraction of cycles remove nothing at all -- and without this the scatter path below
-    // would copy every row into `aux_*` and swap buffers just to reproduce what was already
-    // there.
     if total == n {
         terms.set_len(n);
         return;
     }
-    // `truncate()`/`map_retain()` can call `compact()` without `merge()` ever having run first
-    // (e.g. on a freshly-`push`ed term sum), in which case `hashes` was never sized. Ensure it
-    // covers the current range regardless of caller -- `merge_synced_len` being 0 in that case
-    // means the relocated (possibly-meaningless) values are never actually read by anything.
+    // `truncate()`/`map_retain()` can call this before `merge()` ever ran, leaving `hashes`
+    // unsized. `merge_synced_len == 0` in that case means the relocated values are never read.
     terms.ensure_hashes_capacity(n);
 
-    // The scatter into `aux_*` exists so that disjoint rayon tasks can write disjoint
-    // destinations concurrently. With a single worker (or a range too small to be worth
-    // splitting) there is nothing to parallelize, and compacting in place is strictly cheaper:
-    // it writes no second copy of the data, never grows the `aux_*` buffers at all, and skips
-    // every row ahead of the first hole. The two paths agree by construction -- `index` is the
-    // exclusive prefix sum either way, so a surviving row `src` lands at `index[src]` under both.
+    // Scattering into `aux_*` lets disjoint rayon tasks write disjoint destinations at once.
+    // Below that threshold, in-place compaction is cheaper: no second copy of the data.
     if n >= PAR_MIN_LEN && rayon::current_num_threads() > 1 {
         compact_scatter(terms, n, total);
     } else {
@@ -107,29 +102,27 @@ fn compact<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
 }
 
 /// Stable in-place compaction: slides every surviving row down over the holes ahead of it,
-/// preserving relative order (which is what `remap_merge_index`'s contiguous-prefix reasoning
-/// depends on). Rows before the first hole are already at their final position and are never
-/// touched -- which matters because new rows are appended at the end, so the rows that die in a
-/// merge cycle cluster late.
+/// preserving relative order (`remap_merge_index` depends on this for its contiguous-prefix
+/// reasoning). Rows before the first hole are already at their final position and are never
+/// touched, which matters because new rows are appended at the end, so the rows that die in a
+/// merge cycle tend to cluster late.
 fn compact_in_place<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
     let stride = terms.stride;
     {
         let SoaTermSum { planes, coeffs, flags, hashes, .. } = &mut *terms;
-        // `total < n` (the equal case returned in `compact`), so at least one hole exists.
+        // `total < n` (the equal case already returned in `compact`), so a hole must exist.
         let first_hole = flags[..n].iter().position(|&f| f == 0).expect("total < n implies a hole");
         let mut dst = first_hole;
         for src in first_hole + 1..n {
             if flags[src] == 0 {
                 continue;
             }
-            // `dst < src` strictly: `dst` starts at a hole and only advances on survivors, so
-            // every move here goes toward the front and never overlaps its own source.
+            // `dst < src` strictly: `dst` starts at a hole and only advances on survivors.
             for plane in planes.iter_mut() {
                 plane.copy_within(src * stride..(src + 1) * stride, dst * stride);
             }
-            // Swap rather than clone: for a heap-backed coefficient repr (the surrogate's
-            // symbolic coefficients) cloning allocates, and the slot left behind at `src` is
-            // past the new length, so nothing ever observes what lands back there.
+            // Swap rather than clone, since a heap-backed coefficient (the surrogate's
+            // symbolic type) would otherwise allocate on every survivor.
             coeffs.swap(dst, src);
             hashes[dst] = hashes[src];
             dst += 1;
@@ -141,8 +134,7 @@ fn compact_in_place<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: us
 
 /// Parallel compaction: scatters survivors into the `aux_*` double buffers at their prefix-sum
 /// destinations, then swaps those in. One traversal handles `planes[0]`, `planes[1]`, `coeffs`
-/// and `hashes` together -- these used to be four separate passes over `0..n`, each re-reading
-/// `flags[i]`/`index[i]` and walking a different array.
+/// and `hashes` together, replacing what used to be four separate passes over `0..n`.
 fn compact_scatter<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
     let stride = terms.stride;
     terms.ensure_aux_capacity(total);
@@ -152,8 +144,8 @@ fn compact_scatter<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usi
         let dst_p0 = SendPtr(aux_planes[0].as_mut_ptr());
         let dst_p1 = SendPtr(aux_planes[1].as_mut_ptr());
         let dst_coeffs = SendPtr(aux_coeffs.as_mut_ptr());
-        // Relocate `hashes` in lockstep with `planes`/`coeffs` -- see the field doc on
-        // `aux_hashes` for why this must never be allowed to go stale.
+        // `hashes` is relocated in lockstep with `planes`/`coeffs`; see the field doc on
+        // `aux_hashes` for why it must never go stale.
         let dst_hashes = SendPtr(aux_hashes.as_mut_ptr());
         (0..n).into_par_iter().for_each(|i| {
             if flags[i] == 0 {
@@ -161,7 +153,7 @@ fn compact_scatter<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usi
             }
             let dst = index[i];
             // SAFETY: `index` is the exclusive prefix sum of `flags`, so distinct flagged `i`
-            // map to distinct `dst` in [0, total) -- no two tasks ever write the same slot.
+            // map to distinct `dst` in [0, total); no two tasks ever write the same slot.
             unsafe {
                 let s0 = &planes[0][i * stride..(i + 1) * stride];
                 std::ptr::copy_nonoverlapping(s0.as_ptr(), dst_p0.add(dst * stride), stride);
@@ -177,12 +169,11 @@ fn compact_scatter<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usi
 
 /// Keeps `merge_tables` valid across the row-relocation `compact()` just performed. Runs
 /// unconditionally on every `compact()` call regardless of caller (`merge`, `truncate`, or
-/// `map_retain`) -- `compact()` is the only function that ever physically reorders rows, so
-/// centralizing this bookkeeping here means every caller gets correct behavior for free.
+/// `map_retain`), since `compact()` is the only function that ever physically reorders rows.
 fn remap_merge_index<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
     let old_synced = terms.merge_synced_len;
     if old_synced == 0 {
-        // Nothing persisted (fresh term sum, or explicitly invalidated -- see
+        // Nothing persisted (fresh term sum, or explicitly invalidated; see
         // `invalidate_merge_index`). The next `merge()` call does a full rebuild from scratch.
         return;
     }
@@ -198,18 +189,19 @@ fn remap_merge_index<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: u
             }
         });
     }
-    // New synced length = count of survivors among the previously-synced prefix [0, old_synced).
-    // New rows are always appended after old ones and compaction preserves relative order, so
-    // surviving old-synced rows always land in a contiguous prefix immediately followed by
-    // surviving new (never-synced) rows -- `index[old_synced]` (the exclusive prefix-sum value
-    // at that exact boundary) gives that count for free. This must NOT be set to `total`
-    // unconditionally: `total` also counts any surviving new rows that were never actually
+    // New synced length is the count of survivors among the previously-synced prefix
+    // [0, old_synced). New rows are always appended after old ones and compaction preserves
+    // relative order, so surviving old-synced rows land in a contiguous prefix immediately
+    // followed by surviving new (never-synced) rows. `index[old_synced]`, the exclusive
+    // prefix-sum value at that boundary, gives that count directly. This must not be set to
+    // `total` unconditionally: `total` also counts surviving new rows that were never
     // inserted into `merge_tables` (e.g. when `truncate()`/`map_retain()` compacts a term set
-    // that has rows added since the last `merge()`), which would otherwise be silently
-    // mis-tracked as already-synced.
+    // with rows added since the last `merge()`), which would otherwise be mis-tracked as synced.
     terms.merge_synced_len = if old_synced >= n { total } else { index[old_synced] };
 }
 
+/// Applies weight and coefficient-magnitude cutoffs from `cfg` to every live term, then
+/// compacts survivors down. No-op on an empty term sum.
 pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &ResolvedConfig) {
     let n = terms.len();
     if n == 0 {
@@ -284,6 +276,8 @@ fn truncate_native_chunk<C: CoeffRepr>(
     }
 }
 
+/// Applies `map_fn` to every coefficient, then keeps only rows for which `keep` returns true,
+/// compacting survivors down. Returns the summed `size_hint()` of the survivors.
 pub fn map_retain<B: SoaBasis, C: CoeffRepr, F, K>(terms: &mut SoaTermSum<C>, map_fn: F, keep: K) -> u128
 where
     F: Fn(&mut C) + Sync,
@@ -333,6 +327,8 @@ where
     }
 }
 
+/// Parallel fold over every coefficient, with a separate combine step to merge partial results
+/// from different rayon tasks. `identity` must be the identity element for `combine`.
 pub fn fold_coeffs<C: CoeffRepr, T, ID, F, R>(terms: &SoaTermSum<C>, identity: ID, fold: F, combine: R) -> T
 where
     T: Send,
@@ -344,6 +340,8 @@ where
     terms.coeffs[..n].par_iter().fold(&identity, &fold).reduce(&identity, &combine)
 }
 
+/// Parallel sum of `f` applied to every coefficient, saturating on `u128` overflow rather than
+/// wrapping.
 pub fn sum_coeffs<C: CoeffRepr, F>(terms: &SoaTermSum<C>, f: F) -> u128
 where
     F: Fn(&C) -> u128 + Sync,
@@ -353,12 +351,11 @@ where
 }
 
 /// Batched dedup insert pass for the generic (`stride != 1`) index-based table, rows
-/// `[synced, n)`. Shared by `merge()` and `merge_and_truncate()` -- extracted so the ~45-line
-/// batched-probe-or-insert block isn't duplicated between the two call sites. Logic is otherwise
-/// unchanged from what each used to inline directly.
+/// `[synced, n)`. Shared by `merge()` and `merge_and_truncate()` so the batched-probe-or-insert
+/// block isn't duplicated between the two call sites.
 ///
-/// Returns the number of rows it merged away (i.e. whose `flags` entry it cleared). Callers that
-/// need the post-dedup term count get it as `n - returned` for free, rather than summing
+/// Returns the number of rows it merged away (i.e. whose `flags` entry it cleared). Callers
+/// that need the post-dedup term count get it as `n - returned` for free, rather than summing
 /// `flags[..n]` in a separate full traversal afterwards.
 fn merge_insert_batches_generic<B: SoaBasis, C: CoeffRepr>(
     terms: &mut SoaTermSum<C>,
@@ -372,11 +369,11 @@ fn merge_insert_batches_generic<B: SoaBasis, C: CoeffRepr>(
     let SoaTermSum { planes, coeffs, flags, hashes, merge_tables, .. } = &mut *terms;
     let coeffs_ptr = SendPtr(coeffs.as_mut_ptr());
     let flags_ptr = SendPtr(flags.as_mut_ptr());
-    // Open-addressing, SIMD-probed table. `seen` is a *reused, persistent* table -- no
-    // `.clear()` here anymore: it already holds entries for rows [0, synced) from prior
-    // calls (kept valid across compaction by `compact`/`remap_merge_index`), and this call
-    // only inserts the new range [synced, n), checking each new row against both the
-    // already-settled entries and the other new rows in this same batch.
+    // Open-addressing, SIMD-probed table. `seen` is a reused, persistent table (no `.clear()`
+    // here): it already holds entries for rows [0, synced) from prior calls, kept valid across
+    // compaction by `compact`/`remap_merge_index`. This call only inserts the new range
+    // [synced, n), checking each new row against both the settled entries and the other new
+    // rows in this same batch.
     let process_batch = |(bid, seen): (usize, &mut hashbrown::HashTable<usize>)| -> usize {
         let mut merged_away = 0usize;
         for i in synced..n {
@@ -397,15 +394,11 @@ fn merge_insert_batches_generic<B: SoaBasis, C: CoeffRepr>(
             match entry {
                 hashbrown::hash_table::Entry::Occupied(occ) => {
                     let canonical = *occ.get();
-                    // SAFETY: `canonical` was inserted into `seen` by
-                    // this same `bid`'s pass (entries are only ever
-                    // recorded under the `batch_of(hashes[i]) == bid`
-                    // gate above), and `key_hash`/`key_eq` agree by the
-                    // trait's contract, so every duplicate of
-                    // `canonical` is guaranteed to land in this same
-                    // batch. No other concurrently-running batch (which
-                    // owns a disjoint set of `bid` values) ever touches
-                    // row `canonical` or row `i`.
+                    // SAFETY: `canonical` was inserted into `seen` by this same `bid`'s pass
+                    // (entries are only recorded under the `batch_of(hashes[i]) == bid` gate
+                    // above), and `key_hash`/`key_eq` agree by the trait's contract, so every
+                    // duplicate of `canonical` lands in this same batch. No concurrently
+                    // running batch ever touches row `canonical` or row `i`.
                     unsafe {
                         let addend = (*coeffs_ptr.add(i)).clone();
                         (*coeffs_ptr.add(canonical)).add_assign(addend);
@@ -428,6 +421,11 @@ fn merge_insert_batches_generic<B: SoaBasis, C: CoeffRepr>(
     }
 }
 
+/// Deduplicates the term sum in place, summing coefficients of rows with identical Pauli/
+/// Majorana content, and compacts survivors down. No-op when `terms.len() <= 1`.
+///
+/// Incremental: rows already tracked in `merge_tables` from a prior call (up to
+/// `merge_synced_len`) are not re-hashed or re-inserted, only newly appended rows are.
 pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
     let n = terms.len();
     if n <= 1 {
@@ -439,8 +437,7 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
     terms.ensure_hashes_capacity(n);
 
     // Rows [0, synced) are already tracked in merge_tables, keyed by their current physical
-    // index (kept valid across compaction by `compact`/`remap_merge_index`). Only rows
-    // [synced, n) -- new since the last merge -- need hashing and insertion this call.
+    // index. Only rows [synced, n), new since the last merge, need hashing and insertion now.
     let synced = terms.merge_synced_len.min(n);
     let new_range_len = n - synced;
     let hash_parallel = new_range_len >= PAR_MIN_LEN;
@@ -461,11 +458,9 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
         }
     }
 
-    // n_batches is a true constant for the SoaPropagator's thread pool lifetime -- it must NOT
-    // depend on the current call's size, because batch_of(hash) decides which persisted table a
-    // row's entry lives in. If n_batches ever changed between two merge() calls on the same
-    // SoaTermSum (as it used to, whenever n crossed PAR_MIN_LEN), an already-tracked row's batch
-    // assignment would silently change and its entry would become permanently orphaned.
+    // `n_batches` must stay constant for the SoaPropagator's thread pool lifetime: it decides
+    // which persisted table a row's entry lives in, so letting it depend on the current call's
+    // size would orphan already-tracked rows whenever `n` crossed `PAR_MIN_LEN`.
     let n_batches = rayon::current_num_threads().max(1).next_power_of_two();
     let batch_mask = (n_batches - 1) as u64;
 
@@ -473,8 +468,8 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
 
     {
         let SoaTermSum { flags, .. } = &mut *terms;
-        // flags is shared scratch stomped by other kernels between calls (e.g. apply_rotation),
-        // so it must be reset over the full current range regardless of what's incremental.
+        // `flags` is shared scratch stomped by other kernels (e.g. apply_rotation) between
+        // calls, so it must be reset over the full current range regardless of incrementality.
         if n >= PAR_MIN_LEN {
             flags[..n].par_iter_mut().for_each(|f| *f = 1);
         } else {
@@ -484,22 +479,20 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
 
     terms.ensure_merge_tables_capacity(n_batches);
     if terms.merge_synced_len == 0 {
-        // Not trustworthy: first merge ever, post-copy()/map_coeffs(), or explicitly invalidated
-        // (see invalidate_merge_index). A table can be non-empty but wrongly-keyed here (e.g.
-        // after a Clifford in-place rewrite), so it must be cleared, not assumed already empty.
+        // Not trustworthy: first merge ever, post-copy()/map_coeffs(), or explicitly
+        // invalidated. A table can be non-empty but wrongly-keyed here (e.g. after a Clifford
+        // in-place rewrite), so it must be cleared, not assumed already empty.
         terms.clear_merge_tables();
     }
-    // `merge()` (unlike `merge_and_truncate`) has no use for the dedup count: it reports nothing
-    // and `prefix_sum` below recomputes the surviving total anyway.
+    // `merge()` (unlike `merge_and_truncate`) has no use for the dedup count: it reports
+    // nothing and `prefix_sum` below recomputes the surviving total anyway.
     let _ = merge_insert_batches_generic::<B, C>(terms, synced, n, n_batches, hash_parallel, batch_of);
 
-    // The tables now represent the *entire* current range [0, n) -- the previously-synced
-    // prefix [0, synced) plus the just-inserted new range [synced, n). Recording that here,
-    // before compact() runs, is what lets `remap_merge_index` (called from inside `compact`,
-    // below) correctly bootstrap on the very first merge() call: `old_synced` would otherwise
-    // still read as its pre-call value (0 on that first call), which `remap_merge_index`
-    // treats as "nothing tracked, nothing to remap" and would leave `merge_synced_len` stuck at
-    // 0 forever -- silently disabling the incremental path on every subsequent call too.
+    // The tables now represent the entire current range [0, n): the previously-synced prefix
+    // [0, synced) plus the just-inserted new range [synced, n). Recording that here, before
+    // compact() runs, lets `remap_merge_index` correctly bootstrap on the very first call: it
+    // would otherwise still see the pre-call value (0), treat that as "nothing tracked", and
+    // leave `merge_synced_len` stuck at 0 forever.
     terms.merge_synced_len = n;
 
     let total = {
@@ -509,15 +502,14 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
     compact(terms, n, total);
 }
 
-/// Combined merge + truncate in a single pass: one shared `flags` computation (dedup first,
-/// then weight/coefficient cutoff applied only to dedup survivors) and *one* `compact()` call,
+/// Combined merge and truncate in a single pass: one shared `flags` computation (dedup first,
+/// then weight/coefficient cutoff applied only to dedup survivors) and one `compact()` call,
 /// instead of `merge()` and `truncate()` each running their own full compaction back to back.
 ///
-/// This exists because measuring the incremental `merge()` above in isolation showed a
-/// regression, not an improvement: `flush_and_maybe_truncate` calls `merge()` then `truncate()`
-/// every cycle, so the persisted-table remap (`compact`/`remap_merge_index`) was running
-/// *twice* per cycle, and that doubled cost turned out to exceed what incremental hashing
-/// saved. Cutting it back to one compact per cycle is what actually realizes the win.
+/// This exists because the incremental `merge()` above regressed in isolation:
+/// `flush_and_maybe_truncate` calls `merge()` then `truncate()` every cycle, so the
+/// persisted-table remap was running twice per cycle, and that doubled cost exceeded what
+/// incremental hashing saved. Cutting it back to one compact per cycle is what realizes the win.
 ///
 /// Returns `(after_dedup, after_truncate)` term counts, matching what
 /// `SoaPropagator::flush_and_maybe_truncate`'s verbose logging previously computed from two
@@ -578,12 +570,11 @@ pub fn merge_and_truncate<B: SoaBasis, C: CoeffRepr>(
     terms.merge_synced_len = n;
 
     // Every row started this call flagged, and the insert pass above is the only thing that
-    // clears a flag before this point, so the post-dedup count follows from its return value --
-    // no separate summation pass over `flags[..n]`.
+    // clears a flag before this point, so the post-dedup count follows from its return value.
     let after_dedup = n - merged_away;
 
-    // Weight/coefficient cutoff, applied only to rows that survived dedup (flags[i] != 0) --
-    // a row already merged away must not be independently reconsidered.
+    // Weight/coefficient cutoff, applied only to rows that survived dedup: a row already
+    // merged away must not be independently reconsidered.
     if let Some(cfg) = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some() || c.native.is_some()) {
         let min_terms = cfg.min_terms.unwrap_or(0);
         if after_dedup >= min_terms {
@@ -643,15 +634,25 @@ pub fn merge_and_truncate<B: SoaBasis, C: CoeffRepr>(
 }
 
 /// Builds the 4-entry (I, X, Z, Y) lookup table for a single-qubit Clifford conjugation by
-/// `gen` (weight-1, word `gw`): entry `p_idx` (bit 0 = x-bit, bit 1 = z-bit, both at position 0)
-/// maps to `(new_word_bits_at_position_0, coefficient_sign)`. Every entry is derived by calling
-/// the already-validated `commutes_at_word`/`product_at_word`/`CoeffRepr::apply_rotation` --
-/// nothing here is re-derived Pauli-algebra math, so correctness is inherited from code already
-/// exhaustively differential-tested, not re-proven.
-fn build_clifford_table<B: SoaBasis, C: CoeffRepr>(gw: [u64; 2], param: &C::GateParam) -> [([u64; 2], f64); 4] {
+/// `gen` (weight-1, word `gw`): entry `p_idx` (bit 0 is the x-bit, bit 1 is the z-bit, both at
+/// position 0) maps to `(new_word_bits_at_position_0, coefficient_sign)`. The Pauli algebra is
+/// taken from the already-validated `commutes_at_word`/`product_at_word`, so correctness there
+/// is inherited rather than re-derived.
+///
+/// Returns `None` when the coefficient representation cannot express the anticommuting
+/// branch's factor as a plain real scalar (see `CoeffRepr::clifford_branch_sign`); the caller
+/// must then fall through to the generic per-row path. This factor used to be obtained as
+/// `C::from_real(1.0).apply_rotation(param, phase).to_f64()`, which silently evaluated to `0.0`
+/// for `SymbolicCoeff` (it overrides neither `to_f64` nor `magnitude`, so the trait defaults
+/// applied): every surrogate Clifford gate with a concrete angle wrote a zero into every table
+/// entry and annihilated the observable.
+fn build_clifford_table<B: SoaBasis, C: CoeffRepr>(
+    gw: [u64; 2],
+    param: &C::GateParam,
+) -> Option<[([u64; 2], f64); 4]> {
     // `commutes_at_word`/`product_at_word` operate on whole words via bitwise AND/XOR, so a
-    // synthetic single-qubit label must have its bit(s) at the SAME position as `gw`'s nonzero
-    // bit, not at bit 0 -- otherwise the AND/XOR against `gw` would spuriously always be zero.
+    // synthetic single-qubit label must have its bit(s) at the same position as `gw`'s
+    // nonzero bit, not at bit 0, or the AND/XOR against `gw` would spuriously always be zero.
     let bit = (gw[0] | gw[1]).trailing_zeros();
     let mut table = [([0u64; 2], 1.0f64); 4];
     for p_idx in 0..4u64 {
@@ -660,17 +661,178 @@ fn build_clifford_table<B: SoaBasis, C: CoeffRepr>(gw: [u64; 2], param: &C::Gate
             table[p_idx as usize] = (p_word, 1.0);
         } else {
             let (out_word, phase) = B::product_at_word(p_word, gw);
-            let sign = C::from_real(1.0).apply_rotation(param, phase).to_f64();
-            table[p_idx as usize] = (out_word, sign);
+            table[p_idx as usize] = (out_word, C::clifford_branch_sign(param, phase)?);
         }
     }
-    table
+    Some(table)
 }
 
-/// Apply a Pauli/Majorana rotation `exp(-i * theta * G)` (or, for the
-/// surrogate, the symbolic analogue keyed by a parameter index) to every
-/// live term.
+/// A run of consecutive Clifford rotations, all supported on the same one or two qubits inside
+/// a single stride-word, collapsed into one conjugation lookup table.
 ///
+/// This exists because propaq has no gate primitives: its only operation is `exp(-i*theta*G)`
+/// for a single Pauli generator, so a gate that would be one in-place pass for a gate-based
+/// engine costs one pass per rotation here. Measured lowering costs: `h` becomes 2 rotations,
+/// `cz` becomes 3, `swap` becomes 3, `cx` becomes 7. A CNOT-heavy circuit therefore paid seven
+/// full traversals of the term array for one gate, every one of them a pure in-place relabel.
+///
+/// The composite of Clifford conjugations on a fixed k-qubit support is itself a Clifford
+/// conjugation on that support, so it is fully described by where it sends each of the `4^k`
+/// Pauli labels, plus a sign. Building that table costs `4^k` folds (16 at k=2) once per gate;
+/// applying it costs one pass. Nothing here re-derives Pauli algebra: every fold goes through
+/// the already-validated `commutes_at_word`/`product_at_word`.
+#[derive(Clone, Debug)]
+pub struct CliffordOp {
+    /// Stride-word holding both qubits.
+    word: usize,
+    /// Bit positions within `word`. `bits[1] == bits[0]` when `n_qubits == 1`.
+    bits: [u32; 2],
+    n_qubits: usize,
+    /// Bits of `word` this op may rewrite; everything else is preserved.
+    mask: u64,
+    /// Indexed by `x_i | z_i<<1 | x_j<<2 | z_j<<3`; entries beyond `4^n_qubits` are unused.
+    /// Each entry is `(new word bits already shifted into position, coefficient factor)`.
+    table: [([u64; 2], f64); 16],
+}
+
+impl CliffordOp {
+    /// Number of qubits this fused Clifford conjugation was built over (1 or 2).
+    #[inline]
+    pub fn n_qubits(&self) -> usize {
+        self.n_qubits
+    }
+}
+
+/// Folds one Clifford rotation onto a `(label, factor)` pair, in the Pauli-label domain rather
+/// than the term domain. Returns `None` if the rotation is not Clifford, or is Clifford but has
+/// no real-scalar branch factor for this coefficient representation (a symbolic gate); in
+/// either case the caller must not fuse.
+fn fold_clifford_rotation<B: SoaBasis, C: CoeffRepr>(
+    label: [u64; 2],
+    factor: f64,
+    gw: [u64; 2],
+    param: &C::GateParam,
+    eps: f64,
+) -> Option<([u64; 2], f64)> {
+    // A commuting label is untouched by any rotation about `gw`, Clifford or not.
+    if B::commutes_at_word(label, gw) {
+        return Some((label, factor));
+    }
+    if C::is_clifford_param(param, eps) {
+        // cos(theta) is near 0: the term is carried wholly onto G*term, picking up the sin
+        // branch's real factor.
+        let (out, phase) = B::product_at_word(label, gw);
+        return Some((out, factor * C::clifford_branch_sign(param, phase)?));
+    }
+    if let Some(cos_t) = C::phase_only_scale(param, eps) {
+        // sin(theta) is near 0: the label is unchanged and only the coefficient moves.
+        return Some((label, factor * cos_t));
+    }
+    None
+}
+
+/// Builds the fused table for `rotations` (generator words, in the order they are applied),
+/// all confined to `word` and to the qubits at `bits[..n_qubits]`.
+///
+/// Returns `None` if any rotation in the run cannot be folded, in which case the caller must
+/// apply the run rotation-by-rotation exactly as before.
+pub fn build_fused_clifford<B: SoaBasis, C: CoeffRepr>(
+    word: usize,
+    bits: [u32; 2],
+    n_qubits: usize,
+    rotations: &[([u64; 2], C::GateParam)],
+    eps: f64,
+) -> Option<CliffordOp> {
+    debug_assert!(n_qubits == 1 || n_qubits == 2);
+    let mask = if n_qubits == 1 { 1u64 << bits[0] } else { (1u64 << bits[0]) | (1u64 << bits[1]) };
+    let n_labels = 1usize << (2 * n_qubits);
+    let mut table = [([0u64; 2], 1.0f64); 16];
+    for idx in 0..n_labels {
+        // Unpack the label: qubit i occupies bits 0-1 of `idx`, qubit j occupies bits 2-3.
+        let (xi, zi) = ((idx as u64) & 1, ((idx as u64) >> 1) & 1);
+        let (xj, zj) = (((idx as u64) >> 2) & 1, ((idx as u64) >> 3) & 1);
+        let mut label = [xi << bits[0], zi << bits[0]];
+        if n_qubits == 2 {
+            label[0] |= xj << bits[1];
+            label[1] |= zj << bits[1];
+        }
+        let mut factor = 1.0f64;
+        for (gw, param) in rotations {
+            let (l, f) = fold_clifford_rotation::<B, C>(label, factor, *gw, param, eps)?;
+            label = l;
+            factor = f;
+        }
+        // Every generator in the run is confined to `mask`, and `product_at_word` only XORs,
+        // so the image must be too. Tripping this means the run was mis-grouped.
+        debug_assert_eq!(label[0] & !mask, 0, "fused Clifford escaped its qubit mask (x)");
+        debug_assert_eq!(label[1] & !mask, 0, "fused Clifford escaped its qubit mask (z)");
+        table[idx] = (label, factor);
+    }
+    Some(CliffordOp { word, bits, n_qubits, mask, table })
+}
+
+/// Applies a fused Clifford conjugation to every live term in one pass.
+///
+/// Returns nothing to add to the pending-merge count: a Clifford conjugation is injective on
+/// the Pauli group, so it can never collide two previously-distinct rows. It does invalidate
+/// the persisted merge index for the same reason the single-rotation Clifford path does: rows
+/// are rewritten in place at fixed physical indices, so their cached hashes go stale.
+pub fn apply_clifford_op<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, op: &CliffordOp) {
+    let n = terms.len();
+    if n == 0 {
+        return;
+    }
+    let stride = terms.stride;
+    let (w, mask) = (op.word, op.mask);
+    let (bi, bj) = (op.bits[0], op.bits[1]);
+    let two = op.n_qubits == 2;
+    let table = op.table;
+    let SoaTermSum { planes, coeffs, .. } = &mut *terms;
+    let p0 = SendPtr(planes[0].as_mut_ptr());
+    let p1 = SendPtr(planes[1].as_mut_ptr());
+    let cf = SendPtr(coeffs.as_mut_ptr());
+    let run = |i: usize| {
+        let s = i * stride;
+        // SAFETY: distinct `i` map to distinct `s + w` (planes) and `i` (coeffs) offsets, so
+        // concurrent tasks never touch the same element.
+        unsafe {
+            let x = *p0.add(s + w);
+            let z = *p1.add(s + w);
+            let mut idx = (((x >> bi) & 1) | (((z >> bi) & 1) << 1)) as usize;
+            if two {
+                idx |= ((((x >> bj) & 1) | (((z >> bj) & 1) << 1)) << 2) as usize;
+            }
+            let (new_bits, factor) = table[idx];
+            *p0.add(s + w) = (x & !mask) | new_bits[0];
+            *p1.add(s + w) = (z & !mask) | new_bits[1];
+            (*cf.add(i)).scale_real(factor);
+        }
+    };
+    if n >= PAR_MIN_LEN {
+        (0..n).into_par_iter().for_each(run);
+    } else {
+        (0..n).for_each(run);
+    }
+    terms.invalidate_merge_index();
+}
+
+/// Applies a Pauli/Majorana rotation `exp(-i * theta * G)` (or, for the surrogate, the
+/// symbolic analogue keyed by a parameter index) to every live term.
+///
+/// A Pauli rotation is Clifford exactly when `theta` is a multiple of `pi/2`, which splits into
+/// two cases handled as fast paths below, both cheaper than the fully generic append path:
+///
+/// - `sin(theta)` near 0 (`theta` a multiple of `pi`): the identity on commuting terms, and a
+///   `+-1` coefficient scale on anticommuting ones. No term's key ever changes, so this needs
+///   no `prefix_sum` and does not invalidate the merge index.
+/// - `cos(theta)` near 0 (`theta = pi/2` mod `pi`): every term is carried wholly onto `G*term`.
+///   For a weight-1 generator confined to one stride-word, this uses the 4-entry Clifford
+///   lookup table (`build_clifford_table`) applied uniformly to every row, with no per-row
+///   commutes check. It does invalidate the merge index, since row keys change in place.
+///
+/// Both fast paths return 0 regardless of how many rows they touched: neither can ever make
+/// two previously-distinct rows collide, so neither creates dedup-relevant work for the next
+/// merge cycle. The generic path returns the number of newly appended rows.
 pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     terms: &mut SoaTermSum<C>,
     gen: [&[u64]; 2],
@@ -681,12 +843,9 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     if n == 0 {
         return 0;
     }
-    // The `sin(theta) ~ 0` half of the Clifford-angle condition (`theta` a multiple of `pi/2`);
-    // `clifford_inplace` above is the `cos(theta) ~ 0` half. See `CoeffRepr::phase_only_scale`.
     let phase_only = C::phase_only_scale(param, crate::soa::propagator::CLIFFORD_COS_EPS);
     if phase_only.is_some_and(|c| (c - 1.0).abs() < crate::soa::propagator::CLIFFORD_COS_EPS) {
-        // `theta ~ 0 (mod 2*pi)`: the identity on every term, commuting or not. Return before
-        // even sizing the scratch buffers -- there is genuinely nothing to do.
+        // theta is near 0 mod 2*pi: the identity on every term. Nothing to do at all.
         return 0;
     }
     let stride = terms.stride;
@@ -695,42 +854,26 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
 
     // If `gen`'s nonzero bits all fall in a single stride-word, use the O(1)-in-stride
     // `commutes_at_word`/`product_at_word` fast path instead of the fully generic
-    // `commutes`/`product`, which scans every word of every term regardless of how many qubits
-    // `gen` actually touches. `local_word`/`gen_word` are computed once per call (not per row)
-    // and the per-row closures below branch on them -- a single, perfectly predictable branch
-    // (the outcome never changes within one call), not a per-row dynamic dispatch. Bases that
-    // don't support this (e.g. Majorana) always get `None` here and fall through to the
-    // unchanged generic path.
+    // `commutes`/`product`, which scans every word of every term regardless of how many
+    // qubits `gen` actually touches. Bases without this (e.g. Majorana) get `None` here and
+    // fall through to the generic path unchanged.
     //
-    // IMPORTANT: "confined to one word" is NOT the same as "single-qubit" -- for any circuit
-    // with <=64 qubits (stride=1), *every* generator, including genuinely multi-qubit ones from
-    // a decomposed CX/CZ/RZZ gate, trivially fits in "one word" (there's only one word, period).
-    // `commutes_at_word`/`product_at_word` themselves are still correct for such multi-qubit-but
-    // -one-word generators (their formula is the general multi-qubit one, just restricted to a
-    // single word of storage), so this fast path is safe as-is. But the *Clifford lookup table*
-    // below is not: it assumes exactly 4 possible states (I/X/Y/Z at one target qubit), which is
-    // only true when `gen` has weight exactly 1. A weight-2 generator (e.g. a two-qubit Clifford
-    // gate) that happens to fit in one word would otherwise silently look single-qubit to
-    // `local_word`, and the table would only account for one of its two qubits -- a real,
-    // confirmed-via-benchmark-regression bug, not a hypothetical one. Gate the table path on
-    // `weight(gen) == 1` specifically; weight>=2 generators fall through to the (already correct
-    // for multi-qubit) non-table `commutes_at_word`/`product_at_word` path further below.
+    // "Confined to one word" is not the same as "single-qubit": for any circuit with 64 or
+    // fewer qubits, every generator fits in "one word" trivially, including genuinely
+    // multi-qubit ones from a decomposed CX/CZ/RZZ gate. `commutes_at_word`/`product_at_word`
+    // are still correct for those. But the Clifford lookup table below is not: it assumes
+    // exactly 4 states (I/X/Y/Z at one target qubit), which only holds when `gen` has weight
+    // exactly 1. Gate the table path on `weight(gen) == 1` specifically.
     let local_word = B::local_word(gen);
     let gen_word: Option<[u64; 2]> = local_word.map(|w| [gen[0][w], gen[1][w]]);
     let gen_is_single_qubit = B::weight(gen, n_units) == 1;
 
-    // Single-qubit Clifford fast path: a Clifford conjugation maps every one of the 4 possible
-    // single-qubit Pauli labels (I, X, Y, Z) at the target qubit to a definite output label with
-    // a definite sign -- unconditionally, for every row, no commutes-check needed at all (unlike
-    // the generic clifford_inplace branch below, which still runs a full per-row commutes pass
-    // before conditionally updating). Building the table from the already-validated
-    // `commutes_at_word`/`product_at_word`/`apply_rotation` below (not re-derived by hand) means
-    // correctness is inherited, not re-proven. Returns 0, not a row count: a Clifford conjugation
-    // is injective on the Pauli group, so it can never make two previously-distinct rows
-    // collide -- there is no new dedup-relevant work for the next merge cycle to catch.
+    // `build_clifford_table` returning `None` (a coefficient representation with no
+    // real-scalar branch factor) is not an error; it just means the generic route is needed.
     if clifford_inplace && gen_is_single_qubit {
-        if let (Some(w), Some(gw)) = (local_word, gen_word) {
-            let table = build_clifford_table::<B, C>(gw, param);
+        if let (Some(w), Some(gw), Some(table)) =
+            (local_word, gen_word, gen_word.and_then(|g| build_clifford_table::<B, C>(g, param)))
+        {
             let bit = (gw[0] | gw[1]).trailing_zeros();
             let mask = 1u64 << bit;
             let SoaTermSum { planes, coeffs, .. } = &mut *terms;
@@ -778,20 +921,9 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
         }
     }
 
-    // Phase-only fast path: with `sin(theta) ~ 0`, an anticommuting term maps to
-    // `cos(theta) * term` and a commuting one is untouched -- no term's Pauli content changes and
-    // no term is ever created. `cos(theta)` here is `+-1`, so this is a sign flip on the
-    // anticommuting rows.
-    //
-    // Two things make this strictly better than the `cos ~ 0` Clifford paths below. It needs no
-    // `prefix_sum` (nothing is being appended, so there are no destinations to number), and it
-    // must NOT call `invalidate_merge_index`: every row keeps its key, so every cached hash and
-    // bucket position in `merge_tables` stays exactly as valid as it was. The Clifford in-place
-    // rewrite has to invalidate precisely because it changes keys; this does not.
-    //
-    // Like the `cos < eps` Clifford test, this discards a residual branch of magnitude up to
-    // `eps` rather than exactly zero -- the same bounded approximation already accepted there,
-    // not a new class of error.
+    // Phase-only fast path: see the function-level doc comment above for why this is safe and
+    // strictly cheaper than the Clifford paths below. This discards a residual branch bounded
+    // by `eps`, the same approximation already accepted by the Clifford test.
     if let Some(cos_t) = phase_only {
         let SoaTermSum { coeffs, flags, .. } = &mut *terms;
         if n >= PAR_MIN_LEN {
@@ -826,11 +958,10 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
         let p1 = &mut p1[..live];
         let co = &mut coeffs[..n];
         let flags = &flags[..n];
-        // See the general (append) branch below for why reusing scratch instead of
-        // `smallvec![0u64; stride]`-per-row matters: that zero-init is fully overwritten by
-        // `B::product` every time regardless, so allocating it fresh per row (rather than
-        // reusing one buffer across rows) was pure waste -- confirmed by profiling to be the
-        // single largest cost in the whole propagator.
+        // Scratch is reused across rows instead of freshly allocated per row: the zero-init
+        // `smallvec![0u64; stride]` would do is fully overwritten by `B::product` every time
+        // regardless, so allocating fresh was pure waste (the single largest cost measured in
+        // this closure).
         let apply_one = |scratch: &mut (ProductScratch, ProductScratch), i: usize, x_row: &mut [u64], z_row: &mut [u64], c: &mut C| {
             if flags[i] == 0 {
                 return;
@@ -867,15 +998,16 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
                 .enumerate()
                 .for_each(|(i, ((x_row, z_row), c))| apply_one(&mut scratch, i, x_row, z_row, c));
         }
-        // At least one existing row's key (its Pauli/Majorana content) was just rewritten in
-        // place at a fixed physical index -- no append, no compact() call. Any merge_tables
-        // entry for that row now points at stale content under its old hash. This doesn't
-        // corrupt coefficients (key_eq always dereferences live content), but it does leave a
-        // ghost duplicate entry sitting in the table under the row's old hash, which would
-        // otherwise accumulate silently over the run. Force the next merge() to do a full
-        // rebuild instead of trusting the (now partially stale) persisted table.
+        // A row's key was just rewritten in place at a fixed physical index; no append, no
+        // compact() call. Any merge_tables entry for that row now points at stale content
+        // under its old hash, so the next merge() must do a full rebuild rather than trust
+        // the persisted table.
         terms.invalidate_merge_index();
-        return total_new;
+        // Return 0, not `total_new`: this branch conjugates by a Clifford, injective on the
+        // Pauli group even across untouched rows (if untouched B collided with rewritten G*A,
+        // then A = G*B, and B commuting with G would force G*B to commute with G too,
+        // contradicting A anticommuting). So there is never new dedup-relevant work here.
+        return 0;
     }
 
     let new_len = n + total_new;
@@ -885,12 +1017,9 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
         let p0 = SendPtr(planes[0].as_mut_ptr());
         let p1 = SendPtr(planes[1].as_mut_ptr());
         let cf = SendPtr(coeffs.as_mut_ptr());
-        // `scratch0`/`scratch1` are overwritten in full by every `B::product` call (it writes
-        // `out[0][i]`/`out[1][i]` for every `i` in `0..stride`), so the zero-init that
-        // `smallvec![0u64; stride]` does on every call is pure waste when a buffer is reused
-        // across rows instead of freshly allocated per row. Profiling found this was the
-        // single largest cost in the whole propagator (~46% of this closure's own cycles) --
-        // millions of tiny alloc+zero+discard cycles, one pair per anticommuting row per gate.
+        // `scratch0`/`scratch1` are overwritten in full by every `B::product` call, so the
+        // zero-init a fresh `smallvec![0u64; stride]` per row would do is pure waste; reusing
+        // one buffer per rayon task was the single largest cost measured in the propagator.
         let run = |scratch: &mut (ProductScratch, ProductScratch), i: usize| {
             if flags[i] == 0 {
                 return;
@@ -898,9 +1027,8 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
             let s = i * stride;
             let dst = n + index[i];
             if let (Some(w), Some(gw)) = (local_word, gen_word) {
-                // Fast path: the new row is identical to the source row at every word except
-                // `w` (gen is zero elsewhere), so copy the whole row once and then overwrite
-                // just that one word, instead of looping+XOR-ing the full stride.
+                // Fast path: the new row equals the source row at every word except `w`, so
+                // copy the whole row once and overwrite just that one word.
                 unsafe {
                     std::ptr::copy_nonoverlapping(p0.add(s), p0.add(dst * stride), stride);
                     std::ptr::copy_nonoverlapping(p1.add(s), p1.add(dst * stride), stride);
@@ -915,10 +1043,8 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
             }
             let (scratch0, scratch1) = scratch;
             let phase = {
-                // SAFETY: reading term `i` (in [0, n)) while writing to `dst`
-                // (in [n, new_len)) never aliases; `dst` is unique per
-                // flagged `i` since `index` is the exclusive prefix sum of
-                // `flags`.
+                // SAFETY: reading term `i` (in [0, n)) while writing to `dst` (in [n, new_len))
+                // never aliases; `dst` is unique per flagged `i`.
                 unsafe {
                     let term = [
                         std::slice::from_raw_parts(p0.add(s), stride),
@@ -937,9 +1063,8 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
         };
         let make_scratch = || (smallvec![0u64; stride], smallvec![0u64; stride]);
         if n >= PAR_MIN_LEN {
-            // `for_each_init` allocates scratch once per rayon task (redistributed across
-            // worker threads via work-stealing), not once per row -- the same buffers get
-            // reused for every row that task processes.
+            // `for_each_init` allocates scratch once per rayon task, not once per row; the
+            // buffers are reused for every row that task processes.
             (0..n).into_par_iter().for_each_init(make_scratch, |scratch, i| run(scratch, i));
         } else {
             let mut scratch = make_scratch();
@@ -950,6 +1075,8 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     total_new
 }
 
+/// Applies a uniform-per-weight damping factor to every coefficient via a precomputed
+/// exponential lookup table, `exp_lut[weight]`, clamped at the table's last entry.
 pub fn apply_noise_inplace<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, exp_lut: &[f64]) {
     let n = terms.len();
     if n == 0 {
@@ -1021,6 +1148,8 @@ fn apply_noise_native_chunk<C: CoeffRepr>(
     }
 }
 
+/// Computes the expectation value of the term sum against a computational basis state,
+/// summing `coeff(i) * trace(term_i, fock_state)` over every live term.
 pub fn expectation<B: SoaBasis, C: CoeffRepr>(terms: &SoaTermSum<C>, fock_state: &[u64]) -> f64 {
     let n = terms.len();
     let stride = terms.stride;
@@ -1140,7 +1269,7 @@ mod tests {
         merge::<TestBasis, f64>(&mut terms);
         assert_eq!(terms.len(), 2);
 
-        // Second cycle: a duplicate of an OLD (already-synced) row, a genuinely new row, and a
+        // Second cycle: a duplicate of an old (already-synced) row, a genuinely new row, and a
         // duplicate of that same new row within the same cycle.
         terms.push([&[0b01], &[0]], 5.0); // dup of old row
         terms.push([&[0b11], &[0]], 3.0); // new
@@ -1152,8 +1281,8 @@ mod tests {
         assert_eq!(v[&0b10], 2.0);
         assert_eq!(v[&0b11], 7.0);
 
-        // Third cycle: duplicates of rows that were only synced as of cycle 2's compaction, to
-        // catch anything that only manifests once merge_synced_len has advanced more than once.
+        // Third cycle: duplicates of rows only synced as of cycle 2's compaction, to catch
+        // anything that only manifests once merge_synced_len has advanced more than once.
         terms.push([&[0b10], &[0]], 1.0);
         terms.push([&[0b01], &[0]], 1.0);
         merge::<TestBasis, f64>(&mut terms);
@@ -1176,8 +1305,8 @@ mod tests {
         truncate::<TestBasis, f64>(&mut terms, &cfg);
         assert_eq!(terms.len(), 1, "only the weight-1 row should survive");
 
-        // This is the case that exercises compact()'s remap running from truncate's flags
-        // rather than merge's own: push a duplicate of the truncation-survivor plus a new row.
+        // Exercises compact()'s remap running from truncate's flags rather than merge's own:
+        // push a duplicate of the truncation-survivor plus a new row.
         terms.push([&[0b0001], &[0]], 2.0); // dup of survivor
         terms.push([&[0b0010], &[0]], 3.0); // new, weight 1
         merge::<TestBasis, f64>(&mut terms);
@@ -1203,8 +1332,8 @@ mod tests {
         assert_eq!(terms.len(), 1, "only key=1 should survive the retain predicate");
         assert_eq!(values(&terms)[&1], 2.0);
 
-        // Covers the surrogate propagator's code path: compact() invoked via map_retain rather
-        // than merge or truncate.
+        // Covers the surrogate propagator's code path: compact() invoked via map_retain
+        // rather than merge or truncate.
         terms.push([&[1], &[0]], 5.0); // dup of survivor
         terms.push([&[2], &[0]], 3.0); // new
         merge::<TestBasis, f64>(&mut terms);
@@ -1223,9 +1352,8 @@ mod tests {
 
         // Push enough distinct new rows in ONE incremental cycle to force at least one
         // persisted table to grow/rehash. hashbrown's hasher callback (`|&cand| hashes[cand]`)
-        // gets invoked for *existing* entries during a grow -- this is what would catch a
-        // missing or incorrect `aux_hashes` double-buffer (a stale old hash would redistribute
-        // that entry into the wrong bucket, silently orphaning it for the rest of the run).
+        // is invoked for existing entries during a grow, which is what would catch a missing
+        // or incorrect `aux_hashes` double-buffer.
         let n_new = 2_000usize;
         let mut expected = std::collections::HashMap::new();
         expected.insert(0u64, 1.0);
@@ -1255,19 +1383,21 @@ mod tests {
         merge::<TestBasis, f64>(&mut terms);
         assert_eq!(terms.len(), 2);
 
-        // Clifford in-place rewrite: the row with key `1` anticommutes with gen=1 and gets
-        // rewritten in place to key `0` (1 XOR 1) at its existing physical index -- no append,
-        // no compact() call, so nothing in the compaction-remap machinery touches it.
+        // Clifford in-place rewrite: the row with key 1 anticommutes with gen=1 and gets
+        // rewritten in place to key 0 (1 XOR 1) at its existing physical index; no append, no
+        // compact() call, so nothing in the compaction-remap machinery touches it.
         let gen = [&[1u64][..], &[0u64][..]];
         let angle = std::f64::consts::FRAC_PI_2;
         let added = apply_rotation::<TestBasis, f64>(&mut terms, gen, &angle, true);
-        assert_eq!(added, 1);
+        // 0 for the injectivity reason documented on the in-place branch: no new duplicates
+        // can arise, so nothing should be counted toward the next merge.
+        assert_eq!(added, 0);
         assert_eq!(terms.len(), 2, "in-place branch must not grow the container");
 
-        // Push a duplicate of the POST-rotation key (0). Without invalidate_merge_index()
-        // being called, the persisted table's stale entry for the pre-rotation key `1` (now
+        // Push a duplicate of the post-rotation key (0). Without invalidate_merge_index()
+        // being called, the persisted table's stale entry for the pre-rotation key 1 (now
         // sitting at the same physical index but keyed by the old hash) would leave this
-        // failing to merge correctly -- either a wrong coefficient or a ghost extra entry.
+        // failing to merge correctly.
         terms.push([&[0], &[0]], 100.0);
         merge::<TestBasis, f64>(&mut terms);
         assert_eq!(terms.len(), 2, "post-rotation duplicate must merge, not create a ghost entry");
@@ -1279,17 +1409,16 @@ mod tests {
 
     #[test]
     fn phase_only_rotation_matches_the_generic_path() {
-        // `theta = pi` has `sin == 0`, so the phase-only path fires. Differentially check it
+        // `theta = pi` has `sin == 0`, so the phase-only path fires. Differentially checked
         // against what the generic splitting path produces for the same rotation: that path
         // appends a `sin(pi) == 0` row per anticommuting term, so after a merge the two must
-        // agree on values (the appended zeros contribute nothing) and the phase-only path must
-        // additionally have created no rows at all.
+        // agree on values, and the phase-only path must additionally create no rows at all.
         let pi = std::f64::consts::PI;
         let gen = [&[1u64][..], &[0u64][..]];
 
         let mut fast = make(4);
         fast.push([&[1], &[0]], 2.0); // anticommutes with gen (TestBasis: popcount(x & gen.x) odd)
-        fast.push([&[2], &[0]], 3.0); // commutes -- must be left completely alone
+        fast.push([&[2], &[0]], 3.0); // commutes, must be left completely alone
         let added = apply_rotation::<TestBasis, f64>(&mut fast, gen, &pi, false);
         assert_eq!(added, 0, "phase-only rotation must never append a row");
         assert_eq!(fast.len(), 2, "phase-only rotation must not grow the container");
@@ -1312,7 +1441,7 @@ mod tests {
 
     #[test]
     fn phase_only_rotation_at_theta_zero_is_a_complete_noop() {
-        // `theta = 0` is the identity even on anticommuting terms, and returns before touching
+        // `theta = 0` is the identity even on anticommuting terms, returning before touching
         // anything at all.
         let gen = [&[1u64][..], &[0u64][..]];
         let mut terms = make(4);
@@ -1328,18 +1457,18 @@ mod tests {
 
     #[test]
     fn in_place_and_scatter_compaction_agree_on_a_large_merge() {
-        // `compact()` picks between a stable in-place compaction and a prefix-sum scatter into
-        // the `aux_*` buffers purely on worker count, so the two must produce identical term
-        // sets. Runs the same input under a 1-thread pool (forcing in-place) and a 4-thread pool
-        // (forcing the scatter, since n is well over PAR_MIN_LEN) and compares key-for-key.
+        // `compact()` picks between a stable in-place compaction and a prefix-sum scatter
+        // into the `aux_*` buffers purely on worker count, so the two must produce identical
+        // term sets. Runs the same input under a 1-thread pool (forcing in-place) and a
+        // 4-thread pool (forcing the scatter) and compares key-for-key.
         //
         // Exact float equality is the right assertion here, not an epsilon: each key's
-        // duplicates all hash to the same batch and are visited in ascending row order on both
-        // paths, so the coefficient additions happen in the same order and must agree bitwise.
+        // duplicates hash to the same batch and are visited in ascending row order on both
+        // paths, so the coefficient additions happen in the same order and agree bitwise.
         let build = || {
             let mut terms = make(64);
-            // 1500 rows over 750 distinct keys -- every key appears exactly twice, so half the
-            // rows are removed and `total < n`, i.e. compaction actually runs.
+            // 1500 rows over 750 distinct keys, every key appears exactly twice, so half the
+            // rows are removed and `total < n` (compaction actually runs).
             for i in 0..1500u64 {
                 terms.push([&[i % 750], &[0]], i as f64);
             }
@@ -1371,10 +1500,11 @@ mod tests {
 
     #[test]
     fn merge_index_survives_cycles_that_remove_nothing() {
-        // A cycle with no duplicates leaves `total == n`, which `compact()` short-circuits --
-        // no row relocation, and no `remap_merge_index` call either. That skip is only sound if
-        // the remap would have been the identity, so this interleaves no-op cycles with cycles
-        // that do dedup and confirms the persisted index still finds rows carried across them.
+        // A cycle with no duplicates leaves `total == n`, which `compact()` short-circuits:
+        // no row relocation, no `remap_merge_index` call either. That skip is only sound if
+        // the remap would have been the identity, so this interleaves no-op cycles with
+        // cycles that do dedup and confirms the persisted index still finds rows carried
+        // across them.
         let mut terms = make(8);
         terms.push([&[1], &[0]], 1.0);
         terms.push([&[2], &[0]], 2.0);
@@ -1407,7 +1537,7 @@ mod tests {
         // there is no prefix to skip and every survivor moves. Exercises the boundary the
         // `first_hole + 1..n` loop bound sits on.
         let mut terms = make(8);
-        terms.push([&[0b111], &[0]], 1.0); // weight 3 -- removed
+        terms.push([&[0b111], &[0]], 1.0); // weight 3, removed
         terms.push([&[0b001], &[0]], 2.0);
         terms.push([&[0b010], &[0]], 3.0);
         let cfg = ResolvedConfig { weight: Some(1), ..Default::default() };
@@ -1435,10 +1565,10 @@ mod tests {
     /// Deliberately simple, non-incremental reimplementation of merge's dedup logic: a single
     /// plain `HashMap` rebuilt from scratch every call, no batching, no persisted state. Used
     /// only to differentially cross-check the real (incremental, batched, persisted-table)
-    /// `merge()` against, so a bug in the incremental bookkeeping can't hide behind both
-    /// implementations sharing the same subtle mistake. Reuses the shared `compact()` for the
-    /// actual data movement (harmless: this term sum's own `merge_synced_len` stays 0 since
-    /// nothing here ever sets it, so `remap_merge_index` is always a no-op for it).
+    /// `merge()` against, so a bug in the incremental bookkeeping cannot hide behind both
+    /// implementations sharing the same mistake. Reuses the shared `compact()` for the actual
+    /// data movement, which is harmless: this term sum's own `merge_synced_len` stays 0 since
+    /// nothing here ever sets it, so `remap_merge_index` is always a no-op for it.
     fn merge_reference_full_rescan<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
         let n = terms.len();
         if n <= 1 {
@@ -1493,7 +1623,7 @@ mod tests {
                     0 | 1 => {
                         let batch = 1 + (next() % 5) as usize;
                         for _ in 0..batch {
-                            let key = next() % 64; // small keyspace -> frequent duplicates
+                            let key = next() % 64; // small keyspace, frequent duplicates
                             let coeff = ((next() % 1000) as f64) / 10.0;
                             incremental.push([&[key], &[0]], coeff);
                             reference.push([&[key], &[0]], coeff);
@@ -1704,7 +1834,7 @@ mod tests {
     fn apply_rotation_commuting_term_is_untouched() {
         let mut terms = make(4);
         terms.push([&[0b10], &[0]], 5.0);
-        let gen = [&[0b01u64][..], &[0u64][..]]; // (0b10 & 0b01) popcount = 0, even => commutes
+        let gen = [&[0b01u64][..], &[0u64][..]]; // (0b10 & 0b01) popcount = 0, even, so it commutes
         let added = apply_rotation::<TestBasis, f64>(&mut terms, gen, &0.7, false);
         assert_eq!(added, 0);
         assert_eq!(terms.len(), 1);
@@ -1717,9 +1847,12 @@ mod tests {
         terms.push([&[1], &[0]], 2.0);
         terms.push([&[0b10], &[0]], 3.0); // commutes with gen, untouched
         let gen = [&[1u64][..], &[0u64][..]];
-        let angle = std::f64::consts::FRAC_PI_2; // cos ~ 0
+        let angle = std::f64::consts::FRAC_PI_2; // cos is near 0
         let added = apply_rotation::<TestBasis, f64>(&mut terms, gen, &angle, true);
-        assert_eq!(added, 1);
+        // 0, not the anticommuting-row count: a Clifford conjugation is injective on the
+        // Pauli group, so it creates no dedup-relevant work. `TestBasis` has no `local_word`,
+        // so this exercises the generic in-place branch, not the single-qubit lookup table.
+        assert_eq!(added, 0);
         assert_eq!(terms.len(), 2, "in-place branch must not grow the container");
         assert_eq!(terms.term_plane(0, 0)[0], 0);
         assert!((terms.coeff(0) - (2.0 * angle.sin() * -1.0)).abs() < 1e-9);
@@ -1901,18 +2034,17 @@ mod tests {
         }
     }
 
-    // --- Multi-word (stride != 1) coverage note ---
-    //
-    // Every test above uses `make()` -> `SoaTermSum::new(n_units, 1)`, i.e. `stride == 1`, so
-    // none of them exercise `merge_insert_batches_generic` with a real multi-word key (Majorana
-    // or a >64-qubit Pauli system). `MultiWordTestBasis` below exists to keep that case under the
-    // same kind of differential/scale/collision testing the stride=1 tests already had.
+    /// Section note: every test above uses `make()`, i.e. `SoaTermSum::new(n_units, 1)` with
+    /// `stride == 1`, so none of them exercise `merge_insert_batches_generic` with a real
+    /// multi-word key (Majorana or a >64-qubit Pauli system). `MultiWordTestBasis` below exists
+    /// to keep that case under the same kind of differential/scale/collision testing the
+    /// stride=1 tests already had.
 
     /// Like `TestBasis`, but its `commutes`/`product`/`weight`/`key_hash`/`key_eq` genuinely
-    /// fold over *all* `stride` words of both planes (mirroring `PauliBasis`'s style: full-slice
-    /// hash/equality), instead of hardcoding `[0]`. Used to exercise `merge_insert_batches_generic`
-    /// with real multi-word keys, since every other test basis in this module is stride=1-only
-    /// and would silently no-op past extra words.
+    /// fold over all `stride` words of both planes (mirroring `PauliBasis`'s style of a
+    /// full-slice hash/equality), instead of hardcoding `[0]`. Used to exercise
+    /// `merge_insert_batches_generic` with real multi-word keys, since every other test basis
+    /// in this module is stride=1-only and would silently no-op past extra words.
     struct MultiWordTestBasis;
     impl SoaBasis for MultiWordTestBasis {
         type Term = ();
@@ -1965,7 +2097,7 @@ mod tests {
         terms.push([&[0b01, 5], &[0, 0]], 1.0);
         terms.push([&[0b10, 7], &[0, 0]], 2.0);
         terms.push([&[0b01, 5], &[0, 0]], 3.0); // duplicate of the first (both words match)
-        terms.push([&[0b01, 9], &[0, 0]], 4.0); // word 0 matches the first, word 1 differs -> distinct
+        terms.push([&[0b01, 9], &[0, 0]], 4.0); // word 0 matches the first, word 1 differs, so distinct
         merge::<MultiWordTestBasis, f64>(&mut terms);
         assert_eq!(terms.len(), 3);
         let v = values_multiword(&terms);
@@ -2010,7 +2142,7 @@ mod tests {
         fn weight(term: [&[u64]; 2], n_units: usize) -> u32 { MultiWordTestBasis::weight(term, n_units) }
         fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64 { MultiWordTestBasis::trace(term, n_units, fock) }
         // Forced collisions across the whole key, while key_eq still honestly compares both
-        // full planes -- exercises `merge_insert_batches_generic`'s probe-past-collision path.
+        // full planes: exercises `merge_insert_batches_generic`'s probe-past-collision path.
         fn key_hash(term: [&[u64]; 2]) -> u64 { term[0][0] % 4 }
         fn key_eq(a: [&[u64]; 2], b: [&[u64]; 2]) -> bool { a[0] == b[0] && a[1] == b[1] }
         fn term_from_planes(term: [&[u64]; 2], n_units: usize) { MultiWordTestBasis::term_from_planes(term, n_units) }
@@ -2059,7 +2191,7 @@ mod tests {
                     0 | 1 => {
                         let batch = 1 + (next() % 5) as usize;
                         for _ in 0..batch {
-                            let k0 = next() % 16; // small keyspace -> frequent duplicates
+                            let k0 = next() % 16; // small keyspace, frequent duplicates
                             let k1 = next() % 16;
                             let coeff = ((next() % 1000) as f64) / 10.0;
                             incremental.push([&[k0, k1], &[0, 0]], coeff);

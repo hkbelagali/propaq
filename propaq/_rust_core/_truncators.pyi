@@ -95,13 +95,13 @@ class Simplify:
 
     Runs before any coefficient-cutoff pruning in the same flush, which
     sharpens (never loosens) ``CoefficientTruncator``'s decision to the true
-    post-merge magnitude rather than a per-derivation-path upper bound --
-    enabling ``Simplify`` alongside a ``CoefficientTruncator`` can therefore
+    post-merge magnitude rather than a per-derivation-path upper bound.
+    Enabling ``Simplify`` alongside a ``CoefficientTruncator`` can therefore
     retain a different (more accurate, typically larger) survivor set for
     the same configured cutoff.
 
     This is flush-triggered, not tied to the cheap per-gate merge cadence
-    (``FlushSchedule.merge_max_terms``) -- pair it with a ``MonomialBudget``
+    (``FlushSchedule.merge_max_terms``). Pair it with a ``MonomialBudget``
     (or ``TermBudget``) so flushes, and therefore simplification, actually
     happen periodically during propagation. Without one, ``Simplify`` alone
     only runs once, at the final flush.
@@ -122,8 +122,8 @@ class NativeTruncator:
     magnitude, which the surrogate's symbolic coefficients don't have
     during build; the surrogate propagators reject it.
 
-    Fully replaces the weight/coefficient cutoff comparison for the run
-    -- it does not compose with ``WeightTruncator``/``CoefficientTruncator``,
+    Fully replaces the weight/coefficient cutoff comparison for the run:
+    it does not compose with ``WeightTruncator``/``CoefficientTruncator``,
     since the plugin has full control of the per-term keep decision (a
     plugin wanting both can reimplement the cutoff comparison itself).
 
