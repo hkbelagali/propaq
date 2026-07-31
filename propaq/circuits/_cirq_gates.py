@@ -109,6 +109,23 @@ def cirq_gate_terms(
     if cirq.num_qubits(op) == 0:
         return []
 
+    from ._registry import _dispatch_cirq
+
+    registered = _dispatch_cirq(op, q_indices, width, rep)
+    if registered is not None:
+        return registered
+
+    return _dispatch_native_cirq(op, q_indices, width, rep)
+
+
+def _dispatch_native_cirq(
+    op: cirq.Operation, q_indices: list[int], width: int, rep: _Rep
+) -> list[list[tuple[Any, Any]]]:
+    """Groups of ordered (generator, angle) terms via propaq's built-in native gates and
+    Cirq-decomposition fallback.
+    """
+    import cirq
+
     gate = op.gate
 
     if isinstance(gate, cirq.PhasedISwapPowGate):
@@ -173,5 +190,5 @@ def cirq_gate_terms(
     groups = []
     for sub_op, local_indices in _decompose(op):
         global_indices = [q_indices[i] for i in local_indices]
-        groups.extend(cirq_gate_terms(sub_op, global_indices, width, rep))
+        groups.extend(_dispatch_native_cirq(sub_op, global_indices, width, rep))
     return groups
