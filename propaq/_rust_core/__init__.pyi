@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from ._logger import Logger as Logger
     from ._majorana_monomial import MajoranaMonomial as MajoranaMonomial
     from ._majorana_propagator import MajoranaPropagator as MajoranaPropagator
@@ -32,3 +34,4 @@ if TYPE_CHECKING:
     from ._truncators import WeightTruncator as WeightTruncator
 
 def rust_available() -> bool: ...
+def hybrid_expectation(observable: PauliTermSum, mps_arrays: list[np.ndarray]) -> float: ...
