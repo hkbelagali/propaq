@@ -11,6 +11,8 @@
 ///
 /// As many of the operations on coefficients are on the hot path, 
 /// as many methods as possible should be `#[inline]`-able for performance. 
+/// This makes LLVM (hopefully) give us zero-cost abstractions for the 
+/// coefficient representation.
 ///
 use pyo3::prelude::*;
 use num_complex::Complex64;
@@ -77,6 +79,12 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     #[inline]
     fn is_clifford_param(_param: &Self::GateParam, _eps: f64) -> bool { false }
 
+    #[inline]
+    fn phase_only_scale(_param: &Self::GateParam, _eps: f64) -> Option<f64> { None }
+
+    #[inline]
+    fn clifford_branch_sign(_param: &Self::GateParam, _phase: Complex64) -> Option<f64> { None }
+
     /// Extract the gate parameter from a Python rotation object.
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
 }
@@ -132,6 +140,17 @@ impl CoeffRepr for f64 {
     fn is_clifford_param(angle: &f64, eps: f64) -> bool {
         angle.cos().abs() < eps
     }
+
+    #[inline]
+    fn phase_only_scale(angle: &f64, eps: f64) -> Option<f64> {
+        let (sin_t, cos_t) = angle.sin_cos();
+        (sin_t.abs() < eps).then_some(cos_t)
+    }
+
+    #[inline]
+    fn clifford_branch_sign(angle: &f64, phase: Complex64) -> Option<f64> {
+        Some(angle.sin() * (-phase.im))
+    }
 }
 
 /// Single-precision numerical coefficient.
@@ -184,5 +203,16 @@ impl CoeffRepr for f32 {
     #[inline]
     fn is_clifford_param(angle: &f64, eps: f64) -> bool {
         angle.cos().abs() < eps
+    }
+
+    #[inline]
+    fn phase_only_scale(angle: &f64, eps: f64) -> Option<f64> {
+        let (sin_t, cos_t) = angle.sin_cos();
+        (sin_t.abs() < eps).then_some(cos_t)
+    }
+
+    #[inline]
+    fn clifford_branch_sign(angle: &f64, phase: Complex64) -> Option<f64> {
+        Some(angle.sin() * (-phase.im))
     }
 }

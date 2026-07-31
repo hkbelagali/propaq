@@ -267,6 +267,49 @@ impl SoaBasis for PauliBasis {
         }
     }
 
+    fn local_word(gen: [&[u64]; 2]) -> Option<usize> {
+        let mut found: Option<usize> = None;
+        for i in 0..gen[0].len() {
+            if gen[0][i] != 0 || gen[1][i] != 0 {
+                if found.is_some() {
+                    return None; // gen spans more than one word
+                }
+                found = Some(i);
+            }
+        }
+        found
+    }
+
+    fn commutes_at_word(term_word: [u64; 2], gen_word: [u64; 2]) -> bool {
+        // Same parity formula as `commutes`, evaluated at one word: since `gen` is zero at
+        // every other word (guaranteed by `local_word`'s contract), every other word's
+        // contribution to the sum is zero, so the sum reduces to this one word's terms.
+        let xz = (term_word[0] & gen_word[1]).count_ones();
+        let zx = (term_word[1] & gen_word[0]).count_ones();
+        (xz + zx) % 2 == 0
+    }
+
+    /// `gxz`/`gzx` reduce to this one word for the same reason as `commutes_at_word` (gen is
+    /// zero elsewhere). `txz`/`nxz` are sums over the whole term/product in the general
+    /// formula, but `out` equals `term` at every word except this one, so their contributions
+    /// elsewhere are identical and cancel in `txz - nxz`, leaving only this word's contribution.
+    fn product_at_word(term_word: [u64; 2], gen_word: [u64; 2]) -> ([u64; 2], Complex64) {
+        let out_word = [gen_word[0] ^ term_word[0], gen_word[1] ^ term_word[1]];
+        let gxz = (gen_word[0] & gen_word[1]).count_ones();
+        let txz = (term_word[0] & term_word[1]).count_ones();
+        let nxz = (out_word[0] & out_word[1]).count_ones();
+        let gzx = (gen_word[1] & term_word[0]).count_ones();
+        let p = (gxz as i32 + txz as i32 - nxz as i32 + 2 * gzx as i32).rem_euclid(4);
+        let phase = match p {
+            0 => Complex64::new(1.0, 0.0),
+            1 => Complex64::new(0.0, 1.0),
+            2 => Complex64::new(-1.0, 0.0),
+            3 => Complex64::new(0.0, -1.0),
+            _ => unreachable!(),
+        };
+        (out_word, phase)
+    }
+
     fn weight(term: [&[u64]; 2], _n_units: usize) -> u32 {
         term[0].iter().zip(term[1]).map(|(a, b)| (a | b).count_ones()).sum()
     }
@@ -317,6 +360,8 @@ impl SoaBasis for PauliBasis {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use propaq_core::soa::SoaTermSum;
+    use propaq_core::CoeffRepr;
 
     fn pauli(x: u64, z: u64, n: usize) -> PauliString {
         let xb = Bitset::from_le_bytes(&x.to_le_bytes());
@@ -407,10 +452,8 @@ mod tests {
         assert_eq!(zz.trace_fock_state_impl(&fock(0b11)),  1.0);
     }
 
-    // --- `PauliBasis` (SoA word-plane kernels) vs `PauliString` (AoS,
-    // already exhaustively tested above) cross-checks. Both must agree
-    // exactly, since `PauliBasis` is meant to be a bit-for-bit vectorized
-    // restatement of the same symplectic algebra.
+    // Section: `PauliBasis` (SoA) vs `PauliString` (AoS) cross-checks. Both must agree
+    // exactly, since `PauliBasis` is a bit-for-bit vectorized restatement of the same algebra.
 
     fn planes_of(p: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {
         let mut gx = vec![0u64; stride];
@@ -490,5 +533,410 @@ mod tests {
             "key_eq strings must key_hash equally (merge's parallel-batch correctness depends on this)",
         );
         assert!(!PauliBasis::key_eq([&ax, &az], [&cx, &cz]), "distinct strings must not be key_eq");
+    }
+
+    #[test]
+    fn local_word_identifies_single_nonzero_word() {
+        // gen confined to word 1 of a 3-word stride.
+        let gen_x = vec![0u64, 0b100, 0u64];
+        let gen_z = vec![0u64, 0u64, 0u64];
+        assert_eq!(PauliBasis::local_word([&gen_x, &gen_z]), Some(1));
+
+        // gen spanning two words -> not local.
+        let gen_x2 = vec![1u64, 1u64, 0u64];
+        let gen_z2 = vec![0u64, 0u64, 0u64];
+        assert_eq!(PauliBasis::local_word([&gen_x2, &gen_z2]), None);
+
+        // all-zero gen -> no nonzero word at all.
+        let gen_x3 = vec![0u64, 0u64, 0u64];
+        let gen_z3 = vec![0u64, 0u64, 0u64];
+        assert_eq!(PauliBasis::local_word([&gen_x3, &gen_z3]), None);
+    }
+
+    /// Z generator at qubit 0, term X at qubit 0: should anticommute, and the product should
+    /// give Y at qubit 0 with phase +i, matching the hand-checked general-product conventions
+    /// used elsewhere in this file. Then cross-checks the resulting phase against the fully
+    /// generic product on a single-word stride, rather than asserting a phase value by hand.
+    #[test]
+    fn commutes_at_word_and_product_at_word_hand_checked() {
+        let gen_word = [0u64, 1u64]; // (x=0, z=1) = Z
+        let term_word = [1u64, 0u64]; // (x=1, z=0) = X
+        assert!(!PauliBasis::commutes_at_word(term_word, gen_word));
+        let (out_word, phase) = PauliBasis::product_at_word(term_word, gen_word);
+        assert_eq!(out_word, [1u64, 1u64]); // X XOR Z (bitwise) = Y's (x=1,z=1) representation
+        let term_x = [term_word[0]];
+        let term_z = [term_word[1]];
+        let gen_x = [gen_word[0]];
+        let gen_z = [gen_word[1]];
+        let mut out_x = [0u64];
+        let mut out_z = [0u64];
+        let generic_phase = PauliBasis::product([&term_x, &term_z], [&gen_x, &gen_z], [&mut out_x, &mut out_z]);
+        assert_eq!(phase, generic_phase);
+        assert_eq!(out_word, [out_x[0], out_z[0]]);
+    }
+
+    /// `local_word`/`commutes_at_word`/`product_at_word` must agree exactly with the generic
+    /// `commutes`/`product` for every case where `local_word` applies; a wrong phase here would
+    /// be a silent physics bug, not a crash. Exercises multiple stride widths, so `gen`'s single
+    /// nonzero word can land at the start, middle, or end.
+    #[test]
+    fn local_word_fast_path_matches_generic_across_random_multi_word_cases() {
+        let mut seed = 0x9E3779B97F4A7C15u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+
+        for &stride in &[1usize, 2, 3, 5] {
+            for _trial in 0..300 {
+                let bit_pos = (next() as usize) % (stride * 64);
+                let word = bit_pos / 64;
+                let bit = bit_pos % 64;
+                let kind = next() % 3; // 0=X, 1=Z, 2=Y
+                let mut gen_x = vec![0u64; stride];
+                let mut gen_z = vec![0u64; stride];
+                match kind {
+                    0 => gen_x[word] = 1u64 << bit,
+                    1 => gen_z[word] = 1u64 << bit,
+                    _ => {
+                        gen_x[word] = 1u64 << bit;
+                        gen_z[word] = 1u64 << bit;
+                    }
+                }
+                let gen = [gen_x.as_slice(), gen_z.as_slice()];
+
+                assert_eq!(
+                    PauliBasis::local_word(gen),
+                    Some(word),
+                    "stride={stride} trial={_trial}: local_word should identify the single nonzero word"
+                );
+
+                let mut term_x = vec![0u64; stride];
+                let mut term_z = vec![0u64; stride];
+                for w in 0..stride {
+                    term_x[w] = next();
+                    term_z[w] = next();
+                }
+                let term = [term_x.as_slice(), term_z.as_slice()];
+
+                let generic_commutes = PauliBasis::commutes(term, gen);
+                let fast_commutes =
+                    PauliBasis::commutes_at_word([term_x[word], term_z[word]], [gen_x[word], gen_z[word]]);
+                assert_eq!(
+                    generic_commutes, fast_commutes,
+                    "stride={stride} trial={_trial}: commutes mismatch (term_x={term_x:?} term_z={term_z:?} gen_x={gen_x:?} gen_z={gen_z:?})"
+                );
+
+                if !generic_commutes {
+                    let mut out_x = vec![0u64; stride];
+                    let mut out_z = vec![0u64; stride];
+                    let generic_phase = PauliBasis::product(term, gen, [&mut out_x, &mut out_z]);
+                    let (fast_out_word, fast_phase) =
+                        PauliBasis::product_at_word([term_x[word], term_z[word]], [gen_x[word], gen_z[word]]);
+                    assert_eq!(
+                        fast_phase, generic_phase,
+                        "stride={stride} trial={_trial}: phase mismatch (term_x={term_x:?} term_z={term_z:?} gen_x={gen_x:?} gen_z={gen_z:?})"
+                    );
+                    assert_eq!(out_x[word], fast_out_word[0], "stride={stride} trial={_trial}: out x-word mismatch");
+                    assert_eq!(out_z[word], fast_out_word[1], "stride={stride} trial={_trial}: out z-word mismatch");
+                    for w in 0..stride {
+                        if w != word {
+                            assert_eq!(out_x[w], term_x[w], "stride={stride} trial={_trial}: word {w} x should be untouched");
+                            assert_eq!(out_z[w], term_z[w], "stride={stride} trial={_trial}: word {w} z should be untouched");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn clifford_table_hand_checked_z_generator_on_x_term() {
+        // Z-Clifford gate (angle = pi/2 about generator Z on qubit 0) applied to a term whose
+        // Pauli at qubit 0 is X: should anticommute, flipping X -> Y in place, matching the
+        // existing hand-checked `commutes_at_word_and_product_at_word_hand_checked` convention
+        // of cross-checking against the generic path rather than asserting a hand-derived sign.
+        let mut terms = SoaTermSum::<f64>::new(1, 1);
+        let x_term = pauli(0b01, 0, 1);
+        let (tx, tz) = planes_of(&x_term, 1);
+        terms.push([&tx, &tz], 2.0);
+
+        let z_gen = pauli(0, 0b01, 1);
+        let (gx, gz) = planes_of(&z_gen, 1);
+        let angle = std::f64::consts::FRAC_PI_2;
+        let added = propaq_core::soa::kernels::apply_rotation::<PauliBasis, f64>(
+            &mut terms, [&gx, &gz], &angle, true,
+        );
+        assert_eq!(added, 0, "Clifford fast path must return 0 (no new dedup-relevant work)");
+        assert_eq!(terms.len(), 1, "Clifford gate must not change term count");
+        assert_eq!(terms.term_plane(0, 0)[0], 1, "X should become Y (x-bit stays set)");
+        assert_eq!(terms.term_plane(0, 1)[0], 1, "X should become Y (z-bit becomes set)");
+        // Cross-check the resulting coefficient against the already-validated generic
+        // commutes_at_word/product_at_word/apply_rotation path directly, rather than asserting
+        // a hand-derived sign.
+        let (out_word, phase) = PauliBasis::product_at_word([0b01, 0], [0, 0b01]);
+        assert_eq!(out_word, [1, 1]);
+        let expected_coeff = f64::from_real(1.0).apply_rotation(&angle, phase) * 2.0;
+        assert!(
+            (*terms.coeff(0) - expected_coeff).abs() < 1e-12,
+            "got {}, expected {expected_coeff}", terms.coeff(0)
+        );
+    }
+
+    #[test]
+    fn fused_clifford_op_matches_applying_the_same_rotations_one_at_a_time() {
+        use propaq_core::soa::kernels::{apply_clifford_op, build_fused_clifford};
+        use propaq_core::soa::propagator::CLIFFORD_COS_EPS;
+        use std::f64::consts::{FRAC_PI_2, PI};
+
+        // A run of Clifford rotations confined to qubits 0 and 1, deliberately mixing all three
+        // fold cases: `cos ~ 0` at +pi/2 and -pi/2, `sin ~ 0` at pi, weight-1 and weight-2
+        // generators. Rotations are listed in APPLIED order.
+        //  (x_bits, z_bits, angle)
+        let rots: [(u64, u64, f64); 6] = [
+            (0b00, 0b01, FRAC_PI_2),  // Z_0, cos ~ 0
+            (0b10, 0b00, FRAC_PI_2),  // X_1, cos ~ 0
+            (0b10, 0b01, -FRAC_PI_2), // Z_0 X_1, weight 2, cos ~ 0
+            (0b01, 0b01, PI),         // Y_0, sin ~ 0 (phase only)
+            (0b00, 0b10, FRAC_PI_2),  // Z_1, cos ~ 0
+            (0b11, 0b00, PI),         // X_0 X_1, weight 2, sin ~ 0
+        ];
+
+        // Seed both copies with every one of the 16 two-qubit Pauli labels, so the differential
+        // check covers all 16 table entries rather than whichever ones a random sample happens
+        // to hit. Distinct coefficients keep a mixed-up row ordering detectable.
+        let seed = |terms: &mut SoaTermSum<f64>| {
+            for label in 0..16u64 {
+                let x = (label & 1) | (((label >> 2) & 1) << 1);
+                let z = ((label >> 1) & 1) | (((label >> 3) & 1) << 1);
+                terms.push([&[x], &[z]], 1.0 + label as f64);
+            }
+        };
+        let mut stepwise = SoaTermSum::<f64>::new(2, 1);
+        let mut fused = SoaTermSum::<f64>::new(2, 1);
+        seed(&mut stepwise);
+        seed(&mut fused);
+
+        for (gx, gz, angle) in rots.iter() {
+            // Mirror the propagator: `clifford_inplace` is `is_clifford_param`, NOT an
+            // unconditional `true`. Forcing it on for a `sin ~ 0` rotation would build a lookup
+            // table under a `cos ~ 0` assumption that does not hold for it.
+            let inplace = <f64 as CoeffRepr>::is_clifford_param(angle, CLIFFORD_COS_EPS);
+            let added = propaq_core::soa::kernels::apply_rotation::<PauliBasis, f64>(
+                &mut stepwise, [&[*gx], &[*gz]], angle, inplace,
+            );
+            assert_eq!(added, 0, "every rotation in this run should be in-place, appending nothing");
+        }
+
+        let group: Vec<([u64; 2], f64)> =
+            rots.iter().map(|(gx, gz, angle)| ([*gx, *gz], *angle)).collect();
+        let op = build_fused_clifford::<PauliBasis, f64>(0, [0, 1], 2, &group, CLIFFORD_COS_EPS)
+            .expect("an all-Clifford run on two qubits must fuse");
+        assert_eq!(op.n_qubits(), 2);
+        apply_clifford_op::<PauliBasis, f64>(&mut fused, &op);
+
+        assert_eq!(fused.len(), stepwise.len());
+        for i in 0..stepwise.len() {
+            assert_eq!(
+                fused.term_plane(i, 0)[0], stepwise.term_plane(i, 0)[0],
+                "row {i}: x-plane diverged between fused and stepwise"
+            );
+            assert_eq!(
+                fused.term_plane(i, 1)[0], stepwise.term_plane(i, 1)[0],
+                "row {i}: z-plane diverged between fused and stepwise"
+            );
+            assert!(
+                (fused.coeff(i) - stepwise.coeff(i)).abs() < 1e-12,
+                "row {i}: coeff {} vs {}", fused.coeff(i), stepwise.coeff(i)
+            );
+        }
+    }
+
+    #[test]
+    fn fused_clifford_refuses_a_non_clifford_rotation() {
+        use propaq_core::soa::kernels::build_fused_clifford;
+        use propaq_core::soa::propagator::CLIFFORD_COS_EPS;
+        // 0.3 is neither `cos ~ 0` nor `sin ~ 0`, so the run must not fuse: silently folding it
+        // would drop its sin branch entirely and lose terms.
+        let group = vec![([0b00u64, 0b01u64], 0.3f64)];
+        assert!(
+            build_fused_clifford::<PauliBasis, f64>(0, [0, 1], 2, &group, CLIFFORD_COS_EPS).is_none(),
+            "a non-Clifford rotation must refuse to fuse"
+        );
+    }
+
+    #[test]
+    fn fused_clifford_single_qubit_matches_stepwise() {
+        use propaq_core::soa::kernels::{apply_clifford_op, build_fused_clifford};
+        use propaq_core::soa::propagator::CLIFFORD_COS_EPS;
+        use std::f64::consts::{FRAC_PI_2, PI};
+        // The k == 1 path (4 live table entries) on the Hadamard-shaped pair that qiskit
+        // actually emits: one `cos ~ 0` rotation followed by one `theta = pi` rotation.
+        let rots: [(u64, u64, f64); 2] = [(0b01, 0b01, FRAC_PI_2), (0b00, 0b01, PI)];
+        let seed = |t: &mut SoaTermSum<f64>| {
+            for label in 0..4u64 {
+                t.push([&[label & 1], &[(label >> 1) & 1]], 1.0 + label as f64);
+            }
+        };
+        let mut stepwise = SoaTermSum::<f64>::new(1, 1);
+        let mut fused = SoaTermSum::<f64>::new(1, 1);
+        seed(&mut stepwise);
+        seed(&mut fused);
+        for (gx, gz, angle) in rots.iter() {
+            let inplace = <f64 as CoeffRepr>::is_clifford_param(angle, CLIFFORD_COS_EPS);
+            propaq_core::soa::kernels::apply_rotation::<PauliBasis, f64>(
+                &mut stepwise, [&[*gx], &[*gz]], angle, inplace,
+            );
+        }
+        let group: Vec<([u64; 2], f64)> =
+            rots.iter().map(|(gx, gz, a)| ([*gx, *gz], *a)).collect();
+        let op = build_fused_clifford::<PauliBasis, f64>(0, [0, 0], 1, &group, CLIFFORD_COS_EPS)
+            .expect("single-qubit Clifford run must fuse");
+        assert_eq!(op.n_qubits(), 1);
+        apply_clifford_op::<PauliBasis, f64>(&mut fused, &op);
+        for i in 0..stepwise.len() {
+            assert_eq!(fused.term_plane(i, 0)[0], stepwise.term_plane(i, 0)[0], "row {i} x");
+            assert_eq!(fused.term_plane(i, 1)[0], stepwise.term_plane(i, 1)[0], "row {i} z");
+            assert!((fused.coeff(i) - stepwise.coeff(i)).abs() < 1e-12, "row {i} coeff");
+        }
+    }
+
+    /// The Clifford lookup-table fast path (`kernels::apply_rotation`'s `clifford_inplace` +
+    /// `local_word` branch) must agree exactly with computing each row via
+    /// `commutes_at_word`/`product_at_word`/`apply_rotation` directly, the same primitives the
+    /// table is built from but invoked fresh per row instead of pre-tabulated. This is what
+    /// would catch a bit-shifting or indexing bug in the table-building or lookup code
+    /// specifically, since the underlying primitives are independently validated elsewhere.
+    #[test]
+    fn clifford_table_matches_reference_per_row_computation_across_random_cases() {
+        let mut seed = 0x1234567890ABCDEFu64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+
+        for &stride in &[1usize, 2, 3] {
+            for _trial in 0..300 {
+                let bit_pos = (next() as usize) % (stride * 64);
+                let word = bit_pos / 64;
+                let bit = bit_pos % 64;
+                let kind = next() % 3; // 0=X, 1=Z, 2=Y
+                let mut gen_x = vec![0u64; stride];
+                let mut gen_z = vec![0u64; stride];
+                match kind {
+                    0 => gen_x[word] = 1u64 << bit,
+                    1 => gen_z[word] = 1u64 << bit,
+                    _ => {
+                        gen_x[word] = 1u64 << bit;
+                        gen_z[word] = 1u64 << bit;
+                    }
+                }
+                let gw = [gen_x[word], gen_z[word]];
+
+                let n_rows = 1 + (next() % 20) as usize;
+                let mut terms = SoaTermSum::<f64>::new(stride * 64, stride);
+                let mut expected: Vec<([u64; 2], f64)> = Vec::with_capacity(n_rows);
+                for _ in 0..n_rows {
+                    let mut row_x = vec![0u64; stride];
+                    let mut row_z = vec![0u64; stride];
+                    for w in 0..stride {
+                        row_x[w] = next();
+                        row_z[w] = next();
+                    }
+                    let coeff = ((next() % 1000) as f64) / 100.0 - 5.0;
+                    terms.push([&row_x, &row_z], coeff);
+
+                    let term_word = [row_x[word], row_z[word]];
+                    let (new_word, sign) = if PauliBasis::commutes_at_word(term_word, gw) {
+                        (term_word, 1.0)
+                    } else {
+                        let (out_word, phase) = PauliBasis::product_at_word(term_word, gw);
+                        (out_word, f64::from_real(1.0).apply_rotation(&std::f64::consts::FRAC_PI_2, phase))
+                    };
+                    expected.push((new_word, coeff * sign));
+                }
+
+                let angle = std::f64::consts::FRAC_PI_2;
+                let added = propaq_core::soa::kernels::apply_rotation::<PauliBasis, f64>(
+                    &mut terms, [&gen_x, &gen_z], &angle, true,
+                );
+                assert_eq!(added, 0, "stride={stride} trial={_trial}: Clifford fast path must return 0");
+                assert_eq!(terms.len(), n_rows, "stride={stride} trial={_trial}: term count must not change");
+
+                for (i, (exp_word, exp_coeff)) in expected.iter().enumerate() {
+                    assert_eq!(
+                        terms.term_plane(i, 0)[word], exp_word[0],
+                        "stride={stride} trial={_trial} row={i}: x-word mismatch at word {word}"
+                    );
+                    assert_eq!(
+                        terms.term_plane(i, 1)[word], exp_word[1],
+                        "stride={stride} trial={_trial} row={i}: z-word mismatch at word {word}"
+                    );
+                    assert!(
+                        (*terms.coeff(i) - exp_coeff).abs() < 1e-9,
+                        "stride={stride} trial={_trial} row={i}: coeff mismatch: got {}, expected {exp_coeff}",
+                        terms.coeff(i)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn clifford_table_path_does_not_misfire_on_weight_two_generator_confined_to_one_word() {
+        let stride = 1usize;
+        // ZZ-type generator on qubits 0 and 1 (both z-bits set, weight 2). angle = pi/2, so
+        // clifford_inplace would be true for this gate at runtime.
+        let gen_x = vec![0u64; stride];
+        let gen_z = vec![0b11u64; stride];
+        let gw = [gen_x[0], gen_z[0]];
+        assert_eq!(PauliBasis::weight([&gen_x, &gen_z], 4), 2, "test setup: generator must be weight 2");
+
+        let angle = std::f64::consts::FRAC_PI_2;
+        let mut seed = 0xABCDEF0123456789u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+
+        for _trial in 0..100 {
+            let mut terms = SoaTermSum::<f64>::new(4, stride);
+            let mut expected: Vec<([u64; 2], f64)> = Vec::new();
+            let n_rows = 1 + (next() % 10) as usize;
+            for _ in 0..n_rows {
+                let row_x = [next() & 0xF]; // keep within the 4-qubit test width
+                let row_z = [next() & 0xF];
+                let coeff = ((next() % 1000) as f64) / 100.0 - 5.0;
+                terms.push([&row_x, &row_z], coeff);
+
+                let term_word = [row_x[0], row_z[0]];
+                let (new_word, sign) = if PauliBasis::commutes_at_word(term_word, gw) {
+                    (term_word, 1.0)
+                } else {
+                    let (out_word, phase) = PauliBasis::product_at_word(term_word, gw);
+                    (out_word, f64::from_real(1.0).apply_rotation(&angle, phase))
+                };
+                expected.push((new_word, coeff * sign));
+            }
+
+            propaq_core::soa::kernels::apply_rotation::<PauliBasis, f64>(
+                &mut terms, [&gen_x, &gen_z], &angle, true,
+            );
+            assert_eq!(terms.len(), n_rows, "trial {_trial}: term count must not change");
+            for (i, (exp_word, exp_coeff)) in expected.iter().enumerate() {
+                assert_eq!(terms.term_plane(i, 0)[0], exp_word[0], "trial {_trial} row {i}: x-word mismatch");
+                assert_eq!(terms.term_plane(i, 1)[0], exp_word[1], "trial {_trial} row {i}: z-word mismatch");
+                assert!(
+                    (*terms.coeff(i) - exp_coeff).abs() < 1e-9,
+                    "trial {_trial} row {i}: coeff mismatch: got {}, expected {exp_coeff}", terms.coeff(i)
+                );
+            }
+        }
     }
 }

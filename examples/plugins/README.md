@@ -20,8 +20,8 @@ a built-in model, so their output is directly diffable against it:
 | Noise     | `UniformNoiseModel`  | `c/noise/uniform_noise.c`          | `rust/noise/uniform_noise/`      | `julia/noise/uniform_noise.jl`         |
 | Truncator | `WeightTruncator`    | `c/truncation/weight_truncator.c`  | `rust/truncation/weight_truncator/` | `julia/truncation/weight_truncator.jl` |
 
-The remaining plugins are genuinely custom policies with no built-in
-equivalent — each one is implemented identically across all three
+The remaining plugins are custom policies with no built-in
+equivalent: each one is implemented identically across all three
 languages (config keys and all), so they're cross-language diffable
 instead: given the same config and the same call sequence, C, Rust, and
 Julia produce bit-identical output.
@@ -34,7 +34,7 @@ Julia produce bit-identical output.
 | Truncator | `stochastic_truncator` | keep with probability `min(1, coeff_magnitude / threshold)` (importance sampling) | `threshold`, `seed`              | `c/truncation/stochastic_truncator.c`    | `rust/truncation/stochastic_truncator/`       | `julia/truncation/stochastic_truncator.jl`       |
 
 `drifting_noise` and `stochastic_truncator` both hold real mutable ctx
-state (a call counter, reserved atomically rather than behind a lock) — see
+state (a call counter, reserved atomically rather than behind a lock); see
 [Safety](#safety) below for why that matters here specifically.
 
 `drifting_noise`'s `call_index` counts per-term damping calls, not gate

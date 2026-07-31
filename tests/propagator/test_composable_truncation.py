@@ -103,7 +103,7 @@ class TestCrossPropagator:
         num = PauliPropagator(truncation=ops).expectation_value(obs, circ, initial_state=0)
         assert isinstance(num.expectation_value, float)
 
-        # Surrogate: the same objects are accepted -- `CoefficientTruncator`
+        # Surrogate: the same objects are accepted. `CoefficientTruncator`
         # is decided structurally by `SymbolicCoeff::prune`, no monomial
         # expansion needed (see `propaq.MD`'s "Truncation" section).
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
@@ -114,7 +114,7 @@ class TestCrossPropagator:
         """Numerical `CoefficientTruncator` filters on the exact runtime
         `|coefficient|`; the surrogate filters on a structural upper bound
         that ignores unresolved trig factors (which can only shrink the
-        true value further -- see `SymbolicCoeff::prune`'s doc comment).
+        true value further; see `SymbolicCoeff::prune`'s doc comment).
         The two aren't the same quantity for intermediate cutoffs, but they
         must still agree at the boundaries: a cutoff near zero prunes
         nothing for either, and a cutoff far above any real coefficient

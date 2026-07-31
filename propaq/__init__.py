@@ -75,21 +75,21 @@ Full worked examples live under [`examples/`](https://github.com/hkbelagali/prop
 
 **Usage notebooks** ([`examples/usage/`](https://github.com/hkbelagali/propaq/tree/main/examples/usage)):
 
-- [01_getting_started.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/01_getting_started.ipynb) — Basic Majorana propagation: noise, truncation, and JSONL logging.
-- [02_pauli_vs_majorana.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/02_pauli_vs_majorana.ipynb) — The same Hamiltonian/circuit propagated through both the Pauli and Majorana bases, compared directly.
-- [03_truncation_pipelines.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/03_truncation_pipelines.ipynb) — Composable truncation: `FlushSchedule` merge cadence together with `WeightTruncator`/`CoefficientTruncator`/`TermBudget`.
-- [04_variational_surrogate.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/04_variational_surrogate.ipynb) — VQE-style optimization over a compiled `SurrogateModel`.
-- [05_surrogate_persistence.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/05_surrogate_persistence.ipynb) — `SurrogateModel.save()`/`.load()`, `n_terms`/`n_monomials` diagnostics, and batched evaluation.
-- [06_term_streaming.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/06_term_streaming.ipynb) — Streaming propagated terms to/from a gzip file without holding the whole result in memory.
-- [07_zero_cutoff_extrapolation.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/07_zero_cutoff_extrapolation.ipynb) — Zero Cutoff Extrapolation (ZCE) on a hydrogen chain.
-- [08_zero_noise_extrapolation.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/08_zero_noise_extrapolation.ipynb) — Zero Noise Extrapolation (ZNE) on a hydrogen chain.
+- [01_getting_started.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/01_getting_started.ipynb): Basic Majorana propagation: noise, truncation, and JSONL logging.
+- [02_pauli_vs_majorana.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/02_pauli_vs_majorana.ipynb): The same Hamiltonian/circuit propagated through both the Pauli and Majorana bases, compared directly.
+- [03_truncation_pipelines.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/03_truncation_pipelines.ipynb): Composable truncation: `FlushSchedule` merge cadence together with `WeightTruncator`/`CoefficientTruncator`/`TermBudget`.
+- [04_variational_surrogate.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/04_variational_surrogate.ipynb): VQE-style optimization over a compiled `SurrogateModel`.
+- [05_surrogate_persistence.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/05_surrogate_persistence.ipynb): `SurrogateModel.save()`/`.load()`, `n_terms`/`n_monomials` diagnostics, and batched evaluation.
+- [06_term_streaming.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/06_term_streaming.ipynb): Streaming propagated terms to/from a gzip file without holding the whole result in memory.
+- [07_zero_cutoff_extrapolation.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/07_zero_cutoff_extrapolation.ipynb): Zero Cutoff Extrapolation (ZCE) on a hydrogen chain.
+- [08_zero_noise_extrapolation.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/08_zero_noise_extrapolation.ipynb): Zero Noise Extrapolation (ZNE) on a hydrogen chain.
 
-**Native plugins** ([`examples/plugins/`](https://github.com/hkbelagali/propaq/tree/main/examples/plugins)) — loading custom noise models and truncation policies from dynamically loaded C, Rust, or AOT-compiled Julia shared libraries; see [`examples/plugins/README.md`](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/README.md) for the ABI contract:
+**Native plugins** ([`examples/plugins/`](https://github.com/hkbelagali/propaq/tree/main/examples/plugins)): loading custom noise models and truncation policies from dynamically loaded C, Rust, or AOT-compiled Julia shared libraries; see [`examples/plugins/README.md`](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/README.md) for the ABI contract:
 
-- [notebooks/01_c_plugins.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/notebooks/01_c_plugins.ipynb) — Building and loading C plugins, diffed against the built-in equivalents.
-- [notebooks/02_rust_plugins.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/notebooks/02_rust_plugins.ipynb) — The same, for standalone Rust cdylib crates.
-- [notebooks/03_julia_aot_plugins.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/notebooks/03_julia_aot_plugins.ipynb) — AOT-compiling a Julia plugin into a C-ABI shared library via `PackageCompiler.jl`.
-- [notebooks/04_batch_abi_benchmark.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/notebooks/04_batch_abi_benchmark.ipynb) — Scalar vs. batch ABI entry points, benchmarked.
+- [notebooks/01_c_plugins.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/notebooks/01_c_plugins.ipynb): Building and loading C plugins, diffed against the built-in equivalents.
+- [notebooks/02_rust_plugins.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/notebooks/02_rust_plugins.ipynb): The same, for standalone Rust cdylib crates.
+- [notebooks/03_julia_aot_plugins.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/notebooks/03_julia_aot_plugins.ipynb): AOT-compiling a Julia plugin into a C-ABI shared library via `PackageCompiler.jl`.
+- [notebooks/04_batch_abi_benchmark.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/plugins/notebooks/04_batch_abi_benchmark.ipynb): Scalar vs. batch ABI entry points, benchmarked.
 
 ## Citation
 

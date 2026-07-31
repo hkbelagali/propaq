@@ -27,6 +27,8 @@ use rayon::prelude::*;
 
 use crate::symcoeff::CompiledCoeff;
 
+/// One term of a compiled `SurrogateModel`: an overlap coefficient and the index of its
+/// root op in the model's shared `CompiledCoeff` tape.
 pub struct SurrogateTerm {
     pub overlap: f64,
     pub root: usize,
@@ -48,6 +50,7 @@ pub struct SurrogateModel {
 }
 
 impl SurrogateModel {
+    /// Builds a model from its compiled terms, shared coefficient tape, and parameter count.
     pub fn new(terms: Vec<SurrogateTerm>, tape: CompiledCoeff, n_params: usize) -> Self {
         SurrogateModel { terms, tape, n_params }
     }
@@ -86,6 +89,7 @@ impl SurrogateModel {
         params.iter().flat_map(|&t| [t.cos(), t.sin()]).collect()
     }
 
+    /// Number of compiled terms.
     pub fn n_terms(&self) -> usize {
         self.terms.len()
     }
@@ -338,7 +342,7 @@ impl PauliSurrogateModel {
     }
 
     /// Total pre-dedup monomial-instance count across every surviving term
-    /// (an upper bound, not deduplicated -- `n_terms` alone doesn't say how
+    /// (an upper bound, not deduplicated: `n_terms` alone doesn't say how
     /// much underlying computation a term represents).
     #[getter]
     fn n_monomials(&self) -> u128 {

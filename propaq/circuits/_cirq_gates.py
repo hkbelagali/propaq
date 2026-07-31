@@ -8,7 +8,7 @@ import math
 import warnings
 from typing import TYPE_CHECKING, Any
 
-from ._gates import _Rep, _single_pauli_terms
+from ._gates import GateDecompositionWarning, _Rep, _single_pauli_terms, _two_pauli_terms
 
 if TYPE_CHECKING:
     import cirq
@@ -25,7 +25,15 @@ def _is_native(op: cirq.Operation) -> bool:
     if isinstance(gate, cirq.SwapPowGate):
         return bool(gate.exponent == 1)
     return isinstance(
-        gate, cirq.ZPowGate | cirq.XPowGate | cirq.YPowGate | cirq.CZPowGate | cirq.PhasedISwapPowGate
+        gate,
+        cirq.ZPowGate
+        | cirq.XPowGate
+        | cirq.YPowGate
+        | cirq.CZPowGate
+        | cirq.PhasedISwapPowGate
+        | cirq.ZZPowGate
+        | cirq.XXPowGate
+        | cirq.YYPowGate,
     )
 
 
@@ -42,9 +50,7 @@ def _decompose(op: cirq.Operation) -> list[tuple[cirq.Operation, list[int]]]:
     (sub_op, local_qubit_indices).
 
     Decomposes a canonical copy of the operation (on fresh LineQubits) rather
-    than `op` itself, mirroring _gates.py's throwaway-circuit approach: this
-    keeps the cache key independent of which qubits the caller's circuit
-    actually uses.
+    than `op` itself, mirroring _gates.py's throwaway-circuit approach
     """
     import cirq
 
@@ -82,7 +88,7 @@ def _decompose(op: cirq.Operation) -> list[tuple[cirq.Operation, list[int]]]:
         f"propaq: gate {gate!r} is not natively supported and was decomposed into "
         f"{len(ops)} native rotation(s) via Cirq decomposition; this can be expensive to "
         "repeat inside a hot loop or a surrogate build.",
-        UserWarning,
+        GateDecompositionWarning,
         stacklevel=6,
     )
     if key is not None:
@@ -94,11 +100,6 @@ def cirq_gate_terms(
     op: cirq.Operation, q_indices: list[int], width: int, rep: _Rep
 ) -> list[list[tuple[Any, Any]]]:
     """Groups of ordered (generator, angle) terms for one Cirq operation.
-
-    `angle` may be a plain float or a sympy expression. Within a group, terms are
-    ordered and must not be reordered or merged. Between groups, each boundary is
-    a genuine completed-gate boundary (mirrors _gates.py's grouping, which bounds
-    truncation/merge deferral to one real gate's own native expansion size).
     """
     import cirq
 
@@ -136,6 +137,25 @@ def cirq_gate_terms(
         if len(q_indices) != 1:
             raise ValueError("YPowGate must have exactly 1 qubit.")
         return [_single_pauli_terms(rep, "Y", math.pi * gate.exponent, q_indices[0], width)]
+
+    # See this function's docstring for the angle convention used here.
+    if isinstance(gate, cirq.ZZPowGate):
+        if len(q_indices) != 2:
+            raise ValueError("ZZPowGate must have exactly 2 qubits.")
+        i, j = q_indices
+        return [_two_pauli_terms(rep, "Z", "Z", math.pi * gate.exponent, i, j, width)]
+
+    if isinstance(gate, cirq.XXPowGate):
+        if len(q_indices) != 2:
+            raise ValueError("XXPowGate must have exactly 2 qubits.")
+        i, j = q_indices
+        return [_two_pauli_terms(rep, "X", "X", math.pi * gate.exponent, i, j, width)]
+
+    if isinstance(gate, cirq.YYPowGate):
+        if len(q_indices) != 2:
+            raise ValueError("YYPowGate must have exactly 2 qubits.")
+        i, j = q_indices
+        return [_two_pauli_terms(rep, "Y", "Y", math.pi * gate.exponent, i, j, width)]
 
     if isinstance(gate, cirq.CZPowGate):
         if len(q_indices) != 2:

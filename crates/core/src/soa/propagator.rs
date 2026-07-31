@@ -18,15 +18,105 @@ use crate::truncators::{resolve_config, FlushSchedule, ResolvedConfig, Truncator
 
 const EXP_LUT_SIZE: usize = 4096;
 
+/// How a single-qubit noise channel is resolved and applied inside the propagation loop.
 #[derive(Clone, Copy)]
 pub enum NoiseDispatch {
+    /// Built-in uniform damping, applied via a precomputed exponential lookup table.
     Uniform(f64),
+    /// A dynamically loaded native noise plugin.
     Native(NativeNoiseHandle),
+    /// A user-supplied Python noise model, called back into per gate.
     Python,
 }
 
+/// Tolerance for treating `cos(theta)` or `sin(theta)` as zero when classifying a rotation as
+/// Clifford.
 pub const CLIFFORD_COS_EPS: f64 = 1e-9;
 
+enum GateAction {
+    /// Apply this rotation normally.
+    Normal,
+    /// Already folded into a later rotation's fused table
+    Skip,
+    /// Apply this fused conjugation
+    Fused(kernels::CliffordOp),
+}
+
+/// The one- or two-qubit support of a rotation that is eligible to be fused
+fn clifford_support<B: SoaBasis, C: CoeffRepr>(
+    gen0: &[u64],
+    gen1: &[u64],
+    param: &C::GateParam,
+) -> Option<(usize, u64)> {
+    let is_clifford = C::is_clifford_param(param, CLIFFORD_COS_EPS)
+        || C::phase_only_scale(param, CLIFFORD_COS_EPS).is_some();
+    if !is_clifford {
+        return None;
+    }
+    let w = B::local_word([gen0, gen1])?;
+    let mask = gen0[w] | gen1[w];
+    if mask == 0 || mask.count_ones() > 2 {
+        return None;
+    }
+    Some((w, mask))
+}
+
+/// The (at most two) set bit positions of `mask`.
+fn support_bits(mask: u64) -> [u32; 2] {
+    let b0 = mask.trailing_zeros();
+    let rest = mask & !(1u64 << b0);
+    [b0, if rest == 0 { b0 } else { rest.trailing_zeros() }]
+}
+
+/// Collapses maximal runs of consecutive Clifford rotations that share a one- or two-qubit
+/// support into a single conjugation table each.
+fn plan_clifford_fusion<B: SoaBasis, C: CoeffRepr>(
+    applied: &[&(Vec<u64>, Vec<u64>, C::GateParam, bool, Option<usize>)],
+) -> Vec<GateAction> {
+    let mut actions: Vec<GateAction> = applied.iter().map(|_| GateAction::Normal).collect();
+    let mut i = 0usize;
+    while i < applied.len() {
+        let Some((word, first_mask)) = clifford_support::<B, C>(&applied[i].0, &applied[i].1, &applied[i].2)
+        else {
+            i += 1;
+            continue;
+        };
+        let mut mask = first_mask;
+        let mut j = i + 1;
+        while j < applied.len() {
+            let Some((w, m)) = clifford_support::<B, C>(&applied[j].0, &applied[j].1, &applied[j].2) else {
+                break;
+            };
+            if w != word || (mask | m).count_ones() > 2 {
+                break;
+            }
+            mask |= m;
+            j += 1;
+        }
+        if j - i >= 2 {
+            let group: Vec<([u64; 2], C::GateParam)> = applied[i..j]
+                .iter()
+                .map(|(g0, g1, param, _, _)| ([g0[word], g1[word]], param.clone()))
+                .collect();
+            if let Some(op) = kernels::build_fused_clifford::<B, C>(
+                word,
+                support_bits(mask),
+                mask.count_ones() as usize,
+                &group,
+                CLIFFORD_COS_EPS,
+            ) {
+                for action in actions[i..j - 1].iter_mut() {
+                    *action = GateAction::Skip;
+                }
+                actions[j - 1] = GateAction::Fused(op);
+            }
+        }
+        i = j.max(i + 1);
+    }
+    actions
+}
+
+/// Drives a full circuit propagation over a `SoaTermSum`
 pub struct SoaPropagator<B: SoaBasis> {
     pub noise: Option<PyObject>,
     pub schedule: FlushSchedule,
@@ -43,6 +133,7 @@ pub struct SoaPropagator<B: SoaBasis> {
 }
 
 impl<B: SoaBasis> SoaPropagator<B> {
+    /// Builds a propagator with its own rayon thread pool
     pub fn new(
         noise: Option<PyObject>,
         schedule: FlushSchedule,
@@ -112,6 +203,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
         NoiseDispatch::Python
     }
 
+    /// Runs `kernels::merge_and_truncate` on `evolved`
     fn flush_and_maybe_truncate<C: CoeffRepr>(
         &mut self,
         evolved: &mut SoaTermSum<C>,
@@ -122,32 +214,22 @@ impl<B: SoaBasis> SoaPropagator<B> {
     ) {
         let t0 = std::time::Instant::now();
         let pool = Arc::clone(&self.pool);
-        pool.install(|| kernels::merge::<B, C>(evolved));
-        let total_before = evolved.len();
 
-        let Some(cfg) = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some() || c.native.is_some())
-        else {
-            return;
-        };
-        let min_terms = cfg.min_terms.unwrap_or(0);
-        if total_before < min_terms {
-            return;
-        }
-
-        let (disc_l1, disc_max) = if self.verbose_log.is_some() {
-            discarded_coeff_stats::<B, C>(evolved, cfg)
-        } else {
-            (0.0, 0.0)
+        // Verbose logging is opt-in
+        let active_cfg = cfg.filter(|c| c.weight.is_some() || c.coefficient.is_some() || c.native.is_some());
+        let (disc_l1, disc_max) = match (active_cfg, &self.verbose_log) {
+            (Some(cfg), Some(_)) => discarded_coeff_stats::<B, C>(evolved, cfg),
+            _ => (0.0, 0.0),
         };
 
-        pool.install(|| kernels::truncate::<B, C>(evolved, cfg));
-        let total_after = evolved.len();
-        if total_after < min_terms { }
+        let (total_before, total_after) = pool.install(|| kernels::merge_and_truncate::<B, C>(evolved, cfg));
 
         if let Some(ref mut log) = self.verbose_log {
             let actual_discarded = total_before - total_after;
-            let wc_str = cfg.weight.map_or_else(|| "null".to_string(), |w| w.to_string());
-            let cc = cfg.coefficient.unwrap_or(0.0);
+            let wc_str = active_cfg
+                .and_then(|c| c.weight)
+                .map_or_else(|| "null".to_string(), |w| w.to_string());
+            let cc = active_cfg.and_then(|c| c.coefficient).unwrap_or(0.0);
             let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
             let qki = match self.current_qiskit_gate_idx {
                 Some(v) => v.to_string(),
@@ -197,10 +279,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
         Ok(())
     }
 
-    /// Core run loop, shared by `propagate` and `expectation_value`: applies
-    /// every rotation in `circuit.layers`, reversed (Heisenberg
-    /// back-propagation), flushing/truncating on the same threshold and
-    /// `merge_max_terms` cadence as the hash-partition engine.
+    /// Core run loop, shared by `propagate` and `expectation_value`
     fn run_propagation_inner<C: CoeffRepr>(
         &mut self,
         py: Python<'_>,
@@ -217,9 +296,6 @@ impl<B: SoaBasis> SoaPropagator<B> {
         let n_units = evolved.n_units;
         let stride = evolved.stride;
 
-        // (generator plane words, angle, is_intermediate, qiskit_gate_idx).
-        // `C::extract_gate_param` reads the angle (numerical) or parameter
-        // index (surrogate) off the same Python rotation object.
         let circuit_data: Vec<Vec<(Vec<u64>, Vec<u64>, C::GateParam, bool, Option<usize>)>> = layers
             .iter()
             .map(|layer| {
@@ -250,10 +326,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
         let total_rotations: usize = circuit_data.iter().map(|l| l.len()).sum();
         let (pbar, postfix) = make_progress_bar(py, self.progress_bar, total_rotations)?;
 
-        // Deduplicated count as of the last merge, for the gate log's
-        // `map_terms`/`outbox_terms` split (there's no physical partition
-        // between the two in a flat SoA array, only "merged" vs "appended
-        // since the last merge").
+        // Deduplicated count as of the last merge
         let mut merged_len = evolved.len();
 
         let mut gate_idx: usize = 0;
@@ -263,12 +336,23 @@ impl<B: SoaBasis> SoaPropagator<B> {
             self.apply_layer_noise(py, evolved, dispatch, gate_idx, layer_idx)?;
 
             let reversed_layer: Vec<_> = layer_data.iter().rev().collect();
+            // One entry per rotation
+            let fusion_plan = plan_clifford_fusion::<B, C>(&reversed_layer);
             for (idx, (gen0, gen1, param, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
                 let gen = [gen0.as_slice(), gen1.as_slice()];
                 let clifford_inplace = C::is_clifford_param(param, CLIFFORD_COS_EPS);
-                let added = py.allow_threads(|| {
-                    pool.install(|| kernels::apply_rotation::<B, C>(evolved, gen, param, clifford_inplace))
-                });
+                let added = match &fusion_plan[idx] {
+                    // Folded into a later rotation's table.
+                    GateAction::Skip => 0,
+                    // Stands in for this rotation and the preceding `Skip`s.
+                    GateAction::Fused(op) => {
+                        py.allow_threads(|| pool.install(|| kernels::apply_clifford_op::<B, C>(evolved, op)));
+                        0
+                    }
+                    GateAction::Normal => py.allow_threads(|| {
+                        pool.install(|| kernels::apply_rotation::<B, C>(evolved, gen, param, clifford_inplace))
+                    }),
+                };
                 pending += added;
 
                 self.current_qiskit_gate_idx = *qiskit_gate_idx;
@@ -303,7 +387,7 @@ impl<B: SoaBasis> SoaPropagator<B> {
                     pending = 0;
                     merged_len = evolved.len();
                 } else if !next_is_intermediate && merge_max_terms.map_or(false, |m| pending >= m) {
-                    py.allow_threads(|| pool.install(|| kernels::merge::<B, C>(evolved)));
+                    py.allow_threads(|| self.flush_and_maybe_truncate(evolved, Some(&cfg), gate_idx, layer_idx, "merge"));
                     pending = 0;
                     merged_len = evolved.len();
                 }
@@ -327,6 +411,8 @@ impl<B: SoaBasis> SoaPropagator<B> {
         Ok(n_terms)
     }
 
+    /// Propagates `evolved` through `circuit` in place, discarding the intermediate term-count
+    /// trace.
     pub fn run_propagate<C: CoeffRepr>(
         &mut self,
         py: Python<'_>,
@@ -340,6 +426,8 @@ impl<B: SoaBasis> SoaPropagator<B> {
         Ok(())
     }
 
+    /// Propagates `evolved` through `circuit`, then computes its expectation value against
+    /// `fock_state`.
     pub fn run_expectation_value<C: CoeffRepr>(
         &mut self,
         py: Python<'_>,

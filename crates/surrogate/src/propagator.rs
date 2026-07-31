@@ -34,7 +34,7 @@ use propaq_core::truncators::{
 };
 
 /// Shard count (relative to thread count) for both `compile_surviving_terms`
-/// and `apply_truncation_policy`'s `Simplify` pass -- shared by both since
+/// and `apply_truncation_policy`'s `Simplify` pass, shared by both since
 /// they're the same tradeoff: a subtree shared *across* shard boundaries is
 /// processed once per shard instead of once globally, bounding duplication
 /// at `(thread count) x (oversubscription factor)` instead of unboundedly.
@@ -47,7 +47,7 @@ const SHARD_OVERSUBSCRIPTION: usize = 4;
 /// `FrequencyTruncationPolicy` (decomposed here); everything else, such as a list, a
 /// single truncator, a core `TruncationPolicy`, or `None`, is delegated to the
 /// shared `propaq_core` resolver. Every truncator the resolved list can
-/// produce is honored by `apply_truncation_policy` below -- no rejection step.
+/// produce is honored by `apply_truncation_policy` below, with no rejection step.
 fn resolve_truncation(
     truncation: Option<&Bound<'_, PyAny>>,
     schedule: Option<FlushSchedule>,
@@ -61,6 +61,9 @@ fn resolve_truncation(
     core_resolve_truncation(truncation, schedule)
 }
 
+/// Builds a `SurrogateModel` by running a circuit's rotations symbolically over a
+/// `SoaTermSum<SymbolicCoeff>`, reusing the same SoA kernels (`apply_rotation`, `merge`,
+/// `map_retain`) the numerical propagators use.
 pub struct SurrogatePropagator<B: SoaBasis> {
     pool: Arc<rayon::ThreadPool>,
     /// Flush/merge cadence (when to truncate), separate from the operators.
@@ -89,6 +92,8 @@ impl<B: SoaBasis> SurrogatePropagator<B>
 where
     B::Term: AbstractTerm + for<'py> FromPyObject<'py>,
 {
+    /// Builds a propagator with its own rayon thread pool, flush schedule, truncator chain,
+    /// and optional verbose logger.
     pub fn new(
         schedule: FlushSchedule,
         truncators: Vec<Truncator>,
@@ -161,13 +166,8 @@ where
         } else {
             0
         };
-        // Cheap running estimate (not the exact recount above), for
-        // `MonomialBudget`'s `min_monomials` floor -- deliberately a
-        // different name/value from `monomials_before`, which is an exact,
-        // verbose-logging-only recompute. `saturating_add`: both operands can
-        // legitimately be near `u128::MAX` once truly huge (see
-        // `Node::add`'s doc comment) -- plain `+` wrapping here would let a
-        // `MonomialBudget` floor/ceiling silently stop comparing correctly.
+        // Cheap running estimate (not the exact recount above) for `MonomialBudget`'s floor.
+        // `saturating_add`: both operands can legitimately approach `u128::MAX` (see `Node::add`).
         let monomials_before_estimate = self.total_monomials.saturating_add(pending_monomials);
 
         let cfg = resolve_config(&self.truncators);
@@ -185,12 +185,8 @@ where
             let wc_str = outcome.weight.map_or_else(|| "null".to_string(), |v| v.to_string());
             let mas_str = outcome.coefficient.map_or_else(|| "null".to_string(), |v| format!("{v:.3e}"));
             let terms_discarded = outcome.total_before - outcome.total_after;
-            // `saturating_sub`: truncation only ever removes monomials, so
-            // `monomials_after <= monomials_before` in exact arithmetic, but
-            // defensive here too now that both sides can independently
-            // saturate at `u128::MAX` -- a plain `-` would underflow-panic
-            // (debug) / wrap to a huge bogus value (release) in any edge case
-            // this reasoning missed.
+            // `saturating_sub`: both sides can independently saturate at `u128::MAX`, so a
+            // plain `-` could underflow-panic (debug) or wrap (release) in an edge case.
             let monomials_discarded = monomials_before.saturating_sub(outcome.monomials_after);
             let (total_before, total_after, monomials_after) =
                 (outcome.total_before, outcome.total_after, outcome.monomials_after);
@@ -283,38 +279,23 @@ where
             for (idx, (gen0, gen1, param, _is_intermediate, qiskit_gate_idx)) in reversed_layer.iter().enumerate() {
                 let gen = [gen0.as_slice(), gen1.as_slice()];
                 let before = evolved.len();
-                // Same Clifford in-place fast path the numerical `SoaPropagator`
-                // already takes for a `pi/2`-angle gate: without this, every such
-                // gate (numeric basis-change/Clifford rotations included) appends
-                // a new row instead of overwriting in place, needlessly doubling
-                // the affected rows' monomial `count` once a later merge
-                // recombines them -- see `SymbolicCoeff::is_clifford_param`.
+                // Same Clifford in-place fast path the numerical `SoaPropagator` takes for a
+                // `pi/2`-angle gate: without it, every such gate would append a new row
+                // instead of overwriting in place, needlessly doubling monomial `count`.
                 let clifford_inplace = SymbolicCoeff::is_clifford_param(param, CLIFFORD_COS_EPS);
                 let added = py.allow_threads(|| {
                     pool.install(|| {
                         kernels::apply_rotation::<B, SymbolicCoeff>(evolved, gen, param, clifford_inplace)
                     })
                 });
-                // `apply_rotation` returns the touched-row count in both
-                // branches, but only the append branch actually grows
-                // `evolved` -- the in-place branch overwrites `added` rows
-                // scattered across the *existing* `[0, n)` range instead of
-                // appending a contiguous run at `[before, before+added)`.
-                // Reading that slice unconditionally would (once
-                // `clifford_inplace` can be `true` at all) read stale/unused
-                // buffer contents past the live region rather than the rows
-                // this gate actually touched. It's also unnecessary: the
-                // in-place branch only ever wraps a coefficient in a `Scale`
-                // node (a numeric Clifford angle is never `GateParam::Symbolic`),
-                // and `Node::scale`'s `count` is the inner node's `count`
-                // unchanged, so an in-place gate never changes monomial count
-                // -- there is no delta to add.
+                // Only the append branch grows `evolved` at a contiguous `[before, before+added)`
+                // run; the in-place branch overwrites `added` rows scattered across the existing
+                // range, so that slice must not be read when `clifford_inplace` is true. It's
+                // also unnecessary: `Node::scale` (what the in-place branch produces) has the
+                // same `count` as its inner node, so an in-place gate never changes monomial count.
                 if !clifford_inplace {
-                    // `saturating_add` throughout: `size_hint()` values (and
-                    // their running accumulation into `pending_monomials`) can
-                    // legitimately be near `u128::MAX` on a real workload -- see
-                    // `Node::add`'s doc comment for why plain `+`/`.sum()` here
-                    // would silently wrap instead.
+                    // `saturating_add` throughout: `size_hint()` values can legitimately
+                    // approach `u128::MAX` on a real workload (see `Node::add`'s doc comment).
                     let added_monomials: u128 = evolved.coeffs[before..before + added]
                         .iter()
                         .fold(0u128, |acc, c| acc.saturating_add(c.size_hint()));
@@ -357,9 +338,8 @@ where
                 let terms_trigger = max_terms.map_or(false, |max| evolved.len() >= max);
                 let monomials_trigger = max_monomials
                     .map_or(false, |max| self.total_monomials.saturating_add(pending_monomials) >= max);
-                // If both ceilings cross on the same gate, `terms_trigger` wins
-                // in the logged/latched trigger name (harmless -- a flush still
-                // fires either way, this only affects which string gets logged).
+                // If both ceilings cross on the same gate, `terms_trigger` wins in the logged
+                // trigger name; a flush fires either way, this only affects the logged string.
                 let threshold_trigger: Option<&'static str> = if terms_trigger {
                     Some("threshold")
                 } else if monomials_trigger {
@@ -462,18 +442,18 @@ where
 /// term: compiling term-by-term re-walks and re-emits any DAG subtree
 /// shared across many surviving terms once per referencing term, which
 /// under heavy parameter reuse approaches (surviving terms) x (distinct
-/// nodes) total compiled output -- the diagnosed cause of the OOM this
+/// nodes) total compiled output, the diagnosed cause of the OOM this
 /// replaced, and a source of redundant work in every subsequent
 /// `evaluate` too. Sharding bounds duplication of any shared node at
 /// (shard count) instead of (terms referencing it), independent of term
-/// count -- see `propaq.MD`'s "Evaluate & persistence" section.
+/// count. See `propaq.MD`'s "Evaluate & persistence" section.
 /// `CompiledCoeff::merge_shards` does one cheap, purely-arithmetic pass
 /// concatenating the shards' tapes into the single tape returned here,
 /// alongside a flat `Vec<SurrogateTerm>` (`(overlap, root)` per surviving
-/// term -- the term itself is never reconstructed, only ever needed to
+/// term; the term itself is never reconstructed, only ever needed to
 /// compute `overlap`).
 ///
-/// Deliberately free of `pyo3`/`py` -- this is the whole reason it's split
+/// Deliberately free of `pyo3`/`py`. This is the whole reason it's split
 /// out of `run_build`, so it can be exercised directly by a Rust unit test
 /// against a hand-built `SoaTermSum<SymbolicCoeff>` without fabricating a
 /// Python circuit object.
@@ -484,12 +464,12 @@ where
 /// one shard per thread, once every thread has claimed its one chunk there
 /// is nothing left in the queue for an idle thread to steal, so a single
 /// unusually heavy shard (a few terms with much deeper coefficient DAGs than
-/// the rest -- plausible under skewed parameter reuse) stalls the whole pass
+/// the rest, plausible under skewed parameter reuse) stalls the whole pass
 /// on that one worker while every other thread sits idle. Leaving several
 /// unclaimed shards in the queue at all times lets a thread that finishes
 /// early immediately pick up the next one instead of idling. This raises the
 /// shared-node duplication bound from `(thread count)` to `(thread count) x
-/// (oversubscription factor)` -- still a small constant independent of term
+/// (oversubscription factor)`, still a small constant independent of term
 /// count, so the OOM-prevention property this function exists for is
 /// unaffected, just with a slightly larger (and tunable) constant.
 fn compile_surviving_terms<B: SoaBasis>(
@@ -508,11 +488,8 @@ fn compile_surviving_terms<B: SoaBasis>(
             .par_chunks_mut(chunk)
             .enumerate()
             .map(|(chunk_idx, shard)| {
-                // `par_chunks_mut` doesn't hand us the chunk's own absolute
-                // row offset -- `chunk_idx * chunk` is it, since chunking
-                // always partitions front-to-back in fixed-size runs (the
-                // same assumption `SurrogateModel::save`'s own `par_chunks`
-                // sharding already relies on).
+                // `par_chunks_mut` doesn't hand us the chunk's absolute row offset;
+                // `chunk_idx * chunk` is it, since chunking partitions front-to-back in fixed-size runs.
                 let base = chunk_idx * chunk;
                 let mut overlaps: Vec<f64> = Vec::new();
                 let mut survivors: Vec<SymbolicCoeff> = Vec::new();
@@ -521,17 +498,10 @@ fn compile_surviving_terms<B: SoaBasis>(
                     let s = global_row * stride;
                     let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
                     let overlap = B::trace(term, n_units, initial_state);
-                    // Always take, even when the row won't survive: a
-                    // structurally-zero-overlap term contributes nothing to
-                    // any expectation value regardless of parameters, so its
-                    // entire coefficient DAG is pure waste once we know
-                    // that -- leaving it in `evolved` (untouched) would keep
-                    // it resident until the whole `build()` call unwinds,
-                    // well past when the compiled tape is already built.
-                    // Taking it here drops it (or, if some part is still
-                    // shared with a surviving term's own coefficient via
-                    // `Arc`, correctly keeps just that shared part alive)
-                    // immediately instead.
+                    // Always take, even when the row won't survive: a structurally-zero-overlap
+                    // term's whole coefficient DAG is pure waste, so this drops it (or, if part
+                    // is shared via `Arc` with a survivor, keeps just that part alive) right
+                    // away instead of leaving it resident until `build()` unwinds.
                     let coeff = std::mem::take(c);
                     if overlap.abs() > 1e-15 {
                         overlaps.push(overlap);
@@ -571,7 +541,7 @@ pub struct TruncationOutcome {
 /// `WeightTruncator` (operator weight) is a stream-compaction filter, same
 /// as the numerical propagator. `FrequencyTruncator`/`CoefficientTruncator`
 /// go through `SymbolicCoeff::prune`, which drops monomials structurally
-/// (no expansion) -- see `prune`'s doc comment. `TermBudget`/`MonomialBudget`
+/// (no expansion); see `prune`'s doc comment. `TermBudget`/`MonomialBudget`
 /// only decide *when* this function gets called (see `run_build`'s trigger
 /// logic) and additionally gate `apply_lossy` below via their `min_terms`/
 /// `min_monomials` floors. The always-on lossless dedup
@@ -579,25 +549,25 @@ pub struct TruncationOutcome {
 /// the time this is called.
 ///
 /// `Simplify`, when present in the pipeline, runs *before* everything else
-/// here (including the `apply_lossy` gate below -- it's lossless, unlike
+/// here (including the `apply_lossy` gate below, since it's lossless, unlike
 /// `prune`/`WeightTruncator`, so there's no correctness reason to defer it
 /// during warmup) and *before* `prune` specifically: `prune`'s
 /// `coeff_cutoff` decision uses `upper_scale`, a safe bound computed
 /// independently per derivation path, so two still-unmerged paths to the
 /// same canonical monomial are each judged by their own (possibly small)
-/// bound -- pruning them independently first can permanently discard a
+/// bound; pruning them independently first can permanently discard a
 /// monomial whose *combined* magnitude would have cleared the cutoff.
 /// Running `Simplify` first means `prune` always sees the true, merged
 /// magnitude, sharpening (never loosening) `CoefficientTruncator`'s
 /// accuracy. This is a real, user-visible behavior change versus running
 /// `CoefficientTruncator` without `Simplify`: the same configured cutoff can
 /// retain a different (more accurate) survivor set. `FrequencyTruncator` is
-/// unaffected -- merging same-canonical-monomial siblings never changes
+/// unaffected: merging same-canonical-monomial siblings never changes
 /// frequency.
 ///
 /// `monomials_before_estimate` is the caller's cheap running estimate
 /// (`self.total_monomials.saturating_add(pending_monomials)`), not an exact
-/// recount -- there's no O(1) exact way to get one, unlike `total_before`
+/// recount: there's no O(1) exact way to get one, unlike `total_before`
 /// (`evolved.len()`).
 pub fn apply_truncation_policy<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
@@ -614,13 +584,8 @@ pub fn apply_truncation_policy<B: SoaBasis>(
         simplify_sharded(&mut evolved.coeffs[..total_before], n_shards);
     }
 
-    // Deferred like the numerical propagator: below min_terms/min_monomials,
-    // skip the lossy filters. Both floors must clear (AND, not OR) -- each
-    // is an independent "don't lossy-prune something too young/small yet"
-    // veto, and `min_terms` already gates the whole bundle (including
-    // `WeightTruncator`, which isn't really "about" term count either), so
-    // there's precedent that a floor means "wait for everything to warm up,"
-    // not a per-operator-scoped gate.
+    // Deferred like the numerical propagator: below min_terms/min_monomials, skip the lossy
+    // filters. Both floors must clear (AND, not OR): each is its own "not warmed up yet" veto.
     let apply_lossy = total_before >= min_terms && monomials_before_estimate >= min_monomials;
     // Saturating cast: a `usize` cap beyond `u32::MAX` is indistinguishable
     // from "no cap" in practice, but should clamp rather than wrap.
@@ -939,7 +904,7 @@ mod shared_parameter_dedup_tests {
 
     /// Symbolic gates reusing a handful of shared parameters across many gates
     /// must evaluate identically to running the same circuit with each
-    /// parameter's angle fixed as a concrete number throughout -- exercising
+    /// parameter's angle fixed as a concrete number throughout. Exercises
     /// `Cos`/`Sin`/`Add` composing correctly under heavy subtree sharing (the
     /// same parameter's `Arc<Node>` reused by dozens of gates), not just a
     /// bound on monomial count.
@@ -1079,7 +1044,7 @@ mod sharded_compile_tests {
     /// Regression test for a real memory-retention gap: `compile_surviving_terms`
     /// used to only `mem::take` a row's coefficient inside the
     /// `overlap.abs() > 1e-15` branch, so a structurally-zero-overlap row's
-    /// entire coefficient DAG (pure waste -- it contributes nothing to any
+    /// entire coefficient DAG (pure waste: it contributes nothing to any
     /// expectation value, for any parameters) stayed fully resident in
     /// `evolved` until the caller's `SoaTermSum` eventually dropped, well
     /// after the compiled tape was already built. Every row's coefficient
@@ -1091,13 +1056,13 @@ mod sharded_compile_tests {
         const FOCK: u64 = 0;
         let mut ts: SoaTermSum<SymbolicCoeff> = SoaTermSum::new(N_QUBITS, 1);
 
-        // Row 0: pure-Z string -- structurally survives (nonzero trace
-        // against the all-zero Fock state).
+        // Row 0: pure-Z string, structurally survives (nonzero trace against the all-zero
+        // Fock state).
         let (gx0, gz0) = planes_of(0, 0b1, 1);
         ts.push([&gx0, &gz0], SymbolicCoeff::from_real(1.0));
 
-        // Row 1: has X support -- structurally zero overlap regardless of
-        // its coefficient's value or any parameter assignment.
+        // Row 1: has X support, structurally zero overlap regardless of its coefficient's
+        // value or any parameter assignment.
         let (gx1, gz1) = planes_of(0b1, 0, 1);
         ts.push([&gx1, &gz1], SymbolicCoeff::from_real(3.0));
 
@@ -1126,7 +1091,7 @@ mod monomial_budget_tests {
     }
 
     /// `apply_truncation_policy`'s `apply_lossy` gate must AND `min_terms`
-    /// and `min_monomials` together -- both floors must clear before any
+    /// and `min_monomials` together: both floors must clear before any
     /// lossy operator (here, `CoefficientTruncator`) runs, not either one
     /// alone. Uses a `CoefficientTruncator` cutoff that would prune the sole
     /// live term's coefficient down to nothing (removing the row entirely
@@ -1156,7 +1121,7 @@ mod monomial_budget_tests {
         assert_eq!(ts.len(), 1, "min_terms floor should have suppressed pruning");
 
         // min_terms met (1 >= 1) but min_monomials not met (1 < 5): still no
-        // pruning -- both floors must clear, not just one.
+        // pruning, since both floors must clear, not just one.
         let mut ts = build_one_term();
         apply_truncation_policy::<PauliBasis>(&mut ts, &cutoff_cfg(Some(1), Some(5)), 1);
         assert_eq!(ts.len(), 1, "min_monomials floor should have suppressed pruning even though min_terms cleared");
@@ -1229,7 +1194,7 @@ mod simplify_truncator_tests {
     }
 
     /// `simplify` must default to `false` (`ResolvedConfig::default()`) and
-    /// change nothing when unset -- guards against `Simplify` being
+    /// change nothing when unset. Guards against `Simplify` being
     /// accidentally wired in as always-on. The full existing test suite
     /// (none of which sets `cfg.simplify`) passing unchanged is the primary
     /// evidence for this; this test additionally pins the exact default
@@ -1267,22 +1232,6 @@ mod clifford_inplace_regression_tests {
         (gx, gz)
     }
 
-    /// Regression test for the bug this file's `run_build` used to have:
-    /// every numeric gate (including a real circuit's Clifford, `pi/2`-angle
-    /// basis-change/routing rotations -- e.g. a transpiled `swap`) was applied
-    /// with `clifford_inplace` hardcoded to `false`, so an anticommuting
-    /// Clifford gate always appended a new row instead of overwriting in
-    /// place. A single anticommuting term run through `N` such gates (each
-    /// followed by a `merge`, mirroring `run_build`'s periodic merge cadence)
-    /// then has its monomial `count` double per gate even though only one
-    /// live term (and one *real* trig factor) is ever present -- exactly the
-    /// "few parameters, astronomically large monomial count" shape reported
-    /// against a real workload (see `CHANGELOG.md`: "3969 terms, ~15
-    /// quintillion monomials"). Computing `clifford_inplace` via
-    /// `SymbolicCoeff::is_clifford_param` (this fix) keeps both the term
-    /// count and the monomial count flat at 1 throughout, since a `pi/2`
-    /// rotation's cos branch is genuinely negligible and the kernel can
-    /// overwrite in place instead of branching at all.
     #[test]
     fn clifford_angle_numeric_gates_no_longer_inflate_monomial_count() {
         const N_QUBITS: usize = 4;
@@ -1293,8 +1242,6 @@ mod clifford_inplace_regression_tests {
         let (gx, gz) = planes_of(0, 0b1, 1); // Z on qubit 0
         evolved.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
 
-        // Generator anticommutes with the live Z term at every round (X on
-        // the same qubit), so every round is a genuine branch opportunity.
         let (genx, genz) = planes_of(0b1, 0, 1);
         let gen = [genx.as_slice(), genz.as_slice()];
         let param = GateParam::Numeric { angle };

@@ -103,6 +103,8 @@ impl MajoranaMonomial {
         (single | &(occupied ^ &string)).count_ones()
     }
 
+    /// Computes the Jordan-Wigner qubit weight of a Majorana mode set, without also returning
+    /// the intermediate `p` plane. See `weight_and_p_for` if both are needed.
     pub fn compute_weight_for(modes: &Bitset, n_modes: usize) -> u32 {
         let n_qubits = n_modes / 2;
         if n_qubits == 0 { return 0; }
@@ -112,6 +114,9 @@ impl MajoranaMonomial {
         Self::weight_from_parts(&single, &occupied, &p, &qubit_mask)
     }
 
+    /// Computes both the Jordan-Wigner qubit weight and the `p` (Z-string parity) plane for a
+    /// Majorana mode set. `p` must travel alongside `modes` in the SoA representation, since
+    /// `weight`/`product` depend on it.
     pub fn weight_and_p_for(modes: &Bitset, n_modes: usize) -> (u32, Bitset) {
         let n_qubits = n_modes / 2;
         if n_qubits == 0 { return (0, Bitset::zero()); }
@@ -320,6 +325,8 @@ impl Hash for MajoranaMonomial {
     fn hash<H: Hasher>(&self, state: &mut H) { self.modes.hash(state); }
 }
 
+/// The `SoaBasis` implementation for Majorana fermion strings, encoded as a Jordan-Wigner
+/// mode-occupation bitmask (`MajoranaMonomial`).
 pub struct MajoranaBasis;
 
 impl SoaBasis for MajoranaBasis {
@@ -511,6 +518,46 @@ mod tests {
         let modes = Bitset::from_words(bits);
         let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
         MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
+    }
+
+    /// `MajoranaBasis` deliberately does not implement `local_word`, so it never gets the
+    /// single-word `commutes_at_word`/`product_at_word` shortcuts or the single-qubit Clifford
+    /// lookup table (those are Pauli-specific). The `sin(theta) ~ 0` phase-only path is
+    /// different: it needs nothing but the generic `commutes` pass, so it applies to every
+    /// basis. This pins that down, because losing it here would be silent (correct results,
+    /// just an appended-then-truncated row per anticommuting term on every such gate).
+    #[test]
+    fn phase_only_rotation_applies_to_the_majorana_basis_too() {
+        use propaq_core::soa::{kernels, SoaTermSum};
+        use std::f64::consts::PI;
+
+        let n_modes = 8;
+        let stride = MajoranaBasis::stride_words(n_modes);
+        let mut terms: SoaTermSum<f64> = SoaTermSum::new(n_modes, stride);
+
+        let mut push = |m: &MajoranaMonomial, c: f64| {
+            let mut x = vec![0u64; stride];
+            let mut z = vec![0u64; stride];
+            MajoranaBasis::term_into_planes(m, n_modes, [&mut x, &mut z]);
+            terms.push([&x, &z], c);
+        };
+        let gen = mon(0b0011, n_modes);
+        let anti = mon(0b0001, n_modes); // shares one mode with `gen` -> anticommutes
+        let comm = mon(0b0011, n_modes); // equals `gen` -> commutes with it
+        assert!(!anti.commutes_with(&gen));
+        assert!(comm.commutes_with(&gen));
+        push(&anti, 2.0);
+        push(&comm, 3.0);
+
+        let mut gx = vec![0u64; stride];
+        let mut gz = vec![0u64; stride];
+        MajoranaBasis::term_into_planes(&gen, n_modes, [&mut gx, &mut gz]);
+
+        let added = kernels::apply_rotation::<MajoranaBasis, f64>(&mut terms, [&gx, &gz], &PI, false);
+        assert_eq!(added, 0, "sin(pi) == 0 must not append a Majorana term");
+        assert_eq!(terms.len(), 2, "container must not grow");
+        assert_eq!(*terms.coeff(0), -2.0, "anticommuting term scaled by cos(pi) = -1");
+        assert_eq!(*terms.coeff(1), 3.0, "commuting term left untouched");
     }
 
     fn fock(bits: u64) -> Bitset {
@@ -757,10 +804,8 @@ mod tests {
         }
     }
 
-    // --- `MajoranaBasis` (SoA word-plane kernels) vs `MajoranaMonomial`
-    // (AoS, exhaustively tested above) cross-checks. This is the seam most
-    // at risk in the SoA rewrite, since `weight`/`product` depend on the
-    // cached `p` plane travelling correctly alongside `modes`.
+    // Section: `MajoranaBasis` (SoA) vs `MajoranaMonomial` (AoS) cross-checks, the seam most
+    // at risk since `weight`/`product` depend on the cached `p` plane tracking `modes`.
 
     fn planes_of(m: &MajoranaMonomial, stride: usize) -> (Vec<u64>, Vec<u64>) {
         let mut g0 = vec![0u64; stride];

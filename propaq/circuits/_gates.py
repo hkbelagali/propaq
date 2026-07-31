@@ -41,7 +41,21 @@ from ..datatypes.pauli.termsum import (
     _xx_plus_yy_terms as _pauli_xx_plus_yy_terms,
 )
 
-NATIVE_GATES = frozenset({"xx_plus_yy", "p", "rz", "cp", "x", "swap", "rx", "ry"})
+
+class GateDecompositionWarning(UserWarning):
+    """Emitted when a gate is decomposed into native rotations via transpilation.
+
+    Suppressed by default since decomposition can happen often (e.g. inside a hot
+    loop or surrogate build) and is expected behavior, not a bug. Re-enable it with
+    warnings.filterwarnings("always", category=propaq.circuits.GateDecompositionWarning).
+    """
+
+
+warnings.filterwarnings("ignore", category=GateDecompositionWarning)
+
+NATIVE_GATES = frozenset(
+    {"xx_plus_yy", "p", "rz", "cp", "x", "swap", "rx", "ry", "rzz", "rxx", "ryy", "rzx"}
+)
 FALLBACK_BASIS = ["rz", "rx", "ry", "cp", "swap", "x", "xx_plus_yy"]
 NON_UNITARY_OPS = frozenset(
     {"reset", "delay", "initialize", "if_else", "while_loop", "for_loop", "switch_case"}
@@ -79,10 +93,29 @@ def _single_pauli_terms(rep: _Rep, axis: str, angle: Any, qubit: int, width: int
     n_qubits = rep.qubits_in_width(width)
     label = ["I"] * n_qubits
     label[n_qubits - 1 - qubit] = axis
-    # A class object is always hashable at runtime; mypy just doesn't see a
-    # Generic subclass's `type[...]` as satisfying `Hashable` here.
     gen, unit_coeff = _unit_pauli_term(rep.termsum_cls, "".join(label))  # type: ignore[arg-type]
     return [(gen, angle * unit_coeff)]
+
+
+def _two_pauli_terms(
+    rep: _Rep, axis_i: str, axis_j: str, angle: Any, i: int, j: int, width: int
+) -> list[tuple[Any, Any]]:
+    """Terms for a two-qubit Pauli-axis rotation (RZZ/RXX/RYY/RZX) as one generator.
+    """
+    n_qubits = rep.qubits_in_width(width)
+    label = ["I"] * n_qubits
+    label[n_qubits - 1 - i] = axis_i
+    label[n_qubits - 1 - j] = axis_j
+    gen, unit_coeff = _unit_pauli_term(rep.termsum_cls, "".join(label))  # type: ignore[arg-type]
+    return [(gen, angle * unit_coeff)]
+
+
+_TWO_AXIS_GATES: dict[str, tuple[str, str]] = {
+    "rzz": ("Z", "Z"),
+    "rxx": ("X", "X"),
+    "ryy": ("Y", "Y"),
+    "rzx": ("Z", "X"),
+}
 
 
 def _is_negligible(x: Any) -> bool:
@@ -116,7 +149,7 @@ def _decompose(instr: Instruction) -> list[tuple[Instruction, list[int]]]:
         f"propaq: gate {instr.name!r} is not natively supported and was decomposed into "
         f"{len(ops)} native rotation(s) via Qiskit transpilation; this can be expensive to "
         "repeat inside a hot loop or a surrogate build.",
-        UserWarning,
+        GateDecompositionWarning,
         stacklevel=5,
     )
     if key is not None:
@@ -180,6 +213,13 @@ def gate_terms(instr: Instruction, q_indices: list[int], width: int, rep: _Rep) 
         if len(q_indices) != 1:
             raise ValueError("ry gate must have exactly 1 qubit.")
         return [_single_pauli_terms(rep, "Y", instr.params[0], q_indices[0], width)]
+
+    if name in _TWO_AXIS_GATES:
+        if len(q_indices) != 2:
+            raise ValueError(f"{name} gate must have exactly 2 qubits.")
+        axis_i, axis_j = _TWO_AXIS_GATES[name]
+        i, j = q_indices
+        return [_two_pauli_terms(rep, axis_i, axis_j, instr.params[0], i, j, width)]
 
     groups = []
     for sub_instr, local_indices in _decompose(instr):
