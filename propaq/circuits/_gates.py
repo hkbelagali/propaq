@@ -80,12 +80,25 @@ MAJORANA = _Rep(
 )
 
 
+GateRep = _Rep
+"""Public alias of `_Rep`, for type-hinting a custom `terms_fn`'s `rep` parameter."""
+
+
 @cache
 def _unit_pauli_term(termsum_cls: type[PauliTermSum] | type[MajoranaTermSum], label: str) -> tuple[Any, float]:
     """(generator, unit coefficient) for a weight-1 Pauli label, via from_sparse_pauli_op."""
     term_sum = termsum_cls.from_sparse_pauli_op(SparsePauliOp(label))
     (gen, coeff), = term_sum.items()
     return gen, float(coeff.real)
+
+
+def pauli_rotation_generator(rep: _Rep, label: str) -> tuple[Any, float]:
+    """(generator, unit coefficient) for an n-qubit Pauli label (e.g. "XIZ"), for use in a
+    custom `terms_fn` passed to `register_qiskit_gate`/`register_cirq_gate`. Works for both
+    the Pauli and Majorana representations, `rep` should be the `rep` argument `terms_fn`
+    itself was called with.
+    """
+    return _unit_pauli_term(rep.termsum_cls, label)  # type: ignore[arg-type]
 
 
 def _single_pauli_terms(rep: _Rep, axis: str, angle: Any, qubit: int, width: int) -> list[tuple[Any, Any]]:
@@ -167,6 +180,23 @@ def gate_terms(instr: Instruction, q_indices: list[int], width: int, rep: _Rep) 
     if name in NON_UNITARY_OPS:
         raise ValueError(f"Unsupported non-unitary operation {name!r} in Qiskit circuit.")
 
+    from ._registry import _dispatch_qiskit
+
+    registered = _dispatch_qiskit(name, instr, q_indices, width, rep)
+    if registered is not None:
+        return registered
+
+    return _dispatch_native(instr, q_indices, width, rep)
+
+
+def _dispatch_native(instr: Instruction, q_indices: list[int], width: int, rep: _Rep) -> list[list[tuple[Any, Any]]]:
+    """Groups of ordered (generator, angle) terms via propaq's built-in native gates and
+    Qiskit-transpilation fallback, bypassing the custom-gate registry entirely.
+
+    `angle` may be a plain float or a Qiskit ParameterExpression.
+    """
+    name = instr.name
+
     if name == "xx_plus_yy":
         if len(q_indices) != 2:
             raise ValueError("xx_plus_yy gate must have exactly 2 qubits.")
@@ -224,5 +254,5 @@ def gate_terms(instr: Instruction, q_indices: list[int], width: int, rep: _Rep) 
     groups = []
     for sub_instr, local_indices in _decompose(instr):
         global_indices = [q_indices[i] for i in local_indices]
-        groups.extend(gate_terms(sub_instr, global_indices, width, rep))
+        groups.extend(_dispatch_native(sub_instr, global_indices, width, rep))
     return groups
