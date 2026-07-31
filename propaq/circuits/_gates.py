@@ -41,6 +41,7 @@ from ..datatypes.pauli.termsum import (
     _xx_plus_yy_terms as _pauli_xx_plus_yy_terms,
 )
 
+
 class GateDecompositionWarning(UserWarning):
     """Emitted when a gate is decomposed into native rotations via transpilation.
 

@@ -139,19 +139,23 @@ def cirq_gate_terms(
         return [_single_pauli_terms(rep, "Y", math.pi * gate.exponent, q_indices[0], width)]
 
     # See this function's docstring for the angle convention used here.
-    _TWO_AXIS_CIRQ = (
-        (cirq.ZZPowGate, "Z", "Z"),
-        (cirq.XXPowGate, "X", "X"),
-        (cirq.YYPowGate, "Y", "Y"),
-    )
-    for gate_cls, axis_i, axis_j in _TWO_AXIS_CIRQ:
-        if isinstance(gate, gate_cls):
-            if len(q_indices) != 2:
-                raise ValueError(f"{gate_cls.__name__} must have exactly 2 qubits.")
-            i, j = q_indices
-            return [
-                _two_pauli_terms(rep, axis_i, axis_j, math.pi * gate.exponent, i, j, width)
-            ]
+    if isinstance(gate, cirq.ZZPowGate):
+        if len(q_indices) != 2:
+            raise ValueError("ZZPowGate must have exactly 2 qubits.")
+        i, j = q_indices
+        return [_two_pauli_terms(rep, "Z", "Z", math.pi * gate.exponent, i, j, width)]
+
+    if isinstance(gate, cirq.XXPowGate):
+        if len(q_indices) != 2:
+            raise ValueError("XXPowGate must have exactly 2 qubits.")
+        i, j = q_indices
+        return [_two_pauli_terms(rep, "X", "X", math.pi * gate.exponent, i, j, width)]
+
+    if isinstance(gate, cirq.YYPowGate):
+        if len(q_indices) != 2:
+            raise ValueError("YYPowGate must have exactly 2 qubits.")
+        i, j = q_indices
+        return [_two_pauli_terms(rep, "Y", "Y", math.pi * gate.exponent, i, j, width)]
 
     if isinstance(gate, cirq.CZPowGate):
         if len(q_indices) != 2:
