@@ -1,6 +1,6 @@
 [package]
 name = "propaq"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 [lib]
@@ -16,4 +16,5 @@ propaq-core = { path = "../core" }
 propaq-majorana = { path = "../majorana" }
 propaq-pauli = { path = "../pauli" }
 propaq-surrogate = { path = "../surrogate" }
+propaq-hybrid = { path = "../hybrid" }
 pyo3 = { version = "0.23", features = ["num-complex"] }
