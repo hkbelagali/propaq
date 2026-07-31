@@ -68,13 +68,13 @@
                                 <a class="function" href="#PauliSurrogateModel.load">load</a>
                         </li>
                         <li>
+                                <a class="variable" href="#PauliSurrogateModel.n_monomials">n_monomials</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#PauliSurrogateModel.n_params">n_params</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliSurrogateModel.n_terms">n_terms</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#PauliSurrogateModel.n_monomials">n_monomials</a>
                         </li>
                 </ul>
 
@@ -98,10 +98,10 @@
                                 <a class="variable" href="#MajoranaSurrogateModel.n_terms">n_terms</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogateModel.n_monomials">n_monomials</a>
+                                <a class="variable" href="#MajoranaSurrogateModel.n_params">n_params</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogateModel.n_params">n_params</a>
+                                <a class="variable" href="#MajoranaSurrogateModel.n_monomials">n_monomials</a>
                         </li>
                 </ul>
 
@@ -262,6 +262,21 @@ assignments); returns one expectation value per assignment.</p>
 
 
                             </div>
+                            <div id="PauliSurrogateModel.n_monomials" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_monomials</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogateModel.n_monomials"></a>
+    
+            <div class="docstring"><p>Total pre-dedup monomial-instance count across every surviving term
+(an upper bound, not deduplicated: <code><a href="#PauliSurrogateModel.n_terms">n_terms</a></code> alone doesn't say how
+much underlying computation a term represents).</p>
+</div>
+
+
+                            </div>
                             <div id="PauliSurrogateModel.n_params" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_params</span>
@@ -284,21 +299,6 @@ assignments); returns one expectation value per assignment.</p>
     <a class="headerlink" href="#PauliSurrogateModel.n_terms"></a>
     
             <div class="docstring"><p>Number of compiled terms.</p>
-</div>
-
-
-                            </div>
-                            <div id="PauliSurrogateModel.n_monomials" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_monomials</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliSurrogateModel.n_monomials"></a>
-    
-            <div class="docstring"><p>Total pre-dedup monomial-instance count across every surviving term
-(an upper bound, not deduplicated: <code><a href="#PauliSurrogateModel.n_terms">n_terms</a></code> alone doesn't say how
-much underlying computation a term represents).</p>
 </div>
 
 
@@ -383,17 +383,6 @@ much underlying computation a term represents).</p>
     
 
                             </div>
-                            <div id="MajoranaSurrogateModel.n_monomials" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_monomials</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaSurrogateModel.n_monomials"></a>
-    
-    
-
-                            </div>
                             <div id="MajoranaSurrogateModel.n_params" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_params</span>
@@ -401,6 +390,17 @@ much underlying computation a term represents).</p>
         
     </div>
     <a class="headerlink" href="#MajoranaSurrogateModel.n_params"></a>
+    
+    
+
+                            </div>
+                            <div id="MajoranaSurrogateModel.n_monomials" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_monomials</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogateModel.n_monomials"></a>
     
     
 
