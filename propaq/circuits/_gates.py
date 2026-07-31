@@ -41,6 +41,17 @@ from ..datatypes.pauli.termsum import (
     _xx_plus_yy_terms as _pauli_xx_plus_yy_terms,
 )
 
+class GateDecompositionWarning(UserWarning):
+    """Emitted when a gate is decomposed into native rotations via transpilation.
+
+    Suppressed by default since decomposition can happen often (e.g. inside a hot
+    loop or surrogate build) and is expected behavior, not a bug. Re-enable it with
+    warnings.filterwarnings("always", category=propaq.circuits.GateDecompositionWarning).
+    """
+
+
+warnings.filterwarnings("ignore", category=GateDecompositionWarning)
+
 NATIVE_GATES = frozenset(
     {"xx_plus_yy", "p", "rz", "cp", "x", "swap", "rx", "ry", "rzz", "rxx", "ryy", "rzx"}
 )
@@ -81,8 +92,6 @@ def _single_pauli_terms(rep: _Rep, axis: str, angle: Any, qubit: int, width: int
     n_qubits = rep.qubits_in_width(width)
     label = ["I"] * n_qubits
     label[n_qubits - 1 - qubit] = axis
-    # A class object is always hashable at runtime; mypy just doesn't see a
-    # Generic subclass's `type[...]` as satisfying `Hashable` here.
     gen, unit_coeff = _unit_pauli_term(rep.termsum_cls, "".join(label))  # type: ignore[arg-type]
     return [(gen, angle * unit_coeff)]
 
@@ -90,20 +99,7 @@ def _single_pauli_terms(rep: _Rep, axis: str, angle: Any, qubit: int, width: int
 def _two_pauli_terms(
     rep: _Rep, axis_i: str, axis_j: str, angle: Any, i: int, j: int, width: int
 ) -> list[tuple[Any, Any]]:
-    """Terms for a two-qubit Pauli-axis rotation (RZZ/RXX/RYY/RZX) as ONE generator.
-
-    These gates are literally `exp(-i*theta/2 * P_i (x) P_j)`, a single Pauli rotation about a
-    weight-2 generator, exactly the form the propagator kernels consume. Having no entry here is
-    far more costly than the weight-1 case: `rzz` then falls through to `_decompose`, which routes
-    it via `cp` and produces FIVE rotations (`Z_i, Z_j, Z_iZ_j, Z_i, Z_j`) whose single-qubit
-    pairs are exact inverses that commute with the `Z_iZ_j` term and cancel outright. They are not
-    free while they exist: each splits every anticommuting term into a real, non-negligible
-    branch, and three of the five are merge-triggering, so one `rzz` cost three merge+truncate
-    cycles instead of one.
-
-    Generator weight costs the kernels nothing: for `stride == 1`, `commutes_at_word`/
-    `product_at_word` are O(1) in the weight, so the weight-2 form is strictly cheaper than any
-    decomposition of it.
+    """Terms for a two-qubit Pauli-axis rotation (RZZ/RXX/RYY/RZX) as one generator.
     """
     n_qubits = rep.qubits_in_width(width)
     label = ["I"] * n_qubits
@@ -113,7 +109,6 @@ def _two_pauli_terms(
     return [(gen, angle * unit_coeff)]
 
 
-# Qiskit two-qubit Pauli-axis rotations, keyed to the (axis_i, axis_j) of their generator.
 _TWO_AXIS_GATES: dict[str, tuple[str, str]] = {
     "rzz": ("Z", "Z"),
     "rxx": ("X", "X"),
@@ -153,7 +148,7 @@ def _decompose(instr: Instruction) -> list[tuple[Instruction, list[int]]]:
         f"propaq: gate {instr.name!r} is not natively supported and was decomposed into "
         f"{len(ops)} native rotation(s) via Qiskit transpilation; this can be expensive to "
         "repeat inside a hot loop or a surrogate build.",
-        UserWarning,
+        GateDecompositionWarning,
         stacklevel=5,
     )
     if key is not None:

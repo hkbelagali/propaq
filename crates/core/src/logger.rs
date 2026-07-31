@@ -1,6 +1,6 @@
 ///
 /// Logger for structured event logging of propagator runs. 
-/// The logger outputs key information, such a term, monomal (for surrogate propagation)
+/// The logger outputs key information, such as term, monomial (for surrogate propagation)
 /// gate/truncation events, timing, and other relevant data to a JSONL file.
 ///
 /// On the Python side, there's a LogParser class that can read the JSONL file and 

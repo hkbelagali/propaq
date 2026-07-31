@@ -1232,22 +1232,6 @@ mod clifford_inplace_regression_tests {
         (gx, gz)
     }
 
-    /// Regression test for the bug this file's `run_build` used to have:
-    /// every numeric gate (including a real circuit's Clifford, `pi/2`-angle
-    /// basis-change/routing rotations, e.g. a transpiled `swap`) was applied
-    /// with `clifford_inplace` hardcoded to `false`, so an anticommuting
-    /// Clifford gate always appended a new row instead of overwriting in
-    /// place. A single anticommuting term run through `N` such gates (each
-    /// followed by a `merge`, mirroring `run_build`'s periodic merge cadence)
-    /// then has its monomial `count` double per gate even though only one
-    /// live term (and one real trig factor) is ever present: exactly the
-    /// "few parameters, astronomically large monomial count" shape reported
-    /// against a real workload (see `CHANGELOG.md`: "3969 terms, ~15
-    /// quintillion monomials"). Computing `clifford_inplace` via
-    /// `SymbolicCoeff::is_clifford_param` (this fix) keeps both the term
-    /// count and the monomial count flat at 1 throughout, since a `pi/2`
-    /// rotation's cos branch is genuinely negligible and the kernel can
-    /// overwrite in place instead of branching at all.
     #[test]
     fn clifford_angle_numeric_gates_no_longer_inflate_monomial_count() {
         const N_QUBITS: usize = 4;
@@ -1258,8 +1242,6 @@ mod clifford_inplace_regression_tests {
         let (gx, gz) = planes_of(0, 0b1, 1); // Z on qubit 0
         evolved.push([&gx, &gz], SymbolicCoeff::from_real(1.0));
 
-        // Generator anticommutes with the live Z term at every round (X on
-        // the same qubit), so every round is a genuine branch opportunity.
         let (genx, genz) = planes_of(0b1, 0, 1);
         let gen = [genx.as_slice(), genz.as_slice()];
         let param = GateParam::Numeric { angle };

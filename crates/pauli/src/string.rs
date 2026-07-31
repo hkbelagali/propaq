@@ -886,16 +886,6 @@ mod tests {
         }
     }
 
-    /// Regression test: "confined to one stride-word" (what `local_word` checks) is not the
-    /// same as "single-qubit" (what the Clifford lookup table assumes). For any circuit with 64
-    /// or fewer qubits (stride=1), a genuinely two-qubit generator, e.g. from a decomposed
-    /// CX/CZ/RZZ gate, trivially fits in "one word" too, since there is only one word. This
-    /// exact bug was caught via a real benchmark regression: random_circuit/random_near_clifford
-    /// gave wrong expectation values after adding the table path, while the Heisenberg benchmark
-    /// (which happens not to exercise weight>=2 Clifford generators the same way) looked fine.
-    /// The fix gates the table on `weight(gen) == 1` specifically; this test pins that a
-    /// weight-2 Clifford generator confined to one word still gives the same result as the
-    /// non-table path (already independently validated for multi-qubit generators).
     #[test]
     fn clifford_table_path_does_not_misfire_on_weight_two_generator_confined_to_one_word() {
         let stride = 1usize;

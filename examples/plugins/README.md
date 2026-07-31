@@ -20,7 +20,7 @@ a built-in model, so their output is directly diffable against it:
 | Noise     | `UniformNoiseModel`  | `c/noise/uniform_noise.c`          | `rust/noise/uniform_noise/`      | `julia/noise/uniform_noise.jl`         |
 | Truncator | `WeightTruncator`    | `c/truncation/weight_truncator.c`  | `rust/truncation/weight_truncator/` | `julia/truncation/weight_truncator.jl` |
 
-The remaining plugins are genuinely custom policies with no built-in
+The remaining plugins are custom policies with no built-in
 equivalent: each one is implemented identically across all three
 languages (config keys and all), so they're cross-language diffable
 instead: given the same config and the same call sequence, C, Rust, and

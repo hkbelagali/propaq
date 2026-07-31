@@ -8,7 +8,7 @@ import math
 import warnings
 from typing import TYPE_CHECKING, Any
 
-from ._gates import _Rep, _single_pauli_terms, _two_pauli_terms
+from ._gates import GateDecompositionWarning, _Rep, _single_pauli_terms, _two_pauli_terms
 
 if TYPE_CHECKING:
     import cirq
@@ -50,9 +50,7 @@ def _decompose(op: cirq.Operation) -> list[tuple[cirq.Operation, list[int]]]:
     (sub_op, local_qubit_indices).
 
     Decomposes a canonical copy of the operation (on fresh LineQubits) rather
-    than `op` itself, mirroring _gates.py's throwaway-circuit approach: this
-    keeps the cache key independent of which qubits the caller's circuit
-    actually uses.
+    than `op` itself, mirroring _gates.py's throwaway-circuit approach
     """
     import cirq
 
@@ -90,7 +88,7 @@ def _decompose(op: cirq.Operation) -> list[tuple[cirq.Operation, list[int]]]:
         f"propaq: gate {gate!r} is not natively supported and was decomposed into "
         f"{len(ops)} native rotation(s) via Cirq decomposition; this can be expensive to "
         "repeat inside a hot loop or a surrogate build.",
-        UserWarning,
+        GateDecompositionWarning,
         stacklevel=6,
     )
     if key is not None:
@@ -102,17 +100,6 @@ def cirq_gate_terms(
     op: cirq.Operation, q_indices: list[int], width: int, rep: _Rep
 ) -> list[list[tuple[Any, Any]]]:
     """Groups of ordered (generator, angle) terms for one Cirq operation.
-
-    `angle` may be a plain float or a sympy expression. Within a group, terms are
-    ordered and must not be reordered or merged. Between groups, each boundary is
-    a genuine completed-gate boundary (mirrors _gates.py's grouping, which bounds
-    truncation/merge deferral to one real gate's own native expansion size).
-
-    `ZZPowGate`/`XXPowGate`/`YYPowGate` are handled as a single weight-2 generator via
-    `_two_pauli_terms` (see its docstring in _gates.py for why). Their angle convention:
-    `ZZ**t` has unitary `diag(1, e^(i*pi*t), e^(i*pi*t), 1)`, which is `exp(-i*(pi*t)/2 * ZZ)`
-    up to a global phase, so the generator angle is `pi * exponent`, matching the single-qubit
-    `ZPowGate`/`XPowGate`/`YPowGate` cases below.
     """
     import cirq
 

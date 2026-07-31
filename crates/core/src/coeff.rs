@@ -11,6 +11,8 @@
 ///
 /// As many of the operations on coefficients are on the hot path, 
 /// as many methods as possible should be `#[inline]`-able for performance. 
+/// This makes LLVM (hopefully) give us zero-cost abstractions for the 
+/// coefficient representation.
 ///
 use pyo3::prelude::*;
 use num_complex::Complex64;
@@ -77,40 +79,9 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     #[inline]
     fn is_clifford_param(_param: &Self::GateParam, _eps: f64) -> bool { false }
 
-    /// The other half of the Clifford-angle condition. A Pauli rotation `exp(-i*theta*G)` is
-    /// Clifford exactly when `theta` is a multiple of `pi/2`; `is_clifford_param` covers
-    /// `cos(theta) == 0` (theta = pi/2 mod pi, where the rotation maps an anticommuting term
-    /// wholly onto `G*term`), and this covers `sin(theta) == 0` (theta = 0 mod pi), where the
-    /// rotation leaves every term's Pauli content alone and merely scales anticommuting terms
-    /// by `cos(theta)`, which is `+-1`.
-    ///
-    /// Returns `Some(cos(theta))` in that case, `None` otherwise. This matters far more than it
-    /// looks: without it, a `theta = pi` rotation takes the generic splitting path, which
-    /// counts the anticommuting rows, appends a brand-new row for every one of them, writes a
-    /// `sin(pi) == 0` coefficient into each, and then relies on the next truncation to delete
-    /// them all. Qiskit's transpiler emits exactly such rotations routinely (a Hadamard lowers
-    /// to one `cos == 0` rotation plus one `theta = pi` rotation), so this is a hot case, not a
-    /// corner case.
-    ///
-    /// Defaults to `None` so symbolic/surrogate coefficients, whose `GateParam` is a parameter
-    /// index with no numeric angle to test, keep the generic path unchanged.
     #[inline]
     fn phase_only_scale(_param: &Self::GateParam, _eps: f64) -> Option<f64> { None }
 
-    /// The real scalar by which an exactly-Clifford rotation (`cos(theta) ~ 0`) multiplies an
-    /// *anticommuting* term's coefficient: `sin(theta) * (-phase.im)`. Used to build the
-    /// Clifford lookup table, whose whole point is to derive per-label constants once per gate
-    /// instead of calling `apply_rotation` per row.
-    ///
-    /// `None` means "this representation cannot express that factor as a plain real scalar",
-    /// which disables the lookup-table fast path and falls back to the generic per-row
-    /// `apply_rotation`. That fallback is the *safe* answer and must stay reachable: the table
-    /// previously obtained this factor as
-    /// `C::from_real(1.0).apply_rotation(param, phase).to_f64()`, which silently yields `0.0`
-    /// for any representation that does not override `to_f64`/`magnitude`. `SymbolicCoeff`
-    /// does not, so every surrogate Clifford gate with a concrete angle was zeroing the entire
-    /// observable. Deriving the scalar from `param`/`phase` directly, and refusing to guess
-    /// when it is not available, is what makes that failure mode unrepresentable.
     #[inline]
     fn clifford_branch_sign(_param: &Self::GateParam, _phase: Complex64) -> Option<f64> { None }
 
