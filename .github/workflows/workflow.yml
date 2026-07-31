@@ -9,46 +9,42 @@ on:
 
 jobs:
 
-  # TODO: temporarily disabled while the release wheel-build workflow is being
-  # fixed, to avoid waiting on the full test/lint/mypy/coverage/cargo-test gate
-  # on every iteration. Re-enable (restore the job body and the two
-  # `needs: - prebuild` blocks below) once wheel builds are working again.
-  # prebuild:
-  #   name: test, lint, type check
-  #   runs-on: ubuntu-latest
-  #   strategy:
-  #     matrix:
-  #       python-version: ["3.10", "3.11", "3.12"]
-  #   permissions:
-  #     contents: read
-  #
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #       with:
-  #         persist-credentials: false
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: ${{ matrix.python-version }}
-  #     - name: Set up Rust
-  #       uses: dtolnay/rust-toolchain@stable
-  #     - name: Set up environment
-  #       run: pip install -e .[dev,cirq]
-  #     - name: Lint with ruff
-  #       run: ruff check .
-  #     - name: Type check with mypy
-  #       run: mypy propaq/
-  #     - name: Run Python tests with coverage
-  #       run: coverage run -m pytest
-  #     - name: Check coverage threshold
-  #       run: coverage report
-  #     - name: Run Rust tests with cargo
-  #       run: cargo test
+  prebuild:
+    name: test, lint, type check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Set up environment
+        run: pip install -e .[dev,cirq]
+      - name: Lint with ruff
+        run: ruff check .
+      - name: Type check with mypy
+        run: mypy propaq/
+      - name: Run Python tests with coverage
+        run: coverage run -m pytest
+      - name: Check coverage threshold
+        run: coverage report
+      - name: Run Rust tests with cargo
+        run: cargo test
 
   build-linux:
     if: github.event_name == 'release'
-    # needs:
-    #   - prebuild
+    needs:
+      - prebuild
     name: build distribution (ubuntu-latest)
     runs-on: ubuntu-latest
     permissions:
@@ -72,8 +68,8 @@ jobs:
 
   build-macos-windows:
     if: github.event_name == 'release'
-    # needs:
-    #   - prebuild
+    needs:
+      - prebuild
     name: build distribution (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
