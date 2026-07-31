@@ -59,6 +59,24 @@
 
             </li>
             <li>
+                    <a class="class" href="#GateValidationError">GateValidationError</a>
+                            <ul class="memberlist">
+                </ul>
+
+            </li>
+            <li>
+                    <a class="variable" href="#GateRep">GateRep</a>
+            </li>
+            <li>
+                    <a class="function" href="#pauli_rotation_generator">pauli_rotation_generator</a>
+            </li>
+            <li>
+                    <a class="function" href="#register_qiskit_gate">register_qiskit_gate</a>
+            </li>
+            <li>
+                    <a class="function" href="#register_cirq_gate">register_cirq_gate</a>
+            </li>
+            <li>
                     <a class="class" href="#MajoranaRotation">MajoranaRotation</a>
                             <ul class="memberlist">
                         <li>
@@ -305,23 +323,29 @@
 
                         <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;Circuit representations and gate parameterizations for propaq.&quot;&quot;&quot;</span>
 </span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
-</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._gates</span><span class="w"> </span><span class="kn">import</span> <span class="n">GateDecompositionWarning</span> <span class="k">as</span> <span class="n">GateDecompositionWarning</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.circuit</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaCircuit</span> <span class="k">as</span> <span class="n">MajoranaCircuit</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.rotation</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaRotation</span> <span class="k">as</span> <span class="n">MajoranaRotation</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.surrogate_circuit</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurrogateMajoranaCircuit</span> <span class="k">as</span> <span class="n">SurrogateMajoranaCircuit</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.surrogate_rotation</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurrogateMajoranaRotation</span> <span class="k">as</span> <span class="n">SurrogateMajoranaRotation</span>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.circuit</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliCircuit</span> <span class="k">as</span> <span class="n">PauliCircuit</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.rotation</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliRotation</span> <span class="k">as</span> <span class="n">PauliRotation</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.surrogate_circuit</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurrogatePauliCircuit</span> <span class="k">as</span> <span class="n">SurrogatePauliCircuit</span>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.surrogate_rotation</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurrogateRotation</span> <span class="k">as</span> <span class="n">SurrogateRotation</span>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a>    <span class="s2">&quot;GateDecompositionWarning&quot;</span><span class="p">,</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>    <span class="s2">&quot;MajoranaRotation&quot;</span><span class="p">,</span> <span class="s2">&quot;MajoranaCircuit&quot;</span><span class="p">,</span>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a>    <span class="s2">&quot;SurrogateMajoranaRotation&quot;</span><span class="p">,</span> <span class="s2">&quot;SurrogateMajoranaCircuit&quot;</span><span class="p">,</span>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>    <span class="s2">&quot;PauliRotation&quot;</span><span class="p">,</span> <span class="s2">&quot;PauliCircuit&quot;</span><span class="p">,</span>
-</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a>    <span class="s2">&quot;SurrogateRotation&quot;</span><span class="p">,</span> <span class="s2">&quot;SurrogatePauliCircuit&quot;</span><span class="p">,</span>
-</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a><span class="p">]</span>
+</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._gate_validation</span><span class="w"> </span><span class="kn">import</span> <span class="n">GateValidationError</span> <span class="k">as</span> <span class="n">GateValidationError</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._gates</span><span class="w"> </span><span class="kn">import</span> <span class="n">GateDecompositionWarning</span> <span class="k">as</span> <span class="n">GateDecompositionWarning</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._gates</span><span class="w"> </span><span class="kn">import</span> <span class="n">GateRep</span> <span class="k">as</span> <span class="n">GateRep</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._gates</span><span class="w"> </span><span class="kn">import</span> <span class="n">pauli_rotation_generator</span> <span class="k">as</span> <span class="n">pauli_rotation_generator</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_cirq_gate</span> <span class="k">as</span> <span class="n">register_cirq_gate</span>
+</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">._registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_qiskit_gate</span> <span class="k">as</span> <span class="n">register_qiskit_gate</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.circuit</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaCircuit</span> <span class="k">as</span> <span class="n">MajoranaCircuit</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.rotation</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaRotation</span> <span class="k">as</span> <span class="n">MajoranaRotation</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.surrogate_circuit</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurrogateMajoranaCircuit</span> <span class="k">as</span> <span class="n">SurrogateMajoranaCircuit</span>
+</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.majorana.surrogate_rotation</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurrogateMajoranaRotation</span> <span class="k">as</span> <span class="n">SurrogateMajoranaRotation</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.circuit</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliCircuit</span> <span class="k">as</span> <span class="n">PauliCircuit</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.rotation</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliRotation</span> <span class="k">as</span> <span class="n">PauliRotation</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.surrogate_circuit</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurrogatePauliCircuit</span> <span class="k">as</span> <span class="n">SurrogatePauliCircuit</span>
+</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.pauli.surrogate_rotation</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurrogateRotation</span> <span class="k">as</span> <span class="n">SurrogateRotation</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a>
+</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>    <span class="s2">&quot;GateDecompositionWarning&quot;</span><span class="p">,</span> <span class="s2">&quot;GateValidationError&quot;</span><span class="p">,</span> <span class="s2">&quot;GateRep&quot;</span><span class="p">,</span>
+</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a>    <span class="s2">&quot;pauli_rotation_generator&quot;</span><span class="p">,</span> <span class="s2">&quot;register_qiskit_gate&quot;</span><span class="p">,</span> <span class="s2">&quot;register_cirq_gate&quot;</span><span class="p">,</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a>    <span class="s2">&quot;MajoranaRotation&quot;</span><span class="p">,</span> <span class="s2">&quot;MajoranaCircuit&quot;</span><span class="p">,</span>
+</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a>    <span class="s2">&quot;SurrogateMajoranaRotation&quot;</span><span class="p">,</span> <span class="s2">&quot;SurrogateMajoranaCircuit&quot;</span><span class="p">,</span>
+</span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a>    <span class="s2">&quot;PauliRotation&quot;</span><span class="p">,</span> <span class="s2">&quot;PauliCircuit&quot;</span><span class="p">,</span>
+</span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a>    <span class="s2">&quot;SurrogateRotation&quot;</span><span class="p">,</span> <span class="s2">&quot;SurrogatePauliCircuit&quot;</span><span class="p">,</span>
+</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a><span class="p">]</span>
 </span></pre></div>
 
 
@@ -352,6 +376,169 @@
 <p>Suppressed by default since decomposition can happen often (e.g. inside a hot
 loop or surrogate build) and is expected behavior, not a bug. Re-enable it with
 warnings.filterwarnings("always", category=propaq<a href="#GateDecompositionWarning">.circuits.GateDecompositionWarning</a>).</p>
+</div>
+
+
+                </section>
+                <section id="GateValidationError">
+                            <input id="GateValidationError-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr class">
+            
+    <span class="def">class</span>
+    <span class="name">GateValidationError</span><wbr>(<span class="base">builtins.Exception</span>):
+
+                <label class="view-source-button" for="GateValidationError-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#GateValidationError"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="GateValidationError-32"><a href="#GateValidationError-32"><span class="linenos">32</span></a><span class="k">class</span><span class="w"> </span><span class="nc">GateValidationError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+</span><span id="GateValidationError-33"><a href="#GateValidationError-33"><span class="linenos">33</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when a custom-registered gate&#39;s terms_fn disagrees with propaq&#39;s own</span>
+</span><span id="GateValidationError-34"><a href="#GateValidationError-34"><span class="linenos">34</span></a><span class="sd">    decomposition path for the same gate.&quot;&quot;&quot;</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Raised when a custom-registered gate's terms_fn disagrees with propaq's own
+decomposition path for the same gate.</p>
+</div>
+
+
+                </section>
+                <section id="GateRep">
+                    <div class="attr variable">
+            <span class="name">GateRep</span>        =
+<span class="default_value">&lt;class &#39;propaq.circuits._gates._Rep&#39;&gt;</span>
+
+        
+    </div>
+    <a class="headerlink" href="#GateRep"></a>
+    
+    
+
+                </section>
+                <section id="pauli_rotation_generator">
+                            <input id="pauli_rotation_generator-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">pauli_rotation_generator</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">rep</span><span class="p">:</span> <span class="n">propaq</span><span class="o">.</span><span class="n">circuits</span><span class="o">.</span><span class="n">_gates</span><span class="o">.</span><span class="n">_Rep</span>, </span><span class="param"><span class="n">label</span><span class="p">:</span> <span class="nb">str</span></span><span class="return-annotation">) -> <span class="nb">tuple</span><span class="p">[</span><span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span>:</span></span>
+
+                <label class="view-source-button" for="pauli_rotation_generator-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#pauli_rotation_generator"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="pauli_rotation_generator-96"><a href="#pauli_rotation_generator-96"><span class="linenos"> 96</span></a><span class="k">def</span><span class="w"> </span><span class="nf">pauli_rotation_generator</span><span class="p">(</span><span class="n">rep</span><span class="p">:</span> <span class="n">_Rep</span><span class="p">,</span> <span class="n">label</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+</span><span id="pauli_rotation_generator-97"><a href="#pauli_rotation_generator-97"><span class="linenos"> 97</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;(generator, unit coefficient) for an n-qubit Pauli label (e.g. &quot;XIZ&quot;), for use in a</span>
+</span><span id="pauli_rotation_generator-98"><a href="#pauli_rotation_generator-98"><span class="linenos"> 98</span></a><span class="sd">    custom `terms_fn` passed to `register_qiskit_gate`/`register_cirq_gate`. Works for both</span>
+</span><span id="pauli_rotation_generator-99"><a href="#pauli_rotation_generator-99"><span class="linenos"> 99</span></a><span class="sd">    the Pauli and Majorana representations, `rep` should be the `rep` argument `terms_fn`</span>
+</span><span id="pauli_rotation_generator-100"><a href="#pauli_rotation_generator-100"><span class="linenos">100</span></a><span class="sd">    itself was called with.</span>
+</span><span id="pauli_rotation_generator-101"><a href="#pauli_rotation_generator-101"><span class="linenos">101</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="pauli_rotation_generator-102"><a href="#pauli_rotation_generator-102"><span class="linenos">102</span></a>    <span class="k">return</span> <span class="n">_unit_pauli_term</span><span class="p">(</span><span class="n">rep</span><span class="o">.</span><span class="n">termsum_cls</span><span class="p">,</span> <span class="n">label</span><span class="p">)</span>  <span class="c1"># type: ignore[arg-type]</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>(generator, unit coefficient) for an n-qubit Pauli label (e.g. "XIZ"), for use in a
+custom <code>terms_fn</code> passed to <code><a href="#register_qiskit_gate">register_qiskit_gate</a></code>/<code><a href="#register_cirq_gate">register_cirq_gate</a></code>. Works for both
+the Pauli and Majorana representations, <code>rep</code> should be the <code>rep</code> argument <code>terms_fn</code>
+itself was called with.</p>
+</div>
+
+
+                </section>
+                <section id="register_qiskit_gate">
+                            <input id="register_qiskit_gate-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">register_qiskit_gate</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">name</span><span class="p">:</span> <span class="nb">str</span>,</span><span class="param">	<span class="n">terms_fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">qiskit</span><span class="o">.</span><span class="n">circuit</span><span class="o">.</span><span class="n">instruction</span><span class="o">.</span><span class="n">Instruction</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span> <span class="nb">int</span><span class="p">,</span> <span class="n">propaq</span><span class="o">.</span><span class="n">circuits</span><span class="o">.</span><span class="n">_gates</span><span class="o">.</span><span class="n">_Rep</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">,</span> <span class="n">typing</span><span class="o">.</span><span class="n">Any</span><span class="p">]]]]</span>,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">validate</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+
+                <label class="view-source-button" for="register_qiskit_gate-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#register_qiskit_gate"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="register_qiskit_gate-26"><a href="#register_qiskit_gate-26"><span class="linenos">26</span></a><span class="k">def</span><span class="w"> </span><span class="nf">register_qiskit_gate</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">terms_fn</span><span class="p">:</span> <span class="n">QiskitTermsFn</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">validate</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="register_qiskit_gate-27"><a href="#register_qiskit_gate-27"><span class="linenos">27</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Registers a custom generator-based decomposition for the Qiskit instruction named</span>
+</span><span id="register_qiskit_gate-28"><a href="#register_qiskit_gate-28"><span class="linenos">28</span></a><span class="sd">    `name`, bypassing propaq&#39;s transpile-based decomposition fallback for that gate.</span>
+</span><span id="register_qiskit_gate-29"><a href="#register_qiskit_gate-29"><span class="linenos">29</span></a>
+</span><span id="register_qiskit_gate-30"><a href="#register_qiskit_gate-30"><span class="linenos">30</span></a><span class="sd">    `terms_fn(instr, q_indices, width, rep) -&gt; list[list[tuple[generator, angle]]]` must</span>
+</span><span id="register_qiskit_gate-31"><a href="#register_qiskit_gate-31"><span class="linenos">31</span></a><span class="sd">    return the same shape as propaq&#39;s own built-in dispatch branches (see e.g. the &quot;cp&quot;</span>
+</span><span id="register_qiskit_gate-32"><a href="#register_qiskit_gate-32"><span class="linenos">32</span></a><span class="sd">    case in `propaq.circuits._gates.gate_terms`), built via helpers such as</span>
+</span><span id="register_qiskit_gate-33"><a href="#register_qiskit_gate-33"><span class="linenos">33</span></a><span class="sd">    `propaq.circuits.pauli_rotation_generator`. It must be correctly parametric in</span>
+</span><span id="register_qiskit_gate-34"><a href="#register_qiskit_gate-34"><span class="linenos">34</span></a><span class="sd">    `width`/`q_indices` rather than hardcoding absolute qubit positions - `_decompose`&#39;s</span>
+</span><span id="register_qiskit_gate-35"><a href="#register_qiskit_gate-35"><span class="linenos">35</span></a><span class="sd">    recursive sub-instruction handling relies on the same contract.</span>
+</span><span id="register_qiskit_gate-36"><a href="#register_qiskit_gate-36"><span class="linenos">36</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="register_qiskit_gate-37"><a href="#register_qiskit_gate-37"><span class="linenos">37</span></a>    <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">NATIVE_GATES</span><span class="p">:</span>
+</span><span id="register_qiskit_gate-38"><a href="#register_qiskit_gate-38"><span class="linenos">38</span></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+</span><span id="register_qiskit_gate-39"><a href="#register_qiskit_gate-39"><span class="linenos">39</span></a>            <span class="sa">f</span><span class="s2">&quot;propaq: </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> is already a native gate and cannot be overridden via &quot;</span>
+</span><span id="register_qiskit_gate-40"><a href="#register_qiskit_gate-40"><span class="linenos">40</span></a>            <span class="s2">&quot;register_qiskit_gate.&quot;</span>
+</span><span id="register_qiskit_gate-41"><a href="#register_qiskit_gate-41"><span class="linenos">41</span></a>        <span class="p">)</span>
+</span><span id="register_qiskit_gate-42"><a href="#register_qiskit_gate-42"><span class="linenos">42</span></a>    <span class="n">_QISKIT_REGISTRY</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">terms_fn</span><span class="p">,</span> <span class="n">validate</span><span class="p">)</span>
+</span><span id="register_qiskit_gate-43"><a href="#register_qiskit_gate-43"><span class="linenos">43</span></a>    <span class="n">_VALIDATED</span><span class="o">.</span><span class="n">difference_update</span><span class="p">({</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">_VALIDATED</span> <span class="k">if</span> <span class="n">key</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">name</span><span class="p">})</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Registers a custom generator-based decomposition for the Qiskit instruction named
+<code>name</code>, bypassing propaq's transpile-based decomposition fallback for that gate.</p>
+
+<p><code>terms_fn(instr, q_indices, width, rep) -&gt; list[list[tuple[generator, angle]]]</code> must
+return the same shape as propaq's own built-in dispatch branches (see e.g. the "cp"
+case in <code>propaq.circuits._gates.gate_terms</code>), built via helpers such as
+<code><a href="#pauli_rotation_generator">propaq.circuits.pauli_rotation_generator</a></code>. It must be correctly parametric in
+<code>width</code>/<code>q_indices</code> rather than hardcoding absolute qubit positions - <code>_decompose</code>'s
+recursive sub-instruction handling relies on the same contract.</p>
+</div>
+
+
+                </section>
+                <section id="register_cirq_gate">
+                            <input id="register_cirq_gate-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+<div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">register_cirq_gate</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">gate_type</span><span class="p">:</span> <span class="nb">type</span>,</span><span class="param">	<span class="n">terms_fn</span><span class="p">:</span> <span class="s1">&#39;CirqTermsFn&#39;</span>,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">validate</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></span><span class="return-annotation">) -> <span class="kc">None</span>:</span></span>
+
+                <label class="view-source-button" for="register_cirq_gate-view-source"><span>View Source</span></label>
+
+    </div>
+    <a class="headerlink" href="#register_cirq_gate"></a>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="register_cirq_gate-46"><a href="#register_cirq_gate-46"><span class="linenos">46</span></a><span class="k">def</span><span class="w"> </span><span class="nf">register_cirq_gate</span><span class="p">(</span><span class="n">gate_type</span><span class="p">:</span> <span class="nb">type</span><span class="p">,</span> <span class="n">terms_fn</span><span class="p">:</span> <span class="n">CirqTermsFn</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">validate</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="register_cirq_gate-47"><a href="#register_cirq_gate-47"><span class="linenos">47</span></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Registers a custom generator-based decomposition for the given Cirq gate type,</span>
+</span><span id="register_cirq_gate-48"><a href="#register_cirq_gate-48"><span class="linenos">48</span></a><span class="sd">    bypassing propaq&#39;s cirq.decompose fallback for that gate. Matched by exact</span>
+</span><span id="register_cirq_gate-49"><a href="#register_cirq_gate-49"><span class="linenos">49</span></a><span class="sd">    `type(op.gate)`, not isinstance/subclass, registering a base class will not also</span>
+</span><span id="register_cirq_gate-50"><a href="#register_cirq_gate-50"><span class="linenos">50</span></a><span class="sd">    match its subclasses.</span>
+</span><span id="register_cirq_gate-51"><a href="#register_cirq_gate-51"><span class="linenos">51</span></a>
+</span><span id="register_cirq_gate-52"><a href="#register_cirq_gate-52"><span class="linenos">52</span></a><span class="sd">    `terms_fn(op, q_indices, width, rep) -&gt; list[list[tuple[generator, angle]]]` must</span>
+</span><span id="register_cirq_gate-53"><a href="#register_cirq_gate-53"><span class="linenos">53</span></a><span class="sd">    return the same shape as propaq&#39;s own built-in dispatch branches (see e.g. the</span>
+</span><span id="register_cirq_gate-54"><a href="#register_cirq_gate-54"><span class="linenos">54</span></a><span class="sd">    ZZPowGate case in `propaq.circuits._cirq_gates.cirq_gate_terms`), built via helpers</span>
+</span><span id="register_cirq_gate-55"><a href="#register_cirq_gate-55"><span class="linenos">55</span></a><span class="sd">    such as `propaq.circuits.pauli_rotation_generator`. It must be correctly parametric in</span>
+</span><span id="register_cirq_gate-56"><a href="#register_cirq_gate-56"><span class="linenos">56</span></a><span class="sd">    `width`/`q_indices` rather than hardcoding absolute qubit positions.</span>
+</span><span id="register_cirq_gate-57"><a href="#register_cirq_gate-57"><span class="linenos">57</span></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="register_cirq_gate-58"><a href="#register_cirq_gate-58"><span class="linenos">58</span></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">cirq</span>
+</span><span id="register_cirq_gate-59"><a href="#register_cirq_gate-59"><span class="linenos">59</span></a>
+</span><span id="register_cirq_gate-60"><a href="#register_cirq_gate-60"><span class="linenos">60</span></a>    <span class="n">native_types</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="register_cirq_gate-61"><a href="#register_cirq_gate-61"><span class="linenos">61</span></a>        <span class="n">cirq</span><span class="o">.</span><span class="n">ZPowGate</span><span class="p">,</span> <span class="n">cirq</span><span class="o">.</span><span class="n">XPowGate</span><span class="p">,</span> <span class="n">cirq</span><span class="o">.</span><span class="n">YPowGate</span><span class="p">,</span> <span class="n">cirq</span><span class="o">.</span><span class="n">CZPowGate</span><span class="p">,</span>
+</span><span id="register_cirq_gate-62"><a href="#register_cirq_gate-62"><span class="linenos">62</span></a>        <span class="n">cirq</span><span class="o">.</span><span class="n">PhasedISwapPowGate</span><span class="p">,</span> <span class="n">cirq</span><span class="o">.</span><span class="n">ZZPowGate</span><span class="p">,</span> <span class="n">cirq</span><span class="o">.</span><span class="n">XXPowGate</span><span class="p">,</span> <span class="n">cirq</span><span class="o">.</span><span class="n">YYPowGate</span><span class="p">,</span>
+</span><span id="register_cirq_gate-63"><a href="#register_cirq_gate-63"><span class="linenos">63</span></a>        <span class="n">cirq</span><span class="o">.</span><span class="n">SwapPowGate</span><span class="p">,</span>
+</span><span id="register_cirq_gate-64"><a href="#register_cirq_gate-64"><span class="linenos">64</span></a>    <span class="p">)</span>
+</span><span id="register_cirq_gate-65"><a href="#register_cirq_gate-65"><span class="linenos">65</span></a>    <span class="k">if</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">gate_type</span><span class="p">,</span> <span class="n">native_types</span><span class="p">):</span>
+</span><span id="register_cirq_gate-66"><a href="#register_cirq_gate-66"><span class="linenos">66</span></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+</span><span id="register_cirq_gate-67"><a href="#register_cirq_gate-67"><span class="linenos">67</span></a>            <span class="sa">f</span><span class="s2">&quot;propaq: </span><span class="si">{</span><span class="n">gate_type</span><span class="si">!r}</span><span class="s2"> is already a native gate type and cannot be &quot;</span>
+</span><span id="register_cirq_gate-68"><a href="#register_cirq_gate-68"><span class="linenos">68</span></a>            <span class="s2">&quot;overridden via register_cirq_gate.&quot;</span>
+</span><span id="register_cirq_gate-69"><a href="#register_cirq_gate-69"><span class="linenos">69</span></a>        <span class="p">)</span>
+</span><span id="register_cirq_gate-70"><a href="#register_cirq_gate-70"><span class="linenos">70</span></a>    <span class="n">_CIRQ_REGISTRY</span><span class="p">[</span><span class="n">gate_type</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">terms_fn</span><span class="p">,</span> <span class="n">validate</span><span class="p">)</span>
+</span><span id="register_cirq_gate-71"><a href="#register_cirq_gate-71"><span class="linenos">71</span></a>    <span class="n">_VALIDATED</span><span class="o">.</span><span class="n">difference_update</span><span class="p">({</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">_VALIDATED</span> <span class="k">if</span> <span class="n">key</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">gate_type</span><span class="p">})</span>
+</span></pre></div>
+
+
+            <div class="docstring"><p>Registers a custom generator-based decomposition for the given Cirq gate type,
+bypassing propaq's cirq.decompose fallback for that gate. Matched by exact
+<code>type(op.gate)</code>, not isinstance/subclass, registering a base class will not also
+match its subclasses.</p>
+
+<p><code>terms_fn(op, q_indices, width, rep) -&gt; list[list[tuple[generator, angle]]]</code> must
+return the same shape as propaq's own built-in dispatch branches (see e.g. the
+ZZPowGate case in <code>propaq.circuits._cirq_gates.cirq_gate_terms</code>), built via helpers
+such as <code><a href="#pauli_rotation_generator">propaq.circuits.pauli_rotation_generator</a></code>. It must be correctly parametric in
+<code>width</code>/<code>q_indices</code> rather than hardcoding absolute qubit positions.</p>
 </div>
 
 
