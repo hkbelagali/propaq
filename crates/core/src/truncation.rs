@@ -69,10 +69,11 @@ impl TruncationPolicy {
 impl TruncationPolicy {
     /// Decompose the legacy single-policy form into the composable
     /// `(FlushSchedule, [Truncator])` shape the propagators run internally.
-    /// Preserves exact legacy behavior: no finer merge cadence (the policy has
-    /// no merge field), `weight_cutoff` → `WeightTruncator`, a positive
-    /// `coeff_cutoff` → `CoefficientTruncator`, and `truncation_range` →
-    /// `TermBudget`.
+    /// The policy has no merge field, so the merge cadence falls back to
+    /// `FlushSchedule`'s own default (`merge_max_terms=1`), same as every
+    /// other `resolve_truncation` path; `weight_cutoff` → `WeightTruncator`,
+    /// a positive `coeff_cutoff` → `CoefficientTruncator`, and
+    /// `truncation_range` → `TermBudget`.
     /// TODO: Deprecate this eventually in favor of the new `FlushSchedule` + `Truncator` form, which is more flexible and composable.
     pub fn decompose(&self) -> (crate::truncators::FlushSchedule, Vec<crate::truncators::Truncator>) {
         use crate::truncators::{
@@ -93,7 +94,7 @@ impl TruncationPolicy {
                 max_terms: self.truncation_range.1,
             }));
         }
-        (FlushSchedule::none(), ops)
+        (FlushSchedule::default(), ops)
     }
 }
 
