@@ -3,7 +3,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, SparsePauliOp
+from qiskit.quantum_info import SparsePauliOp, Statevector
 
 qu = pytest.importorskip("quimb")
 qtn = pytest.importorskip("quimb.tensor")

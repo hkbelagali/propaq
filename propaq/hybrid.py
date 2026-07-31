@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from propaq._rust_core import MajoranaTermSum as _RustMajoranaTermSum
+from propaq._rust_core import PauliTermSum as _RustPauliTermSum
 from propaq._rust_core import hybrid_expectation
 from propaq.datatypes import MajoranaTermSum, PauliTermSum
 
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 __all__ = ["hybrid_expectation_value"]
 
 
-def _build_mps(circuit2: "QuantumCircuit", initial_state: int):
+def _build_mps(circuit2: QuantumCircuit, initial_state: int):
     """
     Builds the MPS |Psi> = C2|Psi_0> via quimb.
     """
@@ -58,14 +59,16 @@ def _is_mps(obj) -> bool:
     return isinstance(obj, qtn.MatrixProductState)
 
 
-def _to_pauli_term_sum(term_sum: "AbstractTermSum") -> PauliTermSum:
+def _to_pauli_term_sum(term_sum: AbstractTermSum) -> PauliTermSum:
     """
     Converts *term_sum* to an equivalent `PauliTermSum` if it's a Majorana
     term sum, passing Pauli term sums through unchanged.
     """
-    if not isinstance(term_sum, _RustMajoranaTermSum):
+    if isinstance(term_sum, _RustPauliTermSum):
         return term_sum
-    wrapped = MajoranaTermSum(dtype=term_sum.dtype)
+    if not isinstance(term_sum, _RustMajoranaTermSum):
+        raise TypeError(f"Unsupported term sum type: {type(term_sum)!r}")
+    wrapped: MajoranaTermSum = MajoranaTermSum(dtype=term_sum.dtype)
     wrapped.merge(term_sum)
     return PauliTermSum.from_sparse_pauli_op(wrapped.to_sparse_pauli_op())
 
@@ -93,8 +96,8 @@ def _normalize_mps_arrays(mps) -> list[np.ndarray]:
 
 
 def hybrid_expectation_value(
-    propagated_observable: "AbstractTermSum",
-    circuit2: "QuantumCircuit | MatrixProductState",
+    propagated_observable: AbstractTermSum,
+    circuit2: QuantumCircuit | MatrixProductState,
     initial_state: int = 0,
 ) -> float:
     """
