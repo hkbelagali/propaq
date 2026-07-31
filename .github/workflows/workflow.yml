@@ -62,7 +62,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --out dist --find-interpreter
+          args: --release --out dist --interpreter /opt/python/cp310-cp310/bin/python /opt/python/cp311-cp311/bin/python /opt/python/cp312-cp312/bin/python
           manylinux: auto
       - name: Store the distribution packages
         uses: actions/upload-artifact@v4
