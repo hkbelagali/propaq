@@ -18,6 +18,7 @@ use propaq_surrogate::{
     PauliSurrogateModel, MajoranaSurrogateModel,
     PauliSurrogatePropagator, MajoranaSurrogatePropagator,
 };
+use propaq_hybrid::pyapi::hybrid_expectation;
 
 #[pyfunction]
 fn rust_available() -> bool {
@@ -54,5 +55,6 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MajoranaSurrogateModel>()?;
     m.add_class::<PauliSurrogatePropagator>()?;
     m.add_class::<MajoranaSurrogatePropagator>()?;
+    m.add_function(wrap_pyfunction!(hybrid_expectation, m)?)?;
     Ok(())
 }

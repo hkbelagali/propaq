@@ -6,14 +6,21 @@
 
 Fast Heisenberg-picture propagation for quantum circuit simulation, with a parallel Rust backend!
 
-Implements the algorithms described in: 
+propaq features the following: 
+- Hybrid Schrodinger-Heisenberg simulation for quantum circuits, with functionality for both Pauli and Majorana propagation.
+- Support for both Pauli and Majorana propagation, with integration with Qiskit and Cirq.
+- Support for custom, composable noise models and truncation policies, written in C, Rust, AOT Julia, or Python via a plugin ABI.
+- Support to define fast paths for custom unitary gates. 
+- Logging and profiling capabilities for propagation runs, as well as lazy I/O operations for saving and loading results.
+- Extrapolation methods for estimating expectation values in the limit of zero noise and/or zero truncation error.
+- Surrogate/Symbolic propagation for computing expectation values of parameterized circuits, i.e. for variational quantum algorithms.
+
+propaq implements the algorithms described in: 
 
 >  M. S. Rudolph, T. Jones, Y. Teng, A. Angrisani, and Z. Holmes, “Pauli Propagation: A Computational Framework for Simulating Quantum Systems,” May 27, 2025, arXiv: arXiv:2505.21606. doi: 10.48550/arXiv.2505.21606.
 
 >  A. Miller et al., "Simulation of Fermionic circuits using Majorana Propagation," Dec. 16, 2025, arXiv: arXiv:2503.18939. doi: 10.48550/arXiv.2503.18939.
 
-propaq also provides the functionality to run noisy simulations with user-defined noise models and truncation policies, and to log propagation events 
-for debugging and analysis. It is designed to parse Qiskit circuits and observables for easy integration with existing quantum computing workflows.
 ## Installation
 
 ```bash
