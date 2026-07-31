@@ -80,13 +80,13 @@
                     <a class="class" href="#FrequencyTruncationPolicy">FrequencyTruncationPolicy</a>
                             <ul class="memberlist">
                         <li>
+                                <a class="variable" href="#FrequencyTruncationPolicy.truncation_range">truncation_range</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.merge_max_terms">merge_max_terms</a>
                         </li>
                         <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.weight_cutoff">weight_cutoff</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#FrequencyTruncationPolicy.truncation_range">truncation_range</a>
                         </li>
                         <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.max_frequency">max_frequency</a>
@@ -256,9 +256,9 @@
                                 <dl>
                                     <div><dt><a href="_rust_core.html#TruncationPolicy">propaq._rust_core.TruncationPolicy</a></dt>
                                 <dd id="TruncationPolicy.should_truncate" class="function"><a href="_rust_core.html#TruncationPolicy.should_truncate">should_truncate</a></dd>
-                <dd id="TruncationPolicy.truncation_range" class="variable"><a href="_rust_core.html#TruncationPolicy.truncation_range">truncation_range</a></dd>
                 <dd id="TruncationPolicy.weight_cutoff" class="variable"><a href="_rust_core.html#TruncationPolicy.weight_cutoff">weight_cutoff</a></dd>
                 <dd id="TruncationPolicy.coeff_cutoff" class="variable"><a href="_rust_core.html#TruncationPolicy.coeff_cutoff">coeff_cutoff</a></dd>
+                <dd id="TruncationPolicy.truncation_range" class="variable"><a href="_rust_core.html#TruncationPolicy.truncation_range">truncation_range</a></dd>
 
             </div>
                                 </dl>
@@ -276,6 +276,19 @@
     
     
 
+                            <div id="FrequencyTruncationPolicy.truncation_range" class="classattr">
+                                <div class="attr variable">
+            <span class="name">truncation_range</span>
+
+        
+    </div>
+    <a class="headerlink" href="#FrequencyTruncationPolicy.truncation_range"></a>
+    
+            <div class="docstring"><p>The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.</p>
+</div>
+
+
+                            </div>
                             <div id="FrequencyTruncationPolicy.merge_max_terms" class="classattr">
                                 <div class="attr variable">
             <span class="name">merge_max_terms</span>
@@ -300,19 +313,6 @@ partition maps (no truncation). <code>None</code> disables the finer cadence.</p
     <a class="headerlink" href="#FrequencyTruncationPolicy.weight_cutoff"></a>
     
             <div class="docstring"><p>Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).</p>
-</div>
-
-
-                            </div>
-                            <div id="FrequencyTruncationPolicy.truncation_range" class="classattr">
-                                <div class="attr variable">
-            <span class="name">truncation_range</span>
-
-        
-    </div>
-    <a class="headerlink" href="#FrequencyTruncationPolicy.truncation_range"></a>
-    
-            <div class="docstring"><p>The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.</p>
 </div>
 
 
