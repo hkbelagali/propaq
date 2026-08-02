@@ -82,6 +82,7 @@ class MajoranaUCJBench:
         self.obs = MajoranaTermSum.from_sparse_pauli_op(observable)
         self.trunc = TruncationPolicy(weight_cutoff=100_000, coeff_cutoff=1e-10)
         n_alpha, n_beta = natoms // 2, natoms // 2
+        norb = n_alpha + n_beta
         self.hf_state = sum(1 << k for k in range(n_alpha)) | sum(1 << (norb + k) for k in range(n_beta))
 
     def time_expectation_value(self, natoms):
