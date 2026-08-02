@@ -2,16 +2,23 @@
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
 
 from ...datatypes import MajoranaMonomial
 from .._gates import MAJORANA, gate_terms
 from .._utils import compound_gate_reversed as _compound_gate_reversed
+from ._ffsim_gates import (
+    diag_coulomb_generators,
+    orbital_rotation_generators,
+    uccsd_generator_terms,
+)
 from .rotation import MajoranaRotation
 
 if TYPE_CHECKING:
     import cirq
+    import ffsim
 
 
 class MajoranaCircuit:
@@ -191,6 +198,153 @@ class MajoranaCircuit:
         mc._layers = all_layers
         mc.n_modes = n_modes
         return mc
+
+    @classmethod
+    def from_ffsim_orbital_rotation(
+        cls,
+        mat: "np.ndarray | tuple[np.ndarray | None, np.ndarray | None]",
+        norb: int,
+        n_modes: int,
+    ):
+        """
+        Construct a MajoranaCircuit from an ffsim orbital rotation
+        (ffsim.apply_orbital_rotation).
+
+        Arguments:
+            mat: The unitary orbital rotation matrix, or a (mat_alpha, mat_beta)
+                pair for independent per-spin rotations. Use None for a spin
+                sector to leave it untouched.
+            norb: The number of spatial orbitals.
+            n_modes: The number of Majorana modes in the system (4 * norb for a
+                spinful system).
+
+        Returns:
+            A MajoranaCircuit implementing the orbital rotation.
+        """
+        mat_a, mat_b = mat if isinstance(mat, tuple) else (mat, mat)
+
+        terms: list[tuple[MajoranaMonomial, float]] = []
+        if mat_a is not None:
+            terms.extend(orbital_rotation_generators(mat_a, n_modes, mode_offset=0))
+        if mat_b is not None:
+            terms.extend(orbital_rotation_generators(mat_b, n_modes, mode_offset=norb))
+
+        generators = [gen for gen, _ in terms]
+        angles = [angle for _, angle in terms]
+        return cls.from_generators_and_angles(generators, angles, n_modes)
+
+    @classmethod
+    def from_ffsim_diag_coulomb_evolution(
+        cls,
+        mat: "np.ndarray | tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]",
+        time: float,
+        norb: int,
+        n_modes: int,
+        orbital_rotation: "np.ndarray | tuple[np.ndarray | None, np.ndarray | None] | None" = None,
+    ):
+        """
+        Construct a MajoranaCircuit from an ffsim diagonal Coulomb evolution
+        (ffsim.apply_diag_coulomb_evolution).
+
+        Arguments:
+            mat: The diagonal Coulomb matrix, or a (mat_aa, mat_ab, mat_bb)
+                triple. Use None for an entry to omit that spin interaction.
+            time: The evolution time.
+            norb: The number of spatial orbitals.
+            n_modes: The number of Majorana modes in the system (4 * norb for a
+                spinful system).
+            orbital_rotation: An optional orbital rotation sandwiching the
+                evolution (same conventions as `from_ffsim_orbital_rotation`'s
+                `mat`).
+
+        Returns:
+            A MajoranaCircuit implementing the (rotated) diagonal Coulomb evolution.
+        """
+        mat_aa, mat_ab, mat_bb = mat if isinstance(mat, tuple) else (mat, mat, mat)
+
+        rot_a = rot_b = None
+        if orbital_rotation is not None:
+            rot_a, rot_b = (
+                orbital_rotation if isinstance(orbital_rotation, tuple) else (orbital_rotation, orbital_rotation)
+            )
+
+        terms: list[tuple[MajoranaMonomial, float]] = []
+        if rot_a is not None:
+            terms.extend(orbital_rotation_generators(rot_a.conj().T, n_modes, mode_offset=0))
+        if rot_b is not None:
+            terms.extend(orbital_rotation_generators(rot_b.conj().T, n_modes, mode_offset=norb))
+
+        terms.extend(diag_coulomb_generators(mat_aa, mat_ab, mat_bb, time, norb, n_modes))
+
+        if rot_a is not None:
+            terms.extend(orbital_rotation_generators(rot_a, n_modes, mode_offset=0))
+        if rot_b is not None:
+            terms.extend(orbital_rotation_generators(rot_b, n_modes, mode_offset=norb))
+
+        generators = [gen for gen, _ in terms]
+        angles = [angle for _, angle in terms]
+        return cls.from_generators_and_angles(generators, angles, n_modes)
+
+    @classmethod
+    def from_ffsim_ucj(cls, op: "ffsim.UCJOpSpinBalanced", n_modes: int):
+        """
+        Construct a MajoranaCircuit from an ffsim spin-balanced UCJ operator.
+
+        Arguments:
+            op: The UCJOpSpinBalanced to convert.
+            n_modes: The number of Majorana modes in the system (4 * op.norb).
+
+        Returns:
+            A MajoranaCircuit implementing the UCJ operator.
+        """
+        norb = op.norb
+        terms: list[tuple[MajoranaMonomial, float]] = []
+        for k in range(op.n_reps):
+            mat_aa, mat_ab = op.diag_coulomb_mats[k]
+            rot = op.orbital_rotations[k]
+            for offset in (0, norb):
+                terms.extend(orbital_rotation_generators(rot.conj().T, n_modes, mode_offset=offset))
+            terms.extend(diag_coulomb_generators(mat_aa, mat_ab, mat_aa, -1.0, norb, n_modes))
+            for offset in (0, norb):
+                terms.extend(orbital_rotation_generators(rot, n_modes, mode_offset=offset))
+
+        if op.final_orbital_rotation is not None:
+            for offset in (0, norb):
+                terms.extend(
+                    orbital_rotation_generators(op.final_orbital_rotation, n_modes, mode_offset=offset)
+                )
+
+        generators = [gen for gen, _ in terms]
+        angles = [angle for _, angle in terms]
+        return cls.from_generators_and_angles(generators, angles, n_modes)
+
+    @classmethod
+    def from_ffsim_uccsd(cls, op: "ffsim.UCCSDOpRestricted", n_modes: int):
+        """
+        Construct a MajoranaCircuit from an ffsim restricted UCCSD operator, as a
+        single first-order Trotter step of its generator T - T^dagger.
+
+        NOTE: This is an approximation, not the exact UCCSD operator. 
+
+        Arguments:
+            op: The UCCSDOpRestricted (or UCCSDOpRestrictedReal) to convert.
+            n_modes: The number of Majorana modes in the system (4 * norb).
+
+        Returns:
+            A MajoranaCircuit implementing one Trotter step of the UCCSD operator.
+        """
+        terms = list(uccsd_generator_terms(op.t1, op.t2, n_modes))
+
+        if op.final_orbital_rotation is not None:
+            norb = op.t1.shape[0] + op.t1.shape[1]
+            for offset in (0, norb):
+                terms.extend(
+                    orbital_rotation_generators(op.final_orbital_rotation, n_modes, mode_offset=offset)
+                )
+
+        generators = [gen for gen, _ in terms]
+        angles = [angle for _, angle in terms]
+        return cls.from_generators_and_angles(generators, angles, n_modes)
 
     def inverse(self):
         """Return a new MajoranaCircuit with reversed order and negated angles (U-dagger)."""
