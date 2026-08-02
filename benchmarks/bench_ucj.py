@@ -56,7 +56,7 @@ def _build_lucj_circuit(natoms: int):
     circuit.append(ffsim.qiskit.PrepareHartreeFockJW(norb, nelec), qubits)
     circuit.append(ffsim.qiskit.UCJOpSpinBalancedJW(ucj_op), qubits)
 
-    return qiskit.transpile(
+    return ucj_op, qiskit.transpile(
         circuit, backend=backend, optimization_level=3, initial_layout=list(range(2 * norb)),
     )
 
@@ -75,12 +75,14 @@ class MajoranaUCJBench:
         from propaq.datatypes import MajoranaTermSum
         from propaq.noise import TruncationPolicy
 
-        compiled = _build_lucj_circuit(natoms)
+        self.ucj_op, compiled = _build_lucj_circuit(natoms)
         n_qubits = compiled.num_qubits
-        self.circuit = MajoranaCircuit.from_qiskit(compiled.copy(), n_modes=2 * n_qubits)
+        self.circuit = MajoranaCircuit.from_ffsim_ucj(self.ucj_op, 2 * n_qubits)
         observable = SparsePauliOp("ZZ" + "I" * (n_qubits - 2))
         self.obs = MajoranaTermSum.from_sparse_pauli_op(observable)
         self.trunc = TruncationPolicy(weight_cutoff=100_000, coeff_cutoff=1e-10)
+        n_alpha, n_beta = natoms // 2, natoms // 2
+        self.hf_state = sum(1 << k for k in range(n_alpha)) | sum(1 << (norb + k) for k in range(n_beta))
 
     def time_expectation_value(self, natoms):
         from propaq.propagators import MajoranaPropagator
@@ -104,7 +106,7 @@ class PauliUCJBench:
         from propaq.datatypes import PauliTermSum
         from propaq.noise import TruncationPolicy
 
-        compiled = _build_lucj_circuit(natoms)
+        self.ucj_op, compiled = _build_lucj_circuit(natoms)
         n_qubits = compiled.num_qubits
         self.circuit = PauliCircuit.from_qiskit(compiled.copy())
         observable = SparsePauliOp("ZZ" + "I" * (n_qubits - 2))

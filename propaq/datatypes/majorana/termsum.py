@@ -1,6 +1,8 @@
 """Datatype representing a sum of Majorana terms."""
 
+import itertools
 import math
+from collections.abc import Sequence
 from typing import Any, Generic, TypeVar
 
 from qiskit.circuit import Instruction
@@ -63,6 +65,65 @@ def _cp_terms(phi, i: int, j: int, n_modes: int) -> list[tuple[MajoranaMonomial,
         (MajoranaMonomial(modes_j, n_modes), -phi / 2),
         (MajoranaMonomial(modes_4, n_modes),  phi / 2),
     ]
+
+
+def _ladder_factor_monomials(
+    mode: int, is_raise: bool, n_modes: int
+) -> list[tuple[MajoranaMonomial, complex]]:
+    """Raw (monomial, coefficient) pairs for a single ladder operator:
+
+    a_p^dagger = (gamma_2p - i * gamma_2p+1) / 2
+    a_p        = (gamma_2p + i * gamma_2p+1) / 2
+    """
+    even = MajoranaMonomial(BitMask(1 << (2 * mode)), n_modes, is_number_preserving=False)
+    odd = MajoranaMonomial(BitMask(1 << (2 * mode + 1)), n_modes, is_number_preserving=False)
+    odd_coeff = -0.5j if is_raise else 0.5j
+    return [(even, 0.5), (odd, odd_coeff)]
+
+
+def _expand_ladder_term(
+    actions: Sequence[tuple[int, bool]], coeff: complex, n_modes: int
+) -> dict[int, complex]:
+    """Expand a product of ladder operators into a bitmask -> complex coefficient map.
+
+    `actions` is a sequence of (mode_index, is_raise) pairs in operator order.
+    The result is not yet flushed into a real-valued MajoranaTermSum
+    """
+    acc: dict[int, complex] = {}
+    factor_options = [_ladder_factor_monomials(mode, is_raise, n_modes) for mode, is_raise in actions]
+
+    for combo in itertools.product(*factor_options):
+        if not combo:
+            acc[0] = acc.get(0, 0) + coeff
+            continue
+        monomial, phase = combo[0]
+        for next_monomial, next_coeff in combo[1:]:
+            step_phase, monomial = monomial @ next_monomial
+            phase = phase * step_phase * next_coeff
+        acc[monomial.modes] = acc.get(monomial.modes, 0) + phase * coeff
+
+    return acc
+
+
+def _flush_ladder_terms(
+    term_sum: "MajoranaTermSum", acc: dict[int, complex], n_modes: int, tol: float = 1e-9
+) -> None:
+    """Add accumulated ladder-term coefficients to a MajoranaTermSum.
+
+    Raises if a coefficient has a non-negligible imaginary part
+    """
+    n_qubits = n_modes // 2
+    for bitmask, value in acc.items():
+        if abs(value.imag) > tol:
+            raise ValueError(
+                f"Non-Hermitian contribution for modes {bitmask}: {value}. "
+                "The source operator may not be Hermitian."
+            )
+        if abs(value.real) <= tol:
+            continue
+        is_np = all(((bitmask >> (2 * q)) & 3) in (0, 3) for q in range(n_qubits))
+        m = MajoranaMonomial(BitMask(bitmask), n_modes, is_number_preserving=is_np)
+        term_sum.add(m, value.real)
 
 
 def _jw_inverse_transform(modes: int, n_qubits: int) -> tuple[str, complex]:
@@ -314,6 +375,81 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             m = MajoranaMonomial(BitMask(modes), n_modes, is_number_preserving=is_np)
             term_sum.add(m, float(effective_coeff.real))
 
+        return term_sum
+
+    @classmethod
+    def from_openfermion(
+        cls, op: Any, n_modes: int
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """
+        Construct from an OpenFermion FermionOperator.
+
+        Requires the optional `openfermion` extra: pip install propaq[openfermion].
+
+        Arguments:
+            op: The OpenFermion FermionOperator to convert. Must be Hermitian.
+            n_modes: The total number of Majorana modes in the system.
+
+        Returns:
+            The corresponding MajoranaTermSum.
+        """
+        try:
+            import openfermion  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "OpenFermion support requires the optional 'openfermion' extra: "
+                "pip install propaq[openfermion]"
+            ) from exc
+
+        acc: dict[int, complex] = {}
+        for term, coeff in op.terms.items():
+            actions = [(mode, bool(action)) for mode, action in term]
+            term_acc = _expand_ladder_term(actions, coeff, n_modes)
+            for bitmask, value in term_acc.items():
+                acc[bitmask] = acc.get(bitmask, 0) + value
+
+        term_sum = cls()
+        _flush_ladder_terms(term_sum, acc, n_modes)
+        return term_sum
+
+    @classmethod
+    def from_ffsim(
+        cls, obj: Any, n_modes: "int | None" = None
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
+        """
+        Construct from an ffsim object supporting the SupportsFermionOperator protocol
+        (e.g. MolecularHamiltonian, MolecularHamiltonianSpinless,
+        DiagonalCoulombHamiltonian, DoubleFactorizedHamiltonian).
+
+        Arguments:
+            obj: The ffsim object to convert. Must be Hermitian.
+            n_modes: The total number of Majorana modes in the system. Defaults
+                to `4 * obj.norb` if `obj` exposes a `norb` attribute (2 spin
+                sectors times 2 Majorana modes per spin orbital).
+
+        Returns:
+            The corresponding MajoranaTermSum.
+        """
+        import ffsim
+
+        fermion_op = ffsim.fermion_operator(obj)
+        norb = getattr(obj, "norb", None)
+        if norb is None and n_modes is None:
+            raise ValueError("n_modes must be given when obj has no 'norb' attribute")
+        if n_modes is None:
+            n_modes = 4 * norb
+        elif norb is None:
+            norb = n_modes // 4
+
+        acc: dict[int, complex] = {}
+        for term, coeff in fermion_op.items():
+            actions = [(spin * norb + orb, action) for action, spin, orb in term]
+            term_acc = _expand_ladder_term(actions, coeff, n_modes)
+            for bitmask, value in term_acc.items():
+                acc[bitmask] = acc.get(bitmask, 0) + value
+
+        term_sum = cls()
+        _flush_ladder_terms(term_sum, acc, n_modes)
         return term_sum
 
     def to_sparse_pauli_op(self) -> SparsePauliOp:
