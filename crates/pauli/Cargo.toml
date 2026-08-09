@@ -12,6 +12,8 @@ rustc-hash = "2"
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 num-complex = "0.4"
+# The A/B harness reports the thread count rayon gives the SoA kernels.
+rayon = "1.10"
 
 [[bench]]
 name = "pauli_bench"

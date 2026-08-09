@@ -87,6 +87,23 @@ fn add_raw<C: CoeffRepr>(
 
 /// Materialize the columnar storage into the flat map format the file I/O
 /// and `AbstractTerm` machinery understand.
+/// A one-row dense decode buffer for the export boundaries that must hand back
+/// an owned `MajoranaMonomial`. Reused across rows so a full export decodes one row at
+/// a time rather than materializing dense planes for the whole sum.
+struct RowDecoder {
+    buf: Vec<u64>,
+}
+
+impl RowDecoder {
+    fn new(stride: usize) -> Self {
+        RowDecoder { buf: vec![0u64; 2 * stride] }
+    }
+
+    fn term<C: CoeffRepr>(&mut self, terms: &SoaTermSum<C>, i: usize) -> MajoranaMonomial {
+        MajoranaBasis::term_from_planes(terms.decode_row(i, &mut self.buf), terms.n_units)
+    }
+}
+
 pub fn materialize<C>(terms: &SoaTermSum<C>) -> FxHashMap<MajoranaMonomial, f64>
 where
     C: CoeffRepr,
@@ -94,9 +111,9 @@ where
     let n = terms.len();
     let mut map = FxHashMap::default();
     map.reserve(n);
+    let mut decoder = RowDecoder::new(terms.stride);
     for i in 0..n {
-        let term = MajoranaBasis::term_from_planes(terms.term_planes(i), terms.n_units);
-        map.insert(term, terms.coeff(i).to_f64());
+        map.insert(decoder.term(terms, i), terms.coeff(i).to_f64());
     }
     map
 }
@@ -115,14 +132,16 @@ impl MajoranaTermSum {
         match &inner {
             Storage::F64(s) => {
                 index.reserve(s.len());
+                let mut decoder = RowDecoder::new(s.stride);
                 for i in 0..s.len() {
-                    index.insert(MajoranaBasis::term_from_planes(s.term_planes(i), s.n_units), i);
+                    index.insert(decoder.term(s, i), i);
                 }
             }
             Storage::F32(s) => {
                 index.reserve(s.len());
+                let mut decoder = RowDecoder::new(s.stride);
                 for i in 0..s.len() {
-                    index.insert(MajoranaBasis::term_from_planes(s.term_planes(i), s.n_units), i);
+                    index.insert(decoder.term(s, i), i);
                 }
             }
         }
@@ -223,15 +242,17 @@ impl MajoranaTermSum {
         match (&mut self.inner, &other.inner) {
             (Storage::F64(dst), Storage::F64(src)) => {
                 let n = src.len();
+                let mut decoder = RowDecoder::new(src.stride);
                 for i in 0..n {
-                    let term = MajoranaBasis::term_from_planes(src.term_planes(i), src.n_units);
+                    let term = decoder.term(src, i);
                     add_raw(dst, &mut self.index, term, *src.coeff(i));
                 }
             }
             (Storage::F32(dst), Storage::F32(src)) => {
                 let n = src.len();
+                let mut decoder = RowDecoder::new(src.stride);
                 for i in 0..n {
-                    let term = MajoranaBasis::term_from_planes(src.term_planes(i), src.n_units);
+                    let term = decoder.term(src, i);
                     add_raw(dst, &mut self.index, term, *src.coeff(i));
                 }
             }
@@ -279,6 +300,19 @@ impl MajoranaTermSum {
         match &mut self.inner {
             Storage::F64(inner) => apply_damping_impl(inner, noise, active_modes),
             Storage::F32(inner) => apply_damping_impl(inner, noise, active_modes),
+        }
+    }
+
+    /// Bytes of resident sparse key storage held by this term sum.
+    ///
+    /// Keys only: coefficients, merge metadata, and every temporary workspace
+    /// are excluded. See `propaq._rust_core.workspace_peak_bytes()` for the
+    /// temporary dense workspace high-water mark.
+    #[getter]
+    fn sparse_key_bytes(&self) -> usize {
+        match &self.inner {
+            Storage::F64(s) => s.sparse_key_bytes(),
+            Storage::F32(s) => s.sparse_key_bytes(),
         }
     }
 
@@ -365,6 +399,7 @@ fn truncate_impl<C: CoeffRepr>(
 ) -> PyResult<SoaTermSum<C>> {
     let n = inner.len();
     let stride = inner.stride;
+    let plane_span = inner.plane_span();
     let n_units = inner.n_units;
     let mut kept = SoaTermSum::new(n_units, stride);
 
@@ -372,22 +407,22 @@ fn truncate_impl<C: CoeffRepr>(
         let wc = tp.weight_cutoff;
         let cc = tp.coeff_cutoff;
         for i in 0..n {
-            let term = inner.term_planes(i);
-            let w = MajoranaBasis::weight(term, n_units);
+            let row = inner.row_positions(i);
+            let w = MajoranaBasis::weight_sparse(row, plane_span, n_units);
             let c = inner.coeff(i);
             if wc.is_none_or(|ww| w <= ww) && c.passes_coeff_cutoff(cc) {
-                kept.push(term, c.clone());
+                kept.push_positions(row, c.clone());
             }
         }
     } else {
         for i in 0..n {
-            let term = inner.term_planes(i);
-            let w = MajoranaBasis::weight(term, n_units);
+            let row = inner.row_positions(i);
+            let w = MajoranaBasis::weight_sparse(row, plane_span, n_units);
             let c = inner.coeff(i);
             let should_remove: bool =
                 policy.call_method1("should_truncate", (w, c.magnitude()))?.extract()?;
             if !should_remove {
-                kept.push(term, c.clone());
+                kept.push_positions(row, c.clone());
             }
         }
     }
@@ -401,17 +436,18 @@ fn apply_damping_impl<C: CoeffRepr>(
 ) -> PyResult<()> {
     use propaq_core::noise::UniformNoiseModel;
     let n = inner.len();
+    let plane_span = inner.plane_span();
     let n_units = inner.n_units;
     if let Ok(unm) = noise.extract::<PyRef<UniformNoiseModel>>() {
         let d = unm.damping;
         for i in 0..n {
-            let w = MajoranaBasis::weight(inner.term_planes(i), n_units);
+            let w = MajoranaBasis::weight_sparse(inner.row_positions(i), plane_span, n_units);
             inner.coeffs[i].scale_real((-d * w as f64).exp());
         }
         return Ok(());
     }
     for i in 0..n {
-        let w = MajoranaBasis::weight(inner.term_planes(i), n_units);
+        let w = MajoranaBasis::weight_sparse(inner.row_positions(i), plane_span, n_units);
         let damping: f64 = noise.call_method1("damping_factor", (w, active_modes))?.extract()?;
         inner.coeffs[i].scale_real(damping);
     }
@@ -424,9 +460,8 @@ fn norm_squared_impl<C: CoeffRepr>(inner: &SoaTermSum<C>) -> f64 {
 
 fn items_impl<C: CoeffRepr>(inner: &SoaTermSum<C>) -> Vec<(MajoranaMonomial, f64)> {
     let n = inner.len();
-    (0..n)
-        .map(|i| (MajoranaBasis::term_from_planes(inner.term_planes(i), inner.n_units), inner.coeff(i).to_f64()))
-        .collect()
+    let mut decoder = RowDecoder::new(inner.stride);
+    (0..n).map(|i| (decoder.term(inner, i), inner.coeff(i).to_f64())).collect()
 }
 
 fn setitem_impl<C: CoeffRepr>(

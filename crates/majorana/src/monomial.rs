@@ -10,7 +10,8 @@ use rustc_hash::FxHasher;
 use propaq_core::bitset::Bitset;
 use propaq_core::helpers::{pyint_to_bitset, bitset_to_pyint};
 use propaq_core::traits::AbstractTerm;
-use propaq_core::soa::SoaBasis;
+use propaq_core::soa::sparse::{intersection_count, symmetric_difference_into};
+use propaq_core::soa::{hash_positions, split_planes, Position, SoaBasis};
 
 /// A Majorana monomial, a product of Majorana operators encoded as a mode bitmask.
 ///
@@ -426,6 +427,166 @@ impl SoaBasis for MajoranaBasis {
         out[1].fill(0);
         out[1][..pw.len()].copy_from_slice(pw);
     }
+
+    /// Only `modes` (plane 0) is identity; `p` is a derived cache, exactly as in
+    /// the word-plane `key_hash`.
+    fn key_hash_sparse(row: &[Position], plane_span: usize) -> u64 {
+        hash_positions(split_planes(row, plane_span).0)
+    }
+
+    fn key_eq_sparse(a: &[Position], b: &[Position], plane_span: usize) -> bool {
+        split_planes(a, plane_span).0 == split_planes(b, plane_span).0
+    }
+
+    /// The Jordan-Wigner qubit weight, as set algebra over the qubits the mode
+    /// positions and the `p` positions touch. See `weight_from_parts` for the
+    /// word-plane statement of the same quantity.
+    fn weight_sparse(row: &[Position], plane_span: usize, n_units: usize) -> u32 {
+        let n_qubits = n_units / 2;
+        if n_qubits == 0 {
+            return 0;
+        }
+        let parts = QubitSets::of(row, plane_span, n_qubits);
+        let (occ, single, p) = (parts.occupied as i64, parts.single as i64, parts.p as i64);
+        let (occ_p, single_p) = (parts.occupied_and_p as i64, parts.single_and_p as i64);
+        // Even `|single|` leaves `string = p`; odd complements it into `qubit_mask ^ p`,
+        // which turns the union count inside out.
+        let weight = if parts.single % 2 == 0 {
+            occ + p - 2 * occ_p + single_p
+        } else {
+            n_qubits as i64 + 2 * occ_p - occ - p + single - single_p
+        };
+        debug_assert!(weight >= 0 && weight <= n_qubits as i64);
+        weight as u32
+    }
+
+    /// A Majorana monomial is diagonal only where every occupied site carries
+    /// both of its modes, so the trace walks the mode positions in pairs.
+    fn trace_sparse(row: &[Position], plane_span: usize, n_units: usize, fock: &[u64]) -> f64 {
+        let n_fermionic = n_units / 2;
+        let (modes, _) = split_planes(row, plane_span);
+        let limit = (2 * n_fermionic) as Position;
+        let modes = &modes[..modes.partition_point(|&m| m < limit)];
+        let (mut occupied_pairs, mut product) = (0i32, 1i32);
+        let mut i = 0usize;
+        while i < modes.len() {
+            let m = modes[i];
+            // An unpaired mode means `bit(2k) != bit(2k + 1)` at this site.
+            if m % 2 != 0 || i + 1 >= modes.len() || modes[i + 1] != m + 1 {
+                return 0.0;
+            }
+            let k = (m / 2) as usize;
+            let n_k = ((fock.get(k >> 6).copied().unwrap_or(0) >> (k & 63)) & 1) as i32;
+            product *= 2 * n_k - 1;
+            occupied_pairs += 1;
+            i += 2;
+        }
+        let phase = if (occupied_pairs / 2) % 2 == 0 { 1 } else { -1 };
+        (phase * product) as f64
+    }
+
+    fn commutes_sparse(term: &[Position], gen: &[Position], plane_span: usize) -> bool {
+        let (tm, _) = split_planes(term, plane_span);
+        let (gm, _) = split_planes(gen, plane_span);
+        if tm == gm {
+            return true;
+        }
+        let overlap = intersection_count(tm, gm) as usize;
+        (tm.len() * gm.len() + overlap) % 2 == 0
+    }
+
+    /// `gen @ term`: modes and `p` both XOR, so the product's key is the
+    /// symmetric difference of the whole position lists.
+    fn product_sparse(
+        term: &[Position],
+        gen: &[Position],
+        plane_span: usize,
+        out: &mut Vec<Position>,
+    ) -> Complex64 {
+        let start = out.len();
+        symmetric_difference_into(term, gen, out);
+        let (tm, _) = split_planes(term, plane_span);
+        let (gm, _) = split_planes(gen, plane_span);
+        let (nm, _) = split_planes(&out[start..], plane_span);
+        let r_a = hermiticity_exp(gm.len());
+        let r_b = hermiticity_exp(tm.len());
+        let r_c = hermiticity_exp(nm.len());
+        let total_parity = resorting_parity_sparse(gm, tm);
+        let phase_exp = (r_a + r_b - r_c + 2 * (total_parity as i32)).rem_euclid(4);
+        match phase_exp {
+            0 => Complex64::new(1.0, 0.0),
+            1 => Complex64::new(0.0, 1.0),
+            2 => Complex64::new(-1.0, 0.0),
+            3 => Complex64::new(0.0, -1.0),
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// The per-qubit set sizes `weight_sparse` needs, collected in one merged walk
+/// over a row's mode positions and `p` positions.
+struct QubitSets {
+    /// Qubits with at least one Majorana mode set.
+    occupied: u32,
+    /// Qubits with exactly one of their two modes set (they need a Z-string).
+    single: u32,
+    /// Qubits set in the `p` (Z-string parity) plane.
+    p: u32,
+    occupied_and_p: u32,
+    single_and_p: u32,
+}
+
+impl QubitSets {
+    fn of(row: &[Position], plane_span: usize, n_qubits: usize) -> Self {
+        let (modes, p_positions) = split_planes(row, plane_span);
+        let mode_limit = (2 * n_qubits) as Position;
+        let modes = &modes[..modes.partition_point(|&m| m < mode_limit)];
+        let p_limit = (plane_span + n_qubits) as Position;
+        let p_positions = &p_positions[..p_positions.partition_point(|&p| p < p_limit)];
+
+        let mut sets = QubitSets {
+            occupied: 0,
+            single: 0,
+            p: p_positions.len() as u32,
+            occupied_and_p: 0,
+            single_and_p: 0,
+        };
+        let (mut i, mut j) = (0usize, 0usize);
+        while i < modes.len() {
+            let k = (modes[i] >> 1) as usize;
+            let paired = i + 1 < modes.len() && (modes[i + 1] >> 1) as usize == k;
+            i += if paired { 2 } else { 1 };
+            sets.occupied += 1;
+            if !paired {
+                sets.single += 1;
+            }
+            // `p_positions` is ascending, so this pointer only moves forward.
+            while j < p_positions.len() && (p_positions[j] as usize - plane_span) < k {
+                j += 1;
+            }
+            if j < p_positions.len() && (p_positions[j] as usize - plane_span) == k {
+                sets.occupied_and_p += 1;
+                if !paired {
+                    sets.single_and_p += 1;
+                }
+            }
+        }
+        sets
+    }
+}
+
+/// Sparse form of [`resorting_parity`]: the parity of the number of `(a, b)`
+/// pairs with `a > b`, over ascending position lists.
+fn resorting_parity_sparse(a: &[Position], b: &[Position]) -> bool {
+    let mut count = 0u64;
+    let mut i = 0usize;
+    for &bv in b {
+        while i < a.len() && a[i] <= bv {
+            i += 1;
+        }
+        count += (a.len() - i) as u64;
+    }
+    (count & 1) != 0
 }
 
 fn compress_to_qubits(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {

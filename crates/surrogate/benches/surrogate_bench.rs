@@ -28,7 +28,7 @@ use num_complex::Complex64;
 
 use propaq_core::coeff::CoeffRepr;
 use propaq_core::soa::kernels;
-use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_core::soa::{Position, SoaBasis, SoaTermSum};
 use propaq_pauli::string::PauliBasis;
 use propaq_surrogate::symcoeff::{GateParam, SymbolicCoeff};
 
@@ -360,11 +360,12 @@ fn bench_flush_and_retain(c: &mut Criterion) {
             |mut ts| {
                 let weight_cutoff = 8u32;
                 let n_units = ts.n_units;
+                let plane_span = ts.plane_span();
                 let monomials_after = kernels::map_retain::<PauliBasis, SymbolicCoeff, _, _>(
                     &mut ts,
                     |_c: &mut SymbolicCoeff| {},
-                    |term: [&[u64]; 2], c: &SymbolicCoeff| {
-                        PauliBasis::weight(term, n_units) <= weight_cutoff && !c.is_empty()
+                    |row: &[Position], c: &SymbolicCoeff| {
+                        PauliBasis::weight_sparse(row, plane_span, n_units) <= weight_cutoff && !c.is_empty()
                     },
                 );
                 black_box(monomials_after)

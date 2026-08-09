@@ -267,10 +267,9 @@ impl<B: SoaBasis> SoaPropagator<B> {
                 py.allow_threads(|| self.flush_and_maybe_truncate(evolved, None, gate_idx, layer_idx, "noise"));
                 let noise = self.noise.as_ref().unwrap().bind(py);
                 let n = evolved.len();
-                let stride = evolved.stride;
+                let plane_span = evolved.plane_span();
                 for i in 0..n {
-                    let s = i * stride;
-                    let w = B::weight([&evolved.planes[0][s..s + stride], &evolved.planes[1][s..s + stride]], evolved.n_units);
+                    let w = B::weight_sparse(evolved.row_positions(i), plane_span, evolved.n_units);
                     let factor: f64 = noise.call_method1("damping_factor", (w, 0u32))?.extract()?;
                     evolved.coeffs[i].scale_real(factor);
                 }
@@ -291,6 +290,8 @@ impl<B: SoaBasis> SoaPropagator<B> {
         B::Term: for<'py> FromPyObject<'py>,
     {
         self.open_log()?;
+        // So the reported peak belongs to this run, not to whatever ran before it.
+        crate::soa::reset_workspace_peak();
 
         let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
         let n_units = evolved.n_units;
@@ -441,7 +442,12 @@ impl<B: SoaBasis> SoaPropagator<B> {
         let n_terms = self.run_propagation_inner(py, evolved, circuit, true)?;
         let pool = Arc::clone(&self.pool);
         let total = pool.install(|| kernels::expectation::<B, C>(evolved, fock_state));
-        Ok(PropagationResult { n_terms, expectation_value: total })
+        Ok(PropagationResult {
+            n_terms,
+            expectation_value: total,
+            sparse_key_bytes: evolved.sparse_key_bytes(),
+            workspace_peak_bytes: crate::soa::workspace_peak_bytes(),
+        })
     }
 }
 
@@ -450,18 +456,16 @@ fn discarded_coeff_stats<B: SoaBasis, C: CoeffRepr>(
     cfg: &ResolvedConfig,
 ) -> (f64, f64) {
     let n = terms.len();
-    let stride = terms.stride;
+    let plane_span = terms.plane_span();
     let cc = cfg.coefficient.unwrap_or(0.0);
     let mut l1 = 0.0f64;
     let mut max = 0.0f64;
     for i in 0..n {
-        let s = i * stride;
-        let term = [&terms.planes[0][s..s + stride], &terms.planes[1][s..s + stride]];
+        let weight_of = || B::weight_sparse(terms.row_positions(i), plane_span, terms.n_units);
         let kept = if let Some(nt) = &cfg.native {
-            let w = B::weight(term, terms.n_units);
-            nt.keep(w, terms.coeffs[i].magnitude(), 0)
+            nt.keep(weight_of(), terms.coeffs[i].magnitude(), 0)
         } else {
-            let weight_ok = cfg.weight.is_none_or(|w| B::weight(term, terms.n_units) <= w);
+            let weight_ok = cfg.weight.is_none_or(|w| weight_of() <= w);
             weight_ok && terms.coeffs[i].passes_coeff_cutoff(cc)
         };
         if !kept {

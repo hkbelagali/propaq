@@ -22,7 +22,7 @@ use propaq_core::logger::Logger;
 use propaq_core::propagator::{close_progress_bar, make_progress_bar, tick_progress_bar};
 use propaq_core::soa::kernels;
 use propaq_core::soa::propagator::CLIFFORD_COS_EPS;
-use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_core::soa::{Position, SoaBasis, SoaTermSum};
 use propaq_core::traits::AbstractTerm;
 
 use crate::symcoeff::{simplify_sharded, CompiledCoeff, GateParam, SymbolicCoeff};
@@ -426,7 +426,7 @@ where
         // caused a reported multi-hundred-GB OOM under heavy parameter
         // reuse).
         let (tape, raw) = py.allow_threads(|| {
-            pool.install(|| compile_surviving_terms::<B>(evolved, n_units, stride, initial_state))
+            pool.install(|| compile_surviving_terms::<B>(evolved, n_units, initial_state))
         });
 
         Ok(SurrogateModel::new(raw, tape, n_params))
@@ -475,16 +475,16 @@ where
 fn compile_surviving_terms<B: SoaBasis>(
     evolved: &mut SoaTermSum<SymbolicCoeff>,
     n_units: usize,
-    stride: usize,
     initial_state: &[u64],
 ) -> (CompiledCoeff, Vec<SurrogateTerm>) {
     let n = evolved.len();
     let target_shards = (rayon::current_num_threads() * SHARD_OVERSUBSCRIPTION).max(1);
     let chunk = n.div_ceil(target_shards).max(1);
 
+    let plane_span = evolved.plane_span();
     let (shard_tapes, shard_terms): (Vec<CompiledCoeff>, Vec<Vec<(f64, usize)>>) = {
-        let SoaTermSum { planes, coeffs, .. } = evolved;
-        coeffs[..n]
+        let (rows, coeffs) = evolved.rows_and_coeffs_mut();
+        coeffs
             .par_chunks_mut(chunk)
             .enumerate()
             .map(|(chunk_idx, shard)| {
@@ -495,9 +495,7 @@ fn compile_surviving_terms<B: SoaBasis>(
                 let mut survivors: Vec<SymbolicCoeff> = Vec::new();
                 for (j, c) in shard.iter_mut().enumerate() {
                     let global_row = base + j;
-                    let s = global_row * stride;
-                    let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
-                    let overlap = B::trace(term, n_units, initial_state);
+                    let overlap = B::trace_sparse(rows.row(global_row), plane_span, n_units, initial_state);
                     // Always take, even when the row won't survive: a structurally-zero-overlap
                     // term's whole coefficient DAG is pure waste, so this drops it (or, if part
                     // is shared via `Arc` with a survivor, keeps just that part alive) right
@@ -587,6 +585,7 @@ pub fn apply_truncation_policy<B: SoaBasis>(
     // Deferred like the numerical propagator: below min_terms/min_monomials, skip the lossy
     // filters. Both floors must clear (AND, not OR): each is its own "not warmed up yet" veto.
     let apply_lossy = total_before >= min_terms && monomials_before_estimate >= min_monomials;
+    let plane_span = evolved.plane_span();
     // Saturating cast: a `usize` cap beyond `u32::MAX` is indistinguishable
     // from "no cap" in practice, but should clamp rather than wrap.
     let max_frequency = cfg.frequency.map(|f| f.min(u32::MAX as usize) as u32);
@@ -598,8 +597,9 @@ pub fn apply_truncation_policy<B: SoaBasis>(
                 c.prune(max_frequency, cfg.coefficient);
             }
         },
-        |term: [&[u64]; 2], c: &SymbolicCoeff| {
-            let weight_ok = !apply_lossy || cfg.weight.map_or(true, |w| B::weight(term, n_units) <= w);
+        |row: &[Position], c: &SymbolicCoeff| {
+            let weight_ok =
+                !apply_lossy || cfg.weight.map_or(true, |w| B::weight_sparse(row, plane_span, n_units) <= w);
             weight_ok && !c.is_empty()
         },
     );
@@ -804,16 +804,22 @@ mod numeric_history_dedup_tests {
     /// `SoaTermSum`s by term identity rather than by row order (`merge`/
     /// `apply_rotation` don't guarantee the two representations end up in the
     /// same row order even when driven by an identical gate sequence).
+    /// Row `i`'s owned key, decoding that single row into a local buffer.
+    fn decode_key<C: CoeffRepr>(terms: &SoaTermSum<C>, i: usize) -> PauliString {
+        let mut buf = vec![0u64; 2 * terms.stride];
+        PauliBasis::term_from_planes(terms.decode_row(i, &mut buf), terms.n_units)
+    }
+
     fn f64_values(terms: &SoaTermSum<f64>) -> HashMap<PauliString, f64> {
         (0..terms.len())
-            .map(|i| (PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units), *terms.coeff(i)))
+            .map(|i| (decode_key(terms, i), *terms.coeff(i)))
             .collect()
     }
 
     fn symbolic_values(terms: &SoaTermSum<SymbolicCoeff>, lut: &[f64]) -> HashMap<PauliString, f64> {
         (0..terms.len())
             .map(|i| {
-                let key = PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units);
+                let key = decode_key(terms, i);
                 (key, terms.coeff(i).compile().evaluate(lut))
             })
             .collect()
@@ -887,16 +893,22 @@ mod shared_parameter_dedup_tests {
         (gx, gz)
     }
 
+    /// Row `i`'s owned key, decoding that single row into a local buffer.
+    fn decode_key<C: CoeffRepr>(terms: &SoaTermSum<C>, i: usize) -> PauliString {
+        let mut buf = vec![0u64; 2 * terms.stride];
+        PauliBasis::term_from_planes(terms.decode_row(i, &mut buf), terms.n_units)
+    }
+
     fn f64_values(terms: &SoaTermSum<f64>) -> HashMap<PauliString, f64> {
         (0..terms.len())
-            .map(|i| (PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units), *terms.coeff(i)))
+            .map(|i| (decode_key(terms, i), *terms.coeff(i)))
             .collect()
     }
 
     fn symbolic_values(terms: &SoaTermSum<SymbolicCoeff>, lut: &[f64]) -> HashMap<PauliString, f64> {
         (0..terms.len())
             .map(|i| {
-                let key = PauliBasis::term_from_planes(terms.term_planes(i), terms.n_units);
+                let key = decode_key(terms, i);
                 (key, terms.coeff(i).compile().evaluate(lut))
             })
             .collect()
@@ -1025,12 +1037,19 @@ mod sharded_compile_tests {
         assert!(gate_idx as usize > 4 * N_PARAMS, "test should reuse each parameter many times");
 
         let expected: f64 = (0..numeric.len())
-            .map(|i| *numeric.coeff(i) * PauliBasis::trace(numeric.term_planes(i), numeric.n_units, &[FOCK]))
+            .map(|i| {
+                *numeric.coeff(i)
+                    * PauliBasis::trace_sparse(
+                        numeric.row_positions(i),
+                        numeric.plane_span(),
+                        numeric.n_units,
+                        &[FOCK],
+                    )
+            })
             .sum();
 
         let n_units = symbolic.n_units;
-        let stride = symbolic.stride;
-        let (tape, terms) = compile_surviving_terms::<PauliBasis>(&mut symbolic, n_units, stride, &[FOCK]);
+        let (tape, terms) = compile_surviving_terms::<PauliBasis>(&mut symbolic, n_units, &[FOCK]);
         assert!(!terms.is_empty(), "test did not exercise any surviving terms");
         let model = SurrogateModel::new(terms, tape, N_PARAMS);
 
@@ -1066,7 +1085,7 @@ mod sharded_compile_tests {
         let (gx1, gz1) = planes_of(0b1, 0, 1);
         ts.push([&gx1, &gz1], SymbolicCoeff::from_real(3.0));
 
-        let (_tape, terms) = compile_surviving_terms::<PauliBasis>(&mut ts, N_QUBITS, 1, &[FOCK]);
+        let (_tape, terms) = compile_surviving_terms::<PauliBasis>(&mut ts, N_QUBITS, &[FOCK]);
         assert_eq!(terms.len(), 1, "only the pure-Z row should survive");
 
         assert!(ts.coeff(0).is_empty(), "surviving row's coefficient should have been taken");

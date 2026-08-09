@@ -106,10 +106,11 @@ fn f32_vs_f64_accuracy_under_random_propagation() {
 
     let fock = vec![0u64; stride];
     let exp64: f64 = (0..n)
-        .map(|i| terms64.coeff(i) * PauliBasis::trace(terms64.term_planes(i), n_qubits, &fock))
+        .map(|i| terms64.coeff(i) * PauliBasis::trace_sparse(terms64.row_positions(i), terms64.plane_span(), n_qubits, &fock))
         .sum();
     let exp32: f64 = (0..n)
-        .map(|i| (*terms32.coeff(i) as f64) * PauliBasis::trace(terms32.term_planes(i), n_qubits, &fock))
+        .map(|i| (*terms32.coeff(i) as f64)
+            * PauliBasis::trace_sparse(terms32.row_positions(i), terms32.plane_span(), n_qubits, &fock))
         .sum();
     let exp_rel_err = (exp64 - exp32).abs() / exp64.abs().max(1e-12);
 

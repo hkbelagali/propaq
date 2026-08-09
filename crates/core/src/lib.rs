@@ -1,8 +1,15 @@
 /// 
 /// Main library for the propaq core.
 ///
+pub mod algebra;
 pub mod bitset;
+pub mod clifford_frame;
 pub mod coeff;
+pub mod inverted_index;
+pub mod monomial;
+pub mod operator;
+pub mod operator_index;
+pub mod partitioned;
 pub mod traits;
 pub mod truncation;
 pub mod truncators;

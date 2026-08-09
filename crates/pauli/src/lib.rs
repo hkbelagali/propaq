@@ -1,3 +1,4 @@
+pub mod algebra;
 pub mod string;
 pub mod termsum;
 pub mod propagator;

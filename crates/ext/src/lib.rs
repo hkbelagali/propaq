@@ -25,9 +25,28 @@ fn rust_available() -> bool {
     true
 }
 
+/// High-water mark, in bytes, of temporary dense workspace held live at once
+/// since the last reset.
+///
+/// Reported separately from resident key storage: workspaces are borrowed for
+/// the duration of one kernel call and never persisted. Each propagation run
+/// resets this at its start, so reading it after a run gives that run's peak.
+#[pyfunction]
+fn workspace_peak_bytes() -> usize {
+    propaq_core::soa::workspace_peak_bytes()
+}
+
+/// Resets the temporary dense workspace high-water mark.
+#[pyfunction]
+fn reset_workspace_peak() {
+    propaq_core::soa::reset_workspace_peak()
+}
+
 #[pymodule]
 fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_available, m)?)?;
+    m.add_function(wrap_pyfunction!(workspace_peak_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(reset_workspace_peak, m)?)?;
     m.add_class::<MajoranaMonomial>()?;
     m.add_class::<PauliString>()?;
     m.add_class::<MajoranaTermSum>()?;

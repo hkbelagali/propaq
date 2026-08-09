@@ -14,22 +14,34 @@ use flate2::Compression;
 
 use crate::traits::AbstractTerm;
 
-/// Result returned by `expectation_value`: per-gate term counts and the final expectation value.
+/// Result returned by `expectation_value`: per-gate term counts, the final
+/// expectation value, and the run's key-storage accounting.
 #[pyclass(module = "propaq._rust_core")]
 pub struct PropagationResult {
     #[pyo3(get)]
     pub n_terms: Vec<usize>,
     #[pyo3(get)]
     pub expectation_value: f64,
+    /// Bytes of resident sparse term keys held by the evolved term sum at the
+    /// end of the run. Excludes coefficients and every temporary workspace.
+    #[pyo3(get)]
+    pub sparse_key_bytes: usize,
+    /// High-water mark, in bytes, of temporary dense workspace held live at
+    /// once during the run. Not part of the resident-key metric.
+    #[pyo3(get)]
+    pub workspace_peak_bytes: usize,
 }
 
 #[pymethods]
 impl PropagationResult {
     fn __repr__(&self) -> String {
         format!(
-            "PropagationResult(expectation_value={}, n_terms=[{} entries])",
+            "PropagationResult(expectation_value={}, n_terms=[{} entries], \
+             sparse_key_bytes={}, workspace_peak_bytes={})",
             self.expectation_value,
-            self.n_terms.len()
+            self.n_terms.len(),
+            self.sparse_key_bytes,
+            self.workspace_peak_bytes
         )
     }
 }

@@ -4,7 +4,7 @@
 use num_complex::Complex64;
 use rayon::prelude::*;
 
-use propaq_core::soa::SoaTermSum;
+use propaq_core::soa::{split_planes, Position, SoaTermSum};
 
 use crate::mps::{apply_transfer, Environments, Mps};
 
@@ -33,23 +33,45 @@ impl PauliOp {
     }
 }
 
-/// Decodes a `PauliTermSum` row's nontrivial sites directly from its X/Z bit
-/// planes, without materializing a `PauliString`. 
-fn decode_sites(planes: [&[u64]; 2], n_units: usize) -> Vec<(usize, PauliOp)> {
-    let [xw, zw] = planes;
-    let mut sites = Vec::new();
-    for q in 0..n_units {
-        let word = q / 64;
-        let bit = q % 64;
-        let x = (xw[word] >> bit) & 1 != 0;
-        let z = (zw[word] >> bit) & 1 != 0;
-        let op = match (x, z) {
-            (false, false) => continue,
-            (true, false) => PauliOp::X,
-            (false, true) => PauliOp::Z,
-            (true, true) => PauliOp::Y,
+/// Decodes a `PauliTermSum` row's nontrivial sites directly from its sparse
+/// positions, without materializing a `PauliString` or any dense plane.
+///
+/// The two planes are each ascending, so merging them yields the sites in
+/// ascending order, which is what `window_expectation` walks.
+fn decode_sites(row: &[Position], plane_span: usize, n_units: usize) -> Vec<(usize, PauliOp)> {
+    let (xs, zs) = split_planes(row, plane_span);
+    let mut sites = Vec::with_capacity(xs.len() + zs.len());
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < xs.len() || j < zs.len() {
+        let x_q = xs.get(i).map(|&p| p as usize);
+        let z_q = zs.get(j).map(|&p| p as usize - plane_span);
+        let (q, op) = match (x_q, z_q) {
+            (Some(a), Some(b)) if a == b => {
+                i += 1;
+                j += 1;
+                (a, PauliOp::Y)
+            }
+            (Some(a), Some(b)) if a < b => {
+                i += 1;
+                (a, PauliOp::X)
+            }
+            (Some(_), Some(b)) => {
+                j += 1;
+                (b, PauliOp::Z)
+            }
+            (Some(a), None) => {
+                i += 1;
+                (a, PauliOp::X)
+            }
+            (None, Some(b)) => {
+                j += 1;
+                (b, PauliOp::Z)
+            }
+            (None, None) => unreachable!("the loop condition guarantees one side is nonempty"),
         };
-        sites.push((q, op));
+        if q < n_units {
+            sites.push((q, op));
+        }
     }
     sites
 }
@@ -83,8 +105,9 @@ pub fn window_expectation(mps: &Mps, env: &Environments, sites: &[(usize, PauliO
 /// `sum_i coeff_i * <Psi|P_i|Psi>` over every row of `terms`
 pub fn hybrid_expectation_sum(mps: &Mps, env: &Environments, terms: &SoaTermSum<f64>) -> Complex64 {
     let n = terms.len();
+    let plane_span = terms.plane_span();
     let compute_row = |i: usize| -> Complex64 {
-        let sites = decode_sites(terms.term_planes(i), mps.n_sites);
+        let sites = decode_sites(terms.row_positions(i), plane_span, mps.n_sites);
         window_expectation(mps, env, &sites) * *terms.coeff(i)
     };
 

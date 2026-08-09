@@ -4,28 +4,125 @@
 ///
 /// The kernels process the data in a SoA (struct of arrays) layout.
 /// The term sum struct is decomposed into its constituent arrays
-/// consisting of the term planes, coefficients, flags, indices
+/// consisting of the sparse key rows, coefficients, flags, indices
 /// and auxiliary storage. They operate on this data in parallel.
 ///
+/// Keys are position lists, never persistent word planes. A kernel that still
+/// needs word planes borrows a bounded [`DenseWorkspace`] for the duration of
+/// its own call; nothing dense survives a kernel boundary.
+///
 use rayon::prelude::*;
-use smallvec::{smallvec, SmallVec};
 
 use crate::coeff::CoeffRepr;
-use crate::soa::{SoaBasis, SoaTermSum};
+use crate::soa::sparse::{
+    encode_planes_into, row_word_pair, splice_row_word, DenseWorkspace, Position, SparseRows,
+};
+use crate::soa::{kernel_layout, KernelLayout, SendPtr, SoaBasis, SoaTermSum, PAR_MIN_LEN};
 use crate::truncators::ResolvedConfig;
 
-type ProductScratch = SmallVec<[u64; 4]>;
-
-struct SendPtr<T>(*mut T);
-unsafe impl<T> Send for SendPtr<T> {}
-unsafe impl<T> Sync for SendPtr<T> {}
-impl<T> SendPtr<T> {
-    #[inline]
-    unsafe fn add(&self, idx: usize) -> *mut T { unsafe { self.0.add(idx) } }
+/// Per-worker state for reaching one row's algebra.
+///
+/// Empty under the sparse kernel layout. Under the `dense` layout it owns a
+/// two-slot dense workspace so a worker can decode a row (slot 0), and a second
+/// row or a product result (slot 1), without allocating per row.
+struct RowWorkspace {
+    dense: Option<DenseWorkspace>,
 }
 
-/// Chunk size floor below which a pass runs serially.
-const PAR_MIN_LEN: usize = 512;
+impl RowWorkspace {
+    fn new(stride: usize) -> Self {
+        RowWorkspace {
+            dense: match kernel_layout() {
+                KernelLayout::Dense => Some(DenseWorkspace::new(stride, 2)),
+                KernelLayout::Sparse => None,
+            },
+        }
+    }
+}
+
+/// Row `i`'s weight.
+#[inline]
+fn row_weight<B: SoaBasis>(rows: &SparseRows, i: usize, n_units: usize, ws: &mut RowWorkspace) -> u32 {
+    match ws.dense.as_mut() {
+        Some(w) => {
+            w.load_slot(rows, i, 0);
+            B::weight(w.row(0), n_units)
+        }
+        None => B::weight_sparse(rows.row(i), rows.plane_span(), n_units),
+    }
+}
+
+/// Row `i`'s trace against `fock`.
+#[inline]
+fn row_trace<B: SoaBasis>(
+    rows: &SparseRows,
+    i: usize,
+    n_units: usize,
+    fock: &[u64],
+    ws: &mut RowWorkspace,
+) -> f64 {
+    match ws.dense.as_mut() {
+        Some(w) => {
+            w.load_slot(rows, i, 0);
+            B::trace(w.row(0), n_units, fock)
+        }
+        None => B::trace_sparse(rows.row(i), rows.plane_span(), n_units, fock),
+    }
+}
+
+/// Row `i`'s merge key hash.
+#[inline]
+fn row_key_hash<B: SoaBasis>(rows: &SparseRows, i: usize, ws: &mut RowWorkspace) -> u64 {
+    match ws.dense.as_mut() {
+        Some(w) => {
+            w.load_slot(rows, i, 0);
+            B::key_hash(w.row(0))
+        }
+        None => B::key_hash_sparse(rows.row(i), rows.plane_span()),
+    }
+}
+
+/// True if row `i` commutes with the generator.
+#[inline]
+fn row_commutes<B: SoaBasis>(
+    row: &[Position],
+    gen_planes: [&[u64]; 2],
+    gen_row: &[Position],
+    plane_span: usize,
+    ws: &mut RowWorkspace,
+) -> bool {
+    match ws.dense.as_mut() {
+        Some(w) => {
+            w.load_slot_positions(row, 0);
+            B::commutes(w.row(0), gen_planes)
+        }
+        None => B::commutes_sparse(row, gen_row, plane_span),
+    }
+}
+
+/// Appends `gen * row` to `out` and returns its phase factor.
+#[inline]
+fn row_product<B: SoaBasis>(
+    row: &[Position],
+    gen_planes: [&[u64]; 2],
+    gen_row: &[Position],
+    plane_span: usize,
+    out: &mut Vec<Position>,
+    ws: &mut RowWorkspace,
+) -> num_complex::Complex64 {
+    match ws.dense.as_mut() {
+        Some(w) => {
+            w.load_slot_positions(row, 0);
+            let phase = {
+                let (term, result) = w.row_pair_mut(0, 1);
+                B::product(term, gen_planes, result)
+            };
+            w.encode_row_into(1, out);
+            phase
+        }
+        None => B::product_sparse(row, gen_row, plane_span, out),
+    }
+}
 
 /// Computes the exclusive prefix sum of `flags` into `index`, returning the total sum.
 pub fn prefix_sum(flags: &[u32], index: &mut [usize]) -> usize {
@@ -72,11 +169,13 @@ pub fn prefix_sum(flags: &[u32], index: &mut [usize]) -> usize {
     total
 }
 
-/// Removes rows with `flags[i] == 0` and compacts the survivors down to `[0, total)`, picking
-/// an in-place or a scatter strategy
+/// Removes rows with `flags[i] == 0` and compacts the survivors down to `[0, total)`.
+///
+/// Coefficients and merge hashes move first (in place or by scatter), then the
+/// sparse key rows are rebuilt against the same `flags`/`index`, so no offset is
+/// ever left pointing into the previous position arena.
 fn compact<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
     if total == n {
-        terms.set_len(n);
         return;
     }
     // `truncate()`/`map_retain()` can call this before `merge()` ever ran, leaving `hashes`
@@ -90,45 +189,36 @@ fn compact<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
         compact_in_place(terms, n, total);
     }
     remap_merge_index(terms, n, total);
+    let SoaTermSum { rows, flags, index, .. } = &mut *terms;
+    rows.compact(n, &flags[..n], &index[..n], total);
 }
 
-/// Stable in-place compaction
+/// Stable in-place compaction of the row-aligned coefficient and hash columns.
 fn compact_in_place<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
-    let stride = terms.stride;
-    {
-        let SoaTermSum { planes, coeffs, flags, hashes, .. } = &mut *terms;
-        // `total < n` (the equal case already returned in `compact`), so a hole must exist.
-        let first_hole = flags[..n].iter().position(|&f| f == 0).expect("total < n implies a hole");
-        let mut dst = first_hole;
-        for src in first_hole + 1..n {
-            if flags[src] == 0 {
-                continue;
-            }
-            // `dst` starts at a hole and only advances on survivors.
-            for plane in planes.iter_mut() {
-                plane.copy_within(src * stride..(src + 1) * stride, dst * stride);
-            }
-            // Swap rather than clone
-            coeffs.swap(dst, src);
-            hashes[dst] = hashes[src];
-            dst += 1;
+    let SoaTermSum { coeffs, flags, hashes, .. } = &mut *terms;
+    // `total < n` (the equal case already returned in `compact`), so a hole must exist.
+    let first_hole = flags[..n].iter().position(|&f| f == 0).expect("total < n implies a hole");
+    let mut dst = first_hole;
+    for src in first_hole + 1..n {
+        if flags[src] == 0 {
+            continue;
         }
-        debug_assert_eq!(dst, total, "in-place compaction disagreed with the prefix sum");
+        // `dst` starts at a hole and only advances on survivors.
+        // Swap rather than clone
+        coeffs.swap(dst, src);
+        hashes[dst] = hashes[src];
+        dst += 1;
     }
-    terms.set_len(total);
+    debug_assert_eq!(dst, total, "in-place compaction disagreed with the prefix sum");
 }
 
-/// Parallel compaction
+/// Parallel compaction of the row-aligned coefficient and hash columns.
 fn compact_scatter<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usize) {
-    let stride = terms.stride;
     terms.ensure_aux_capacity(total);
     {
-        let SoaTermSum { planes, coeffs, aux_planes, aux_coeffs, flags, index, hashes, aux_hashes, .. } =
-            &mut *terms;
-        let dst_p0 = SendPtr(aux_planes[0].as_mut_ptr());
-        let dst_p1 = SendPtr(aux_planes[1].as_mut_ptr());
+        let SoaTermSum { coeffs, aux_coeffs, flags, index, hashes, aux_hashes, .. } = &mut *terms;
         let dst_coeffs = SendPtr(aux_coeffs.as_mut_ptr());
-        // `hashes` is relocated in lockstep with `planes`/`coeffs`
+        // `hashes` is relocated in lockstep with `coeffs`
         let dst_hashes = SendPtr(aux_hashes.as_mut_ptr());
         (0..n).into_par_iter().for_each(|i| {
             if flags[i] == 0 {
@@ -138,16 +228,12 @@ fn compact_scatter<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: usi
             // SAFETY: `index` is the exclusive prefix sum of `flags`, so distinct flagged `i`
             // map to distinct `dst` in [0, total)
             unsafe {
-                let s0 = &planes[0][i * stride..(i + 1) * stride];
-                std::ptr::copy_nonoverlapping(s0.as_ptr(), dst_p0.add(dst * stride), stride);
-                let s1 = &planes[1][i * stride..(i + 1) * stride];
-                std::ptr::copy_nonoverlapping(s1.as_ptr(), dst_p1.add(dst * stride), stride);
                 *dst_coeffs.add(dst) = coeffs[i].clone();
                 *dst_hashes.add(dst) = hashes[i];
             }
         });
     }
-    terms.swap_in_aux(total);
+    terms.swap_in_aux();
 }
 
 /// Keeps `merge_tables` valid across the row-relocation `compact()` just performed.
@@ -169,7 +255,7 @@ fn remap_merge_index<C: CoeffRepr>(terms: &mut SoaTermSum<C>, n: usize, total: u
         });
     }
     // New synced length is the count of survivors among the previously-synced prefix
-    // [0, old_synced). 
+    // [0, old_synced).
     terms.merge_synced_len = if old_synced >= n { total } else { index[old_synced] };
 }
 
@@ -186,32 +272,40 @@ pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &Reso
     terms.ensure_scratch_capacity(n);
 
     if let Some(nt) = &cfg.native {
-        let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
-        let weight_of = |i: usize| -> u32 {
-            let s = i * stride;
-            B::weight([&planes[0][s..s + stride], &planes[1][s..s + stride]], n_units)
+        let SoaTermSum { rows, coeffs, flags, .. } = &mut *terms;
+        let run_chunk = |chunk: &mut [u32], base: usize| {
+            let mut ws = RowWorkspace::new(stride);
+            let weights: Vec<u32> =
+                (0..chunk.len()).map(|j| row_weight::<B>(rows, base + j, n_units, &mut ws)).collect();
+            let magnitudes: Vec<f64> = (0..chunk.len()).map(|j| coeffs[base + j].magnitude()).collect();
+            native_keep_flags(chunk, &weights, &magnitudes, nt);
         };
         if n >= PAR_MIN_LEN {
             let n_chunks = rayon::current_num_threads().max(1);
             let chunk_size = n.div_ceil(n_chunks);
-            flags[..n].par_chunks_mut(chunk_size).enumerate().for_each(|(chunk_idx, chunk)| {
-                truncate_native_chunk(chunk, chunk_idx * chunk_size, coeffs, &weight_of, nt);
-            });
+            flags[..n]
+                .par_chunks_mut(chunk_size)
+                .enumerate()
+                .for_each(|(chunk_idx, chunk)| run_chunk(chunk, chunk_idx * chunk_size));
         } else {
-            truncate_native_chunk(&mut flags[..n], 0, coeffs, &weight_of, nt);
+            run_chunk(&mut flags[..n], 0);
         }
     } else {
-        let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
-        let iskept = |i: usize| -> bool {
-            let s = i * stride;
-            let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
-            let weight_ok = cfg.weight.is_none_or(|w| B::weight(term, n_units) <= w);
+        let SoaTermSum { rows, coeffs, flags, .. } = &mut *terms;
+        let iskept = |i: usize, ws: &mut RowWorkspace| -> bool {
+            let weight_ok = cfg.weight.is_none_or(|w| row_weight::<B>(rows, i, n_units, ws) <= w);
             weight_ok && coeffs[i].passes_coeff_cutoff(cc)
         };
         if n >= PAR_MIN_LEN {
-            flags[..n].par_iter_mut().enumerate().for_each(|(i, f)| *f = iskept(i) as u32);
+            flags[..n]
+                .par_iter_mut()
+                .enumerate()
+                .for_each_init(|| RowWorkspace::new(stride), |ws, (i, f)| *f = iskept(i, ws) as u32);
         } else {
-            for (i, f) in flags[..n].iter_mut().enumerate() { *f = iskept(i) as u32; }
+            let mut ws = RowWorkspace::new(stride);
+            for (i, f) in flags[..n].iter_mut().enumerate() {
+                *f = iskept(i, &mut ws) as u32;
+            }
         }
     }
 
@@ -222,19 +316,16 @@ pub fn truncate<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, cfg: &Reso
     compact(terms, n, total);
 }
 
-/// Fills `flag_chunk` via a native truncator plugin
-fn truncate_native_chunk<C: CoeffRepr>(
+/// Fills `flag_chunk` from a native truncator plugin's verdict on precomputed weights.
+fn native_keep_flags(
     flag_chunk: &mut [u32],
-    base: usize,
-    coeffs: &[C],
-    weight_of: &impl Fn(usize) -> u32,
+    weights: &[u32],
+    magnitudes: &[f64],
     nt: &crate::native_truncator::NativeTruncator,
 ) {
-    let weights: Vec<u32> = (0..flag_chunk.len()).map(|j| weight_of(base + j)).collect();
-    let magnitudes: Vec<f64> = (0..flag_chunk.len()).map(|j| coeffs[base + j].magnitude()).collect();
     let active_modes = vec![0u32; flag_chunk.len()];
     let mut keep = vec![0u8; flag_chunk.len()];
-    if nt.try_keep_batch(&weights, &magnitudes, &active_modes, &mut keep) {
+    if nt.try_keep_batch(weights, magnitudes, &active_modes, &mut keep) {
         for (f, &k) in flag_chunk.iter_mut().zip(&keep) {
             *f = k as u32;
         }
@@ -247,16 +338,18 @@ fn truncate_native_chunk<C: CoeffRepr>(
 
 /// Applies `map_fn` to every coefficient, then keeps only rows for which `keep` returns true,
 /// compacting survivors down.
+///
+/// `keep` receives the row's sparse positions; a basis-specific predicate should
+/// go through the `*_sparse` `SoaBasis` methods rather than decoding.
 pub fn map_retain<B: SoaBasis, C: CoeffRepr, F, K>(terms: &mut SoaTermSum<C>, map_fn: F, keep: K) -> u128
 where
     F: Fn(&mut C) + Sync,
-    K: Fn([&[u64]; 2], &C) -> bool + Sync,
+    K: Fn(&[Position], &C) -> bool + Sync,
 {
     let n = terms.len();
     if n == 0 {
         return 0;
     }
-    let stride = terms.stride;
     terms.ensure_scratch_capacity(n);
 
     {
@@ -269,16 +362,14 @@ where
     }
 
     {
-        let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
-        let iskept = |i: usize| -> bool {
-            let s = i * stride;
-            let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
-            keep(term, &coeffs[i])
-        };
+        let SoaTermSum { rows, coeffs, flags, .. } = &mut *terms;
+        let iskept = |i: usize| -> bool { keep(rows.row(i), &coeffs[i]) };
         if n >= PAR_MIN_LEN {
             flags[..n].par_iter_mut().enumerate().for_each(|(i, f)| *f = iskept(i) as u32);
         } else {
-            for (i, f) in flags[..n].iter_mut().enumerate() { *f = iskept(i) as u32; }
+            for (i, f) in flags[..n].iter_mut().enumerate() {
+                *f = iskept(i) as u32;
+            }
         }
     }
 
@@ -319,7 +410,26 @@ where
     terms.coeffs[..n].par_iter().map(&f).reduce(|| 0u128, u128::saturating_add)
 }
 
-/// Batched dedup insert pass for the generic (`stride != 1`) index-based table
+/// Computes the merge key hash of every row in `[synced, n)`.
+fn hash_new_rows<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, synced: usize, n: usize, parallel: bool) {
+    let stride = terms.stride;
+    let SoaTermSum { rows, hashes, .. } = &mut *terms;
+    if parallel {
+        hashes[synced..n]
+            .par_iter_mut()
+            .enumerate()
+            .for_each_init(|| RowWorkspace::new(stride), |ws, (k, h)| {
+                *h = row_key_hash::<B>(rows, synced + k, ws)
+            });
+    } else {
+        let mut ws = RowWorkspace::new(stride);
+        for k in synced..n {
+            hashes[k] = row_key_hash::<B>(rows, k, &mut ws);
+        }
+    }
+}
+
+/// Batched dedup insert pass for the index-based merge table
 fn merge_insert_batches_generic<B: SoaBasis, C: CoeffRepr>(
     terms: &mut SoaTermSum<C>,
     synced: usize,
@@ -329,23 +439,30 @@ fn merge_insert_batches_generic<B: SoaBasis, C: CoeffRepr>(
     batch_of: impl Fn(u64) -> usize + Sync,
 ) -> usize {
     let stride = terms.stride;
-    let SoaTermSum { planes, coeffs, flags, hashes, merge_tables, .. } = &mut *terms;
+    let plane_span = terms.plane_span();
+    let SoaTermSum { rows, coeffs, flags, hashes, merge_tables, .. } = &mut *terms;
     let coeffs_ptr = SendPtr(coeffs.as_mut_ptr());
     let flags_ptr = SendPtr(flags.as_mut_ptr());
     let process_batch = |(bid, seen): (usize, &mut hashbrown::HashTable<usize>)| -> usize {
         let mut merged_away = 0usize;
+        let mut ws = RowWorkspace::new(stride);
         for i in synced..n {
             if batch_of(hashes[i]) != bid {
                 continue;
             }
-            let s = i * stride;
-            let term_i = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
+            // The probe row goes into slot 0 once; candidates land in slot 1.
+            if let Some(w) = ws.dense.as_mut() {
+                w.load_slot(rows, i, 0);
+            }
             let h = hashes[i];
             let entry = seen.entry(
                 h,
-                |&cand| {
-                    let sc = cand * stride;
-                    B::key_eq(term_i, [&planes[0][sc..sc + stride], &planes[1][sc..sc + stride]])
+                |&cand| match ws.dense.as_mut() {
+                    Some(w) => {
+                        w.load_slot(rows, cand, 1);
+                        B::key_eq(w.row(0), w.row(1))
+                    }
+                    None => B::key_eq_sparse(rows.row(i), rows.row(cand), plane_span),
                 },
                 |&cand| hashes[cand],
             );
@@ -384,7 +501,6 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
     if n <= 1 {
         return;
     }
-    let stride = terms.stride;
     terms.ensure_scratch_capacity(n);
     terms.ensure_hashes_capacity(n);
 
@@ -393,20 +509,7 @@ pub fn merge<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>) {
     let hash_parallel = new_range_len >= PAR_MIN_LEN;
 
     // Per-row key hash, new rows only.
-    {
-        let SoaTermSum { planes, hashes, .. } = &mut *terms;
-        let hash_of = |i: usize| -> u64 {
-            let s = i * stride;
-            B::key_hash([&planes[0][s..s + stride], &planes[1][s..s + stride]])
-        };
-        if hash_parallel {
-            hashes[synced..n].par_iter_mut().enumerate().for_each(|(k, h)| *h = hash_of(synced + k));
-        } else {
-            for k in 0..new_range_len {
-                hashes[synced + k] = hash_of(synced + k);
-            }
-        }
-    }
+    hash_new_rows::<B, C>(terms, synced, n, hash_parallel);
 
     // `n_batches` must stay constant for the SoaPropagator's thread pool lifetime
     let n_batches = rayon::current_num_threads().max(1).next_power_of_two();
@@ -459,18 +562,7 @@ pub fn merge_and_truncate<B: SoaBasis, C: CoeffRepr>(
     let hash_parallel = new_range_len >= PAR_MIN_LEN;
 
     if new_range_len > 0 {
-        let SoaTermSum { planes, hashes, .. } = &mut *terms;
-        let hash_of = |i: usize| -> u64 {
-            let s = i * stride;
-            B::key_hash([&planes[0][s..s + stride], &planes[1][s..s + stride]])
-        };
-        if hash_parallel {
-            hashes[synced..n].par_iter_mut().enumerate().for_each(|(k, h)| *h = hash_of(synced + k));
-        } else {
-            for k in 0..new_range_len {
-                hashes[synced + k] = hash_of(synced + k);
-            }
-        }
+        hash_new_rows::<B, C>(terms, synced, n, hash_parallel);
     }
 
     let n_batches = rayon::current_num_threads().max(1).next_power_of_two();
@@ -503,44 +595,45 @@ pub fn merge_and_truncate<B: SoaBasis, C: CoeffRepr>(
         if after_dedup >= min_terms {
             let cc = cfg.coefficient.unwrap_or(0.0);
             if let Some(nt) = &cfg.native {
-                let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
-                let weight_of = |i: usize| -> u32 {
-                    let s = i * stride;
-                    B::weight([&planes[0][s..s + stride], &planes[1][s..s + stride]], n_units)
-                };
+                let SoaTermSum { rows, coeffs, flags, .. } = &mut *terms;
                 let flags_ptr = SendPtr(flags.as_mut_ptr());
-                let run = |i: usize| {
+                let run = |i: usize, ws: &mut RowWorkspace| {
                     if flags[i] == 0 {
                         return;
                     }
-                    let w = weight_of(i);
+                    let w = row_weight::<B>(rows, i, n_units, ws);
                     let mag = coeffs[i].magnitude();
                     let keep = nt.keep(w, mag, 0) as u32;
                     // SAFETY: distinct `i` map to distinct offsets
                     unsafe { *flags_ptr.add(i) = keep; }
                 };
                 if n >= PAR_MIN_LEN {
-                    (0..n).into_par_iter().for_each(run);
+                    (0..n).into_par_iter().for_each_init(|| RowWorkspace::new(stride), |ws, i| run(i, ws));
                 } else {
-                    (0..n).for_each(run);
+                    let mut ws = RowWorkspace::new(stride);
+                    (0..n).for_each(|i| run(i, &mut ws));
                 }
             } else {
-                let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
+                let SoaTermSum { rows, coeffs, flags, .. } = &mut *terms;
                 let flags_read = SendPtr(flags.as_mut_ptr());
-                let iskept = |i: usize| -> bool {
+                let iskept = |i: usize, ws: &mut RowWorkspace| -> bool {
                     // SAFETY: read-only use of a raw pointer into `flags`
                     if unsafe { *flags_read.add(i) } == 0 {
                         return false;
                     }
-                    let s = i * stride;
-                    let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
-                    let weight_ok = cfg.weight.is_none_or(|w| B::weight(term, n_units) <= w);
+                    let weight_ok = cfg.weight.is_none_or(|w| row_weight::<B>(rows, i, n_units, ws) <= w);
                     weight_ok && coeffs[i].passes_coeff_cutoff(cc)
                 };
                 if n >= PAR_MIN_LEN {
-                    flags[..n].par_iter_mut().enumerate().for_each(|(i, f)| *f = iskept(i) as u32);
+                    flags[..n].par_iter_mut().enumerate().for_each_init(
+                        || RowWorkspace::new(stride),
+                        |ws, (i, f)| *f = iskept(i, ws) as u32,
+                    );
                 } else {
-                    for (i, f) in flags[..n].iter_mut().enumerate() { *f = iskept(i) as u32; }
+                    let mut ws = RowWorkspace::new(stride);
+                    for (i, f) in flags[..n].iter_mut().enumerate() {
+                        *f = iskept(i, &mut ws) as u32;
+                    }
                 }
             }
         }
@@ -554,8 +647,8 @@ pub fn merge_and_truncate<B: SoaBasis, C: CoeffRepr>(
     (after_dedup, total)
 }
 
-/// Since Clifford conjugations are an isomorphism, we can precompute the effect 
-/// of a Clifford rotation on a single-qubit Pauli label in an LUT and use it 
+/// Since Clifford conjugations are an isomorphism, we can precompute the effect
+/// of a Clifford rotation on a single-qubit Pauli label in an LUT and use it
 /// to modify terms in-place.
 fn build_clifford_table<B: SoaBasis, C: CoeffRepr>(
     gw: [u64; 2],
@@ -660,40 +753,35 @@ pub fn build_fused_clifford<B: SoaBasis, C: CoeffRepr>(
 }
 
 /// Applies a fused Clifford conjugation to every live term in one pass.
+///
+/// A fused op only rewrites one stride-word of each key, so each row is spliced
+/// at that word rather than decoded.
 pub fn apply_clifford_op<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>, op: &CliffordOp) {
     let n = terms.len();
     if n == 0 {
         return;
     }
-    let stride = terms.stride;
     let (w, mask) = (op.word, op.mask);
     let (bi, bj) = (op.bits[0], op.bits[1]);
     let two = op.n_qubits == 2;
     let table = op.table;
-    let SoaTermSum { planes, coeffs, .. } = &mut *terms;
-    let p0 = SendPtr(planes[0].as_mut_ptr());
-    let p1 = SendPtr(planes[1].as_mut_ptr());
-    let cf = SendPtr(coeffs.as_mut_ptr());
-    let run = |i: usize| {
-        let s = i * stride;
-        // SAFETY: distinct `i` map to distinct `s + w` (planes) and `i` (coeffs) offsets
-        unsafe {
-            let x = *p0.add(s + w);
-            let z = *p1.add(s + w);
+    let plane_span = terms.plane_span();
+    {
+        let SoaTermSum { rows, coeffs, .. } = &mut *terms;
+        let cf = SendPtr(coeffs.as_mut_ptr());
+        rows.rewrite_rows(|i, row, out| {
+            let [x, z] = row_word_pair(row, plane_span, w);
             let mut idx = (((x >> bi) & 1) | (((z >> bi) & 1) << 1)) as usize;
             if two {
                 idx |= ((((x >> bj) & 1) | (((z >> bj) & 1) << 1)) << 2) as usize;
             }
             let (new_bits, factor) = table[idx];
-            *p0.add(s + w) = (x & !mask) | new_bits[0];
-            *p1.add(s + w) = (z & !mask) | new_bits[1];
-            (*cf.add(i)).scale_real(factor);
-        }
-    };
-    if n >= PAR_MIN_LEN {
-        (0..n).into_par_iter().for_each(run);
-    } else {
-        (0..n).for_each(run);
+            let new_word = [(x & !mask) | new_bits[0], (z & !mask) | new_bits[1]];
+            splice_row_word(row, plane_span, w, new_word, out);
+            // SAFETY: `rewrite_rows` visits every row index exactly once, so distinct
+            // tasks touch distinct coefficients.
+            unsafe { (*cf.add(i)).scale_real(factor); }
+        });
     }
     terms.invalidate_merge_index();
 }
@@ -717,6 +805,7 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
         return 0;
     }
     let stride = terms.stride;
+    let plane_span = terms.plane_span();
     let n_units = terms.n_units;
     terms.ensure_scratch_capacity(n);
 
@@ -724,34 +813,28 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     let gen_word: Option<[u64; 2]> = local_word.map(|w| [gen[0][w], gen[1][w]]);
     let gen_is_single_qubit = B::weight(gen, n_units) == 1;
 
+    // The generator as a sparse row, for the paths that merge position lists.
+    let mut gen_row: Vec<Position> = Vec::new();
+    encode_planes_into(gen, plane_span, &mut gen_row);
+
     if clifford_inplace && gen_is_single_qubit {
         if let (Some(w), Some(gw), Some(table)) =
             (local_word, gen_word, gen_word.and_then(|g| build_clifford_table::<B, C>(g, param)))
         {
             let bit = (gw[0] | gw[1]).trailing_zeros();
             let mask = 1u64 << bit;
-            let SoaTermSum { planes, coeffs, .. } = &mut *terms;
-            let p0 = SendPtr(planes[0].as_mut_ptr());
-            let p1 = SendPtr(planes[1].as_mut_ptr());
-            let cf = SendPtr(coeffs.as_mut_ptr());
-            let run = |i: usize| {
-                let s = i * stride;
-                // SAFETY: distinct `i` map to distinct `s + w` (planes) and `i` (coeffs)
-                // offsets
-                unsafe {
-                    let x_bit = (*p0.add(s + w) >> bit) & 1;
-                    let z_bit = (*p1.add(s + w) >> bit) & 1;
-                    let p_idx = (x_bit | (z_bit << 1)) as usize;
+            {
+                let SoaTermSum { rows, coeffs, .. } = &mut *terms;
+                let cf = SendPtr(coeffs.as_mut_ptr());
+                rows.rewrite_rows(|i, row, out| {
+                    let [x, z] = row_word_pair(row, plane_span, w);
+                    let p_idx = (((x >> bit) & 1) | (((z >> bit) & 1) << 1)) as usize;
                     let (new_bits, sign) = table[p_idx];
-                    *p0.add(s + w) = (*p0.add(s + w) & !mask) | new_bits[0];
-                    *p1.add(s + w) = (*p1.add(s + w) & !mask) | new_bits[1];
-                    (*cf.add(i)).scale_real(sign);
-                }
-            };
-            if n >= PAR_MIN_LEN {
-                (0..n).into_par_iter().for_each(run);
-            } else {
-                (0..n).for_each(run);
+                    let new_word = [(x & !mask) | new_bits[0], (z & !mask) | new_bits[1]];
+                    splice_row_word(row, plane_span, w, new_word, out);
+                    // SAFETY: every row index is visited exactly once.
+                    unsafe { (*cf.add(i)).scale_real(sign); }
+                });
             }
             terms.invalidate_merge_index();
             return 0;
@@ -759,19 +842,24 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     }
 
     {
-        let SoaTermSum { planes, flags, .. } = &mut *terms;
-        let anticommutes = |i: usize| -> bool {
-            let s = i * stride;
+        let SoaTermSum { rows, flags, .. } = &mut *terms;
+        let anticommutes = |i: usize, ws: &mut RowWorkspace| -> bool {
             if let (Some(w), Some(gw)) = (local_word, gen_word) {
-                !B::commutes_at_word([planes[0][s + w], planes[1][s + w]], gw)
+                !B::commutes_at_word(row_word_pair(rows.row(i), plane_span, w), gw)
             } else {
-                !B::commutes([&planes[0][s..s + stride], &planes[1][s..s + stride]], gen)
+                !row_commutes::<B>(rows.row(i), gen, &gen_row, plane_span, ws)
             }
         };
         if n >= PAR_MIN_LEN {
-            flags[..n].par_iter_mut().enumerate().for_each(|(i, f)| *f = anticommutes(i) as u32);
+            flags[..n].par_iter_mut().enumerate().for_each_init(
+                || RowWorkspace::new(stride),
+                |ws, (i, f)| *f = anticommutes(i, ws) as u32,
+            );
         } else {
-            for (i, f) in flags[..n].iter_mut().enumerate() { *f = anticommutes(i) as u32; }
+            let mut ws = RowWorkspace::new(stride);
+            for (i, f) in flags[..n].iter_mut().enumerate() {
+                *f = anticommutes(i, &mut ws) as u32;
+            }
         }
     }
 
@@ -802,46 +890,30 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     }
 
     if clifford_inplace {
-        let live = n * stride;
-        let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
-        let [p0, p1] = planes;
-        let p0 = &mut p0[..live];
-        let p1 = &mut p1[..live];
-        let co = &mut coeffs[..n];
-        let flags = &flags[..n];
-        let apply_one = |scratch: &mut (ProductScratch, ProductScratch), i: usize, x_row: &mut [u64], z_row: &mut [u64], c: &mut C| {
-            if flags[i] == 0 {
-                return;
-            }
-            if let (Some(w), Some(gw)) = (local_word, gen_word) {
-                let (out_word, phase) = B::product_at_word([x_row[w], z_row[w]], gw);
-                *c = c.apply_rotation(param, phase);
-                x_row[w] = out_word[0];
-                z_row[w] = out_word[1];
-            } else {
-                let (scratch0, scratch1) = scratch;
-                let phase = B::product([&*x_row, &*z_row], gen, [scratch0, scratch1]);
-                *c = c.apply_rotation(param, phase);
-                x_row.copy_from_slice(scratch0);
-                z_row.copy_from_slice(scratch1);
-            }
-        };
-        let make_scratch = || (smallvec![0u64; stride], smallvec![0u64; stride]);
-        if n >= PAR_MIN_LEN {
-            p0.par_chunks_mut(stride)
-                .zip(p1.par_chunks_mut(stride))
-                .zip(co.par_iter_mut())
-                .enumerate()
-                .for_each_init(make_scratch, |scratch, (i, ((x_row, z_row), c))| {
-                    apply_one(scratch, i, x_row, z_row, c)
-                });
-        } else {
-            let mut scratch = make_scratch();
-            p0.chunks_mut(stride)
-                .zip(p1.chunks_mut(stride))
-                .zip(co.iter_mut())
-                .enumerate()
-                .for_each(|(i, ((x_row, z_row), c))| apply_one(&mut scratch, i, x_row, z_row, c));
+        {
+            let SoaTermSum { rows, coeffs, flags, .. } = &mut *terms;
+            let cf = SendPtr(coeffs.as_mut_ptr());
+            let live_flags = &flags[..n];
+            rows.rewrite_rows_init(
+                || RowWorkspace::new(stride),
+                |ws, i, row, out| {
+                    if live_flags[i] == 0 {
+                        out.extend_from_slice(row);
+                        return;
+                    }
+                    let phase = if let (Some(w), Some(gw)) = (local_word, gen_word) {
+                        let (out_word, phase) = B::product_at_word(row_word_pair(row, plane_span, w), gw);
+                        splice_row_word(row, plane_span, w, out_word, out);
+                        phase
+                    } else {
+                        row_product::<B>(row, gen, &gen_row, plane_span, out, ws)
+                    };
+                    // SAFETY: every row index is visited exactly once.
+                    unsafe {
+                        *cf.add(i) = (*cf.add(i)).apply_rotation(param, phase);
+                    }
+                },
+            );
         }
         terms.invalidate_merge_index();
         return 0;
@@ -850,58 +922,34 @@ pub fn apply_rotation<B: SoaBasis, C: CoeffRepr>(
     let new_len = n + total_new;
     terms.ensure_capacity(new_len);
     {
-        let SoaTermSum { planes, coeffs, flags, index, .. } = &mut *terms;
-        let p0 = SendPtr(planes[0].as_mut_ptr());
-        let p1 = SendPtr(planes[1].as_mut_ptr());
+        let SoaTermSum { rows, coeffs, flags, index, .. } = &mut *terms;
         let cf = SendPtr(coeffs.as_mut_ptr());
-        let run = |scratch: &mut (ProductScratch, ProductScratch), i: usize| {
-            if flags[i] == 0 {
-                return;
-            }
-            let s = i * stride;
-            let dst = n + index[i];
-            if let (Some(w), Some(gw)) = (local_word, gen_word) {
+        let live_flags = &flags[..n];
+        let live_index = &index[..n];
+        rows.append_selected_init(
+            n,
+            live_flags,
+            || RowWorkspace::new(stride),
+            |ws, i, row, out| {
+                let dst = n + live_index[i];
+                let phase = if let (Some(w), Some(gw)) = (local_word, gen_word) {
+                    let (out_word, phase) = B::product_at_word(row_word_pair(row, plane_span, w), gw);
+                    splice_row_word(row, plane_span, w, out_word, out);
+                    phase
+                } else {
+                    row_product::<B>(row, gen, &gen_row, plane_span, out, ws)
+                };
+                // SAFETY: `index` is the exclusive prefix sum of `flags`, so distinct
+                // sources map to distinct `dst` in [n, new_len), never aliasing the
+                // source coefficient at `i < n`.
                 unsafe {
-                    std::ptr::copy_nonoverlapping(p0.add(s), p0.add(dst * stride), stride);
-                    std::ptr::copy_nonoverlapping(p1.add(s), p1.add(dst * stride), stride);
-                    let term_word = [*p0.add(s + w), *p1.add(s + w)];
-                    let (out_word, phase) = B::product_at_word(term_word, gw);
                     let sin_branch = (*cf.add(i)).apply_rotation(param, phase);
-                    *p0.add(dst * stride + w) = out_word[0];
-                    *p1.add(dst * stride + w) = out_word[1];
                     *cf.add(dst) = sin_branch;
                 }
-                return;
-            }
-            let (scratch0, scratch1) = scratch;
-            let phase = {
-                // SAFETY: reading term `i` (in [0, n)) while writing to `dst` (in [n, new_len))
-                // never aliases
-                unsafe {
-                    let term = [
-                        std::slice::from_raw_parts(p0.add(s), stride),
-                        std::slice::from_raw_parts(p1.add(s), stride),
-                    ];
-                    B::product(term, gen, [scratch0, scratch1])
-                }
-            };
-            // SAFETY: same disjointness argument as above.
-            unsafe {
-                let sin_branch = (*cf.add(i)).apply_rotation(param, phase);
-                std::ptr::copy_nonoverlapping(scratch0.as_ptr(), p0.add(dst * stride), stride);
-                std::ptr::copy_nonoverlapping(scratch1.as_ptr(), p1.add(dst * stride), stride);
-                *cf.add(dst) = sin_branch;
-            }
-        };
-        let make_scratch = || (smallvec![0u64; stride], smallvec![0u64; stride]);
-        if n >= PAR_MIN_LEN {
-            (0..n).into_par_iter().for_each_init(make_scratch, |scratch, i| run(scratch, i));
-        } else {
-            let mut scratch = make_scratch();
-            (0..n).for_each(|i| run(&mut scratch, i));
-        }
+            },
+        );
     }
-    terms.set_len(new_len);
+    debug_assert_eq!(terms.len(), new_len);
     total_new
 }
 
@@ -915,16 +963,21 @@ pub fn apply_noise_inplace<B: SoaBasis, C: CoeffRepr>(terms: &mut SoaTermSum<C>,
     let stride = terms.stride;
     let n_units = terms.n_units;
     let lut_max = exp_lut.len() - 1;
-    let SoaTermSum { planes, coeffs, .. } = terms;
-    let factor_of = |i: usize| -> f64 {
-        let s = i * stride;
-        let w = B::weight([&planes[0][s..s + stride], &planes[1][s..s + stride]], n_units) as usize;
+    let SoaTermSum { rows, coeffs, .. } = terms;
+    let factor_of = |i: usize, ws: &mut RowWorkspace| -> f64 {
+        let w = row_weight::<B>(rows, i, n_units, ws) as usize;
         exp_lut[w.min(lut_max)]
     };
     if n >= PAR_MIN_LEN {
-        coeffs[..n].par_iter_mut().enumerate().for_each(|(i, c)| c.scale_real(factor_of(i)));
+        coeffs[..n].par_iter_mut().enumerate().for_each_init(
+            || RowWorkspace::new(stride),
+            |ws, (i, c)| c.scale_real(factor_of(i, ws)),
+        );
     } else {
-        for (i, c) in coeffs[..n].iter_mut().enumerate() { c.scale_real(factor_of(i)); }
+        let mut ws = RowWorkspace::new(stride);
+        for (i, c) in coeffs[..n].iter_mut().enumerate() {
+            c.scale_real(factor_of(i, &mut ws));
+        }
     }
 }
 
@@ -939,40 +992,33 @@ pub fn apply_noise_native<B: SoaBasis, C: CoeffRepr>(
     }
     let stride = terms.stride;
     let n_units = terms.n_units;
-    let SoaTermSum { planes, coeffs, .. } = terms;
-    let weight_of = |i: usize| -> u32 {
-        let s = i * stride;
-        B::weight([&planes[0][s..s + stride], &planes[1][s..s + stride]], n_units)
+    let SoaTermSum { rows, coeffs, .. } = terms;
+    let run_chunk = |chunk: &mut [C], base: usize| {
+        let mut ws = RowWorkspace::new(stride);
+        let weights: Vec<u32> =
+            (0..chunk.len()).map(|j| row_weight::<B>(rows, base + j, n_units, &mut ws)).collect();
+        let active_modes = vec![0u32; chunk.len()];
+        let mut factors = vec![0f64; chunk.len()];
+        if handle.try_damping_batch(&weights, &active_modes, &mut factors) {
+            for (c, &f) in chunk.iter_mut().zip(&factors) {
+                c.scale_real(f);
+            }
+        } else {
+            for (j, c) in chunk.iter_mut().enumerate() {
+                c.scale_real(handle.damping_factor(weights[j], 0));
+            }
+        }
     };
 
     if n >= PAR_MIN_LEN {
         let n_chunks = rayon::current_num_threads().max(1);
         let chunk_size = n.div_ceil(n_chunks);
-        coeffs[..n].par_chunks_mut(chunk_size).enumerate().for_each(|(chunk_idx, chunk)| {
-            apply_noise_native_chunk(chunk, chunk_idx * chunk_size, &weight_of, handle);
-        });
+        coeffs[..n]
+            .par_chunks_mut(chunk_size)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| run_chunk(chunk, chunk_idx * chunk_size));
     } else {
-        apply_noise_native_chunk(&mut coeffs[..n], 0, &weight_of, handle);
-    }
-}
-
-fn apply_noise_native_chunk<C: CoeffRepr>(
-    chunk: &mut [C],
-    base: usize,
-    weight_of: &impl Fn(usize) -> u32,
-    handle: &crate::native_noise::NativeNoiseHandle,
-) {
-    let weights: Vec<u32> = (0..chunk.len()).map(|j| weight_of(base + j)).collect();
-    let active_modes = vec![0u32; chunk.len()];
-    let mut factors = vec![0f64; chunk.len()];
-    if handle.try_damping_batch(&weights, &active_modes, &mut factors) {
-        for (c, &f) in chunk.iter_mut().zip(&factors) {
-            c.scale_real(f);
-        }
-    } else {
-        for (j, c) in chunk.iter_mut().enumerate() {
-            c.scale_real(handle.damping_factor(weights[j], 0));
-        }
+        run_chunk(&mut coeffs[..n], 0);
     }
 }
 
@@ -980,19 +1026,20 @@ fn apply_noise_native_chunk<C: CoeffRepr>(
 pub fn expectation<B: SoaBasis, C: CoeffRepr>(terms: &SoaTermSum<C>, fock_state: &[u64]) -> f64 {
     let n = terms.len();
     let stride = terms.stride;
-    let planes = &terms.planes;
-    let value_of = |i: usize| -> f64 {
-        let s = i * stride;
-        let term = [&planes[0][s..s + stride], &planes[1][s..s + stride]];
-        terms.coeffs[i].to_f64() * B::trace(term, terms.n_units, fock_state)
+    let rows = terms.rows();
+    let value_of = |i: usize, ws: &mut RowWorkspace| -> f64 {
+        terms.coeffs[i].to_f64() * row_trace::<B>(rows, i, terms.n_units, fock_state, ws)
     };
     if n >= PAR_MIN_LEN {
-        (0..n).into_par_iter().map(value_of).sum()
+        (0..n)
+            .into_par_iter()
+            .map_init(|| RowWorkspace::new(stride), |ws, i| value_of(i, ws))
+            .sum()
     } else {
-        (0..n).map(value_of).sum()
+        let mut ws = RowWorkspace::new(stride);
+        (0..n).map(|i| value_of(i, &mut ws)).sum()
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1034,8 +1081,16 @@ mod tests {
         SoaTermSum::new(n_units, 1)
     }
 
+    /// Row `i`'s word planes, decoded into an owned pair. Test-only: the
+    /// production paths read `row_positions` instead.
+    fn planes_of(terms: &SoaTermSum<f64>, i: usize) -> (Vec<u64>, Vec<u64>) {
+        let mut buf = vec![0u64; 2 * terms.stride];
+        let planes = terms.decode_row(i, &mut buf);
+        (planes[0].to_vec(), planes[1].to_vec())
+    }
+
     fn values(terms: &SoaTermSum<f64>) -> std::collections::HashMap<u64, f64> {
-        (0..terms.len()).map(|i| (terms.term_plane(i, 0)[0], *terms.coeff(i))).collect()
+        (0..terms.len()).map(|i| (planes_of(terms, i).0[0], *terms.coeff(i))).collect()
     }
 
     #[test]
@@ -1150,7 +1205,7 @@ mod tests {
         let _ = map_retain::<TestBasis, f64, _, _>(
             &mut terms,
             |c| *c *= 2.0,
-            |term, _c| TestBasis::weight(term, 4) <= 2,
+            |row, _c| TestBasis::weight_sparse(row, 64, 4) <= 2,
         );
         assert_eq!(terms.len(), 1, "only key=1 should survive the retain predicate");
         assert_eq!(values(&terms)[&1], 2.0);
@@ -1350,15 +1405,13 @@ mod tests {
         if n <= 1 {
             return;
         }
-        let stride = terms.stride;
         terms.ensure_scratch_capacity(n);
-        let mut seen: std::collections::HashMap<Vec<u64>, usize> = std::collections::HashMap::new();
+        let keys: Vec<Vec<Position>> = (0..n).map(|i| terms.row_positions(i).to_vec()).collect();
+        let mut seen: std::collections::HashMap<Vec<Position>, usize> = std::collections::HashMap::new();
         {
-            let SoaTermSum { planes, coeffs, flags, .. } = &mut *terms;
+            let SoaTermSum { coeffs, flags, .. } = &mut *terms;
             for i in 0..n {
-                let s = i * stride;
-                let key: Vec<u64> =
-                    planes[0][s..s + stride].iter().chain(planes[1][s..s + stride].iter()).copied().collect();
+                let key = keys[i].clone();
                 flags[i] = 1;
                 match seen.entry(key) {
                     std::collections::hash_map::Entry::Occupied(occ) => {
@@ -1520,7 +1573,7 @@ mod tests {
         let total_size = map_retain::<TestBasis, f64, _, _>(
             &mut terms,
             |c| *c *= 2.0,
-            |term, _c| TestBasis::weight(term, 4) <= 2,
+            |row, _c| TestBasis::weight_sparse(row, 64, 4) <= 2,
         );
         assert_eq!(terms.len(), 2);
         assert_eq!(total_size, 2); // f64::size_hint() == 1 per survivor
@@ -1541,7 +1594,7 @@ mod tests {
         let total_size = map_retain::<TestBasis, f64, _, _>(
             &mut terms,
             |c| *c += 1.0,
-            |_term, c| (*c as u64) % 3 == 0,
+            |_row, c| (*c as u64) % 3 == 0,
         );
         let v = values(&terms);
         let expected: std::collections::HashMap<u64, f64> = (0..n as u64)
@@ -1598,9 +1651,9 @@ mod tests {
         let added = apply_rotation::<TestBasis, f64>(&mut terms, gen, &angle, false);
         assert_eq!(added, 1);
         assert_eq!(terms.len(), 2);
-        assert_eq!(terms.term_plane(0, 0)[0], 1);
+        assert_eq!(planes_of(&terms, 0).0[0], 1);
         assert!((terms.coeff(0) - 2.0 * angle.cos()).abs() < 1e-12);
-        assert_eq!(terms.term_plane(1, 0)[0], 0);
+        assert_eq!(planes_of(&terms, 1).0[0], 0);
         assert!((terms.coeff(1) - (2.0 * angle.sin() * -1.0)).abs() < 1e-12);
     }
 
@@ -1626,9 +1679,9 @@ mod tests {
 
         assert_eq!(added, 0);
         assert_eq!(terms.len(), 2, "in-place branch must not grow the container");
-        assert_eq!(terms.term_plane(0, 0)[0], 0);
+        assert_eq!(planes_of(&terms, 0).0[0], 0);
         assert!((terms.coeff(0) - (2.0 * angle.sin() * -1.0)).abs() < 1e-9);
-        assert_eq!(terms.term_plane(1, 0)[0], 0b10);
+        assert_eq!(planes_of(&terms, 1).0[0], 0b10);
         assert_eq!(*terms.coeff(1), 3.0);
     }
 
@@ -1683,6 +1736,11 @@ mod tests {
         fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64 { TestBasis::trace(term, n_units, fock) }
         fn key_hash(term: [&[u64]; 2]) -> u64 { term[0][0] % 4 }
         fn key_eq(a: [&[u64]; 2], b: [&[u64]; 2]) -> bool { a[0][0] == b[0][0] }
+        // Mirrors `key_hash`'s deliberate collisions on the sparse path, so the
+        // probe-past-collision branch is exercised under both kernel layouts.
+        fn key_hash_sparse(row: &[Position], plane_span: usize) -> u64 {
+            crate::soa::sparse::row_word_pair(row, plane_span, 0)[0] % 4
+        }
         fn term_from_planes(term: [&[u64]; 2], n_units: usize) -> u64 { TestBasis::term_from_planes(term, n_units) }
         fn term_into_planes(term: &u64, n_units: usize, out: [&mut [u64]; 2]) { TestBasis::term_into_planes(term, n_units, out) }
     }
@@ -1802,7 +1860,7 @@ mod tests {
             }
         }
         for i in BIG..(BIG + expected_added) {
-            assert_eq!(terms.term_plane(i, 0)[0] & 1, 0, "appended term must be even (source XOR 1)");
+            assert_eq!(planes_of(&terms, i).0[0] & 1, 0, "appended term must be even (source XOR 1)");
         }
     }
 
@@ -1847,9 +1905,7 @@ mod tests {
     }
 
     fn values_multiword(terms: &SoaTermSum<f64>) -> std::collections::HashMap<(Vec<u64>, Vec<u64>), f64> {
-        (0..terms.len())
-            .map(|i| ((terms.term_plane(i, 0).to_vec(), terms.term_plane(i, 1).to_vec()), *terms.coeff(i)))
-            .collect()
+        (0..terms.len()).map(|i| (planes_of(terms, i), *terms.coeff(i))).collect()
     }
 
     #[test]
@@ -1903,6 +1959,9 @@ mod tests {
         // full planes: exercises `merge_insert_batches_generic`'s probe-past-collision path.
         fn key_hash(term: [&[u64]; 2]) -> u64 { term[0][0] % 4 }
         fn key_eq(a: [&[u64]; 2], b: [&[u64]; 2]) -> bool { a[0] == b[0] && a[1] == b[1] }
+        fn key_hash_sparse(row: &[Position], plane_span: usize) -> u64 {
+            crate::soa::sparse::row_word_pair(row, plane_span, 0)[0] % 4
+        }
         fn term_from_planes(term: [&[u64]; 2], n_units: usize) { MultiWordTestBasis::term_from_planes(term, n_units) }
         fn term_into_planes(term: &(), n_units: usize, out: [&mut [u64]; 2]) {
             MultiWordTestBasis::term_into_planes(term, n_units, out)

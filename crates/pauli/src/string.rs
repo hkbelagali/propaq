@@ -10,7 +10,8 @@ use rustc_hash::FxHasher;
 use propaq_core::bitset::Bitset;
 use propaq_core::helpers::{pyint_to_bitset, bitset_to_pyint};
 use propaq_core::traits::AbstractTerm;
-use propaq_core::soa::SoaBasis;
+use propaq_core::soa::sparse::{shifted_intersection_count, symmetric_difference_into};
+use propaq_core::soa::{split_planes, Position, SoaBasis};
 
 /// An n-qubit Pauli operator encoded as two integer bitmasks.
 ///
@@ -355,6 +356,61 @@ impl SoaBasis for PauliBasis {
         out[1].fill(0);
         out[1][..zw.len()].copy_from_slice(zw);
     }
+
+    /// A Pauli string is off-diagonal (trace zero) the moment it has any X
+    /// position at all, so only the Z positions ever need looking at.
+    fn trace_sparse(row: &[Position], plane_span: usize, _n_units: usize, fock: &[u64]) -> f64 {
+        let (x, z) = split_planes(row, plane_span);
+        if !x.is_empty() {
+            return 0.0;
+        }
+        let parity = z
+            .iter()
+            .filter(|&&p| {
+                let q = p as usize - plane_span;
+                (fock.get(q >> 6).copied().unwrap_or(0) >> (q & 63)) & 1 == 1
+            })
+            .count();
+        if parity % 2 == 0 { 1.0 } else { -1.0 }
+    }
+
+    /// Anticommutator parity = |term.x ∩ gen.z| + |term.z ∩ gen.x| mod 2, read
+    /// off the sorted position lists rather than the words.
+    fn commutes_sparse(term: &[Position], gen: &[Position], plane_span: usize) -> bool {
+        let (tx, tz) = split_planes(term, plane_span);
+        let (gx, gz) = split_planes(gen, plane_span);
+        let xz = shifted_intersection_count(tx, gz, plane_span);
+        let zx = shifted_intersection_count(gx, tz, plane_span);
+        (xz + zx) % 2 == 0
+    }
+
+    /// `gen @ term`: the product's key is the symmetric difference of the two
+    /// position lists (both planes XOR), and every popcount the phase formula
+    /// needs is a cross-plane intersection of sorted runs.
+    fn product_sparse(
+        term: &[Position],
+        gen: &[Position],
+        plane_span: usize,
+        out: &mut Vec<Position>,
+    ) -> Complex64 {
+        let start = out.len();
+        symmetric_difference_into(term, gen, out);
+        let (tx, tz) = split_planes(term, plane_span);
+        let (gx, gz) = split_planes(gen, plane_span);
+        let (nx, nz) = split_planes(&out[start..], plane_span);
+        let gxz = shifted_intersection_count(gx, gz, plane_span);
+        let txz = shifted_intersection_count(tx, tz, plane_span);
+        let nxz = shifted_intersection_count(nx, nz, plane_span);
+        let gzx = shifted_intersection_count(tx, gz, plane_span);
+        let p = (gxz as i32 + txz as i32 - nxz as i32 + 2 * gzx as i32).rem_euclid(4);
+        match p {
+            0 => Complex64::new(1.0, 0.0),
+            1 => Complex64::new(0.0, 1.0),
+            2 => Complex64::new(-1.0, 0.0),
+            3 => Complex64::new(0.0, -1.0),
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -362,6 +418,13 @@ mod tests {
     use super::*;
     use propaq_core::soa::SoaTermSum;
     use propaq_core::CoeffRepr;
+
+    /// One decoded word of row `i`'s plane `p`. Test-only: production paths
+    /// read `row_positions` instead of decoding.
+    fn plane_word(terms: &SoaTermSum<f64>, i: usize, p: usize, word: usize) -> u64 {
+        let mut buf = vec![0u64; 2 * terms.stride];
+        terms.decode_row(i, &mut buf)[p][word]
+    }
 
     fn pauli(x: u64, z: u64, n: usize) -> PauliString {
         let xb = Bitset::from_le_bytes(&x.to_le_bytes());
@@ -671,8 +734,8 @@ mod tests {
         );
         assert_eq!(added, 0, "Clifford fast path must return 0 (no new dedup-relevant work)");
         assert_eq!(terms.len(), 1, "Clifford gate must not change term count");
-        assert_eq!(terms.term_plane(0, 0)[0], 1, "X should become Y (x-bit stays set)");
-        assert_eq!(terms.term_plane(0, 1)[0], 1, "X should become Y (z-bit becomes set)");
+        assert_eq!(plane_word(&terms, 0, 0, 0), 1, "X should become Y (x-bit stays set)");
+        assert_eq!(plane_word(&terms, 0, 1, 0), 1, "X should become Y (z-bit becomes set)");
         // Cross-check the resulting coefficient against the already-validated generic
         // commutes_at_word/product_at_word/apply_rotation path directly, rather than asserting
         // a hand-derived sign.
@@ -740,11 +803,11 @@ mod tests {
         assert_eq!(fused.len(), stepwise.len());
         for i in 0..stepwise.len() {
             assert_eq!(
-                fused.term_plane(i, 0)[0], stepwise.term_plane(i, 0)[0],
+                plane_word(&fused, i, 0, 0), plane_word(&stepwise, i, 0, 0),
                 "row {i}: x-plane diverged between fused and stepwise"
             );
             assert_eq!(
-                fused.term_plane(i, 1)[0], stepwise.term_plane(i, 1)[0],
+                plane_word(&fused, i, 1, 0), plane_word(&stepwise, i, 1, 0),
                 "row {i}: z-plane diverged between fused and stepwise"
             );
             assert!(
@@ -797,8 +860,8 @@ mod tests {
         assert_eq!(op.n_qubits(), 1);
         apply_clifford_op::<PauliBasis, f64>(&mut fused, &op);
         for i in 0..stepwise.len() {
-            assert_eq!(fused.term_plane(i, 0)[0], stepwise.term_plane(i, 0)[0], "row {i} x");
-            assert_eq!(fused.term_plane(i, 1)[0], stepwise.term_plane(i, 1)[0], "row {i} z");
+            assert_eq!(plane_word(&fused, i, 0, 0), plane_word(&stepwise, i, 0, 0), "row {i} x");
+            assert_eq!(plane_word(&fused, i, 1, 0), plane_word(&stepwise, i, 1, 0), "row {i} z");
             assert!((fused.coeff(i) - stepwise.coeff(i)).abs() < 1e-12, "row {i} coeff");
         }
     }
@@ -869,11 +932,11 @@ mod tests {
 
                 for (i, (exp_word, exp_coeff)) in expected.iter().enumerate() {
                     assert_eq!(
-                        terms.term_plane(i, 0)[word], exp_word[0],
+                        plane_word(&terms, i, 0, word), exp_word[0],
                         "stride={stride} trial={_trial} row={i}: x-word mismatch at word {word}"
                     );
                     assert_eq!(
-                        terms.term_plane(i, 1)[word], exp_word[1],
+                        plane_word(&terms, i, 1, word), exp_word[1],
                         "stride={stride} trial={_trial} row={i}: z-word mismatch at word {word}"
                     );
                     assert!(
@@ -930,8 +993,8 @@ mod tests {
             );
             assert_eq!(terms.len(), n_rows, "trial {_trial}: term count must not change");
             for (i, (exp_word, exp_coeff)) in expected.iter().enumerate() {
-                assert_eq!(terms.term_plane(i, 0)[0], exp_word[0], "trial {_trial} row {i}: x-word mismatch");
-                assert_eq!(terms.term_plane(i, 1)[0], exp_word[1], "trial {_trial} row {i}: z-word mismatch");
+                assert_eq!(plane_word(&terms, i, 0, 0), exp_word[0], "trial {_trial} row {i}: x-word mismatch");
+                assert_eq!(plane_word(&terms, i, 1, 0), exp_word[1], "trial {_trial} row {i}: z-word mismatch");
                 assert!(
                     (*terms.coeff(i) - exp_coeff).abs() < 1e-9,
                     "trial {_trial} row {i}: coeff mismatch: got {}, expected {exp_coeff}", terms.coeff(i)
