@@ -50,7 +50,7 @@ pub trait Basis<const W: usize>: Send + Sync + 'static {
     fn product(ctx: &Self::GenContext, mono: &Monomial<W>) -> (Monomial<W>, Complex64);
 
     /// The term's weight, this is taken to be the normal Pauli
-    /// weight for Pauli terms, and the Pauli weight of the JW 
+    /// weight for Pauli terms, and the Pauli weight of the JW
     /// image for Majorana terms
     fn weight(mono: &Monomial<W>, n_units: usize) -> u32;
 

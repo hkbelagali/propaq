@@ -1,6 +1,6 @@
 //! A simple bitset implementation using a `SmallVec` of `u64` words.
 //!
-//! This structure is used for the symplectic representation of 
+//! This structure is used for the symplectic representation of
 //! basis strings.
 //!
 
@@ -41,7 +41,7 @@ impl Bitset {
         b
     }
 
-    /// Create a bitset from a little-endian byte slice. 
+    /// Create a bitset from a little-endian byte slice.
     pub fn from_le_bytes(bytes: &[u8]) -> Self {
         if bytes.is_empty() {
             return Self::zero();
