@@ -1,15 +1,15 @@
-//! 
+//!
 //! A stabilizer tableau [1] implementation for deferred generator conjugation.
-//! 
-//! If we have many Clifford gates to apply to a term pool, rather than scanning 
-//! each partition and conjugating, we can store the action of the Clifford gate 
-//! in a tableau. A non-Clifford generator can be pushed through the inverse 
+//!
+//! If we have many Clifford gates to apply to a term pool, rather than scanning
+//! each partition and conjugating, we can store the action of the Clifford gate
+//! in a tableau. A non-Clifford generator can be pushed through the inverse
 //! tableau before the normal rotation path runs. In this way, the tableau acts
-//! as a lookup table for generator conjugation, and can save us some time 
+//! as a lookup table for generator conjugation, and can save us some time
 //! for circuits dominated by Clifford gates.
-//! 
+//!
 //! [1] https://en.wikipedia.org/wiki/Stabilizer_formalism
-//! 
+//!
 
 use num_complex::Complex64;
 
@@ -209,8 +209,8 @@ impl<const W: usize> CliffordTableau<W> {
     }
 
     /// True if applying this tableau can change a term's weight.
-    /// This matters for weight truncation, but not for 
-    /// coefficient cutoff since a Clifford gate 
+    /// This matters for weight truncation, but not for
+    /// coefficient cutoff since a Clifford gate
     /// only changes the phase of a term, not its magnitude.
     pub fn changes_weight(&self) -> bool {
         self.readout.iter().enumerate().any(|(p, r)| {

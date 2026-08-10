@@ -1,8 +1,8 @@
 //!
-//! Generic string representation for a basis operator belonging to 
-//! some algebra, such as a Pauli string or Majorana monomial. 
+//! Generic string representation for a basis operator belonging to
+//! some algebra, such as a Pauli string or Majorana monomial.
 //! We store the operators in their symplectic representations.
-//! 
+//!
 use std::hash::{Hash, Hasher};
 use std::ops::{BitAnd, BitOr, BitXor};
 

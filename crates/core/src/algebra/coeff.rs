@@ -37,7 +37,7 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// the sin branch. `phase` is the product phase from `AbstractTerm::matmul_internal`.
     fn apply_rotation(&mut self, param: &Self::GateParam, phase: Complex64) -> Self;
 
-    /// `(sin(theta), cos(theta))` for this gate. This avoids recomputing 
+    /// `(sin(theta), cos(theta))` for this gate. This avoids recomputing
     /// the same trig functions for every term in the pool.
     /// Returns `None` if the representation does not support this optimization,
     /// which is the default behavior.
@@ -52,7 +52,7 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
         f64::INFINITY
     }
 
-    /// Apply a rotation with memoized trig factors. 
+    /// Apply a rotation with memoized trig factors.
     #[inline]
     fn apply_rotation_with(
         &mut self,
