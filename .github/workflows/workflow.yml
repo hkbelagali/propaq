@@ -30,6 +30,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Set up environment
         run: pip install -e .[dev,cirq]
+      - name: Check formatting with ruff
+        run: ruff format --check .
       - name: Lint with ruff
         run: ruff check .
       - name: Type check with mypy
@@ -38,6 +40,10 @@ jobs:
         run: coverage run -m pytest
       - name: Check coverage threshold
         run: coverage report
+      - name: Check Rust formatting with cargo
+        run: cargo fmt --all -- --check
+      - name: Lint Rust with clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Run Rust tests with cargo
         run: cargo test
 
