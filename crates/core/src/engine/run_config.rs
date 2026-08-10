@@ -1,6 +1,6 @@
-//! 
-//! Parse frontend objects into a runtime configuration for the propagator. 
-//! 
+//!
+//! Parse frontend objects into a runtime configuration for the propagator.
+//!
 
 use std::sync::Arc;
 

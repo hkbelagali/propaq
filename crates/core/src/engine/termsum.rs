@@ -44,7 +44,7 @@ impl EmitCutoff {
         }
     }
 
-    /// Apply cutoff to a term sum with `n_live` terms. 
+    /// Apply cutoff to a term sum with `n_live` terms.
     pub fn at_size(&self, n_live: usize) -> std::borrow::Cow<'_, Self> {
         match self.min_terms {
             Some(floor) if n_live < floor => std::borrow::Cow::Owned(self.lossless()),
@@ -515,14 +515,6 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
         self.store.memory_bytes() + self.store.index_memory_bytes()
     }
 
-    pub fn inverted_index_bytes(&self) -> usize {
-        self.inverted.memory_bytes()
-    }
-
-    pub fn inverted_index_tiers(&self) -> (usize, usize, usize) {
-        self.inverted.tier_stats()
-    }
-
     /// Scales every anticommuting term by `factor`
     pub fn scale_anticommuting<A: Basis<W>>(&mut self, ctx: &A::GenContext, factor: f64) {
         for i in 0..self.store.len() {
@@ -620,7 +612,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
         }
     }
 
-    /// Clears the previous gate's held-back branches and 
+    /// Clears the previous gate's held-back branches and
     /// resize the pending slot.
     fn reset_pending(&mut self) {
         for &row in &self.pending_rows {
@@ -695,7 +687,6 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
             return;
         }
         if !cutoff.admits_child::<A, C, W>(&child, &sin_branch, self.n_units) {
-
             self.hold_back(i, sin_branch);
             self.declined += 1;
             return;
@@ -811,14 +802,6 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
     /// Every live term as a key and coefficient pair.
     pub fn iter(&self) -> impl Iterator<Item = (BasisString<W>, &C)> + '_ {
         (0..self.store.len()).map(move |i| (self.store.row(i), &self.coeffs[i]))
-    }
-
-    /// Number of terms whose coefficient is zero.
-    pub fn zero_terms(&self) -> usize {
-        self.coeffs[..self.store.len()]
-            .iter()
-            .filter(|c| c.magnitude() == 0.0)
-            .count()
     }
 }
 

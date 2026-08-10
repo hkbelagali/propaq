@@ -1,9 +1,9 @@
-//! 
+//!
 //! Pin partitions to particular threads on Linux machines.
-//! This allows the partition to live in L3 cache for the 
-//! entire duration of the propagation rather than being 
+//! This allows the partition to live in L3 cache for the
+//! entire duration of the propagation rather than being
 //! shuttled around between cores by rayon's scheduler.
-//! 
+//!
 
 #[cfg(target_os = "linux")]
 pub fn available_cpus() -> Vec<usize> {
