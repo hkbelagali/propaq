@@ -1,24 +1,13 @@
-///
-/// Coefficient representation trait and implementations for Pauli/Majorana strings.
-/// propaq currently supports numerical (f64, f32) and symbolic coefficient types.
-/// For generalizability and performance, the coefficient representation is
-/// abstract into a trait `CoeffRepr`, which is implemented concretely for
-/// `f64` and `f32` (numerical) and `SymbolicCoeff` (symbolic). Doing so
-/// allows one to easily extend the library to a new basis if and when required!
-///
-/// Numerical coefficients are real: propaq only propagates Hermitian
-/// operators, so coefficients remain real throughout a run.
-///
-/// As many of the operations on coefficients are on the hot path, 
-/// as many methods as possible should be `#[inline]`-able for performance. 
-/// This makes LLVM (hopefully) give us zero-cost abstractions for the 
-/// coefficient representation.
-///
-use pyo3::prelude::*;
-use num_complex::Complex64;
+//!
+//! Coefficient representation trait and implementations for basis strings.
+//! A generic trait `CoeffRepr` represents numerical coefficients of varying
+//! precisions, as well as symbolic coefficients. Many functions are
+//! inlined to invoke zero-cost abstractions for performance.
+//!
 
-///
-/// Coefficient type carried by Pauli/Majorana terms during propagation.
+use num_complex::Complex64;
+use pyo3::prelude::*;
+
 ///
 /// `Default` must be the additive identity (zero).
 ///
@@ -38,15 +27,9 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// `SymbolicCoeff`,  this wraps it in a monomial's scalar field.
     fn from_real(c: f64) -> Self;
 
-    /// Additive merge: `self += other`. Used when inserting from inboxes into
-    /// the thread map and two entries arrive at the same Pauli string.
+    /// Additive merge: `self += other`. Used when duplicate terms fold into
+    /// the same store row.
     fn add_assign(&mut self, other: Self);
-
-    /// Called after `add_assign` during a periodic (non-truncating) outbox
-    /// merge, so a coefficient can collapse any structure that just became
-    /// mergeable while doing so is still cheap. No-op by default.
-    #[inline]
-    fn post_merge(&mut self) {}
 
     /// Apply a non-commuting rotation.
     ///
@@ -54,40 +37,22 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     /// the sin branch. `phase` is the product phase from `AbstractTerm::matmul_internal`.
     fn apply_rotation(&mut self, param: &Self::GateParam, phase: Complex64) -> Self;
 
-    /// `(sin(theta), cos(theta))` for this gate, when the two branches are a
-    /// plain scaling of the source: the sine branch is `source * sin(theta)`
-    /// times a unit phase, and the cosine branch is `source * cos(theta)`.
-    ///
-    /// This is what lets a caller decide a branch's fate before forming it, and
-    /// it is where the transcendental gets hoisted out of the per-term loop: the
-    /// angle is fixed for the gate, so calling `sin_cos` per term is billions of
-    /// calls on a deep circuit. `None` for a representation that cannot be
-    /// characterised this way, which puts the caller back on the full path.
+    /// `(sin(theta), cos(theta))` for this gate. This avoids recomputing 
+    /// the same trig functions for every term in the pool.
+    /// Returns `None` if the representation does not support this optimization,
+    /// which is the default behavior.
     #[inline]
     fn rotation_factors(_param: &Self::GateParam) -> Option<(f64, f64)> {
         None
     }
 
     /// The magnitude the sine branch will carry, without forming it.
-    ///
-    /// Computed the way the branch itself is, in the representation's own
-    /// precision, so a predictive cutoff test rounds identically to testing the
-    /// formed branch. Widening `f32` to `f64` first and multiplying there would
-    /// not: the product would round once instead of twice, and the two tests
-    /// would disagree on the boundary.
-    ///
-    /// `sin` is `sin(theta)` from [`CoeffRepr::rotation_factors`]; the product
-    /// phase is a unit `+-i` and so cannot change a magnitude.
     #[inline]
     fn sin_branch_magnitude(&self, _sin: f64) -> f64 {
         f64::INFINITY
     }
 
-    /// [`CoeffRepr::apply_rotation`] with this gate's factors already computed.
-    ///
-    /// `factors` must be what [`CoeffRepr::rotation_factors`] returned for
-    /// `param`. The default ignores them and recomputes, which is what a
-    /// representation that returns `None` needs.
+    /// Apply a rotation with memoized trig factors. 
     #[inline]
     fn apply_rotation_with(
         &mut self,
@@ -110,31 +75,37 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
     fn prefetch_read(&self) {}
 
     #[inline]
-    fn passes_coeff_cutoff(&self, _cutoff: f64) -> bool { true }
+    fn passes_coeff_cutoff(&self, _cutoff: f64) -> bool {
+        true
+    }
 
     /// The coefficient's absolute value.
-    ///
-    /// Every consumer compares this against a non-negative cutoff (the emit
-    /// gate, `terms_below`, the native truncator's per-term decision), so a
-    /// signed value here does not merely read oddly, it makes every negative
-    /// coefficient compare as below any threshold. Use [`CoeffRepr::to_f64`]
-    /// for the signed value.
     #[inline]
-    fn magnitude(&self) -> f64 { 0.0 }
+    fn magnitude(&self) -> f64 {
+        0.0
+    }
 
-    /// Widen this coefficient to its real f64 value (signed, not abs).
-    /// Only meaningful for numerical reprs; defaults to magnitude.
+    /// Widen this coefficient to its real f64 value
     #[inline]
-    fn to_f64(&self) -> f64 { self.magnitude() }
+    fn to_f64(&self) -> f64 {
+        self.magnitude()
+    }
 
+    /// Whether or not we can use the Clifford fast path.
     #[inline]
-    fn is_clifford_param(_param: &Self::GateParam, _eps: f64) -> bool { false }
-
-    #[inline]
-    fn phase_only_scale(_param: &Self::GateParam, _eps: f64) -> Option<f64> { None }
+    fn is_clifford_param(_param: &Self::GateParam, _eps: f64) -> bool {
+        false
+    }
 
     #[inline]
-    fn clifford_branch_sign(_param: &Self::GateParam, _phase: Complex64) -> Option<f64> { None }
+    fn phase_only_scale(_param: &Self::GateParam, _eps: f64) -> Option<f64> {
+        None
+    }
+
+    #[inline]
+    fn clifford_branch_sign(_param: &Self::GateParam, _phase: Complex64) -> Option<f64> {
+        None
+    }
 
     /// Extract the gate parameter from a Python rotation object.
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
@@ -157,7 +128,10 @@ impl CoeffRepr for f64 {
     #[inline]
     fn apply_rotation(&mut self, angle: &f64, phase: Complex64) -> Self {
         let (sin_t, cos_t) = angle.sin_cos();
-        debug_assert!(phase.re.abs() < 1e-9, "rotation phase must be +- i for real coefficients");
+        debug_assert!(
+            phase.re.abs() < 1e-9,
+            "rotation phase must be +- i for real coefficients"
+        );
         let sin_branch = *self * sin_t * (-phase.im);
         *self *= cos_t;
         sin_branch
@@ -184,7 +158,10 @@ impl CoeffRepr for f64 {
             Some(f) => f,
             None => param.sin_cos(),
         };
-        debug_assert!(phase.re.abs() < 1e-9, "rotation phase must be +- i for real coefficients");
+        debug_assert!(
+            phase.re.abs() < 1e-9,
+            "rotation phase must be +- i for real coefficients"
+        );
         let sin_branch = *self * sin_t * (-phase.im);
         *self *= cos_t;
         sin_branch
@@ -248,7 +225,10 @@ impl CoeffRepr for f32 {
     #[inline]
     fn apply_rotation(&mut self, angle: &f64, phase: Complex64) -> Self {
         let (sin_t, cos_t) = angle.sin_cos();
-        debug_assert!(phase.re.abs() < 1e-9, "rotation phase must be +- i for real coefficients");
+        debug_assert!(
+            phase.re.abs() < 1e-9,
+            "rotation phase must be +- i for real coefficients"
+        );
         let sin_branch = *self * (sin_t as f32) * (-phase.im as f32);
         *self *= cos_t as f32;
         sin_branch
@@ -276,7 +256,10 @@ impl CoeffRepr for f32 {
             Some(f) => f,
             None => param.sin_cos(),
         };
-        debug_assert!(phase.re.abs() < 1e-9, "rotation phase must be +- i for real coefficients");
+        debug_assert!(
+            phase.re.abs() < 1e-9,
+            "rotation phase must be +- i for real coefficients"
+        );
         // Narrowed exactly where `apply_rotation` narrows, so the two paths
         // round identically and the precheck stays exact.
         let sin_branch = *self * (sin_t as f32) * (-phase.im as f32);
