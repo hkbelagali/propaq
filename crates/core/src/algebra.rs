@@ -3,7 +3,7 @@
 /// [`crate::monomial::Monomial`].
 ///
 /// This mirrors monoprop's `algebra/Algebra.h` policy shape rather than the
-/// older `SoaBasis` word-plane trait. The difference that matters is
+/// older `TermBasis` word-plane trait. The difference that matters is
 /// `GenContext`: everything derivable from a rotation's generator alone is
 /// computed once per gate, so the per-term methods reduce to a masked popcount
 /// over a compile-time number of words.
@@ -49,10 +49,9 @@ pub trait Algebra<const W: usize>: Send + Sync + 'static {
 
     /// True if the column fold needs a per-row `parity(|M|)` correction.
     ///
-    /// Bases whose fold is exact return false and can use the inverted index
-    /// directly. A basis returning true falls back to the per-term scan until
-    /// the row-parity bitmap is built, so this is the switch that keeps the
-    /// index Pauli-only for now.
+    /// Bases whose fold is exact return false. A basis returning true has the
+    /// index's row-parity column folded in (`InvertedIndex::apply_row_parity`),
+    /// which is what lets odd-length Majorana generators use the index at all.
     fn fold_needs_odd_correction(_ctx: &Self::GenContext) -> bool {
         false
     }
@@ -68,9 +67,14 @@ pub trait Algebra<const W: usize>: Send + Sync + 'static {
     ///
     /// This is the quantity a structural cutoff bounds, and it is the analogue
     /// of monoprop's support cutoff.
-    fn weight(mono: &Monomial<W>) -> u32;
+    ///
+    /// `n_units` is passed because it is not always derivable from the monomial:
+    /// a Pauli's weight is its support and ignores it, but a Majorana's is the
+    /// weight of its Jordan-Wigner image, whose Z-string runs to the end of the
+    /// register. `TermBasis::weight` takes it for the same reason.
+    fn weight(mono: &Monomial<W>, n_units: usize) -> u32;
 
     /// The term's diagonal expectation against a computational basis state,
     /// with `fock` holding one bit per unit.
-    fn trace(mono: &Monomial<W>, fock: &[u64]) -> f64;
+    fn trace(mono: &Monomial<W>, n_units: usize, fock: &[u64]) -> f64;
 }

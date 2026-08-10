@@ -1,16 +1,18 @@
 /// 
 /// Main library for the propaq core.
 ///
+pub mod affinity;
 pub mod algebra;
 pub mod bitset;
-pub mod clifford_frame;
 pub mod coeff;
+pub mod engine_noise;
 pub mod inverted_index;
 pub mod monomial;
 pub mod operator;
 pub mod operator_index;
 pub mod partitioned;
 pub mod traits;
+pub mod tableau;
 pub mod truncation;
 pub mod truncators;
 pub mod noise;
@@ -20,7 +22,8 @@ pub mod helpers;
 pub mod propagator;
 pub mod logger;
 pub mod streamer;
-pub mod soa;
+pub mod run_config;
+pub mod store;
 
 pub use coeff::CoeffRepr;
 pub use truncation::TruncationPolicy;

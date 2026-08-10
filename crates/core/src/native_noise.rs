@@ -49,7 +49,7 @@ type DampingBatchFn =
 /// Wraps the resolved plugin entry points and its `ctx` pointer so they
 /// can cross into a rayon parallel closure. Sound only under the
 /// safety contract documented on the module: the plugin must tolerate
-/// concurrent calls sharing `ctx`. See `crate::soa::kernels::SendPtr`
+/// concurrent calls sharing `ctx`. See `crate::store::kernels::SendPtr`
 /// for the same pattern used elsewhere in this codebase.
 #[derive(Clone, Copy)]
 pub struct NativeNoiseHandle {

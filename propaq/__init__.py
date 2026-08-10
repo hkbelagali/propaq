@@ -157,6 +157,7 @@ from .datatypes import (
 )
 from .extrapolators import ZeroNoiseExtrapolator as ZeroNoiseExtrapolator
 from .extrapolators import ZNEResult as ZNEResult
+from .log_parser import EnginePhasesEvent as EnginePhasesEvent
 from .log_parser import GateEvent as GateEvent
 from .log_parser import LogParser as LogParser
 from .log_parser import SurrogateFlushDeferredEvent as SurrogateFlushDeferredEvent

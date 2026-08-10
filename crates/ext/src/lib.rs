@@ -33,13 +33,13 @@ fn rust_available() -> bool {
 /// resets this at its start, so reading it after a run gives that run's peak.
 #[pyfunction]
 fn workspace_peak_bytes() -> usize {
-    propaq_core::soa::workspace_peak_bytes()
+    propaq_core::store::workspace_peak_bytes()
 }
 
 /// Resets the temporary dense workspace high-water mark.
 #[pyfunction]
 fn reset_workspace_peak() {
-    propaq_core::soa::reset_workspace_peak()
+    propaq_core::store::reset_workspace_peak()
 }
 
 #[pymodule]

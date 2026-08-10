@@ -144,6 +144,52 @@ class SurrogateMergeEvent:
     """Index of the originating Qiskit gate, or None for non-Qiskit circuits."""
 
 
+@dataclass
+class EnginePhasesEvent:
+    """Class representing the closing per-run summary of the propagation engine.
+
+    One per run. Wall seconds are for the whole run; occupancy is the share of
+    the worker pool doing work rather than waiting at a barrier or behind a
+    straggler, so a low figure points at imbalance rather than at slow work.
+    Release builds inline the scan and absorb phases into one closure and carry
+    no frame pointers, so this event is the only place the split is visible.
+    """
+    partitions: int
+    """Hash partitions the run used, which is also its worker count."""
+    scan_s: float
+    """Wall seconds spent scanning rows and emitting branches."""
+    absorb_s: float
+    """Wall seconds spent absorbing the routing exchange."""
+    claims_s: float
+    """Wall seconds spent in the pair rule's rescue round."""
+    scan_occupancy: float
+    """Fraction of the pool busy during the scan phase, in [0, 1]."""
+    absorb_occupancy: float
+    """Fraction of the pool busy during the absorb phase, in [0, 1]."""
+    terms: int
+    """Live terms at the end of the run."""
+    inline_positions: int
+    """Inline key capacity per row the store settled on."""
+    overflow_rows: int
+    """Rows whose keys spilled past that capacity, costing a lookup per read."""
+    overflow_share: float
+    """`overflow_rows` as a fraction of `terms`."""
+    visited: int
+    """Rows the scan read across the run."""
+    emitted: int
+    """Branches the scan emitted."""
+    declined: int
+    """Branches the emit gate refused before forming them."""
+    emitted_share: float
+    """`emitted` as a fraction of `visited`."""
+    declined_share: float
+    """`declined` as a fraction of `visited`."""
+    exchange_hits: int
+    """Emitted branches that landed on a key the destination already held."""
+    exchange_hit_share: float
+    """`exchange_hits` as a fraction of `emitted`."""
+
+
 class LogParser:
     """
     Parse a propaq JSONL log file into typed event lists.
@@ -157,6 +203,7 @@ class LogParser:
         self._surrogate_flush_events: list[SurrogateFlushEvent] = []
         self._surrogate_flush_deferred_events: list[SurrogateFlushDeferredEvent] = []
         self._surrogate_merge_events: list[SurrogateMergeEvent] = []
+        self._engine_phases_events: list[EnginePhasesEvent] = []
         self._load()
 
     def _load(self) -> None:
@@ -165,6 +212,7 @@ class LogParser:
         self._surrogate_flush_events.clear()
         self._surrogate_flush_deferred_events.clear()
         self._surrogate_merge_events.clear()
+        self._engine_phases_events.clear()
         with open(self._filename) as f:
             for line in f:
                 line = line.strip()
@@ -224,6 +272,10 @@ class LogParser:
                         reason=ev["reason"],
                         qiskit_gate_idx=ev.get("qiskit_gate_idx"),
                     ))
+                elif kind == "engine_phases":
+                    self._engine_phases_events.append(EnginePhasesEvent(**{
+                        k: v for k, v in ev.items() if k != "event"
+                    }))
                 elif kind == "surrogate_merge":
                     self._surrogate_merge_events.append(SurrogateMergeEvent(
                         gate_idx=ev["gate_idx"],
@@ -262,6 +314,11 @@ class LogParser:
     def surrogate_merge_events(self) -> list[SurrogateMergeEvent]:
         """All merge-only cadence events in file order (surrogate propagators only)."""
         return self._surrogate_merge_events
+
+    @property
+    def engine_phases_events(self) -> list[EnginePhasesEvent]:
+        """The closing engine summary, one per run recorded in this file."""
+        return self._engine_phases_events
 
     @property
     def gate_indices(self) -> list[int]:

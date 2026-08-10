@@ -1,3 +1,5 @@
+pub mod algebra;
+pub mod engine;
 pub mod monomial;
 pub mod termsum;
 pub mod propagator;

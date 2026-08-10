@@ -38,6 +38,10 @@ impl UniformNoiseModel {
     /// Arguments:
     ///     term_weight: Pauli weight of the term.
     ///     active_modes: Unused for uniform noise; present for API compatibility.
+    // `active_modes` is unused by uniform damping but is part of the documented
+    // noise-model interface, and pyo3 exposes the parameter name to Python, so
+    // renaming it would break `damping_factor(w, active_modes=0)`.
+    #[allow(unused_variables)]
     fn damping_factor(&self, term_weight: u32, active_modes: u32) -> f64 {
         (-self.damping * term_weight as f64).exp()
     }

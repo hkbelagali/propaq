@@ -5,13 +5,13 @@
 ///
 /// A term key is a set of positions rather than a fixed-width pair of word
 /// planes. This is the same representation monoprop's operator index uses, and
-/// it is the only persisted form of a key in `SoaTermSum`.
+/// it is the only persisted form of a key in `TermSum`.
 ///
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 
-use crate::soa::{SendPtr, PAR_MIN_LEN};
+use crate::store::{SendPtr, PAR_MIN_LEN};
 
 /// One set bit of a term key, encoded as `plane * stride * 64 + word * 64 + bit`.
 ///
@@ -566,7 +566,7 @@ impl Clone for SparseRows {
 /// kernel call.
 ///
 /// This is the only place dense planes are materialized. It is never stored in
-/// a `SoaTermSum`, never handed out by a public API, and never outlives the
+/// a `TermSum`, never handed out by a public API, and never outlives the
 /// kernel that built it; the chunk bound is what keeps a whole term sum from
 /// being decoded at once.
 pub struct DenseWorkspace {

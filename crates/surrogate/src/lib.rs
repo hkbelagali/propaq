@@ -21,6 +21,7 @@
 ///
 pub mod symcoeff;
 pub mod truncation;
+pub mod engine;
 pub mod model;
 pub mod propagator;
 

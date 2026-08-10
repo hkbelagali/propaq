@@ -13,12 +13,18 @@ use crate::truncation::TruncationPolicy;
 
 pub const DEFAULT_MERGE_MAX_TERMS: usize = 1;
 
-/// When to do the finer lossless merge. 
+/// When to do the finer lossless merge.
 ///
 /// `merge_max_terms`: once this many terms accumulate in the outboxes since the
 /// last flush, collapse duplicate Pauli/Majorana strings into the maps without
 /// truncating. `None` disables the finer cadence (merging then happens only at
 /// truncation flushes).
+///
+/// **This has no effect on the partitioned engine**, which folds a duplicate
+/// into its store the moment the term is emitted and so has no outbox to flush
+/// and no merge cadence to schedule. Nothing reads it any more: the surrogate
+/// moved onto the same engine. The setting is accepted and ignored rather than
+/// rejected, so that existing scripts keep running.
 #[pyclass(module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct FlushSchedule {

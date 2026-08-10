@@ -73,3 +73,23 @@ def test_non_qiskit_circuit_has_null_qiskit_gate_idx(tmp_path):
     parser = LogParser(str(log_file))
     assert len(parser.gate_events) >= 1
     assert all(e.qiskit_gate_idx is None for e in parser.gate_events)
+
+
+def test_engine_phases_event_summarizes_the_run(tmp_path):
+    log_file = tmp_path / "phases.jsonl"
+    obs = MajoranaTermSum({mon(0b0011): 1.0})
+    circuit = MajoranaCircuit.from_qiskit(_qiskit_circuit(), n_modes=N)
+    prop = MajoranaPropagator(logger=Logger(str(log_file), log_every=1), n_threads=2)
+    prop.propagate(obs, circuit)
+
+    parser = LogParser(str(log_file))
+    assert len(parser.engine_phases_events) == 1
+    ev = parser.engine_phases_events[0]
+    assert ev.partitions == 2
+    assert ev.terms == len(prop.propagate(obs, circuit))
+    # A rotation reads rows before it emits, and every emitted branch is
+    # accounted for as either kept or already present at its destination.
+    assert ev.visited >= ev.emitted >= ev.exchange_hits
+    assert 0.0 <= ev.scan_occupancy <= 1.0
+    assert 0.0 <= ev.absorb_occupancy <= 1.0
+    assert ev.overflow_rows == 0

@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap;
 
 use propaq_core::coeff::CoeffRepr;
 use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
-use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_core::store::{TermBasis, TermSum};
 use propaq_core::truncation::TruncationPolicy;
 
 use crate::string::{PauliBasis, PauliString};
@@ -16,8 +16,8 @@ use crate::streamer::PauliTermStreamer;
 
 /// Backing storage for a `PauliTermSum`
 pub(crate) enum Storage {
-    F64(SoaTermSum<f64>),
-    F32(SoaTermSum<f32>),
+    F64(TermSum<f64>),
+    F32(TermSum<f32>),
 }
 
 impl Storage {
@@ -55,9 +55,9 @@ fn parse_dtype(dtype: Option<&str>) -> PyResult<&str> {
     }
 }
 
-fn ensure_sized<C: CoeffRepr>(inner: &mut SoaTermSum<C>, n_qubits: usize) {
+fn ensure_sized<C: CoeffRepr>(inner: &mut TermSum<C>, n_qubits: usize) {
     if inner.len() == 0 && inner.n_units != n_qubits {
-        *inner = SoaTermSum::new(n_qubits, PauliBasis::stride_words(n_qubits));
+        *inner = TermSum::new(n_qubits, PauliBasis::stride_words(n_qubits));
     }
 }
 
@@ -68,8 +68,27 @@ fn planes_of(term: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {
     (gx, gz)
 }
 
+/// Builds a term sum from the (key, coefficient) pairs the partitioned engine
+/// produces.
+///
+/// The engine keeps its own store and hands terms back as a flat list, so this
+/// is the seam between the two representations. Keys are already distinct there,
+/// but `add_raw` folds duplicates anyway rather than assuming it.
+pub fn term_sum_from_pairs<C: CoeffRepr>(
+    pairs: Vec<(PauliString, C)>,
+    n_units: usize,
+) -> TermSum<C> {
+    let mut inner = TermSum::<C>::new(n_units, PauliBasis::stride_words(n_units));
+    let mut index = FxHashMap::default();
+    index.reserve(pairs.len());
+    for (term, coeff) in pairs {
+        add_raw(&mut inner, &mut index, term, coeff);
+    }
+    inner
+}
+
 fn add_raw<C: CoeffRepr>(
-    inner: &mut SoaTermSum<C>,
+    inner: &mut TermSum<C>,
     index: &mut FxHashMap<PauliString, usize>,
     term: PauliString,
     coeff: C,
@@ -97,12 +116,12 @@ impl RowDecoder {
         RowDecoder { buf: vec![0u64; 2 * stride] }
     }
 
-    fn term<C: CoeffRepr>(&mut self, terms: &SoaTermSum<C>, i: usize) -> PauliString {
+    fn term<C: CoeffRepr>(&mut self, terms: &TermSum<C>, i: usize) -> PauliString {
         PauliBasis::term_from_planes(terms.decode_row(i, &mut self.buf), terms.n_units)
     }
 }
 
-pub fn materialize<C>(terms: &SoaTermSum<C>) -> FxHashMap<PauliString, f64>
+pub fn materialize<C>(terms: &TermSum<C>) -> FxHashMap<PauliString, f64>
 where
     C: CoeffRepr,
 {
@@ -117,14 +136,14 @@ where
 }
 
 impl PauliTermSum {
-    /// Wrap an f64 `SoaTermSum` produced by the propagator (or loaded from a
+    /// Wrap an f64 `TermSum` produced by the propagator (or loaded from a
     /// file), rebuilding the key index it doesn't carry itself.
-    pub fn from_soa(inner: SoaTermSum<f64>) -> Self {
+    pub fn from_store(inner: TermSum<f64>) -> Self {
         Self::from_storage(Storage::F64(inner))
     }
 
-    /// Same as `from_soa`, for an f32-backed `SoaTermSum`.
-    pub fn from_soa_f32(inner: SoaTermSum<f32>) -> Self {
+    /// Same as `from_store`, for an f32-backed `TermSum`.
+    pub fn from_store_f32(inner: TermSum<f32>) -> Self {
         Self::from_storage(Storage::F32(inner))
     }
 
@@ -156,7 +175,7 @@ impl PauliTermSum {
 
     /// This term sum's coefficients widened to f64, regardless of storage
     /// precision.
-    pub fn as_f64(&self) -> SoaTermSum<f64> {
+    pub fn as_f64(&self) -> TermSum<f64> {
         match &self.inner {
             Storage::F64(s) => s.map_coeffs(|c| *c),
             Storage::F32(s) => s.map_coeffs(|c| *c as f64),
@@ -176,7 +195,7 @@ impl PauliTermSum {
     fn new(terms: Option<&Bound<'_, PyDict>>, dtype: Option<&str>) -> PyResult<Self> {
         match parse_dtype(dtype)? {
             "float32" => {
-                let mut inner = SoaTermSum::<f32>::new(0, PauliBasis::stride_words(0));
+                let mut inner = TermSum::<f32>::new(0, PauliBasis::stride_words(0));
                 let mut index = FxHashMap::default();
                 if let Some(dict) = terms {
                     index.reserve(dict.len());
@@ -189,7 +208,7 @@ impl PauliTermSum {
                 Ok(PauliTermSum { inner: Storage::F32(inner), index })
             }
             _ => {
-                let mut inner = SoaTermSum::<f64>::new(0, PauliBasis::stride_words(0));
+                let mut inner = TermSum::<f64>::new(0, PauliBasis::stride_words(0));
                 let mut index = FxHashMap::default();
                 if let Some(dict) = terms {
                     index.reserve(dict.len());
@@ -289,8 +308,8 @@ impl PauliTermSum {
 
     pub fn truncate(&mut self, policy: &Bound<'_, PyAny>) -> PyResult<()> {
         let new_self = match &self.inner {
-            Storage::F64(inner) => PauliTermSum::from_soa(truncate_impl(inner, policy)?),
-            Storage::F32(inner) => PauliTermSum::from_soa_f32(truncate_impl(inner, policy)?),
+            Storage::F64(inner) => PauliTermSum::from_store(truncate_impl(inner, policy)?),
+            Storage::F32(inner) => PauliTermSum::from_store_f32(truncate_impl(inner, policy)?),
         };
         *self = new_self;
         Ok(())
@@ -369,7 +388,7 @@ impl PauliTermSum {
     fn from_file(path: &str) -> PyResult<PauliTermSum> {
         let map = load_terms_from_file::<PauliString>(path)?;
         let n_qubits = map.keys().next().map_or(0, |t| t.n_qubits);
-        let mut inner = SoaTermSum::new(n_qubits, PauliBasis::stride_words(n_qubits));
+        let mut inner = TermSum::new(n_qubits, PauliBasis::stride_words(n_qubits));
         let mut index = FxHashMap::default();
         index.reserve(map.len());
         for (term, coeff) in map {
@@ -395,13 +414,13 @@ impl PauliTermSum {
 }
 
 fn truncate_impl<C: CoeffRepr>(
-    inner: &SoaTermSum<C>,
+    inner: &TermSum<C>,
     policy: &Bound<'_, PyAny>,
-) -> PyResult<SoaTermSum<C>> {
+) -> PyResult<TermSum<C>> {
     let n = inner.len();
     let stride = inner.stride;
     let plane_span = inner.plane_span();
-    let mut kept = SoaTermSum::new(inner.n_units, stride);
+    let mut kept = TermSum::new(inner.n_units, stride);
 
     if let Ok(tp) = policy.extract::<PyRef<TruncationPolicy>>() {
         let wc = tp.weight_cutoff;
@@ -430,7 +449,7 @@ fn truncate_impl<C: CoeffRepr>(
 }
 
 fn apply_damping_impl<C: CoeffRepr>(
-    inner: &mut SoaTermSum<C>,
+    inner: &mut TermSum<C>,
     noise: &Bound<'_, PyAny>,
     active_modes: u32,
 ) -> PyResult<()> {
@@ -453,18 +472,18 @@ fn apply_damping_impl<C: CoeffRepr>(
     Ok(())
 }
 
-fn norm_squared_impl<C: CoeffRepr>(inner: &SoaTermSum<C>) -> f64 {
+fn norm_squared_impl<C: CoeffRepr>(inner: &TermSum<C>) -> f64 {
     inner.coeffs[..inner.len()].iter().map(|c| { let v = c.to_f64(); v * v }).sum()
 }
 
-fn items_impl<C: CoeffRepr>(inner: &SoaTermSum<C>) -> Vec<(PauliString, f64)> {
+fn items_impl<C: CoeffRepr>(inner: &TermSum<C>) -> Vec<(PauliString, f64)> {
     let n = inner.len();
     let mut decoder = RowDecoder::new(inner.stride);
     (0..n).map(|i| (decoder.term(inner, i), inner.coeff(i).to_f64())).collect()
 }
 
 fn setitem_impl<C: CoeffRepr>(
-    inner: &mut SoaTermSum<C>,
+    inner: &mut TermSum<C>,
     index: &mut FxHashMap<PauliString, usize>,
     term: PauliString,
     coeff: C,
@@ -481,7 +500,7 @@ fn setitem_impl<C: CoeffRepr>(
 }
 
 fn getitem_impl<C: CoeffRepr>(
-    inner: &SoaTermSum<C>,
+    inner: &TermSum<C>,
     index: &FxHashMap<PauliString, usize>,
     term: &PauliString,
 ) -> f64 {

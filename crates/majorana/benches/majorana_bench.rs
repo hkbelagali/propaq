@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use propaq_core::bitset::Bitset;
-use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_core::store::{TermBasis, TermSum};
 use propaq_core::traits::AbstractTerm;
 use propaq_majorana::monomial::{MajoranaBasis, MajoranaMonomial};
 use propaq_majorana::termsum::MajoranaTermSum;
@@ -15,7 +15,7 @@ fn make_mon(bits: u64, n_modes: usize) -> MajoranaMonomial {
 
 fn build_termsum(n_terms: usize, n_modes: usize) -> MajoranaTermSum {
     let stride = MajoranaBasis::stride_words(n_modes);
-    let mut inner = SoaTermSum::<f64>::new(n_modes, stride);
+    let mut inner = TermSum::<f64>::new(n_modes, stride);
     for i in 0..n_terms {
         // Number-preserving monomial: pair (2i, 2i+1) mod n_modes
         let idx = i % (n_modes / 2);
@@ -26,7 +26,7 @@ fn build_termsum(n_terms: usize, n_modes: usize) -> MajoranaTermSum {
         MajoranaBasis::term_into_planes(&term, n_modes, [&mut g0, &mut g1]);
         inner.push([&g0, &g1], 1.0 / (i + 1) as f64);
     }
-    MajoranaTermSum::from_soa(inner)
+    MajoranaTermSum::from_store(inner)
 }
 
 fn bench_commutes_with(c: &mut Criterion) {

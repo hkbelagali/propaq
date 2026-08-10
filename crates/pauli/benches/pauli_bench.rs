@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use propaq_core::bitset::Bitset;
-use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_core::store::{TermBasis, TermSum};
 use propaq_core::traits::AbstractTerm;
 use propaq_pauli::string::{PauliBasis, PauliString};
 use propaq_pauli::termsum::PauliTermSum;
@@ -16,7 +16,7 @@ fn make_pauli(x: u64, z: u64, n: usize) -> PauliString {
 
 fn build_termsum(n_terms: usize, n_qubits: usize) -> PauliTermSum {
     let stride = PauliBasis::stride_words(n_qubits);
-    let mut inner = SoaTermSum::<f64>::new(n_qubits, stride);
+    let mut inner = TermSum::<f64>::new(n_qubits, stride);
     for i in 0..n_terms {
         let x = 1u64 << (i % n_qubits);
         let z = 1u64 << ((i + 1) % n_qubits);
@@ -26,7 +26,7 @@ fn build_termsum(n_terms: usize, n_qubits: usize) -> PauliTermSum {
         PauliBasis::term_into_planes(&term, n_qubits, [&mut gx, &mut gz]);
         inner.push([&gx, &gz], 1.0 / (i + 1) as f64);
     }
-    PauliTermSum::from_soa(inner)
+    PauliTermSum::from_store(inner)
 }
 
 fn bench_commutes_with(c: &mut Criterion) {

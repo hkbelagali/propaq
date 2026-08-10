@@ -1,8 +1,7 @@
 ///
 /// Shared propagator support: file I/O for term maps, the `PropagationResult`
-/// pyclass, and tqdm progress-bar helpers used by both the columnar SoA
-/// engine (`soa::propagator::SoaPropagator`) and the surrogate propagator
-/// (`propaq_surrogate::propagator::SurrogatePropagator`).
+/// pyclass, and tqdm progress-bar helpers, used by the Pauli, Majorana and
+/// surrogate propagators alike.
 ///
 use pyo3::prelude::*;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -30,6 +29,19 @@ pub struct PropagationResult {
     /// once during the run. Not part of the resident-key metric.
     #[pyo3(get)]
     pub workspace_peak_bytes: usize,
+    /// Live terms whose magnitude is below the coefficient cutoff.
+    ///
+    /// Diagnostic for an append-only engine, which gates a term only at emit
+    /// and so can never reclaim one that later decays. Zero for engines that
+    /// sweep post-accumulation.
+    #[pyo3(get)]
+    pub terms_below_cutoff: usize,
+    /// Which engine served the run.
+    ///
+    /// One backend serves everything now, so this is constant; it is kept
+    /// because benchmark records carry it and a record should say what ran.
+    #[pyo3(get)]
+    pub engine: String,
 }
 
 #[pymethods]
@@ -37,16 +49,17 @@ impl PropagationResult {
     fn __repr__(&self) -> String {
         format!(
             "PropagationResult(expectation_value={}, n_terms=[{} entries], \
-             sparse_key_bytes={}, workspace_peak_bytes={})",
+             sparse_key_bytes={}, workspace_peak_bytes={}, engine={})",
             self.expectation_value,
             self.n_terms.len(),
             self.sparse_key_bytes,
-            self.workspace_peak_bytes
+            self.workspace_peak_bytes,
+            self.engine
         )
     }
 }
 
-/// tqdm progress bar helpers, shared by the hash-partition and SoA engines.
+/// tqdm progress bar helpers.
 /// These claim and release the GIL since they are called from the main thread.
 pub fn make_progress_bar(
     py: Python<'_>,

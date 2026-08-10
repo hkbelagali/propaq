@@ -111,12 +111,12 @@ impl<const W: usize> Algebra<W> for PauliAlgebra {
     }
 
     #[inline]
-    fn weight(mono: &Monomial<W>) -> u32 {
+    fn weight(mono: &Monomial<W>, _n_units: usize) -> u32 {
         mono.support() as u32
     }
 
     #[inline]
-    fn trace(mono: &Monomial<W>, fock: &[u64]) -> f64 {
+    fn trace(mono: &Monomial<W>, _n_units: usize, fock: &[u64]) -> f64 {
         // Any X or Y component makes the term off-diagonal.
         for &w in mono.words() {
             if w & X_MASK != 0 {
@@ -176,7 +176,7 @@ pub fn from_monomial<const W: usize>(mono: &Monomial<W>, n_qubits: usize) -> Pau
     PauliString { x, z, n_qubits, weight }
 }
 
-/// Writes a `PauliString`'s two word planes, as the old `SoaBasis` form.
+/// Writes a `PauliString`'s two word planes, as the old `TermBasis` form.
 ///
 /// Used by the differential tests to drive both engines from one term.
 pub fn planes_of(term: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {

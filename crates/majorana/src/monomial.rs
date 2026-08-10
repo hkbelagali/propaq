@@ -10,8 +10,8 @@ use rustc_hash::FxHasher;
 use propaq_core::bitset::Bitset;
 use propaq_core::helpers::{pyint_to_bitset, bitset_to_pyint};
 use propaq_core::traits::AbstractTerm;
-use propaq_core::soa::sparse::{intersection_count, symmetric_difference_into};
-use propaq_core::soa::{hash_positions, split_planes, Position, SoaBasis};
+use propaq_core::store::sparse::{intersection_count, symmetric_difference_into};
+use propaq_core::store::{hash_positions, split_planes, Position, TermBasis};
 
 /// A Majorana monomial, a product of Majorana operators encoded as a mode bitmask.
 ///
@@ -104,6 +104,18 @@ impl MajoranaMonomial {
         (single | &(occupied ^ &string)).count_ones()
     }
 
+    /// Builds a monomial from a mode set, deriving everything else.
+    ///
+    /// `weight`, `p` and `is_number_preserving` are all functions of `modes`, so
+    /// this is the only honest constructor: it is impossible to build one whose
+    /// cached fields disagree with its key.
+    pub fn from_modes(modes: Bitset, n_modes: usize) -> Self {
+        let (weight, p) = Self::weight_and_p_for(&modes, n_modes);
+        let is_number_preserving =
+            (0..n_modes / 2).all(|k| modes.bit(2 * k) == modes.bit(2 * k + 1));
+        MajoranaMonomial { modes, n_modes, is_number_preserving, weight, p }
+    }
+
     /// Computes the Jordan-Wigner qubit weight of a Majorana mode set, without also returning
     /// the intermediate `p` plane. See `weight_and_p_for` if both are needed.
     pub fn compute_weight_for(modes: &Bitset, n_modes: usize) -> u32 {
@@ -116,7 +128,7 @@ impl MajoranaMonomial {
     }
 
     /// Computes both the Jordan-Wigner qubit weight and the `p` (Z-string parity) plane for a
-    /// Majorana mode set. `p` must travel alongside `modes` in the SoA representation, since
+    /// Majorana mode set. `p` must travel alongside `modes` in this representation, since
     /// `weight`/`product` depend on it.
     pub fn weight_and_p_for(modes: &Bitset, n_modes: usize) -> (u32, Bitset) {
         let n_qubits = n_modes / 2;
@@ -326,11 +338,11 @@ impl Hash for MajoranaMonomial {
     fn hash<H: Hasher>(&self, state: &mut H) { self.modes.hash(state); }
 }
 
-/// The `SoaBasis` implementation for Majorana fermion strings, encoded as a Jordan-Wigner
+/// The `TermBasis` implementation for Majorana fermion strings, encoded as a Jordan-Wigner
 /// mode-occupation bitmask (`MajoranaMonomial`).
 pub struct MajoranaBasis;
 
-impl SoaBasis for MajoranaBasis {
+impl TermBasis for MajoranaBasis {
     type Term = MajoranaMonomial;
 
     fn commutes(term: [&[u64]; 2], gen: [&[u64]; 2]) -> bool {
@@ -629,19 +641,19 @@ fn compress_to_qubits_scalar(modes: &Bitset, n_qubits: usize, offset: usize) -> 
     Bitset::from_words(words)
 }
 
-fn hermiticity_exp(length: usize) -> i32 {
+pub(crate) fn hermiticity_exp(length: usize) -> i32 {
     if matches!(length % 4, 0 | 1) { 0 } else { 1 }
 }
 
-/// Operates directly on word slices (rather than `&Bitset`) so the SoA
-/// `MajoranaBasis::product` kernel can call it on `SoaTermSum` plane rows
+/// Operates directly on word slices (rather than `&Bitset`) so the columnar
+/// `MajoranaBasis::product` kernel can call it on `TermSum` plane rows
 /// without allocating a temporary `Bitset` per call on the propagation hot
 /// path. Correct for slices of any (possibly unequal) length: an
 /// all-zero-valued `a` or `b` naturally drives every term in the sum to
 /// zero, so unlike the earlier `&Bitset` version this needs no empty-input
 /// short-circuit (`Bitset` could be zero-*length*; a fixed-stride slice
 /// never is, just possibly all-zero-*valued*).
-fn resorting_parity(a_words: &[u64], b_words: &[u64]) -> bool {
+pub(crate) fn resorting_parity(a_words: &[u64], b_words: &[u64]) -> bool {
     let total: u64 = a_words.iter().map(|w| w.count_ones() as u64).sum();
     let mut running = 0u64;
     let mut count = 0u64;
@@ -687,40 +699,6 @@ mod tests {
     /// different: it needs nothing but the generic `commutes` pass, so it applies to every
     /// basis. This pins that down, because losing it here would be silent (correct results,
     /// just an appended-then-truncated row per anticommuting term on every such gate).
-    #[test]
-    fn phase_only_rotation_applies_to_the_majorana_basis_too() {
-        use propaq_core::soa::{kernels, SoaTermSum};
-        use std::f64::consts::PI;
-
-        let n_modes = 8;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        let mut terms: SoaTermSum<f64> = SoaTermSum::new(n_modes, stride);
-
-        let mut push = |m: &MajoranaMonomial, c: f64| {
-            let mut x = vec![0u64; stride];
-            let mut z = vec![0u64; stride];
-            MajoranaBasis::term_into_planes(m, n_modes, [&mut x, &mut z]);
-            terms.push([&x, &z], c);
-        };
-        let gen = mon(0b0011, n_modes);
-        let anti = mon(0b0001, n_modes); // shares one mode with `gen` -> anticommutes
-        let comm = mon(0b0011, n_modes); // equals `gen` -> commutes with it
-        assert!(!anti.commutes_with(&gen));
-        assert!(comm.commutes_with(&gen));
-        push(&anti, 2.0);
-        push(&comm, 3.0);
-
-        let mut gx = vec![0u64; stride];
-        let mut gz = vec![0u64; stride];
-        MajoranaBasis::term_into_planes(&gen, n_modes, [&mut gx, &mut gz]);
-
-        let added = kernels::apply_rotation::<MajoranaBasis, f64>(&mut terms, [&gx, &gz], &PI, false);
-        assert_eq!(added, 0, "sin(pi) == 0 must not append a Majorana term");
-        assert_eq!(terms.len(), 2, "container must not grow");
-        assert_eq!(*terms.coeff(0), -2.0, "anticommuting term scaled by cos(pi) = -1");
-        assert_eq!(*terms.coeff(1), 3.0, "commuting term left untouched");
-    }
-
     fn fock(bits: u64) -> Bitset {
         Bitset::from_le_bytes(&bits.to_le_bytes())
     }
@@ -965,7 +943,7 @@ mod tests {
         }
     }
 
-    // Section: `MajoranaBasis` (SoA) vs `MajoranaMonomial` (AoS) cross-checks, the seam most
+    // Section: `MajoranaBasis` (columnar) vs `MajoranaMonomial` (owned) cross-checks, the seam most
     // at risk since `weight`/`product` depend on the cached `p` plane tracking `modes`.
 
     fn planes_of(m: &MajoranaMonomial, stride: usize) -> (Vec<u64>, Vec<u64>) {

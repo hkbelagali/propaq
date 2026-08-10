@@ -6,7 +6,7 @@
 /// site `k`. Read as a Pauli string, the pair is the Jordan-Wigner image, with
 /// `2k` the X component and `2k + 1` the Z component of qubit `k`.
 ///
-/// This replaces the two separate word planes the SoA store used. One bitset
+/// This replaces the two separate word planes `store::TermSum` uses. One bitset
 /// means a product is a single XOR over a fixed-length array whose length the
 /// compiler knows, rather than two dynamically bounded loops.
 ///

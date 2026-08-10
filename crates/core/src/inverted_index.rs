@@ -39,6 +39,13 @@ impl Column {
 pub struct InvertedIndex {
     columns: Vec<Column>,
     row_count: usize,
+    /// Bit `r` set when row `r`'s key has an odd number of set positions.
+    ///
+    /// A basis whose anticommutation test carries a `|M|` term (Majorana with an
+    /// odd-length generator; Pauli never) needs that parity per row to fold the
+    /// columns exactly. Kept here rather than in the store because it is indexed
+    /// by row and has to grow in step with the columns.
+    row_parity: Vec<u64>,
 }
 
 impl InvertedIndex {
@@ -47,6 +54,7 @@ impl InvertedIndex {
         InvertedIndex {
             columns: (0..n_columns).map(|_| Column::Sparse(Vec::new())).collect(),
             row_count: 0,
+            row_parity: Vec::new(),
         }
     }
 
@@ -76,19 +84,27 @@ impl InvertedIndex {
         self.row_count = total;
         let words = self.words();
 
-        let InvertedIndex { columns, row_count } = self;
+        let InvertedIndex { columns, row_count, row_parity } = self;
         for col in columns.iter_mut() {
             if let Column::Dense(v) = col {
                 v.resize(words, 0);
             }
         }
+        row_parity.resize(words, 0);
         for r in base..total {
             let word = r >> 6;
             let bit = 1u64 << (r & 63);
-            store.for_each_position(r, |pos| match &mut columns[pos] {
-                Column::Dense(v) => v[word] |= bit,
-                Column::Sparse(rows) => rows.push(r as TermIndex),
+            let mut positions = 0usize;
+            store.for_each_position(r, |pos| {
+                positions += 1;
+                match &mut columns[pos] {
+                    Column::Dense(v) => v[word] |= bit,
+                    Column::Sparse(rows) => rows.push(r as TermIndex),
+                }
             });
+            if positions & 1 == 1 {
+                row_parity[word] |= bit;
+            }
         }
 
         // Promote after filling, so density is judged against the final row
@@ -102,6 +118,21 @@ impl InvertedIndex {
                 Self::promote(&mut columns[c], words);
             }
         }
+    }
+
+    /// Drops every indexed row, keeping the column set.
+    ///
+    /// Needed because `sync_to` is incremental against a store that only grows.
+    /// Reclaim breaks that: rows move, so the index cannot be caught up and has
+    /// to be rebuilt. Columns go back to sparse rather than keeping their tier,
+    /// since promotion is judged on density and the surviving density is not the
+    /// density that promoted them.
+    pub fn reset(&mut self) {
+        for col in self.columns.iter_mut() {
+            *col = Column::Sparse(Vec::new());
+        }
+        self.row_parity.clear();
+        self.row_count = 0;
     }
 
     /// Rewrites a sparse column as a full-height bitmap.
@@ -135,6 +166,17 @@ impl InvertedIndex {
                     }
                 }
             }
+        }
+    }
+
+    /// XORs the per-row key parity into `out`.
+    ///
+    /// Applied on top of [`InvertedIndex::combine`] when the basis reports
+    /// `fold_needs_odd_correction`, which turns the overlap parity the columns
+    /// give into the full anticommutation test without visiting a single row.
+    pub fn apply_row_parity(&self, out: &mut [u64]) {
+        for (o, &p) in out.iter_mut().zip(self.row_parity.iter()) {
+            *o ^= p;
         }
     }
 

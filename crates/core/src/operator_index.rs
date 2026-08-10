@@ -3,7 +3,7 @@
 /// open-addressing hash index over those rows.
 ///
 /// This is the Rust counterpart of monoprop's `detail::OperatorIndex`, and it
-/// replaces the SoA store's CSR arena. Two properties matter and neither held
+/// replaces the CSR arena in `store::TermSum`. Two properties matter and neither holds
 /// before:
 ///
 ///   * `stride` is fixed for the store's life, so row `i` always begins at
@@ -687,7 +687,7 @@ mod tests {
         println!("index = {index:.1} bytes/term (persistent: it replaces the old");
         println!("        per-merge hash tables and the hashes column, not just keys)");
         println!("total = {:.1} bytes/term", rows + index);
-        // The old SoA store at 36 qubits used stride_words(36) == 1, so two
+        // `store::TermSum` at 36 qubits uses stride_words(36) == 1, so two
         // planes cost 16 bytes/term, plus an 8-byte hash column and the
         // per-batch merge tables rebuilt on every merge.
         println!("old dense two-plane keys = 16 bytes/term (+ hashes + merge tables)");

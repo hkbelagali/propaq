@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap;
 
 use propaq_core::coeff::CoeffRepr;
 use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
-use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_core::store::{TermBasis, TermSum};
 use propaq_core::truncation::TruncationPolicy;
 
 use crate::monomial::{MajoranaBasis, MajoranaMonomial};
@@ -16,8 +16,8 @@ use crate::streamer::MajoranaTermStreamer;
 
 /// See `propaq_pauli::termsum::Storage`.
 pub(crate) enum Storage {
-    F64(SoaTermSum<f64>),
-    F32(SoaTermSum<f32>),
+    F64(TermSum<f64>),
+    F32(TermSum<f32>),
 }
 
 impl Storage {
@@ -55,9 +55,9 @@ fn parse_dtype(dtype: Option<&str>) -> PyResult<&str> {
     }
 }
 
-fn ensure_sized<C: CoeffRepr>(inner: &mut SoaTermSum<C>, n_modes: usize) {
+fn ensure_sized<C: CoeffRepr>(inner: &mut TermSum<C>, n_modes: usize) {
     if inner.len() == 0 && inner.n_units != n_modes {
-        *inner = SoaTermSum::new(n_modes, MajoranaBasis::stride_words(n_modes));
+        *inner = TermSum::new(n_modes, MajoranaBasis::stride_words(n_modes));
     }
 }
 
@@ -68,8 +68,27 @@ fn planes_of(term: &MajoranaMonomial, stride: usize) -> (Vec<u64>, Vec<u64>) {
     (g0, g1)
 }
 
+/// Builds a term sum from the (key, coefficient) pairs the partitioned engine
+/// produces.
+///
+/// The engine keeps its own store and hands terms back as a flat list, so this
+/// is the seam between the two representations. Keys are already distinct there,
+/// but `add_raw` folds duplicates anyway rather than assuming it.
+pub fn term_sum_from_pairs<C: CoeffRepr>(
+    pairs: Vec<(MajoranaMonomial, C)>,
+    n_units: usize,
+) -> TermSum<C> {
+    let mut inner = TermSum::<C>::new(n_units, MajoranaBasis::stride_words(n_units));
+    let mut index = FxHashMap::default();
+    index.reserve(pairs.len());
+    for (term, coeff) in pairs {
+        add_raw(&mut inner, &mut index, term, coeff);
+    }
+    inner
+}
+
 fn add_raw<C: CoeffRepr>(
-    inner: &mut SoaTermSum<C>,
+    inner: &mut TermSum<C>,
     index: &mut FxHashMap<MajoranaMonomial, usize>,
     term: MajoranaMonomial,
     coeff: C,
@@ -99,12 +118,12 @@ impl RowDecoder {
         RowDecoder { buf: vec![0u64; 2 * stride] }
     }
 
-    fn term<C: CoeffRepr>(&mut self, terms: &SoaTermSum<C>, i: usize) -> MajoranaMonomial {
+    fn term<C: CoeffRepr>(&mut self, terms: &TermSum<C>, i: usize) -> MajoranaMonomial {
         MajoranaBasis::term_from_planes(terms.decode_row(i, &mut self.buf), terms.n_units)
     }
 }
 
-pub fn materialize<C>(terms: &SoaTermSum<C>) -> FxHashMap<MajoranaMonomial, f64>
+pub fn materialize<C>(terms: &TermSum<C>) -> FxHashMap<MajoranaMonomial, f64>
 where
     C: CoeffRepr,
 {
@@ -119,11 +138,11 @@ where
 }
 
 impl MajoranaTermSum {
-    pub fn from_soa(inner: SoaTermSum<f64>) -> Self {
+    pub fn from_store(inner: TermSum<f64>) -> Self {
         Self::from_storage(Storage::F64(inner))
     }
 
-    pub fn from_soa_f32(inner: SoaTermSum<f32>) -> Self {
+    pub fn from_store_f32(inner: TermSum<f32>) -> Self {
         Self::from_storage(Storage::F32(inner))
     }
 
@@ -154,7 +173,7 @@ impl MajoranaTermSum {
 
     /// This term sum's coefficients widened to f64, regardless of storage
     /// precision. Used by the surrogate propagator.
-    pub fn as_f64(&self) -> SoaTermSum<f64> {
+    pub fn as_f64(&self) -> TermSum<f64> {
         match &self.inner {
             Storage::F64(s) => s.map_coeffs(|c| *c),
             Storage::F32(s) => s.map_coeffs(|c| *c as f64),
@@ -174,7 +193,7 @@ impl MajoranaTermSum {
     fn new(terms: Option<&Bound<'_, PyDict>>, dtype: Option<&str>) -> PyResult<Self> {
         match parse_dtype(dtype)? {
             "float32" => {
-                let mut inner = SoaTermSum::<f32>::new(0, MajoranaBasis::stride_words(0));
+                let mut inner = TermSum::<f32>::new(0, MajoranaBasis::stride_words(0));
                 let mut index = FxHashMap::default();
                 if let Some(dict) = terms {
                     index.reserve(dict.len());
@@ -187,7 +206,7 @@ impl MajoranaTermSum {
                 Ok(MajoranaTermSum { inner: Storage::F32(inner), index })
             }
             _ => {
-                let mut inner = SoaTermSum::<f64>::new(0, MajoranaBasis::stride_words(0));
+                let mut inner = TermSum::<f64>::new(0, MajoranaBasis::stride_words(0));
                 let mut index = FxHashMap::default();
                 if let Some(dict) = terms {
                     index.reserve(dict.len());
@@ -288,8 +307,8 @@ impl MajoranaTermSum {
     /// Deduplicate and remove terms according to *policy*.
     pub fn truncate(&mut self, policy: &Bound<'_, PyAny>) -> PyResult<()> {
         let new_self = match &self.inner {
-            Storage::F64(inner) => MajoranaTermSum::from_soa(truncate_impl(inner, policy)?),
-            Storage::F32(inner) => MajoranaTermSum::from_soa_f32(truncate_impl(inner, policy)?),
+            Storage::F64(inner) => MajoranaTermSum::from_store(truncate_impl(inner, policy)?),
+            Storage::F32(inner) => MajoranaTermSum::from_store_f32(truncate_impl(inner, policy)?),
         };
         *self = new_self;
         Ok(())
@@ -368,7 +387,7 @@ impl MajoranaTermSum {
     fn from_file(path: &str) -> PyResult<MajoranaTermSum> {
         let map = load_terms_from_file::<MajoranaMonomial>(path)?;
         let n_modes = map.keys().next().map_or(0, |t| t.n_modes);
-        let mut inner = SoaTermSum::new(n_modes, MajoranaBasis::stride_words(n_modes));
+        let mut inner = TermSum::new(n_modes, MajoranaBasis::stride_words(n_modes));
         let mut index = FxHashMap::default();
         index.reserve(map.len());
         for (term, coeff) in map {
@@ -394,14 +413,14 @@ impl MajoranaTermSum {
 }
 
 fn truncate_impl<C: CoeffRepr>(
-    inner: &SoaTermSum<C>,
+    inner: &TermSum<C>,
     policy: &Bound<'_, PyAny>,
-) -> PyResult<SoaTermSum<C>> {
+) -> PyResult<TermSum<C>> {
     let n = inner.len();
     let stride = inner.stride;
     let plane_span = inner.plane_span();
     let n_units = inner.n_units;
-    let mut kept = SoaTermSum::new(n_units, stride);
+    let mut kept = TermSum::new(n_units, stride);
 
     if let Ok(tp) = policy.extract::<PyRef<TruncationPolicy>>() {
         let wc = tp.weight_cutoff;
@@ -430,7 +449,7 @@ fn truncate_impl<C: CoeffRepr>(
 }
 
 fn apply_damping_impl<C: CoeffRepr>(
-    inner: &mut SoaTermSum<C>,
+    inner: &mut TermSum<C>,
     noise: &Bound<'_, PyAny>,
     active_modes: u32,
 ) -> PyResult<()> {
@@ -454,18 +473,18 @@ fn apply_damping_impl<C: CoeffRepr>(
     Ok(())
 }
 
-fn norm_squared_impl<C: CoeffRepr>(inner: &SoaTermSum<C>) -> f64 {
+fn norm_squared_impl<C: CoeffRepr>(inner: &TermSum<C>) -> f64 {
     inner.coeffs[..inner.len()].iter().map(|c| { let v = c.to_f64(); v * v }).sum()
 }
 
-fn items_impl<C: CoeffRepr>(inner: &SoaTermSum<C>) -> Vec<(MajoranaMonomial, f64)> {
+fn items_impl<C: CoeffRepr>(inner: &TermSum<C>) -> Vec<(MajoranaMonomial, f64)> {
     let n = inner.len();
     let mut decoder = RowDecoder::new(inner.stride);
     (0..n).map(|i| (decoder.term(inner, i), inner.coeff(i).to_f64())).collect()
 }
 
 fn setitem_impl<C: CoeffRepr>(
-    inner: &mut SoaTermSum<C>,
+    inner: &mut TermSum<C>,
     index: &mut FxHashMap<MajoranaMonomial, usize>,
     term: MajoranaMonomial,
     coeff: C,
@@ -482,7 +501,7 @@ fn setitem_impl<C: CoeffRepr>(
 }
 
 fn getitem_impl<C: CoeffRepr>(
-    inner: &SoaTermSum<C>,
+    inner: &TermSum<C>,
     index: &FxHashMap<MajoranaMonomial, usize>,
     term: &MajoranaMonomial,
 ) -> f64 {

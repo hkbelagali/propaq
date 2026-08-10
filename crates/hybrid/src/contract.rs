@@ -4,7 +4,7 @@
 use num_complex::Complex64;
 use rayon::prelude::*;
 
-use propaq_core::soa::{split_planes, Position, SoaTermSum};
+use propaq_core::store::{split_planes, Position, TermSum};
 
 use crate::mps::{apply_transfer, Environments, Mps};
 
@@ -103,7 +103,7 @@ pub fn window_expectation(mps: &Mps, env: &Environments, sites: &[(usize, PauliO
 }
 
 /// `sum_i coeff_i * <Psi|P_i|Psi>` over every row of `terms`
-pub fn hybrid_expectation_sum(mps: &Mps, env: &Environments, terms: &SoaTermSum<f64>) -> Complex64 {
+pub fn hybrid_expectation_sum(mps: &Mps, env: &Environments, terms: &TermSum<f64>) -> Complex64 {
     let n = terms.len();
     let plane_span = terms.plane_span();
     let compute_row = |i: usize| -> Complex64 {
