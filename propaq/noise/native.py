@@ -9,7 +9,7 @@ class NativeNoiseModel(_RustNativeNoiseModel):
 
     A plugin declares what it reads through ``propaq_noise_depends``.
 
-    - **0** is a function of term weight alone, so it is collapsed to one table 
+    - **0** is a function of term weight alone, so it is collapsed to one table
       indexed by weight before propagation starts and never called again.
     - **2** (``PROPAQ_DEPENDS_LAYER``) also reads the circuit position. It keeps
       the tabulated fast path, but the table is rebuilt at each layer boundary.

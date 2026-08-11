@@ -113,7 +113,6 @@ class TestNumericalAgreement:
 
 
 class TestFrequencyTruncation:
-
     def _circuit_and_obs(self):
         obs = MajoranaTermSum({mm(0b0011): 1.0})
         gens = [mm(0b0110), mm(0b1001), mm(0b0101)]
@@ -147,7 +146,6 @@ class TestFrequencyTruncation:
 
 
 class TestParameterReuseDedup:
-
     def _reused_param_circuit(self):
         """Two parameters, each behind two gates, interleaved so a naive
         gate-indexed scheme would keep every branch distinct."""
@@ -166,6 +164,7 @@ class TestParameterReuseDedup:
         surr = surrogate_ev(obs, sc, params)
         numerical = numerical_ev(obs, circ)
         assert surr == pytest.approx(numerical, rel=1e-9)
+
 
 class TestSaveLoad:
     def test_round_trip(self):

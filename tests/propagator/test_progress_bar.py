@@ -80,8 +80,7 @@ def test_enabled_builds_one_bar_totalling_the_gate_count(bars):
 
 @pytest.mark.parametrize("n_gates, every", [(10, 5), (7, 3), (5, 8), (9, 1), (13, 4)])
 def test_advance_totals_the_gate_count(bars, n_gates, every):
-    """Every gate is accounted for, whatever the interval and the throttle.
-    """
+    """Every gate is accounted for, whatever the interval and the throttle."""
     PauliPropagator(progress_bar=True, progress_every=every).expectation_value(
         observable(), circuit(n_gates), initial_state=0
     )
@@ -90,8 +89,7 @@ def test_advance_totals_the_gate_count(bars, n_gates, every):
 
 
 def test_coalesces_draws_on_a_fast_circuit(bars):
-    """A circuit finishing well inside the throttle must not draw per gate.
-    """
+    """A circuit finishing well inside the throttle must not draw per gate."""
     n_gates = 200
     PauliPropagator(progress_bar=True).expectation_value(
         observable(), circuit(n_gates), initial_state=0
@@ -120,8 +118,7 @@ def test_closes_the_bar(bars):
 
 
 def test_closes_the_bar_when_the_run_raises(bars):
-    """A failed run must not leave the bar holding the terminal line.
-    """
+    """A failed run must not leave the bar holding the terminal line."""
 
     class ExplodingNoise:
         def damping_factor_term(self, basis_kind, words, n_units, weight):

@@ -150,7 +150,6 @@ class TestNumericalAgreement:
 
 
 class TestFrequencyTruncation:
-
     def _circuit_and_obs(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
@@ -196,7 +195,6 @@ class TestFrequencyTruncation:
 
 
 class TestParameterReuseDedup:
-
     def _reused_param_circuit(self):
         """Two parameters, each behind two gates, interleaved so a naive
         gate-indexed scheme would keep every branch distinct."""
@@ -354,7 +352,6 @@ class TestComposableTruncation:
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
     def test_monomial_budget_triggers_mid_propagation_flush(self, tmp_path):
-
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         params = [0.3, 0.6, 0.9]
         gens = [
@@ -391,7 +388,6 @@ class TestComposableTruncation:
 
 class TestLoschmidtEcho:
     def test_echo_recovers_initial(self):
-
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         gen = ps(0b0001, 0)
         angle = 0.9
@@ -444,7 +440,6 @@ class TestSaveLoad:
             os.unlink(path)
 
     def test_round_trip_many_terms_multi_shard(self):
-
         obs = PauliTermSum({ps(0, z): 1.0 + 0.1 * z for z in range(1, 16)})
         circ = PauliCircuit([])
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[])
@@ -494,7 +489,6 @@ class TestSaveLoad:
             os.unlink(path)
 
     def test_round_trip_with_shared_parameter(self):
-
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         angle = 0.45
         gens = [ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0)]

@@ -124,6 +124,7 @@ def layered_circuit(n_layers: int) -> PauliCircuit:
 def coefficients(term_sum) -> dict[tuple[int, int], float]:
     return {(int(t.x), int(t.z)): c for t, c in term_sum.items()}
 
+
 def test_a_plugin_without_a_depends_symbol_declares_nothing(build_plugin):
     model = NativeNoiseModel(build_plugin("noise/uniform_noise.c"), config='{"damping": 0.1}')
     assert model.abi_version == 1
@@ -150,11 +151,10 @@ def test_an_unknown_dependency_bit_is_refused(tmp_path):
     src = tmp_path / "future.c"
     src.write_text(PROBE_SRC.replace("DEPENDS_VALUE", "0xFFu"))
     out = tmp_path / "future.so"
-    subprocess.run(
-        ["cc", "-shared", "-fPIC", "-O2", "-o", str(out), str(src), "-lm"], check=True
-    )
+    subprocess.run(["cc", "-shared", "-fPIC", "-O2", "-o", str(out), str(src), "-lm"], check=True)
     with pytest.raises(ValueError, match="unknown dependency bits"):
         NativeNoiseModel(str(out))
+
 
 def test_declaring_nothing_tabulates_once_for_the_whole_run(build_probe):
     """A weight-only model is collapsed to a table of n_units + 1 entries, once."""
@@ -198,6 +198,7 @@ def test_declaring_key_is_called_per_term_and_handed_the_words(build_probe):
     assert calls > N + 1, "a key-aware model is not tabulated"
     assert lib.probe_saw_words() - before_words == calls
 
+
 def clifford_circuit() -> PauliCircuit:
     """A single pi/2 rotation, which is Clifford and so is normally deferred."""
     return PauliCircuit([PauliRotation(ps(0b0001, 0), math.pi / 2)])
@@ -231,10 +232,9 @@ def test_a_weight_only_truncator_keeps_deferral(build_plugin):
         build_plugin("truncation/weight_truncator.c"), config='{"max_weight": 4}'
     )
     obs = PauliTermSum({ps(0, 0b0001): 1.0})
-    evolved = coefficients(
-        PauliPropagator(truncation=truncator).propagate(obs, clifford_circuit())
-    )
+    evolved = coefficients(PauliPropagator(truncation=truncator).propagate(obs, clifford_circuit()))
     assert len(evolved) == 1
+
 
 def test_uniform_plugin_matches_the_builtin_model_term_for_term(build_plugin):
     damping = 0.3
@@ -306,6 +306,7 @@ def test_a_truncator_still_admits_a_child_it_scores_highly(build_plugin):
     circuit = PauliCircuit([PauliRotation(ps(0b0001, 0), math.pi / 4)])
     evolved = coefficients(PauliPropagator(truncation=truncator).propagate(obs, circuit))
     assert len(evolved) == 2, "the rotation's child is inside the region and is kept"
+
 
 def _expectation(noise=None, truncation=None) -> float:
     obs = PauliTermSum({ps(0, 0b0001): 1.0})

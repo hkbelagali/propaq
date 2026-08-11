@@ -75,7 +75,7 @@ def test_apply_damping_uses_noise_model():
     ts = MajoranaTermSum()
     t = mon(0b00000011)
     ts.add(t, 2.0)
-    noise = UniformNoiseModel(0.0) 
+    noise = UniformNoiseModel(0.0)
     ts.apply_damping(noise, active_modes=0)
     _, coeff = list(ts.items())[0]
     assert coeff == pytest.approx(2.0)
@@ -151,7 +151,6 @@ class EvenWeightTruncation:
 
 
 def test_truncate_custom_python_policy():
-
     kept = mon(0b00000011)  # weight 1
     removed = mon(0b01010101)  # weight 4
     ts = MajoranaTermSum({kept: 1.0, removed: 1.0})
@@ -179,7 +178,6 @@ def test_apply_damping_custom_python_noise():
 def _ref(modes_int: int, n_modes: int) -> MajoranaMonomial:
     """Reference monomial for lookup; equality uses only mode bits."""
     return MajoranaMonomial(modes_int, n_modes)
-
 
 
 def test_from_sparse_pauli_op_x():
