@@ -38,6 +38,7 @@ def test_truncation_setter_restore_none():
     prop.set_truncation(None)
     assert prop.truncators == []
 
+
 def test_zce_coeff_result_fields():
     obs = MajoranaTermSum({mon(0b11): 1.0})
     circuit = one_gate_circuit()
@@ -73,16 +74,17 @@ def test_zce_weight_result_fields():
     assert result.fit_params.shape == (2,)
     assert result.fit_covariance.shape == (2, 2)
 
+
 def test_zce_coeff_linear_extrapolation_close_to_reference():
-    # Use cutoff values well below the only term's coefficient (1.0),
-    # so no truncation occurs and the linear fit recovers the exact value.
     obs = MajoranaTermSum({mon(0b11): 1.0})
     circuit = one_gate_circuit()
     prop = MajoranaPropagator(truncation=trunc(coeff_cutoff=0.001))
 
-    reference = MajoranaPropagator(
-        truncation=trunc(coeff_cutoff=0.0)
-    ).expectation_value(obs, circuit, initial_state=0).expectation_value
+    reference = (
+        MajoranaPropagator(truncation=trunc(coeff_cutoff=0.0))
+        .expectation_value(obs, circuit, initial_state=0)
+        .expectation_value
+    )
 
     extrapolator = CoefficientCutoffExtrapolator(
         fitting_fn=lambda eps, a, b: a + b * eps,
@@ -92,41 +94,48 @@ def test_zce_coeff_linear_extrapolation_close_to_reference():
 
     assert result.zero_cutoff_value == pytest.approx(reference, abs=1e-4)
 
+
 def test_zce_coeff_truncation_changes_expectation_value():
-    # Observable with a secondary term whose coefficient sits within the sweep range.
-    # At high coeff_cutoff the secondary term is dropped, changing the result.
     obs = MajoranaTermSum({mon(0b11): 1.0, mon(0b1111): 0.05})
     circuit = one_gate_circuit()
 
-    ev_exact = MajoranaPropagator(
-        truncation=trunc(coeff_cutoff=0.0)
-    ).expectation_value(obs, circuit, initial_state=0).expectation_value
+    ev_exact = (
+        MajoranaPropagator(truncation=trunc(coeff_cutoff=0.0))
+        .expectation_value(obs, circuit, initial_state=0)
+        .expectation_value
+    )
 
-    ev_truncated = MajoranaPropagator(
-        truncation=trunc(coeff_cutoff=0.06)
-    ).expectation_value(obs, circuit, initial_state=0).expectation_value
+    ev_truncated = (
+        MajoranaPropagator(truncation=trunc(coeff_cutoff=0.06))
+        .expectation_value(obs, circuit, initial_state=0)
+        .expectation_value
+    )
 
-    # The 0.05-coefficient term is dropped at coeff_cutoff=0.06; results must differ.
     assert ev_exact != pytest.approx(ev_truncated, abs=1e-10)
 
+
 def test_zce_weight_converges_with_increasing_cutoff():
-    # Higher weight_cutoff → fewer terms dropped → closer to the untruncated value.
     obs = MajoranaTermSum({mon(0b11): 1.0, mon(0b1111): 0.5})
     circuit = one_gate_circuit()
 
-    reference = MajoranaPropagator(
-        truncation=trunc(weight_cutoff=None)
-    ).expectation_value(obs, circuit, initial_state=0).expectation_value
+    reference = (
+        MajoranaPropagator(truncation=trunc(weight_cutoff=None))
+        .expectation_value(obs, circuit, initial_state=0)
+        .expectation_value
+    )
 
     errors = []
     for w in [2, 3, 4, 5]:
-        ev = MajoranaPropagator(
-            truncation=trunc(weight_cutoff=w)
-        ).expectation_value(obs, circuit, initial_state=0).expectation_value
+        ev = (
+            MajoranaPropagator(truncation=trunc(weight_cutoff=w))
+            .expectation_value(obs, circuit, initial_state=0)
+            .expectation_value
+        )
         errors.append(abs(ev - reference))
 
     # Error must be non-increasing as weight cutoff grows.
     assert all(errors[i] >= errors[i + 1] for i in range(len(errors) - 1))
+
 
 def test_zce_coeff_restores_original_truncation():
     obs = MajoranaTermSum({mon(0b11): 1.0})
@@ -152,15 +161,11 @@ def test_zce_weight_restores_original_truncation():
 
 
 def test_zce_coeff_restores_when_original_truncation_is_none():
-    # run() must still restore None truncation if that's what was set originally.
     obs = MajoranaTermSum({mon(0b11): 1.0})
     circuit = one_gate_circuit()
     prop = MajoranaPropagator(truncation=trunc(coeff_cutoff=0.001))
 
-    # Manually clear so the first _set_cutoff will raise; finally must still restore.
-    extrapolator = CoefficientCutoffExtrapolator(
-        lambda eps, a, b: a + b * eps, [0.002, 0.004]
-    )
+    extrapolator = CoefficientCutoffExtrapolator(lambda eps, a, b: a + b * eps, [0.002, 0.004])
     extrapolator.run(prop, obs, circuit)
     prop.set_truncation(None)
 
@@ -169,18 +174,16 @@ def test_zce_coeff_restores_when_original_truncation_is_none():
 
     assert prop.truncators == []
 
+
 def test_zce_coeff_set_cutoff_raises_when_no_truncation():
     prop = MajoranaPropagator()
-    extrapolator = CoefficientCutoffExtrapolator(
-        lambda eps, a, b: a + b * eps, [0.01, 0.02]
-    )
+    extrapolator = CoefficientCutoffExtrapolator(lambda eps, a, b: a + b * eps, [0.01, 0.02])
     with pytest.raises(ValueError, match="no truncation policy"):
         extrapolator._set_cutoff(prop, 0.01)
 
+
 def test_zce_weight_set_cutoff_raises_when_no_truncation():
     prop = MajoranaPropagator()
-    extrapolator = WeightCutoffExtrapolator(
-        lambda w, a, b: a + b / (w + 1), [3, 4, 5]
-    )
+    extrapolator = WeightCutoffExtrapolator(lambda w, a, b: a + b / (w + 1), [3, 4, 5])
     with pytest.raises(ValueError, match="no truncation policy"):
         extrapolator._set_cutoff(prop, 3)

@@ -18,6 +18,7 @@ def mon(modes_int):
 def one_gate_circuit():
     return MajoranaCircuit([MajoranaRotation(mon(0b11), 0.0)], N)
 
+
 def test_noise_getter_default_none():
     prop = MajoranaPropagator()
     assert prop.noise is None
@@ -34,6 +35,7 @@ def test_noise_setter_restore_none():
     prop = MajoranaPropagator(noise=UniformNoiseModel(0.1))
     prop.set_noise(None)
     assert prop.noise is None
+
 
 def test_zne_result_fields():
     obs = MajoranaTermSum({mon(0b11): 1.0})
@@ -83,7 +85,8 @@ def test_zne_exponential_fit_with_p0():
     result = extrapolator.run(prop, obs, circuit, initial_state=0, p0=[-1.0, 2.0])
 
     assert result.zero_noise_value == pytest.approx(noiseless, abs=1e-4)
-    
+
+
 def test_zne_restores_original_noise_none():
     obs = MajoranaTermSum({mon(0b11): 1.0})
     circuit = one_gate_circuit()

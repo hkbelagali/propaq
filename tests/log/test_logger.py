@@ -20,7 +20,7 @@ def mon(modes_int: int) -> MajoranaMonomial:
 
 
 def _qiskit_circuit() -> QuantumCircuit:
-    """2-qubit circuit: rz (1 rotation) then xx_plus_yy with beta≠0 (4 rotations)."""
+    """2-qubit circuit: rz (1 rotation) then xx_plus_yy with beta!=0 (4 rotations)."""
     qc = QuantumCircuit(2)
     qc.rz(0.2, 0)
     qc.append(XXPlusYYGate(0.3, 0.1), [0, 1])
@@ -35,15 +35,15 @@ def test_qiskit_gate_idx_present_in_gate_events(tmp_path):
     prop.propagate(obs, circuit)
 
     parser = LogParser(str(log_file))
-    assert len(parser.gate_events) == 5 
+    assert len(parser.gate_events) == 5
 
     assert all(e.qiskit_gate_idx is not None for e in parser.gate_events)
 
     assert {e.qiskit_gate_idx for e in parser.gate_events} == {0, 1}
 
     idx_counts = {i: sum(1 for e in parser.gate_events if e.qiskit_gate_idx == i) for i in range(2)}
-    assert idx_counts[0] == 1   # rz
-    assert idx_counts[1] == 4   # xx_plus_yy
+    assert idx_counts[0] == 1  # rz
+    assert idx_counts[1] == 4  # xx_plus_yy
 
 
 def test_qiskit_gate_idx_in_truncation_events(tmp_path):
@@ -87,8 +87,6 @@ def test_engine_phases_event_summarizes_the_run(tmp_path):
     ev = parser.engine_phases_events[0]
     assert ev.partitions == 2
     assert ev.terms == len(prop.propagate(obs, circuit))
-    # A rotation reads rows before it emits, and every emitted branch is
-    # accounted for as either kept or already present at its destination.
     assert ev.visited >= ev.emitted >= ev.exchange_hits
     assert 0.0 <= ev.scan_occupancy <= 1.0
     assert 0.0 <= ev.absorb_occupancy <= 1.0

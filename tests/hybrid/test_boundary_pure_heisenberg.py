@@ -52,7 +52,9 @@ def test_hybrid_matches_pure_heisenberg(seed):
     pc1 = PauliCircuit.from_qiskit(c1)
 
     propagator = PauliPropagator()
-    reference = propagator.expectation_value(pauli_observable, pc1, initial_state=0).expectation_value
+    reference = propagator.expectation_value(
+        pauli_observable, pc1, initial_state=0
+    ).expectation_value
     theta = propagator.propagate(pauli_observable, pc1)
     hybrid_value = hybrid_expectation_value(theta, c2, initial_state=0)
 
