@@ -11,10 +11,9 @@ use num_complex::Complex64;
 use crate::basis::Basis;
 use crate::coeff::CoeffRepr;
 use crate::inverted_index::{for_each_set_bit, InvertedIndex};
-use crate::native_truncator::NativeTruncator;
 use crate::operator_index::{OperatorIndex, Pos, TermIndexCeilingReached};
 use crate::strings::BasisString;
-use crate::term_kernel::{NoiseKernel, TermView, TruncationKernel, KERNEL_BATCH};
+use crate::term_kernel::{LayerContext, NoiseKernel, TermView, TruncationKernel, KERNEL_BATCH};
 use crate::truncators::ResolvedConfig;
 
 /// Tolerance for treating `$\sin(\theta)$` as zero when classifying a rotation.
@@ -27,19 +26,20 @@ pub struct EmitCutoff {
     pub max_weight: Option<u32>,
     /// Magnitude bound on the emitted branch. A child below it is never created.
     pub min_coeff: Option<f64>,
-    /// A loaded plugin f(w) for scalar parameters (weight, cutoff, active modes).
-    pub native: Option<NativeTruncator>,
-    /// A term-aware plugin, using the term's key as a parameter.
+    /// A loaded truncation plugin.
     pub term: Option<Arc<dyn TruncationKernel>>,
     /// Live-term floor, from `TermBudget::min_terms`. Lossy truncation is
     /// inhibited until the operator has at least this many terms.
     pub min_terms: Option<usize>,
+    /// Where in the circuit the gate loop currently is.
+    pub layer: LayerContext,
 }
 
 impl EmitCutoff {
     pub fn lossless(&self) -> Self {
         EmitCutoff {
             min_terms: self.min_terms,
+            layer: self.layer,
             ..Default::default()
         }
     }
@@ -58,7 +58,6 @@ impl std::fmt::Debug for EmitCutoff {
         f.debug_struct("EmitCutoff")
             .field("max_weight", &self.max_weight)
             .field("min_coeff", &self.min_coeff)
-            .field("native", &self.native.is_some())
             .field("term", &self.term.is_some())
             .field("min_terms", &self.min_terms)
             .finish()
@@ -68,19 +67,12 @@ impl std::fmt::Debug for EmitCutoff {
 /// The cutoff a resolved truncation pipeline asks the emit gate for.
 impl From<&ResolvedConfig> for EmitCutoff {
     fn from(cfg: &ResolvedConfig) -> Self {
-        let (native, term) = match cfg.native.as_ref() {
-            Some(nt) => match nt.as_term_kernel() {
-                Some(kernel) => (None, Some(kernel)),
-                None => (Some(nt.clone()), None),
-            },
-            None => (None, None),
-        };
         EmitCutoff {
             max_weight: cfg.weight,
             min_coeff: cfg.coefficient,
-            native,
-            term,
+            term: cfg.native.as_ref().map(|nt| nt.as_term_kernel()),
             min_terms: cfg.min_terms,
+            layer: LayerContext::default(),
         }
     }
 }
@@ -91,6 +83,11 @@ impl EmitCutoff {
         Self::default()
     }
 
+    /// True if the truncation plugin reads term keys
+    pub fn depends_on_key(&self) -> bool {
+        self.term.as_ref().is_some_and(|k| k.depends().key())
+    }
+
     /// True if a child with this key may be created at all.
     #[inline]
     pub(crate) fn admits_key<A: Basis<W>, const W: usize>(
@@ -98,7 +95,7 @@ impl EmitCutoff {
         key: &BasisString<W>,
         n_units: usize,
     ) -> bool {
-        if self.native.is_some() || self.term.is_some() {
+        if self.term.is_some() {
             return true;
         }
         match self.max_weight {
@@ -121,14 +118,12 @@ impl EmitCutoff {
                     words: key.words(),
                     n_units,
                     weight: A::weight(key, n_units),
+                    layer: self.layer,
                 },
                 coeff.magnitude(),
             );
         }
-        match &self.native {
-            Some(nt) => nt.keep(A::weight(key, n_units), coeff.magnitude(), 0),
-            None => self.admits_coeff(coeff),
-        }
+        self.admits_coeff(coeff)
     }
 
     /// True if a term belongs in the term sum.
@@ -160,7 +155,7 @@ pub(crate) struct EmitPrecheck {
 
 impl EmitPrecheck {
     pub(crate) fn for_gate(factors: Option<(f64, f64)>, cutoff: &EmitCutoff) -> Option<Self> {
-        if cutoff.native.is_some() || cutoff.term.is_some() {
+        if cutoff.term.is_some() {
             return None;
         }
         let min_coeff = cutoff.min_coeff?;
@@ -309,7 +304,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
     }
 
     /// Scales every coefficient by a kernel's factor for that term's key.
-    pub fn scale_by_key<A: Basis<W>>(&mut self, kernel: &dyn NoiseKernel) {
+    pub fn scale_by_key<A: Basis<W>>(&mut self, kernel: &dyn NoiseKernel, layer: LayerContext) {
         let n = self.store.len();
         if n == 0 {
             return;
@@ -332,6 +327,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
                 W,
                 &weights[..len],
                 self.n_units,
+                layer,
                 &mut factors[..len],
             );
             for (j, &factor) in factors[..len].iter().enumerate() {
@@ -358,6 +354,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
     pub fn reclaim_by_kernel<A: Basis<W>>(
         &mut self,
         kernel: &dyn TruncationKernel,
+        layer: LayerContext,
     ) -> Result<usize, TermIndexCeilingReached> {
         let n = self.store.len();
         if n == 0 {
@@ -386,6 +383,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
                 &weights[..len],
                 n_units,
                 &magnitudes[..len],
+                layer,
                 &mut decided[..len],
             );
             if batched {
@@ -398,6 +396,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
                             words: &words[j * W..(j + 1) * W],
                             n_units,
                             weight: weights[j],
+                            layer,
                         },
                         magnitudes[j],
                     ));

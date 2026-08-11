@@ -173,7 +173,6 @@ mod tests {
 
     #[test]
     fn compact_saturates_at_the_widest_unit() {
-
         assert_eq!(compact(u128::MAX), "340282Q+");
     }
 }

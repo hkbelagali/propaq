@@ -12,7 +12,7 @@ use crate::coeff::CoeffRepr;
 use crate::operator_index::{Pos, TermIndexCeilingReached};
 use crate::strings::BasisString;
 use crate::tableau::CliffordTableau;
-use crate::term_kernel::NoiseKernel;
+use crate::term_kernel::{LayerContext, NoiseKernel};
 use crate::termsum::{partition_of, EmitCutoff, Routed, TermSum};
 
 /// Tolerance for treating `sin(theta)` as zero when classifying a rotation.
@@ -465,8 +465,8 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
 
     /// Scales every coefficient by a term-aware kernel's factor, across every
     /// partition.
-    pub fn scale_by_key<A: Basis<W>>(&mut self, kernel: &dyn NoiseKernel) {
-        let body = |partition: &mut TermSum<C, P, W>| partition.scale_by_key::<A>(kernel);
+    pub fn scale_by_key<A: Basis<W>>(&mut self, kernel: &dyn NoiseKernel, layer: LayerContext) {
+        let body = |partition: &mut TermSum<C, P, W>| partition.scale_by_key::<A>(kernel, layer);
         if broadcast_applies(self.partitions.len()) {
             let ps = WorkerSlots::new(&mut self.partitions);
             rayon::broadcast(|worker| {
@@ -546,17 +546,13 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
         &mut self,
         cutoff: &EmitCutoff,
     ) -> Result<usize, TermIndexCeilingReached> {
-        if cutoff.max_weight.is_none()
-            && cutoff.min_coeff.is_none()
-            && cutoff.native.is_none()
-            && cutoff.term.is_none()
-        {
+        if cutoff.max_weight.is_none() && cutoff.min_coeff.is_none() && cutoff.term.is_none() {
             return Ok(0);
         }
         let n_units = self.n_units;
 
         let body = |partition: &mut TermSum<C, P, W>| match &cutoff.term {
-            Some(kernel) => partition.reclaim_by_kernel::<A>(kernel.as_ref()),
+            Some(kernel) => partition.reclaim_by_kernel::<A>(kernel.as_ref(), cutoff.layer),
             None => partition
                 .reclaim(|key, coeff| cutoff.admits_initial::<A, C, W>(key, coeff, n_units)),
         };

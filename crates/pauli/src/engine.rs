@@ -8,12 +8,15 @@ use pyo3::prelude::*;
 
 use propaq_core::basis::BasisKind;
 use propaq_core::coeff::CoeffRepr;
-use propaq_core::noise_resolver::{resolve_noise, ResolvedNoise, PYTHON_TERM_HOOK};
+use propaq_core::noise_resolver::{
+    resolve_noise, retabulate, NoiseTable, ResolvedNoise, PYTHON_TERM_HOOK,
+};
 use propaq_core::operator_index::OperatorIndex;
 use propaq_core::partitioned_termsum::{PartitionedTermSum, PhaseStats};
 use propaq_core::progress::Progress;
 use propaq_core::results::PropagationResult;
 use propaq_core::strings::BasisString;
+use propaq_core::term_kernel::LayerContext;
 use propaq_core::termsum::EmitCutoff;
 use propaq_core::truncators::ResolvedConfig;
 
@@ -85,6 +88,9 @@ where
     C: CoeffRepr,
     P: propaq_core::operator_index::Pos,
 {
+
+    let mut cutoff = cutoff.clone();
+    let n_layers = layers.len() as u32;
     let inline_positions = match cutoff.max_weight {
         Some(w) => OperatorIndex::<P, W>::inline_width_for_support_cutoff(w as usize),
         None => INITIAL_INLINE_POSITIONS.min(2 * n_units),
@@ -93,7 +99,7 @@ where
     let mut op: PartitionedTermSum<C, P, W> =
         PartitionedTermSum::with_inline_positions(n_units, partitions, inline_positions);
 
-    if cutoff.term.is_some() || noise.is_some_and(ResolvedNoise::is_term_aware) {
+    if cutoff.depends_on_key() || noise.is_some_and(ResolvedNoise::depends_on_key) {
         op.set_defer_cliffords(false);
     }
     for (term, coeff) in observable {
@@ -108,7 +114,9 @@ where
     let mut n_terms = Vec::new();
     let mut gate_records: Vec<GateRecord> = Vec::new();
     let mut gate_idx = 0usize;
+    let mut layer_table: NoiseTable = Vec::new();
     for (layer_idx, layer) in layers.iter().enumerate() {
+        cutoff.layer = LayerContext::new(layer_idx as u32, n_layers);
         if let Some(noise) = noise {
             match noise {
                 ResolvedNoise::WeightTable(table) => {
@@ -116,8 +124,21 @@ where
                         table[(w as usize).min(table.len() - 1)]
                     });
                 }
+                ResolvedNoise::LayeredWeightTable(kernel) => {
+
+                    retabulate(
+                        kernel.as_ref(),
+                        BasisKind::Pauli,
+                        n_units,
+                        cutoff.layer,
+                        &mut layer_table,
+                    );
+                    op.scale_by_weight::<PauliAlgebra>(|w| {
+                        layer_table[(w as usize).min(layer_table.len() - 1)]
+                    });
+                }
                 ResolvedNoise::TermKernel(kernel) => {
-                    op.scale_by_key::<PauliAlgebra>(kernel.as_ref());
+                    op.scale_by_key::<PauliAlgebra>(kernel.as_ref(), cutoff.layer);
                 }
 
                 ResolvedNoise::PythonTerm(model) => Python::attach(|py| -> PyResult<()> {
@@ -137,7 +158,7 @@ where
                     })
                 })?,
             }
-            op.reclaim::<PauliAlgebra>(cutoff)
+            op.reclaim::<PauliAlgebra>(&cutoff)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         }
         if adaptive_width {
@@ -154,7 +175,7 @@ where
             } else {
                 (0, 0, None)
             };
-            op.apply_rotation::<PauliAlgebra>(&gen, &gate.angle, cutoff)
+            op.apply_rotation::<PauliAlgebra>(&gen, &gate.angle, &cutoff)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             if let Some(t0) = t0 {
                 gate_records.push(GateRecord {
@@ -297,7 +318,7 @@ pub fn run<C: CoeffRepr>(
     let cutoff = EmitCutoff::from(cfg);
     let partitions = n_threads.unwrap_or_else(rayon::current_num_threads).max(1);
 
-    let noise = resolve_noise(noise, n_units)?;
+    let noise = resolve_noise(noise, n_units, BasisKind::Pauli)?;
     let run = runner_for::<C>(n_units);
 
     let total_gates = layers.iter().map(Vec::len).sum();

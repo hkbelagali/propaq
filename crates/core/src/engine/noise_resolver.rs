@@ -1,21 +1,23 @@
 //!
 //! Resolve a noise channel into the engine's backend.
 //!
-//! Noise models that are a function of weight are parsed
-//! into a lookup table indexed by weight to avoid GIL contention.
-//! This does not apply to a noise model that accepts the term
-//! as an argument, which is instead resolved into a
-//! [`crate::term_kernel::NoiseKernel`] with a Sync trait,
-//! or a serial prototype for Python objects.
+//! The strategy follows what the model *declares it depends on*, not a version
+//! number. A model that reads weight alone is collapsed into a lookup table
+//! indexed by weight, so the hot loop never crosses the FFI (or GIL) boundary
+//! again. A model that also reads the circuit position keeps that fast path,
+//! but the table is rebuilt at each layer boundary. Only a model that reads the
+//! term's key has to be called per term, which is also what costs the run its
+//! Clifford deferral.
 //!
 
 use std::sync::Arc;
 
 use pyo3::prelude::*;
 
+use crate::basis::BasisKind;
 use crate::native_noise::NativeNoiseModel;
 use crate::noise::{GateNoiseModel, UniformNoiseModel};
-use crate::term_kernel::NoiseKernel;
+use crate::term_kernel::{LayerContext, NoiseKernel, TermView};
 
 /// The method a Python model defines to opt into per-term, key-aware damping.
 pub const PYTHON_TERM_HOOK: &str = "damping_factor_term";
@@ -24,8 +26,10 @@ pub const PYTHON_TERM_HOOK: &str = "damping_factor_term";
 pub type NoiseTable = Vec<f64>;
 
 pub enum ResolvedNoise {
-    /// A function of weight alone, pre-tabulated.
+    /// A function of weight alone, pre-tabulated once.
     WeightTable(NoiseTable),
+    /// A function of weight and circuit position
+    LayeredWeightTable(Arc<dyn NoiseKernel>),
     /// A key-aware native kernel.
     TermKernel(Arc<dyn NoiseKernel>),
     /// A key-aware Python object, applied per term with the GIL held.
@@ -33,11 +37,39 @@ pub enum ResolvedNoise {
 }
 
 impl ResolvedNoise {
-    /// True if the noise model requires the term as a parameter.
-    /// In this case, the engine disables Clifford deferral for
-    /// simplicity.
-    pub fn is_term_aware(&self) -> bool {
-        !matches!(self, ResolvedNoise::WeightTable(_))
+    /// True if the noise model reads the term's key, which is what forces the
+    /// engine to give up Clifford deferral: a deferred tableau leaves stored
+    /// keys pre-conjugation, and a key-reading model has to see physical ones.
+    pub fn depends_on_key(&self) -> bool {
+        matches!(
+            self,
+            ResolvedNoise::TermKernel(_) | ResolvedNoise::PythonTerm(_)
+        )
+    }
+}
+
+/// Fills `out` with this kernel's damping factor for every weight `0..=max_weight`.
+///
+/// The weight-only paths run through here, so the table a plugin produces is
+/// the same one a per-term evaluation would, entry for entry. `words` is empty
+/// because a model on this path declared it does not read the key.
+pub fn retabulate(
+    kernel: &dyn NoiseKernel,
+    basis_kind: BasisKind,
+    max_weight: usize,
+    layer: LayerContext,
+    out: &mut NoiseTable,
+) {
+    out.clear();
+    out.reserve(max_weight + 1);
+    for w in 0..=max_weight {
+        out.push(kernel.factor(TermView {
+            basis_kind,
+            words: &[],
+            n_units: max_weight,
+            weight: w as u32,
+            layer,
+        }));
     }
 }
 
@@ -46,6 +78,7 @@ impl ResolvedNoise {
 pub fn resolve_noise(
     model: Option<&Bound<'_, PyAny>>,
     max_weight: usize,
+    basis_kind: BasisKind,
 ) -> PyResult<Option<ResolvedNoise>> {
     let Some(model) = model else {
         return Ok(None);
@@ -62,14 +95,22 @@ pub fn resolve_noise(
 
     if let Ok(native) = model.extract::<PyRef<NativeNoiseModel>>() {
         let handle = *native.handle();
-        if handle.is_term_aware() {
+        let depends = handle.depends();
+        if depends.key() {
             return Ok(Some(ResolvedNoise::TermKernel(Arc::new(handle))));
         }
-        return Ok(Some(ResolvedNoise::WeightTable(
-            (0..=max_weight)
-                .map(|w| handle.damping_factor(w as u32, 0))
-                .collect(),
-        )));
+        if depends.layer() {
+            return Ok(Some(ResolvedNoise::LayeredWeightTable(Arc::new(handle))));
+        }
+        let mut table = NoiseTable::new();
+        retabulate(
+            &handle,
+            basis_kind,
+            max_weight,
+            LayerContext::new(0, 0),
+            &mut table,
+        );
+        return Ok(Some(ResolvedNoise::WeightTable(table)));
     }
 
     // Unwrap the wrapper into a parsed noise model.

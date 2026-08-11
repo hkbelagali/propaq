@@ -278,7 +278,7 @@ fn a_term_floor_carries_through_a_lossless_copy() {
     };
     let l = c.lossless();
     assert_eq!(l.min_terms, Some(50));
-    assert!(l.max_weight.is_none() && l.min_coeff.is_none() && l.native.is_none());
+    assert!(l.max_weight.is_none() && l.min_coeff.is_none() && l.term.is_none());
 }
 
 #[test]
@@ -396,10 +396,13 @@ fn scale_by_key_damps_only_the_terms_touching_the_chosen_unit() {
     op.add(&mono(&[0]), 1.0).unwrap();
     op.add(&mono(&[1]), 1.0).unwrap();
     op.add(&mono(&[0, 1]), 1.0).unwrap();
-    op.scale_by_key::<TestAlgebra>(&QubitLocalNoise {
-        unit: 0,
-        factor: 0.25,
-    });
+    op.scale_by_key::<TestAlgebra>(
+        &QubitLocalNoise {
+            unit: 0,
+            factor: 0.25,
+        },
+        crate::term_kernel::LayerContext::default(),
+    );
     let v = values(&op);
     assert_eq!(v[&0b01], 0.25);
 
@@ -418,7 +421,10 @@ fn a_weight_only_kernel_matches_the_table_pass_bit_for_bit() {
         by_kernel.add(key, 1.0 + i as f64).unwrap();
     }
     by_table.scale_by_weight::<TestAlgebra>(|w| (-damping * w as f64).exp());
-    by_kernel.scale_by_key::<TestAlgebra>(&WeightOnlyNoise { damping });
+    by_kernel.scale_by_key::<TestAlgebra>(
+        &WeightOnlyNoise { damping },
+        crate::term_kernel::LayerContext::default(),
+    );
     assert_eq!(values(&by_table), values(&by_kernel));
 }
 
@@ -430,10 +436,13 @@ fn scale_by_key_spans_more_than_one_batch_chunk() {
         op.add(&BasisString::<W>::from_words([i as u64 + 1]), 1.0)
             .unwrap();
     }
-    op.scale_by_key::<TestAlgebra>(&QubitLocalNoise {
-        unit: 0,
-        factor: 0.5,
-    });
+    op.scale_by_key::<TestAlgebra>(
+        &QubitLocalNoise {
+            unit: 0,
+            factor: 0.5,
+        },
+        crate::term_kernel::LayerContext::default(),
+    );
     for i in 0..n {
         let expected = if (i as u64 + 1) & 1 != 0 { 0.5 } else { 1.0 };
         assert_eq!(*op.coeff(i), expected, "row {i} scaled wrongly");
@@ -468,7 +477,9 @@ fn reclaim_by_kernel_agrees_with_the_per_term_predicate() {
     for key in [mono(&[0]), mono(&[1]), mono(&[2]), mono(&[0, 2])] {
         op.add(&key, 1.0).unwrap();
     }
-    let dropped = op.reclaim_by_kernel::<TestAlgebra>(&kernel).unwrap();
+    let dropped = op
+        .reclaim_by_kernel::<TestAlgebra>(&kernel, crate::term_kernel::LayerContext::default())
+        .unwrap();
     assert_eq!(dropped, 1, "only {{1}} leaves the mask");
     let v = values(&op);
     assert_eq!(v.len(), 3);

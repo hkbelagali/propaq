@@ -4,42 +4,35 @@
 //! compiled from C, Rust, or (AOT-compiled) Julia as a
 //! shared library.
 //!
-//! ## ABI contract, version 1
+//! ## ABI contract
+//!
+//! One entry point, with the plugin declaring what it reads through
+//! `propaq_truncator_depends` — see [`crate::term_kernel::Depends`] and the
+//! noise counterpart in [`crate::native_noise`].
 //!
 //! ```c
-//! uint32_t propaq_truncator_abi_version(void);                 // returns 1
+//! uint32_t propaq_truncator_abi_version(void);                 // required, must equal 1
+//! uint32_t propaq_truncator_depends(void);                     // optional; absent => 0
 //! void*    propaq_truncator_create(const char* config_json);   // optional
 //! void     propaq_truncator_destroy(void* ctx);                // required iff create is present
-//! int32_t  propaq_truncator_keep(void* ctx, uint32_t term_weight, double coeff_magnitude,
-//!                                 uint32_t active_modes);       // required; nonzero = keep
-//! int32_t  propaq_truncator_keep_batch(void* ctx, const uint32_t* term_weights,
-//!                                       const double* coeff_magnitudes, const uint32_t* active_modes,
-//!                                       uint8_t* out_keep, size_t n);  // optional; returns 0 on success
+//!
+//! int32_t  propaq_truncator_keep(void* ctx, uint32_t basis_kind,
+//!                                const uint64_t* words, size_t n_words,
+//!                                uint32_t n_units, uint32_t weight,
+//!                                double coeff_magnitude,
+//!                                uint32_t layer_index, uint32_t n_layers);
+//!                                                              // required; nonzero = keep
+//!
+//! int32_t  propaq_truncator_keep_batch(void* ctx, uint32_t basis_kind,
+//!                                      const uint64_t* words, size_t n_words_per_term,
+//!                                      uint32_t n_units, const uint32_t* weights,
+//!                                      const double* coeff_magnitudes,
+//!                                      uint32_t layer_index, uint32_t n_layers,
+//!                                      uint8_t* out_keep, size_t n_terms);
+//!                                                              // optional; returns 0 on success
 //! ```
 //!
-//! ## ABI contract, version 2
-//!
-//! Similar to the noise models, this provides access to an entire term's bitmask,
-//! allowing for structure-aware truncation decisions. This still maintains backwards
-//! compatibility with the v1 ABI, so a plugin can implement either one.
-//!
-//! ```c
-//! uint32_t propaq_truncator_abi_version(void);                 // returns 2
-//! void*    propaq_truncator_create(const char* config_json);   // optional
-//! void     propaq_truncator_destroy(void* ctx);                // required iff create is present
-//! int32_t  propaq_truncator_keep_v2(void* ctx, uint32_t basis_kind, const uint64_t* words,
-//!                                    size_t n_words, uint32_t n_units, uint32_t weight,
-//!                                    double coeff_magnitude);   // required; nonzero = keep
-//! int32_t  propaq_truncator_keep_batch_v2(void* ctx, uint32_t basis_kind, const uint64_t* words,
-//!                                          size_t n_words_per_term, uint32_t n_units,
-//!                                          const uint32_t* weights, const double* coeff_magnitudes,
-//!                                          uint8_t* out_keep, size_t n_terms);
-//!                                                               // optional; returns 0 on success
-//! ```
-//!
-//! `basis_kind` is `0` for Pauli and `1` for Majorana. `words` holds two bits per
-//! unit, interleaved; see [`crate::term_kernel::TermView`] for the layout. In the
-//! batch form the terms are contiguous, `n_words_per_term` words each.
+//! **`words` is `NULL` for a plugin that did not declare `PROPAQ_DEPENDS_KEY`.**
 //!
 //! The batch form is only reachable from the reclaim sweep that follows noise.
 //! An emit-time decision is taken inside the branching loop, one child at a
@@ -54,22 +47,18 @@ use libloading::{Library, Symbol};
 use pyo3::prelude::*;
 
 use crate::basis::BasisKind;
-use crate::term_kernel::{TermView, TruncationKernel};
+use crate::term_kernel::{Depends, LayerContext, TermView, TruncationKernel};
 
-/// The original weight/magnitude ABI.
+/// The only ABI version.
 pub const PROPAQ_TRUNCATOR_ABI_VERSION: u32 = 1;
 
-/// The basis-string-aware ABI.
-pub const PROPAQ_TRUNCATOR_ABI_VERSION_V2: u32 = 2;
-
 type AbiVersionFn = unsafe extern "C" fn() -> u32;
+type DependsFn = unsafe extern "C" fn() -> u32;
 type CreateFn = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type DestroyFn = unsafe extern "C" fn(*mut c_void);
-type KeepFn = unsafe extern "C" fn(*mut c_void, u32, f64, u32) -> i32;
-type KeepBatchFn =
-    unsafe extern "C" fn(*mut c_void, *const u32, *const f64, *const u32, *mut u8, usize) -> i32;
-type KeepV2Fn = unsafe extern "C" fn(*mut c_void, u32, *const u64, usize, u32, u32, f64) -> i32;
-type KeepBatchV2Fn = unsafe extern "C" fn(
+type KeepFn =
+    unsafe extern "C" fn(*mut c_void, u32, *const u64, usize, u32, u32, f64, u32, u32) -> i32;
+type KeepBatchFn = unsafe extern "C" fn(
     *mut c_void,
     u32,
     *const u64,
@@ -77,18 +66,18 @@ type KeepBatchV2Fn = unsafe extern "C" fn(
     u32,
     *const u32,
     *const f64,
+    u32,
+    u32,
     *mut u8,
     usize,
 ) -> i32;
 
 struct NativeTruncatorInner {
     ctx: *mut c_void,
-    /// Which ABI the plugin declared
-    abi_version: u32,
-    keep_fn: Option<KeepFn>,
+    /// What the plugin declared it reads.
+    depends: Depends,
+    keep_fn: KeepFn,
     keep_batch_fn: Option<KeepBatchFn>,
-    keep_v2_fn: Option<KeepV2Fn>,
-    keep_batch_v2_fn: Option<KeepBatchV2Fn>,
     destroy_fn: Option<DestroyFn>,
     _lib: Library,
 }
@@ -118,72 +107,50 @@ pub struct NativeTruncator {
 }
 
 impl NativeTruncator {
-    /// The ABI version the loaded plugin declared.
+    /// What the plugin declared it reads.
     #[inline]
-    pub fn abi_version(&self) -> u32 {
-        self.inner.abi_version
+    pub fn depends(&self) -> Depends {
+        self.inner.depends
     }
 
-    pub fn as_term_kernel(&self) -> Option<Arc<dyn TruncationKernel>> {
-        self.inner
-            .keep_v2_fn
-            .map(|_| Arc::new(self.clone()) as Arc<dyn TruncationKernel>)
+    /// This policy as the engine's term kernel. Every plugin is one now; the
+    /// declaration decides what it is handed, not which trait it implements.
+    pub fn as_term_kernel(&self) -> Arc<dyn TruncationKernel> {
+        Arc::new(self.clone()) as Arc<dyn TruncationKernel>
     }
 
+    /// The key pointer to hand the plugin: real only when it declared it reads
+    /// keys, `NULL` otherwise.
     #[inline]
-    pub fn keep(&self, term_weight: u32, coeff_magnitude: f64, active_modes: u32) -> bool {
-        let keep_fn = self
-            .inner
-            .keep_fn
-            .expect("a v1 truncator plugin exports propaq_truncator_keep");
-        unsafe { keep_fn(self.inner.ctx, term_weight, coeff_magnitude, active_modes) != 0 }
-    }
-
-    #[inline]
-    pub fn try_keep_batch(
-        &self,
-        weights: &[u32],
-        coeff_magnitudes: &[f64],
-        active_modes: &[u32],
-        out: &mut [u8],
-    ) -> bool {
-        let Some(batch_fn) = self.inner.keep_batch_fn else {
-            return false;
-        };
-        let n = weights.len();
-        debug_assert_eq!(coeff_magnitudes.len(), n);
-        debug_assert_eq!(active_modes.len(), n);
-        debug_assert_eq!(out.len(), n);
-        let rc = unsafe {
-            batch_fn(
-                self.inner.ctx,
-                weights.as_ptr(),
-                coeff_magnitudes.as_ptr(),
-                active_modes.as_ptr(),
-                out.as_mut_ptr(),
-                n,
-            )
-        };
-        rc == 0
+    fn key_ptr(&self, words: &[u64]) -> (*const u64, usize) {
+        if self.inner.depends.key() {
+            (words.as_ptr(), words.len())
+        } else {
+            (std::ptr::null(), 0)
+        }
     }
 }
 
 impl TruncationKernel for NativeTruncator {
     #[inline]
+    fn depends(&self) -> Depends {
+        self.inner.depends
+    }
+
+    #[inline]
     fn keep(&self, term: TermView<'_>, coeff_magnitude: f64) -> bool {
-        let keep_fn = self
-            .inner
-            .keep_v2_fn
-            .expect("a v2 truncator plugin exports propaq_truncator_keep_v2");
+        let (words, n_words) = self.key_ptr(term.words);
         unsafe {
-            keep_fn(
+            (self.inner.keep_fn)(
                 self.inner.ctx,
                 term.basis_kind.as_u32(),
-                term.words.as_ptr(),
-                term.words.len(),
+                words,
+                n_words,
                 term.n_units as u32,
                 term.weight,
                 coeff_magnitude,
+                term.layer.index,
+                term.layer.total,
             ) != 0
         }
     }
@@ -196,24 +163,32 @@ impl TruncationKernel for NativeTruncator {
         weights: &[u32],
         n_units: usize,
         coeff_magnitudes: &[f64],
+        layer: LayerContext,
         out: &mut [u8],
     ) -> bool {
-        let Some(batch_fn) = self.inner.keep_batch_v2_fn else {
+        let Some(batch_fn) = self.inner.keep_batch_fn else {
             return false;
         };
         let n = weights.len();
         debug_assert_eq!(words.len(), n * stride);
         debug_assert_eq!(coeff_magnitudes.len(), n);
         debug_assert_eq!(out.len(), n);
+        let (wptr, wstride) = if self.inner.depends.key() {
+            (words.as_ptr(), stride)
+        } else {
+            (std::ptr::null(), 0)
+        };
         let rc = unsafe {
             batch_fn(
                 self.inner.ctx,
                 basis_kind.as_u32(),
-                words.as_ptr(),
-                stride,
+                wptr,
+                wstride,
                 n_units as u32,
                 weights.as_ptr(),
                 coeff_magnitudes.as_ptr(),
+                layer.index,
+                layer.total,
                 out.as_mut_ptr(),
                 n,
             )
@@ -241,42 +216,26 @@ impl NativeTruncator {
                 ))
             })?;
         let version = unsafe { abi_version() };
-
-        if version != PROPAQ_TRUNCATOR_ABI_VERSION && version != PROPAQ_TRUNCATOR_ABI_VERSION_V2 {
+        if version != PROPAQ_TRUNCATOR_ABI_VERSION {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "truncator plugin '{path}' targets ABI version {version}, expected {PROPAQ_TRUNCATOR_ABI_VERSION} or {PROPAQ_TRUNCATOR_ABI_VERSION_V2}"
+                "truncator plugin '{path}' targets ABI version {version}, expected {PROPAQ_TRUNCATOR_ABI_VERSION}"
             )));
         }
-        let is_v2 = version == PROPAQ_TRUNCATOR_ABI_VERSION_V2;
 
-        let mut keep_fn: Option<KeepFn> = None;
-        let mut keep_batch_fn: Option<KeepBatchFn> = None;
-        let mut keep_v2_fn: Option<KeepV2Fn> = None;
-        let mut keep_batch_v2_fn: Option<KeepBatchV2Fn> = None;
-        if is_v2 {
-            let f: Symbol<KeepV2Fn> = unsafe { lib.get(b"propaq_truncator_keep_v2\0") }
-                .map_err(|e| {
-                    pyo3::exceptions::PyValueError::new_err(format!(
-                        "truncator plugin '{path}' declares ABI version 2 but does not export propaq_truncator_keep_v2: {e}"
-                    ))
-                })?;
-            keep_v2_fn = Some(*f);
-            keep_batch_v2_fn =
-                unsafe { lib.get::<KeepBatchV2Fn>(b"propaq_truncator_keep_batch_v2\0") }
-                    .ok()
-                    .map(|s| *s);
-        } else {
-            let f: Symbol<KeepFn> =
-                unsafe { lib.get(b"propaq_truncator_keep\0") }.map_err(|e| {
-                    pyo3::exceptions::PyValueError::new_err(format!(
-                        "truncator plugin '{path}' does not export propaq_truncator_keep: {e}"
-                    ))
-                })?;
-            keep_fn = Some(*f);
-            keep_batch_fn = unsafe { lib.get::<KeepBatchFn>(b"propaq_truncator_keep_batch\0") }
-                .ok()
-                .map(|s| *s);
-        }
+        let depends = match unsafe { lib.get::<DependsFn>(b"propaq_truncator_depends\0") } {
+            Ok(f) => depends_from_bits(unsafe { f() }, "truncator", &path)?,
+            Err(_) => Depends::NONE,
+        };
+
+        let keep: Symbol<KeepFn> = unsafe { lib.get(b"propaq_truncator_keep\0") }.map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "truncator plugin '{path}' does not export propaq_truncator_keep: {e}"
+            ))
+        })?;
+        let keep_fn = *keep;
+        let keep_batch_fn = unsafe { lib.get::<KeepBatchFn>(b"propaq_truncator_keep_batch\0") }
+            .ok()
+            .map(|s| *s);
 
         let create_fn: Option<Symbol<CreateFn>> =
             unsafe { lib.get(b"propaq_truncator_create\0") }.ok();
@@ -307,61 +266,54 @@ impl NativeTruncator {
         Ok(NativeTruncator {
             inner: Arc::new(NativeTruncatorInner {
                 ctx,
-                abi_version: version,
+                depends,
                 keep_fn,
                 keep_batch_fn,
-                keep_v2_fn,
-                keep_batch_v2_fn,
                 destroy_fn,
                 _lib: lib,
             }),
         })
     }
 
-    /// The ABI version the loaded plugin declared, 1 or 2.
+    /// The ABI version the loaded plugin declared.
     #[getter(abi_version)]
     fn get_abi_version(&self) -> u32 {
-        self.inner.abi_version
+        PROPAQ_TRUNCATOR_ABI_VERSION
     }
 
-    fn keep_term(
-        &self,
-        term_weight: u32,
-        coeff_magnitude: f64,
-        active_modes: u32,
-    ) -> PyResult<bool> {
-        if self.inner.keep_fn.is_none() {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "this plugin targets ABI version 2; call keep_term_v2 instead",
-            ));
-        }
-        Ok(self.keep(term_weight, coeff_magnitude, active_modes))
+    /// The dependency bitmask the plugin declared: 1 = reads the term's key,
+    /// 2 = reads the layer index. 0 means weight and magnitude alone.
+    #[getter(depends)]
+    fn get_depends(&self) -> u32 {
+        self.inner.depends.bits()
     }
 
-    /// Delegate to the plugin's `propaq_truncator_keep_v2`. ABI v2 plugins only.
+    /// Delegate to the plugin's `propaq_truncator_keep`.
     ///
     /// Exposed so a plugin can be exercised from Python without running a
     /// circuit; propagation calls the same entry point directly from the pool.
     ///
     /// Arguments:
     ///     basis_kind: 0 for Pauli, 1 for Majorana.
-    ///     words: The term's raw basis-string words, two bits per unit.
+    ///     words: The term's raw basis-string words, two bits per unit. Ignored
+    ///         (and passed as NULL) unless the plugin declared it reads keys.
     ///     n_units: Qubits (Pauli) or modes (Majorana) of the register.
     ///     weight: The term's weight.
     ///     coeff_magnitude: The term's coefficient magnitude.
-    fn keep_term_v2(
+    ///     layer_index: Zero-based circuit layer.
+    ///     n_layers: Layers in the circuit.
+    #[pyo3(signature = (basis_kind, words, n_units, weight, coeff_magnitude, layer_index=0, n_layers=0))]
+    #[allow(clippy::too_many_arguments)]
+    fn keep_term(
         &self,
         basis_kind: u32,
         words: Vec<u64>,
         n_units: usize,
         weight: u32,
         coeff_magnitude: f64,
+        layer_index: u32,
+        n_layers: u32,
     ) -> PyResult<bool> {
-        if self.inner.keep_v2_fn.is_none() {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "this plugin targets ABI version 1; call keep_term instead",
-            ));
-        }
         Ok(TruncationKernel::keep(
             self,
             TermView {
@@ -369,6 +321,7 @@ impl NativeTruncator {
                 words: &words,
                 n_units,
                 weight,
+                layer: LayerContext::new(layer_index, n_layers),
             },
             coeff_magnitude,
         ))
@@ -376,8 +329,8 @@ impl NativeTruncator {
 
     fn __repr__(&self) -> String {
         format!(
-            "NativeTruncator(<native plugin, abi v{}>)",
-            self.inner.abi_version
+            "NativeTruncator(<native plugin, depends={}>)",
+            self.inner.depends.bits()
         )
     }
 }
@@ -391,4 +344,15 @@ pub(crate) fn basis_kind_from_u32(kind: u32) -> PyResult<BasisKind> {
             "basis_kind must be 0 (Pauli) or 1 (Majorana), got {other}"
         ))),
     }
+}
+
+/// The ABI's dependency bitmask, checked.
+pub(crate) fn depends_from_bits(bits: u32, kind: &str, path: &str) -> PyResult<Depends> {
+    Depends::from_bits(bits).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "{kind} plugin '{path}' declares unknown dependency bits {bits:#x} \
+             (this build understands {:#x}); it was likely built against a newer propaq",
+            Depends::KNOWN
+        ))
+    })
 }

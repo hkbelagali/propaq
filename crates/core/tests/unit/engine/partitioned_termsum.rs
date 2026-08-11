@@ -358,6 +358,7 @@ impl crate::term_kernel::TruncationKernel for SupportOnly {
         weights: &[u32],
         _n_units: usize,
         _coeff_magnitudes: &[f64],
+        _layer: crate::term_kernel::LayerContext,
         out: &mut [u8],
     ) -> bool {
         for i in 0..weights.len() {
@@ -376,10 +377,13 @@ fn scale_by_key_gives_the_same_answer_at_every_partition_count() {
         for (i, key) in keys.iter().enumerate() {
             part.add(key, 1.0 + i as f64).unwrap();
         }
-        part.scale_by_key::<TestAlgebra>(&QubitLocalNoise {
-            unit: 3,
-            factor: 0.125,
-        });
+        part.scale_by_key::<TestAlgebra>(
+            &QubitLocalNoise {
+                unit: 3,
+                factor: 0.125,
+            },
+            crate::term_kernel::LayerContext::default(),
+        );
         let got = values(part.iter::<TestAlgebra>().map(|(k, sign, c)| (k, sign * c)));
         match baseline {
             None => baseline = Some(got),
@@ -401,8 +405,8 @@ fn scale_by_key_matches_the_single_partition_operator() {
         unit: 0,
         factor: 0.25,
     };
-    single.scale_by_key::<TestAlgebra>(&kernel);
-    part.scale_by_key::<TestAlgebra>(&kernel);
+    single.scale_by_key::<TestAlgebra>(&kernel, crate::term_kernel::LayerContext::default());
+    part.scale_by_key::<TestAlgebra>(&kernel, crate::term_kernel::LayerContext::default());
     assert_eq!(
         values(part.iter::<TestAlgebra>().map(|(k, sign, c)| (k, sign * c))),
         values(single.iter().map(|(k, c)| (k, *c))),

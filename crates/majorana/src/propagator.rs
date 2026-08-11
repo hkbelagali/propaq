@@ -115,7 +115,7 @@ fn write_phase_event(log: &mut impl Write, p: &propaq_core::partitioned_termsum:
 ///         449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
 ///         before numpy imports is the better fix.
 ///     progress_bar: Draw a tqdm bar over the gate loop.
-///     progress_every: Gates between progress bar ticks. Defaults to 1. 
+///     progress_every: Gates between progress bar ticks. Defaults to 1.
 ///
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
