@@ -6,8 +6,9 @@ edition = "2021"
 [dependencies]
 propaq-core = { path = "../core" }
 propaq-pauli = { path = "../pauli" }
-pyo3 = { version = "0.23", features = ["num-complex"] }
-numpy = "0.23"
+pyo3 = { version = "0.27", features = ["num-complex"] }
+numpy = "0.27"
+pyo3-stub-gen = "0.23"
 num-complex = "0.4"
 rayon = "1.10"
 ndarray = "0.16"
