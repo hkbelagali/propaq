@@ -1,9 +1,8 @@
 # propaq Plugin ABI
-propaq can load custom noise models and truncation policies from 
-dynamically loaded C, Rust, or AOT-compiled Julia shared libraries. 
-Functionality exists for Python implementations as well. However, this is not recommended, since both noise and truncation are hot in the propagator's inner loop and incur GIL overhead. The plugin ABI is 
-designed to be as fast as possible, while allowing for maximum
-flexibility in the implementation of noise and truncation policies.
+
+propaq can load custom noise models and truncation policies from
+dynamically loaded C, Rust, or AOT-compiled Julia shared libraries.
+Functionality exists for Python implementations as well. However, this is not recommended, since both noise and truncation are hot in the propagator's inner loop and incur GIL overhead.
 See `examples/plugins` for example implementations in C, Rust, and Julia.
 
 Each language directory is split into `noise/` and `truncation/`
@@ -12,37 +11,68 @@ subdirectories. Rust plugins are each a standalone cdylib crate under
 AOT-compiled via `PackageCompiler.jl`, and the resulting shared object is
 treated as a C ABI library by propaq.
 
-`uniform_noise` and `weight_truncator` each implement the same formula as
-a built-in model, so their output is directly diffable against it:
+## Dependencies
+
+A plugin specifies what information it reads from the engine using dependencies.
+By default, a plugin is able to read only the term's weight and coefficient magnitude. If it needs to read the term's entire bitmask, or the layer index, it must declare those 
+keys in its `depends` bitmask. This is meant to allow the engine to optimize the plugin's execution path and avoid unnecessary overhead.
+
+```c
+#define PROPAQ_DEPENDS_KEY    (1u << 0)   /* reads `words`                    */
+#define PROPAQ_DEPENDS_LAYER  (1u << 1)   /* reads `layer_index` / `n_layers` */
+```
+
+Export `propaq_noise_depends` / `propaq_truncator_depends` returning the OR of
+the bits you need. **Omitting the symbol means `0`**, a function of term weight.
+
+### Dependency permissions and costs
+
+**Noise:**
+
+| `depends` | Strategy | `words` | Clifford deferral |
+|---|---|---|---|
+| `0` | tabulated once at setup (`n_units + 1` calls, total) | `NULL` | kept |
+| `LAYER` | tabulated, rebuilt at each layer boundary | `NULL` | kept |
+| `KEY` | called per term, every layer | real | **off** |
+| `KEY \| LAYER` | called per term, with the layer index | real | **off** |
+
+Truncation is never tabulated, so we only toggle deferral to provide key access.
+
+| `depends` | `words` | Clifford deferral |
+|---|---|---|
+| `0` | `NULL` | kept |
+| `LAYER` | `NULL` | kept |
+| `KEY` (w or w/o `LAYER`) | real | **off** |
+
+Note that without declaring the appropriate permissions, `words` is `NULL` and the plugin
+will crash immediately.
+
+## Example plugins
+
+`uniform_noise` and `weight_truncator` are just re-implementations of the built-in
+`UniformNoiseModel` and `WeightTruncator` policies, respectively, so they can be
+used to verify that the ABI is working correctly.
 
 | Kind      | Built-in equivalent | C                                  | Rust                             | Julia                                 |
 |-----------|----------------------|-------------------------------------|-----------------------------------|------------------------------------------|
 | Noise     | `UniformNoiseModel`  | `c/noise/uniform_noise.c`          | `rust/noise/uniform_noise/`      | `julia/noise/uniform_noise.jl`         |
 | Truncator | `WeightTruncator`    | `c/truncation/weight_truncator.c`  | `rust/truncation/weight_truncator/` | `julia/truncation/weight_truncator.jl` |
 
-The remaining plugins are custom policies with no built-in
-equivalent: each one is implemented identically across all three
-languages (config keys and all), so they're cross-language diffable
-instead: given the same config and the same call sequence, C, Rust, and
-Julia produce bit-identical output.
+We also provide custom policies without built-in equivalents to demonstrate plugin
+syntax and semantics.
 
-| Kind      | Policy                 | Formula                                                                         | Config keys                     | C                                        | Rust                                        | Julia                                          |
-|-----------|-------------------------|----------------------------------------------------------------------------------|----------------------------------|--------------------------------------------|------------------------------------------------|---------------------------------------------------|
-| Noise     | `thermal_decay_noise`  | `exp(-(gamma * weight)^beta)` (stretched exponential; `beta=1` = plain exponential) | `gamma`, `beta`                 | `c/noise/thermal_decay_noise.c`          | `rust/noise/thermal_decay_noise/`             | `julia/noise/thermal_decay_noise.jl`             |
-| Noise     | `drifting_noise`       | `exp(-damping * weight * (1 + drift_rate * call_index))` (grows across calls)     | `damping`, `drift_rate`         | `c/noise/drifting_noise.c`               | `rust/noise/drifting_noise/`                  | `julia/noise/drifting_noise.jl`                  |
-| Truncator | `pareto_truncator`     | keep iff `coeff_magnitude * exp(-alpha * weight) > threshold` (joint score)        | `threshold`, `alpha`            | `c/truncation/pareto_truncator.c`        | `rust/truncation/pareto_truncator/`           | `julia/truncation/pareto_truncator.jl`           |
-| Truncator | `stochastic_truncator` | keep with probability `min(1, coeff_magnitude / threshold)` (importance sampling) | `threshold`, `seed`              | `c/truncation/stochastic_truncator.c`    | `rust/truncation/stochastic_truncator/`       | `julia/truncation/stochastic_truncator.jl`       |
+| Kind | Policy | `depends` | Formula | Config keys | C | Rust | Julia |
+|---|---|---|---|---|---|---|---|
+| Noise | `thermal_decay_noise` | `0` | `exp(-(gamma * weight)^beta)` (stretched exponential; `beta=1` = plain exponential) | `gamma`, `beta` | `c/noise/thermal_decay_noise.c` | `rust/noise/thermal_decay_noise/` | `julia/noise/thermal_decay_noise.jl` |
+| Noise | `drifting_noise` | `0` | `exp(-damping * weight * (1 + drift_rate * call_index))` | `damping`, `drift_rate` | `c/noise/drifting_noise.c` | `rust/noise/drifting_noise/` | `julia/noise/drifting_noise.jl` |
+| Noise | `depth_dependent_noise` | `LAYER` | `exp(-damping * weight * (1 + rate * layer_index / n_layers))` | `damping`, `rate` | `c/noise/depth_dependent_noise.c` | `rust/noise/depth_dependent_noise/` | `julia/noise/depth_dependent_noise.jl` |
+| Noise | `qubit_local_noise` | `KEY` | `exp(-damping * \|support(term) & mask\|)` (only the masked units are noisy) | `damping`, `mask` | `c/noise/qubit_local_noise.c` | `rust/noise/qubit_local_noise/` | — |
+| Truncator | `pareto_truncator` | `0` | keep iff `coeff_magnitude * exp(-alpha * weight) > threshold` (joint score) | `threshold`, `alpha` | `c/truncation/pareto_truncator.c` | `rust/truncation/pareto_truncator/` | `julia/truncation/pareto_truncator.jl` |
+| Truncator | `stochastic_truncator` | `KEY` | keep with probability `min(1, coeff_magnitude / threshold)` (importance sampling) | `threshold`, `seed` | `c/truncation/stochastic_truncator.c` | `rust/truncation/stochastic_truncator/` | `julia/truncation/stochastic_truncator.jl` |
+| Truncator | `support_truncator` | `KEY` | keep iff `coeff_magnitude * exp(-alpha * \|support(term) \\ mask\|) > threshold` | `threshold`, `alpha`, `mask` | `c/truncation/support_truncator.c` | `rust/truncation/support_truncator/` | — |
 
-`drifting_noise` and `stochastic_truncator` both hold real mutable ctx
-state (a call counter, reserved atomically rather than behind a lock); see
-[Safety](#safety) below for why that matters here specifically.
-
-`drifting_noise`'s `call_index` counts per-term damping calls, not gate
-layers, `drift_rate` needs to be picked
-accordingly small (the plugin's default is `1e-5`, deliberately tiny);
-tuning it as if `call_index` tracked circuit depth saturates
-`damping_factor` to a fully-underflowed `0.0` well before a real circuit
-finishes.
+`mask` is an unsigned integer over unit indices, bit `q` selecting
+qubit/site `q`, and addresses the first 64 units.
 
 ## Noise ABI
 
@@ -50,11 +80,20 @@ Fixed `extern "C"` symbol names **(C-stable types only, u32/f64/pointers/usize)*
 
 ```c
 uint32_t propaq_noise_abi_version(void);                 // required, must equal 1
+uint32_t propaq_noise_depends(void);                     // optional; absent => 0
 void*    propaq_noise_create(const char* config_json);   // optional
 void     propaq_noise_destroy(void* ctx);                // required iff create is present
-double   propaq_noise_damping_factor(void* ctx, uint32_t term_weight, uint32_t active_modes);  // required
-int32_t  propaq_noise_damping_batch(void* ctx, const uint32_t* term_weights,
-                                     const uint32_t* active_modes, double* out, size_t n);      // optional, faster
+
+double   propaq_noise_factor(void* ctx, uint32_t basis_kind,
+                             const uint64_t* words, size_t n_words,
+                             uint32_t n_units, uint32_t weight,
+                             uint32_t layer_index, uint32_t n_layers);   // required
+
+int32_t  propaq_noise_factor_batch(void* ctx, uint32_t basis_kind,
+                                   const uint64_t* words, size_t n_words_per_term,
+                                   uint32_t n_units, const uint32_t* weights,
+                                   uint32_t layer_index, uint32_t n_layers,
+                                   double* out, size_t n_terms);         // optional, faster
 ```
 
 ```python
@@ -68,13 +107,23 @@ propagator.set_noise(model)
 
 ```c
 uint32_t propaq_truncator_abi_version(void);                 // required, must equal 1
+uint32_t propaq_truncator_depends(void);                     // optional; absent => 0
 void*    propaq_truncator_create(const char* config_json);   // optional
 void     propaq_truncator_destroy(void* ctx);                // required iff create is present
-int32_t  propaq_truncator_keep(void* ctx, uint32_t term_weight, double coeff_magnitude,
-                                uint32_t active_modes);       // required; nonzero = keep
-int32_t  propaq_truncator_keep_batch(void* ctx, const uint32_t* term_weights,
-                                      const double* coeff_magnitudes, const uint32_t* active_modes,
-                                      uint8_t* out_keep, size_t n);  // optional, faster
+
+int32_t  propaq_truncator_keep(void* ctx, uint32_t basis_kind,
+                               const uint64_t* words, size_t n_words,
+                               uint32_t n_units, uint32_t weight,
+                               double coeff_magnitude,
+                               uint32_t layer_index, uint32_t n_layers);
+                                                             // required; nonzero = keep
+
+int32_t  propaq_truncator_keep_batch(void* ctx, uint32_t basis_kind,
+                                     const uint64_t* words, size_t n_words_per_term,
+                                     uint32_t n_units, const uint32_t* weights,
+                                     const double* coeff_magnitudes,
+                                     uint32_t layer_index, uint32_t n_layers,
+                                     uint8_t* out_keep, size_t n_terms);  // optional, faster
 ```
 
 `coeff_magnitude` is the term's real coefficient magnitude
@@ -89,38 +138,37 @@ trunc = NativeTruncator("examples/plugins/c/truncation/weight_truncator.so", con
 propagator.set_truncation(trunc)
 ```
 
+## What a plugin receives
+
+`basis_kind` is `0` for Pauli and `1` for Majorana. `words` is the term's
+key as raw storage words, two bits per unit, interleaved:
+
+- Pauli: bit `2q` is qubit `q`'s X component, bit `2q + 1` its Z component.
+- Majorana: bit `2k` is mode `gamma_{2k}`, bit `2k + 1` is `gamma_{2k + 1}`.
+
+`n_units` is the register size in qubits (Pauli) or fermionic *sites*
+(Majorana, so half the mode count). `weight` is the term's weight, passed
+because the engine has computed it already. In the batch forms the terms
+are contiguous, `n_words_per_term` words each.
+
+`layer_index` is the zero-based circuit layer and `n_layers` the circuit's
+layer count, so a model can normalize depth to `layer_index / n_layers`
+without being told the circuit size separately.
+
 ## The batch entry points
 
-`propaq_noise_damping_batch` / `propaq_truncator_keep_batch` are an
-optional performance path: propaq calls them once per parallel chunk
-of terms instead of once per term when present, amortizing the FFI
-boundary cost.
+`propaq_noise_factor_batch` / `propaq_truncator_keep_batch` are an optional
+performance path. These apply the plugin to a contiguous array of terms in one
+call in an effort to amortize the overhead of FFI boundary crossing.
+
+`propaq_truncator_keep_batch` is reachable only from the reclaim sweep
+that follows a noise layer, which visits whole rows. An emit-time decision
+is taken inside the branching loop one child at a time, so there is
+nothing to batch there and `propaq_truncator_keep` carries it.
 
 ## Safety
 
 Loading a plugin runs unsandboxed native code in-process. Only load
 libraries you trust, the same way you'd trust any other compiled
-dependency you link against. Plugin functions are called concurrently
-from arbitrary worker threads sharing one `ctx` pointer. As a result,
- plugin state must tolerate concurrent reads, and plugin code must never panic,
-unwind, or `longjmp` across the call boundary.
-
-This is more than a theoretical concern once a plugin holds *mutable*
-state, not just read-only config: `drifting_noise` and
-`stochastic_truncator` both need a per-call counter that every concurrent caller advances. Each implements
-it as a single lock-free atomic counter (`_Atomic uint64_t` in C,
-`AtomicU64` in Rust, `Threads.Atomic{UInt64}` in Julia) reserved via one
-fetch-add per call, never a plain non-atomic field, and never a full mutable
-RNG state guarded by nothing. A plain increment here would race under
-concurrent worker threads and silently corrupt the sequence.
-
-**Race-free is not the same as order-deterministic.** The engine splits a
-term array into `rayon::current_num_threads()` chunks and calls the batch
-entry point once per chunk; which chunk's call actually reaches the
-atomic fetch-add first depends on rayon's work-stealing scheduler, not on
-chunk index. Measured directly (`examples/plugins/notebooks/01_c_plugins.ipynb`):
-`drifting_noise`'s output changes not just across `n_threads`
-values but from run to run at the *same* `n_threads > 1`, because which
-physical term ends up with the smallest `call_index` isn't fixed. `stochastic_truncator` happened to come out
-stable on that notebook's test circuit, but that's a property of Monte
-Carlo aggregation smoothing out per-term reassignment, not a guarantee.
+dependency you link against. Plugin code must never panic, unwind, or
+`longjmp` across the call boundary.
