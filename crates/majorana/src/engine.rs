@@ -88,7 +88,6 @@ where
     C: CoeffRepr,
     P: propaq_core::operator_index::Pos,
 {
-
     let mut cutoff = cutoff.clone();
     let n_layers = layers.len() as u32;
     let inline_positions = match cutoff.max_weight {
@@ -124,7 +123,6 @@ where
                     });
                 }
                 ResolvedNoise::LayeredWeightTable(kernel) => {
-
                     retabulate(
                         kernel.as_ref(),
                         BasisKind::Majorana,
