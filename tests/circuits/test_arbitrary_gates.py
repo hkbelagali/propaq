@@ -130,7 +130,9 @@ def test_single_gate_matches_statevector(rep_name, name, gate, arity):
     for label in OBSERVABLES:
         want = sv.expectation_value(SparsePauliOp(label)).real
         got = _expectation(rep_name, qc, label)
-        assert np.isclose(got, want, atol=1e-6), f"{name} ({rep_name}), obs={label}: {got} vs {want}"
+        assert np.isclose(got, want, atol=1e-6), (
+            f"{name} ({rep_name}), obs={label}: {got} vs {want}"
+        )
 
 
 @pytest.mark.parametrize("rep_name", REPS)
@@ -149,7 +151,9 @@ def test_random_circuit_matches_statevector(rep_name, seed):
     for label in OBSERVABLES:
         want = sv.expectation_value(SparsePauliOp(label)).real
         got = _expectation(rep_name, qc, label)
-        assert np.isclose(got, want, atol=1e-6), f"seed={seed} ({rep_name}), obs={label}: {got} vs {want}"
+        assert np.isclose(got, want, atol=1e-6), (
+            f"seed={seed} ({rep_name}), obs={label}: {got} vs {want}"
+        )
 
 
 @pytest.mark.parametrize("rep_name", REPS)

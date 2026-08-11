@@ -69,7 +69,11 @@ def test_correct_registration_matches_native_decomposition_and_skips_decompose_w
     gens = [g for group in groups for g, _ in group]
     angles = [float(a) for group in groups for _, a in group]
     ground_truth_circuit = PauliCircuit.from_generators_and_angles(gens, angles)
-    want = PauliPropagator().expectation_value(obs, ground_truth_circuit, initial_state=0).expectation_value
+    want = (
+        PauliPropagator()
+        .expectation_value(obs, ground_truth_circuit, initial_state=0)
+        .expectation_value
+    )
 
     assert got == pytest.approx(want, abs=1e-9)
 
@@ -121,7 +125,9 @@ def test_reregistering_with_wrong_terms_fn_is_revalidated():
 
 def test_validate_false_skips_validation(monkeypatch):
     calls: list[str] = []
-    monkeypatch.setattr(_gate_validation, "validate_qiskit_gate", lambda *a, **k: calls.append(a[0]))
+    monkeypatch.setattr(
+        _gate_validation, "validate_qiskit_gate", lambda *a, **k: calls.append(a[0])
+    )
 
     register_qiskit_gate("t", _wrong_t_terms, validate=False)
     circuit = PauliCircuit.from_qiskit(_t_circuit())  # would raise if validated
@@ -143,6 +149,10 @@ def test_majorana_correct_registration_matches_native_decomposition():
     gens = [g for group in groups for g, _ in group]
     angles = [float(a) for group in groups for _, a in group]
     ground_truth_circuit = MajoranaCircuit.from_generators_and_angles(gens, angles, n_modes=2)
-    want = MajoranaPropagator().expectation_value(obs, ground_truth_circuit, initial_state=0).expectation_value
+    want = (
+        MajoranaPropagator()
+        .expectation_value(obs, ground_truth_circuit, initial_state=0)
+        .expectation_value
+    )
 
     assert got == pytest.approx(want, abs=1e-9)

@@ -59,7 +59,7 @@ def test_orbital_rotation_matches_ffsim_simulation(norb):
     angles = [a for _, a in terms]
     mc = MajoranaCircuit.from_generators_and_angles(generators, angles, n_modes)
     obs = MajoranaTermSum.from_sparse_pauli_op(obs_pauli)
-    prop = MajoranaPropagator(schedule=None, n_threads=1, progress_bar=False)
+    prop = MajoranaPropagator(n_threads=1)
     got = prop.expectation_value(obs, mc, initial_state=_hf_int(norb, nelec)).expectation_value
 
     assert got == pytest.approx(truth, abs=1e-8)
@@ -81,7 +81,7 @@ def test_orbital_rotation_spinful():
 
     mc = MajoranaCircuit.from_ffsim_orbital_rotation((mat_a, mat_b), norb, n_modes)
     obs = MajoranaTermSum.from_sparse_pauli_op(obs_pauli)
-    prop = MajoranaPropagator(schedule=None, n_threads=1, progress_bar=False)
+    prop = MajoranaPropagator(n_threads=1)
     got = prop.expectation_value(obs, mc, initial_state=_hf_int(norb, nelec)).expectation_value
 
     assert got == pytest.approx(truth, abs=1e-8)
@@ -100,7 +100,9 @@ def test_diag_coulomb_evolution_matches_ffsim_simulation():
     mat_ab = rng.standard_normal((norb, norb))
 
     hf_vec = ffsim.hartree_fock_state(norb, nelec)
-    vec_out = ffsim.apply_diag_coulomb_evolution(hf_vec, (mat_aa, mat_ab, mat_bb), time, norb, nelec)
+    vec_out = ffsim.apply_diag_coulomb_evolution(
+        hf_vec, (mat_aa, mat_ab, mat_bb), time, norb, nelec
+    )
 
     obs_pauli = _random_observable(2 * norb, seed=301)
     truth = _ffsim_ground_truth(vec_out, norb, nelec, obs_pauli)
@@ -110,7 +112,7 @@ def test_diag_coulomb_evolution_matches_ffsim_simulation():
     angles = [a for _, a in terms]
     mc = MajoranaCircuit.from_generators_and_angles(generators, angles, n_modes)
     obs = MajoranaTermSum.from_sparse_pauli_op(obs_pauli)
-    prop = MajoranaPropagator(schedule=None, n_threads=1, progress_bar=False)
+    prop = MajoranaPropagator(n_threads=1)
     got = prop.expectation_value(obs, mc, initial_state=_hf_int(norb, nelec)).expectation_value
 
     assert got == pytest.approx(truth, abs=1e-8)
@@ -141,7 +143,7 @@ def test_diag_coulomb_evolution_with_orbital_rotation_sandwich():
         (mat_aa, mat_ab, mat_bb), time, norb, n_modes, orbital_rotation=rot
     )
     obs = MajoranaTermSum.from_sparse_pauli_op(obs_pauli)
-    prop = MajoranaPropagator(schedule=None, n_threads=1, progress_bar=False)
+    prop = MajoranaPropagator(n_threads=1)
     got = prop.expectation_value(obs, mc, initial_state=_hf_int(norb, nelec)).expectation_value
 
     assert got == pytest.approx(truth, abs=1e-8)

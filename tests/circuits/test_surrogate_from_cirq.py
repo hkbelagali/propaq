@@ -1,5 +1,4 @@
-"""Tests for SurrogatePauliCircuit.from_cirq / SurrogateMajoranaCircuit.from_cirq.
-"""
+"""Tests for SurrogatePauliCircuit.from_cirq / SurrogateMajoranaCircuit.from_cirq."""
 
 import numpy as np
 import pytest
@@ -31,7 +30,9 @@ def _resolve(circuit: "cirq.Circuit", binding: dict) -> "cirq.Circuit":
     return cirq.resolve_parameters(circuit, cirq.ParamResolver(binding))
 
 
-def _pauli_variational_model(circuit: "cirq.Circuit") -> tuple[VariationalSurrogateModel, SurrogatePauliCircuit]:
+def _pauli_variational_model(
+    circuit: "cirq.Circuit",
+) -> tuple[VariationalSurrogateModel, SurrogatePauliCircuit]:
     obs = PauliTermSum.from_sparse_pauli_op(OBS)
     sc = SurrogatePauliCircuit.from_cirq(circuit)
     model = PauliSurrogatePropagator().build(obs, sc, initial_state=0)
@@ -62,11 +63,19 @@ def _majorana_concrete_ev(circuit: "cirq.Circuit", binding: dict) -> float:
 
 
 def _variational_model(kind: str, circuit: "cirq.Circuit"):
-    return _pauli_variational_model(circuit) if kind == "pauli" else _majorana_variational_model(circuit)
+    return (
+        _pauli_variational_model(circuit)
+        if kind == "pauli"
+        else _majorana_variational_model(circuit)
+    )
 
 
 def _concrete_ev(kind: str, circuit: "cirq.Circuit", binding: dict) -> float:
-    return _pauli_concrete_ev(circuit, binding) if kind == "pauli" else _majorana_concrete_ev(circuit, binding)
+    return (
+        _pauli_concrete_ev(circuit, binding)
+        if kind == "pauli"
+        else _majorana_concrete_ev(circuit, binding)
+    )
 
 
 def _from_cirq(kind: str, circuit: "cirq.Circuit"):
@@ -78,13 +87,14 @@ def _from_cirq(kind: str, circuit: "cirq.Circuit"):
 def _bare_parameter_circuit() -> tuple["cirq.Circuit", "sympy.Symbol"]:
     theta = sympy.Symbol("theta")
     q = cirq.LineQubit.range(N_QUBITS)
-    # rz(theta) used on two different qubits: same symbol, same scale (rz's
-    # angle formula is angle=theta directly, no scaling) -> shares a param_index.
-    circuit = cirq.Circuit([
-        cirq.rz(theta)(q[0]),
-        cirq.rz(theta)(q[1]),
-        cirq.rz(0.4)(q[2]),  # concrete float mixed in -> its own constant slot
-    ])
+
+    circuit = cirq.Circuit(
+        [
+            cirq.rz(theta)(q[0]),
+            cirq.rz(theta)(q[1]),
+            cirq.rz(0.4)(q[2]),  # concrete float mixed in -> its own constant slot
+        ]
+    )
     return circuit, theta
 
 
@@ -92,7 +102,9 @@ def _xx_plus_yy_circuit() -> tuple["cirq.Circuit", "sympy.Symbol", "sympy.Symbol
     theta = sympy.Symbol("theta")
     beta = sympy.Symbol("beta")
     q = cirq.LineQubit.range(N_QUBITS)
-    circuit = cirq.Circuit([cirq.PhasedISwapPowGate(phase_exponent=beta, exponent=theta)(q[0], q[1])])
+    circuit = cirq.Circuit(
+        [cirq.PhasedISwapPowGate(phase_exponent=beta, exponent=theta)(q[0], q[1])]
+    )
     return circuit, theta, beta
 
 
@@ -117,16 +129,18 @@ def _random_arbitrary_gate_circuit(seed: int) -> tuple["cirq.Circuit", list["sym
     phi = sympy.Symbol("phi")
     rng = np.random.default_rng(seed)
     q = cirq.LineQubit.range(N_QUBITS)
-    circuit = cirq.Circuit([
-        cirq.H(q[0]),
-        cirq.CNOT(q[0], q[1]),
-        cirq.rz(theta)(q[1]),
-        cirq.T(q[2]),
-        cirq.PhasedISwapPowGate(
-            phase_exponent=phi, exponent=float(rng.uniform(0, 2 * np.pi))
-        )(q[0], q[2]),
-        cirq.ry(theta + phi)(q[0]),
-    ])
+    circuit = cirq.Circuit(
+        [
+            cirq.H(q[0]),
+            cirq.CNOT(q[0], q[1]),
+            cirq.rz(theta)(q[1]),
+            cirq.T(q[2]),
+            cirq.PhasedISwapPowGate(phase_exponent=phi, exponent=float(rng.uniform(0, 2 * np.pi)))(
+                q[0], q[2]
+            ),
+            cirq.ry(theta + phi)(q[0]),
+        ]
+    )
     return circuit, [theta, phi]
 
 
@@ -152,11 +166,13 @@ class TestFromCirqAgreesWithConcrete:
     def test_numeric_gates_stay_numeric(self, kind):
         theta = sympy.Symbol("theta")
         q = cirq.LineQubit.range(N_QUBITS)
-        circuit = cirq.Circuit([
-            cirq.rz(0.7)(q[0]),               # pure numeric
-            cirq.rx(1.3)(q[1]),                # pure numeric
-            cirq.rz(2 * theta + 0.5)(q[2]),   # symbolic slot for theta + numeric constant 0.5
-        ])
+        circuit = cirq.Circuit(
+            [
+                cirq.rz(0.7)(q[0]),  # pure numeric
+                cirq.rx(1.3)(q[1]),  # pure numeric
+                cirq.rz(2 * theta + 0.5)(q[2]),  # symbolic slot for theta + numeric constant 0.5
+            ]
+        )
         _, sc = _variational_model(kind, circuit)
 
         rotations = sc.rotations
@@ -228,6 +244,7 @@ class TestFromCirqAgreesWithConcrete:
 
     def test_previously_unsupported_gate_now_decomposes(self, kind):
         from propaq.circuits._cirq_gates import _decompose_cache
+
         _decompose_cache.clear()
 
         q = cirq.LineQubit(0)

@@ -41,7 +41,7 @@ def _check_ucj(op, norb, nelec, n_modes, seed):
 
     mc = MajoranaCircuit.from_ffsim_ucj(op, n_modes)
     obs = MajoranaTermSum.from_sparse_pauli_op(obs_pauli)
-    prop = MajoranaPropagator(schedule=None, n_threads=1, progress_bar=False)
+    prop = MajoranaPropagator(n_threads=1)
     got = prop.expectation_value(obs, mc, initial_state=_hf_int(norb, nelec)).expectation_value
 
     assert got == pytest.approx(truth, abs=1e-8)
@@ -86,5 +86,7 @@ def test_ucj_no_final_rotation():
     ab = ab + ab.T
     diag_coulomb_mats = np.array([[aa, ab]])
 
-    op = ffsim.UCJOpSpinBalanced(diag_coulomb_mats=diag_coulomb_mats, orbital_rotations=orbital_rotations)
+    op = ffsim.UCJOpSpinBalanced(
+        diag_coulomb_mats=diag_coulomb_mats, orbital_rotations=orbital_rotations
+    )
     _check_ucj(op, norb, nelec, n_modes, seed=402)

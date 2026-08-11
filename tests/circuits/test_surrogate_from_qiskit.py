@@ -1,8 +1,5 @@
-"""Tests for SurrogatePauliCircuit.from_qiskit / SurrogateMajoranaCircuit.from_qiskit.
-
-Cross-validates the symbolic (parameterized) conversion path against the existing
-concrete `PauliCircuit.from_qiskit`/`MajoranaCircuit.from_qiskit` + propagator path,
-by binding the same Qiskit circuit to concrete values and comparing results.
+"""
+Tests for SurrogatePauliCircuit.from_qiskit / SurrogateMajoranaCircuit.from_qiskit.
 """
 
 import numpy as np
@@ -31,11 +28,15 @@ N_MODES = 2 * N_QUBITS
 OBS = SparsePauliOp("ZZI")
 
 
-def _pauli_variational_model(qc: QuantumCircuit) -> tuple[VariationalSurrogateModel, SurrogatePauliCircuit]:
+def _pauli_variational_model(
+    qc: QuantumCircuit,
+) -> tuple[VariationalSurrogateModel, SurrogatePauliCircuit]:
     obs = PauliTermSum.from_sparse_pauli_op(OBS)
     circuit = SurrogatePauliCircuit.from_qiskit(qc)
     model = PauliSurrogatePropagator().build(obs, circuit, initial_state=0)
-    return VariationalSurrogateModel(model, circuit.parameter_sources, circuit.qiskit_parameters), circuit
+    return VariationalSurrogateModel(
+        model, circuit.parameter_sources, circuit.qiskit_parameters
+    ), circuit
 
 
 def _pauli_concrete_ev(qc: QuantumCircuit, binding: dict) -> float:
@@ -51,7 +52,9 @@ def _majorana_variational_model(
     obs = MajoranaTermSum.from_sparse_pauli_op(OBS)
     circuit = SurrogateMajoranaCircuit.from_qiskit(qc, n_modes=N_MODES)
     model = MajoranaSurrogatePropagator().build(obs, circuit, initial_state=0)
-    return VariationalSurrogateModel(model, circuit.parameter_sources, circuit.qiskit_parameters), circuit
+    return VariationalSurrogateModel(
+        model, circuit.parameter_sources, circuit.qiskit_parameters
+    ), circuit
 
 
 def _majorana_concrete_ev(qc: QuantumCircuit, binding: dict) -> float:
@@ -66,7 +69,9 @@ def _variational_model(kind: str, qc: QuantumCircuit):
 
 
 def _concrete_ev(kind: str, qc: QuantumCircuit, binding: dict) -> float:
-    return _pauli_concrete_ev(qc, binding) if kind == "pauli" else _majorana_concrete_ev(qc, binding)
+    return (
+        _pauli_concrete_ev(qc, binding) if kind == "pauli" else _majorana_concrete_ev(qc, binding)
+    )
 
 
 def _from_qiskit(kind: str, qc: QuantumCircuit):
@@ -79,8 +84,8 @@ def _bare_parameter_circuit() -> tuple[QuantumCircuit, Parameter]:
     theta = Parameter("theta")
     qc = QuantumCircuit(N_QUBITS)
     qc.rz(theta, 0)
-    qc.p(theta, 1)   # same Parameter, same scale -> shares a param_index with the rz above
-    qc.rz(0.4, 2)    # concrete float mixed in -> its own constant slot
+    qc.p(theta, 1)  # same Parameter, same scale -> shares a param_index with the rz above
+    qc.rz(0.4, 2)  # concrete float mixed in -> its own constant slot
     return qc, theta
 
 
@@ -146,8 +151,8 @@ class TestFromQiskitAgreesWithConcrete:
     def test_numeric_gates_stay_numeric(self, kind):
         theta = Parameter("theta")
         qc = QuantumCircuit(N_QUBITS)
-        qc.rz(0.7, 0)              # pure numeric
-        qc.p(1.3, 1)              # pure numeric
+        qc.rz(0.7, 0)  # pure numeric
+        qc.p(1.3, 1)  # pure numeric
         qc.rz(2 * theta + 0.5, 2)  # symbolic slot for theta + numeric constant 0.5
         _, circuit = _variational_model(kind, qc)
 
@@ -220,6 +225,7 @@ class TestFromQiskitAgreesWithConcrete:
 
     def test_previously_unsupported_gate_now_decomposes(self, kind):
         from propaq.circuits._gates import _decompose_cache
+
         _decompose_cache.clear()
 
         qc = QuantumCircuit(1)
