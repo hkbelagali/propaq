@@ -1,36 +1,16 @@
-///
-/// Majorana algebra over the interleaved [`Monomial`] representation.
-///
-/// Bit convention: bit `i` of the monomial is Majorana mode `gamma_i`, so
-/// fermionic site `k` occupies bits `2k` and `2k + 1`. That is exactly what
-/// `MajoranaMonomial::modes` already holds, and exactly what `Monomial`'s own
-/// docstring specifies, so the mapping is the identity on bits and a product is
-/// one XOR.
-///
-/// **`p` is not stored here.** `MajoranaMonomial` carries the Jordan-Wigner
-/// Z-string parity plane alongside `modes`, but only as a cache:
-/// `MajoranaBasis::key_hash` and `key_eq` read `modes` alone, and
-/// `MajoranaMonomial::compute_weight_for` derives `p` from `modes` with a
-/// log-depth prefix XOR. It is kept there to replace that scan with an XOR in
-/// `weight_and_p_from_product`. Here it is recomputed inside [`Algebra::weight`],
-/// which only runs when a structural cutoff is active and only for branches the
-/// coefficient precheck already admitted, so the scan is off the hot path and
-/// the key stays one bitset wide.
-///
+//! 
+//! Implements the Majorana basis and its algebra as an impl of Basis
+//! 
+
 use num_complex::Complex64;
 
-use propaq_core::algebra::Algebra;
+use propaq_core::basis::{Basis, BasisKind};
 use propaq_core::bitset::Bitset;
-use propaq_core::monomial::Monomial;
+use propaq_core::strings::BasisString;
 
 use crate::monomial::{hermiticity_exp, resorting_parity, MajoranaMonomial};
 
 /// Gathers the even-indexed bits of `x` into its low half.
-///
-/// The standard SWAR compress, used instead of BMI2's `PEXT` so the engine has
-/// no per-call feature test and no scalar fallback to keep in step. Six shifts
-/// against a `pext` latency of three is not worth two code paths here, since
-/// this runs once per weight query rather than once per term.
 #[inline]
 fn gather_even(mut x: u64) -> u64 {
     x &= 0x5555_5555_5555_5555;
@@ -41,11 +21,8 @@ fn gather_even(mut x: u64) -> u64 {
     (x | (x >> 16)) & 0x0000_0000_ffff_ffff
 }
 
-/// Site-indexed planes: which sites carry `gamma_{2k}`, and which `gamma_{2k+1}`.
-///
-/// One monomial word spans 64 modes, so 32 sites, and two consecutive monomial
-/// words fill one site word.
-fn site_planes<const W: usize>(m: &Monomial<W>) -> ([u64; W], [u64; W]) {
+/// Site-indexed planes: which sites carry $\gamma_{2k}$, and which $\gamma_{2k+1}$.
+fn site_planes<const W: usize>(m: &BasisString<W>) -> ([u64; W], [u64; W]) {
     let (mut even, mut odd) = ([0u64; W], [0u64; W]);
     for (w, &word) in m.words().iter().enumerate() {
         let half = 32 * (w % 2);
@@ -85,12 +62,8 @@ fn count<const W: usize>(v: &[u64; W]) -> u32 {
     v.iter().map(|w| w.count_ones()).sum()
 }
 
-/// The Jordan-Wigner qubit weight of a Majorana monomial over `n_sites` sites.
-///
-/// Ports `MajoranaMonomial::compute_weight_for` onto the fixed-width monomial:
-/// compress to site planes, prefix-XOR the unpaired sites into the Z-string
-/// parity `p`, then count the sites left non-identity.
-fn jw_weight<const W: usize>(m: &Monomial<W>, n_sites: usize) -> u32 {
+/// The Jordan-Wigner qubit weight of a Majorana basis string over `n_sites` sites.
+fn jw_weight<const W: usize>(m: &BasisString<W>, n_sites: usize) -> u32 {
     if n_sites == 0 {
         return 0;
     }
@@ -132,7 +105,7 @@ fn jw_weight<const W: usize>(m: &Monomial<W>, n_sites: usize) -> u32 {
 
 /// Per-gate precomputation for a Majorana rotation.
 pub struct MajoranaGenContext<const W: usize> {
-    gen: Monomial<W>,
+    gen: BasisString<W>,
     /// `popcount(gen)`, the generator's Majorana length, constant across the gate.
     gen_len: usize,
     /// True when `gen_len` is odd, which is what makes the anticommutation fold
@@ -145,37 +118,37 @@ pub struct MajoranaGenContext<const W: usize> {
 /// The Majorana basis.
 pub struct MajoranaAlgebra;
 
-impl<const W: usize> Algebra<W> for MajoranaAlgebra {
+impl<const W: usize> Basis<W> for MajoranaAlgebra {
+    const KIND: BasisKind = BasisKind::Majorana;
+
     type GenContext = MajoranaGenContext<W>;
 
     #[inline]
-    fn make_signed_gen_context(gen: &Monomial<W>, sign: f64) -> Self::GenContext {
+    fn make_signed_gen_context(gen: &BasisString<W>, sign: f64) -> Self::GenContext {
         let gen_len = gen.count();
-        MajoranaGenContext { gen: *gen, gen_len, gen_len_odd: gen_len & 1 == 1, sign }
+        MajoranaGenContext {
+            gen: *gen,
+            gen_len,
+            gen_len_odd: gen_len & 1 == 1,
+            sign,
+        }
     }
 
     #[inline]
-    fn generator(ctx: &Self::GenContext) -> &Monomial<W> {
+    fn generator(ctx: &Self::GenContext) -> &BasisString<W> {
         &ctx.gen
     }
 
     #[inline]
-    fn anticommutes(ctx: &Self::GenContext, mono: &Monomial<W>) -> bool {
-        // Two Majorana products commute iff `|M||G| + |M & G|` is even. With an
-        // even-length generator the first term vanishes and this is the plain
-        // overlap parity; with an odd one the term's own length enters, which is
-        // the correction the inverted index needs `fold_needs_odd_correction`
-        // for.
-        let overlap = mono.count_and(&ctx.gen);
-        let cross = if ctx.gen_len_odd { mono.count() } else { 0 };
+    fn anticommutes(ctx: &Self::GenContext, string: &BasisString<W>) -> bool {
+        // Two Majorana products commute iff `|M||G| + |M & G|` is even.
+        let overlap = string.count_and(&ctx.gen);
+        let cross = if ctx.gen_len_odd { string.count() } else { 0 };
         (cross + overlap) & 1 == 1
     }
 
     #[inline]
-    fn fold_generator(ctx: &Self::GenContext) -> &Monomial<W> {
-        // Folding the generator's own columns yields the overlap parity, which
-        // is the whole test for an even generator and all but the row-parity
-        // correction for an odd one.
+    fn fold_generator(ctx: &Self::GenContext) -> &BasisString<W> {
         &ctx.gen
     }
 
@@ -185,14 +158,12 @@ impl<const W: usize> Algebra<W> for MajoranaAlgebra {
     }
 
     #[inline]
-    fn product(ctx: &Self::GenContext, mono: &Monomial<W>) -> (Monomial<W>, Complex64) {
-        let out = *mono ^ ctx.gen;
-        // Mirrors `MajoranaBasis::product`, which resorts the generator's modes
-        // past the term's, in that order.
+    fn product(ctx: &Self::GenContext, string: &BasisString<W>) -> (BasisString<W>, Complex64) {
+        let out = *string ^ ctx.gen;
         let r_a = hermiticity_exp(ctx.gen_len);
-        let r_b = hermiticity_exp(mono.count());
+        let r_b = hermiticity_exp(string.count());
         let r_c = hermiticity_exp(out.count());
-        let swaps = resorting_parity(ctx.gen.words(), mono.words()) as i32;
+        let swaps = resorting_parity(ctx.gen.words(), string.words()) as i32;
         let phase = match (r_a + r_b - r_c + 2 * swaps).rem_euclid(4) {
             0 => Complex64::new(1.0, 0.0),
             1 => Complex64::new(0.0, 1.0),
@@ -203,17 +174,15 @@ impl<const W: usize> Algebra<W> for MajoranaAlgebra {
     }
 
     #[inline]
-    fn weight(mono: &Monomial<W>, n_units: usize) -> u32 {
-        jw_weight(mono, n_units)
+    fn weight(string: &BasisString<W>, n_units: usize) -> u32 {
+        jw_weight(string, n_units)
     }
 
-    fn trace(mono: &Monomial<W>, n_units: usize, fock: &[u64]) -> f64 {
-        // Ports `trace_fock_state_impl`: a site holding exactly one of its two
-        // Majoranas is off-diagonal and kills the trace.
+    fn trace(string: &BasisString<W>, n_units: usize, fock: &[u64]) -> f64 {
         let mut paired = 0i32;
         let mut product = 1i32;
         for k in 0..n_units {
-            let (low, high) = (mono.test(2 * k), mono.test(2 * k + 1));
+            let (low, high) = (string.test(2 * k), string.test(2 * k + 1));
             if low != high {
                 return 0.0;
             }
@@ -228,9 +197,9 @@ impl<const W: usize> Algebra<W> for MajoranaAlgebra {
     }
 }
 
-/// Converts a `MajoranaMonomial` into the interleaved monomial form.
-pub fn to_monomial<const W: usize>(term: &MajoranaMonomial) -> Monomial<W> {
-    let mut m = Monomial::zero();
+/// Converts a `MajoranaMonomial` into the interleaved basis-string form.
+pub fn to_basis_string<const W: usize>(term: &MajoranaMonomial) -> BasisString<W> {
+    let mut m = BasisString::zero();
     for (i, &word) in term.modes.as_words().iter().enumerate() {
         if i < W {
             let mut w = word;
@@ -244,10 +213,13 @@ pub fn to_monomial<const W: usize>(term: &MajoranaMonomial) -> Monomial<W> {
     m
 }
 
-/// Rebuilds a `MajoranaMonomial` from the interleaved monomial form.
-pub fn from_monomial<const W: usize>(mono: &Monomial<W>, n_modes: usize) -> MajoranaMonomial {
+/// Rebuilds a `MajoranaMonomial` from the interleaved basis-string form.
+pub fn from_basis_string<const W: usize>(
+    string: &BasisString<W>,
+    n_modes: usize,
+) -> MajoranaMonomial {
     let mut words = vec![0u64; n_modes.div_ceil(64).max(1)];
-    for pos in mono.positions() {
+    for pos in string.positions() {
         if pos < n_modes {
             words[pos / 64] |= 1u64 << (pos % 64);
         }

@@ -7,9 +7,9 @@ use pyo3::types::PyDict;
 use rustc_hash::FxHashMap;
 
 use propaq_core::coeff::CoeffRepr;
-use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
 use propaq_core::store::{TermBasis, TermSum};
-use propaq_core::truncation::TruncationPolicy;
+use propaq_core::term_io::{load_terms_from_file, save_terms_to_file};
+use propaq_core::truncators::TruncationPolicy;
 
 use crate::monomial::{MajoranaBasis, MajoranaMonomial};
 use crate::streamer::MajoranaTermStreamer;
@@ -41,6 +41,7 @@ impl Storage {
 /// Arguments:
 ///     terms: Optional initial mapping of MajoranaMonomial to real coefficient.
 ///     dtype: Coefficient precision, "float64" (default) or "float32".
+#[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 pub struct MajoranaTermSum {
     pub(crate) inner: Storage,
@@ -56,7 +57,7 @@ fn parse_dtype(dtype: Option<&str>) -> PyResult<&str> {
 }
 
 fn ensure_sized<C: CoeffRepr>(inner: &mut TermSum<C>, n_modes: usize) {
-    if inner.len() == 0 && inner.n_units != n_modes {
+    if inner.is_empty() && inner.n_units != n_modes {
         *inner = TermSum::new(n_modes, MajoranaBasis::stride_words(n_modes));
     }
 }
@@ -115,7 +116,9 @@ struct RowDecoder {
 
 impl RowDecoder {
     fn new(stride: usize) -> Self {
-        RowDecoder { buf: vec![0u64; 2 * stride] }
+        RowDecoder {
+            buf: vec![0u64; 2 * stride],
+        }
     }
 
     fn term<C: CoeffRepr>(&mut self, terms: &TermSum<C>, i: usize) -> MajoranaMonomial {
@@ -181,6 +184,7 @@ impl MajoranaTermSum {
     }
 }
 
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl MajoranaTermSum {
     /// Initialize a Majorana term sum.
@@ -203,7 +207,10 @@ impl MajoranaTermSum {
                         add_raw(&mut inner, &mut index, key, val as f32);
                     }
                 }
-                Ok(MajoranaTermSum { inner: Storage::F32(inner), index })
+                Ok(MajoranaTermSum {
+                    inner: Storage::F32(inner),
+                    index,
+                })
             }
             _ => {
                 let mut inner = TermSum::<f64>::new(0, MajoranaBasis::stride_words(0));
@@ -216,7 +223,10 @@ impl MajoranaTermSum {
                         add_raw(&mut inner, &mut index, key, val);
                     }
                 }
-                Ok(MajoranaTermSum { inner: Storage::F64(inner), index })
+                Ok(MajoranaTermSum {
+                    inner: Storage::F64(inner),
+                    index,
+                })
             }
         }
     }
@@ -275,7 +285,11 @@ impl MajoranaTermSum {
                     add_raw(dst, &mut self.index, term, *src.coeff(i));
                 }
             }
-            _ => return Err(PyValueError::new_err("cannot merge MajoranaTermSums with different dtypes")),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "cannot merge MajoranaTermSums with different dtypes",
+                ))
+            }
         }
         Ok(())
     }
@@ -286,7 +300,11 @@ impl MajoranaTermSum {
     ///
     /// Arguments:
     ///     streamer: A MajoranaTermStreamer opened with MajoranaTermStreamer.from_file().
-    fn merge_from_file(&mut self, streamer: &mut MajoranaTermStreamer) -> PyResult<()> {
+    fn merge_from_file(
+        &mut self,
+        #[gen_stub(override_type(type_repr = "MajoranaTermStreamer"))]
+        streamer: &mut MajoranaTermStreamer,
+    ) -> PyResult<()> {
         match &mut self.inner {
             Storage::F64(inner) => {
                 for result in streamer.inner.by_ref() {
@@ -324,9 +342,7 @@ impl MajoranaTermSum {
 
     /// Bytes of resident sparse key storage held by this term sum.
     ///
-    /// Keys only: coefficients, merge metadata, and every temporary workspace
-    /// are excluded. See `propaq._rust_core.workspace_peak_bytes()` for the
-    /// temporary dense workspace high-water mark.
+    /// Keys only: coefficients and merge metadata are excluded.
     #[getter]
     fn sparse_key_bytes(&self) -> usize {
         match &self.inner {
@@ -375,7 +391,10 @@ impl MajoranaTermSum {
             Storage::F64(s) => Storage::F64(s.copy()),
             Storage::F32(s) => Storage::F32(s.copy()),
         };
-        MajoranaTermSum { inner, index: self.index.clone() }
+        MajoranaTermSum {
+            inner,
+            index: self.index.clone(),
+        }
     }
 
     /// Load a MajoranaTermSum from a gzip-compressed binary file saved by `propagate` or
@@ -396,7 +415,10 @@ impl MajoranaTermSum {
             inner.push([&g0, &g1], coeff);
             index.insert(term, row);
         }
-        Ok(MajoranaTermSum { inner: Storage::F64(inner), index })
+        Ok(MajoranaTermSum {
+            inner: Storage::F64(inner),
+            index,
+        })
     }
 
     /// Save this term sum to a gzip-compressed binary file. Coefficients are
@@ -438,8 +460,9 @@ fn truncate_impl<C: CoeffRepr>(
             let row = inner.row_positions(i);
             let w = MajoranaBasis::weight_sparse(row, plane_span, n_units);
             let c = inner.coeff(i);
-            let should_remove: bool =
-                policy.call_method1("should_truncate", (w, c.magnitude()))?.extract()?;
+            let should_remove: bool = policy
+                .call_method1("should_truncate", (w, c.magnitude()))?
+                .extract()?;
             if !should_remove {
                 kept.push_positions(row, c.clone());
             }
@@ -467,20 +490,30 @@ fn apply_damping_impl<C: CoeffRepr>(
     }
     for i in 0..n {
         let w = MajoranaBasis::weight_sparse(inner.row_positions(i), plane_span, n_units);
-        let damping: f64 = noise.call_method1("damping_factor", (w, active_modes))?.extract()?;
+        let damping: f64 = noise
+            .call_method1("damping_factor", (w, active_modes))?
+            .extract()?;
         inner.coeffs[i].scale_real(damping);
     }
     Ok(())
 }
 
 fn norm_squared_impl<C: CoeffRepr>(inner: &TermSum<C>) -> f64 {
-    inner.coeffs[..inner.len()].iter().map(|c| { let v = c.to_f64(); v * v }).sum()
+    inner.coeffs[..inner.len()]
+        .iter()
+        .map(|c| {
+            let v = c.to_f64();
+            v * v
+        })
+        .sum()
 }
 
 fn items_impl<C: CoeffRepr>(inner: &TermSum<C>) -> Vec<(MajoranaMonomial, f64)> {
     let n = inner.len();
     let mut decoder = RowDecoder::new(inner.stride);
-    (0..n).map(|i| (decoder.term(inner, i), inner.coeff(i).to_f64())).collect()
+    (0..n)
+        .map(|i| (decoder.term(inner, i), inner.coeff(i).to_f64()))
+        .collect()
 }
 
 fn setitem_impl<C: CoeffRepr>(
@@ -505,5 +538,8 @@ fn getitem_impl<C: CoeffRepr>(
     index: &FxHashMap<MajoranaMonomial, usize>,
     term: &MajoranaMonomial,
 ) -> f64 {
-    index.get(term).map(|&row| inner.coeff(row).to_f64()).unwrap_or_default()
+    index
+        .get(term)
+        .map(|&row| inner.coeff(row).to_f64())
+        .unwrap_or_default()
 }

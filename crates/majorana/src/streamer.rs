@@ -7,11 +7,13 @@ use propaq_core::streamer::TermStreamer;
 
 use crate::monomial::MajoranaMonomial;
 
+#[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaTermStreamer {
     pub inner: TermStreamer<MajoranaMonomial>,
 }
 
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl MajoranaTermStreamer {
     /// Open a gzip-compressed binary file for lazy streaming.
@@ -20,7 +22,9 @@ impl MajoranaTermStreamer {
     ///     path: Path to a file written by `MajoranaTermSum.save()`.
     #[staticmethod]
     fn from_file(path: &str) -> PyResult<Self> {
-        Ok(Self { inner: TermStreamer::open(path)? })
+        Ok(Self {
+            inner: TermStreamer::open(path)?,
+        })
     }
 
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
