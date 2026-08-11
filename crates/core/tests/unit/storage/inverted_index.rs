@@ -112,7 +112,6 @@ fn incremental_sync_matches_a_full_rebuild() {
 
 #[test]
 fn both_tiers_are_exercised_and_agree() {
-
     let mut store = Store::with_default_width();
     for i in 0..1000usize {
         let mut m = BasisString::<W>::zero();

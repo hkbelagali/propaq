@@ -1,10 +1,10 @@
 //!
 //! Main library for the propaq core.
 //! Some of the core architecture for propagation
-//! was adopted from monoprop [1] 
+//! was adopted from monoprop [1]
 //!  
 //! [1] https://github.com/Algorithmiq/monoprop
-//! 
+//!
 
 #[path = "engine/affinity.rs"]
 pub mod affinity;

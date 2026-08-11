@@ -1,8 +1,8 @@
-//! 
-//! Implement the propagator for the Pauli algebra, taking the generic 
-//! architecture over the hash-partitioned term storage and injecting the 
+//!
+//! Implement the propagator for the Pauli algebra, taking the generic
+//! architecture over the hash-partitioned term storage and injecting the
 //! Pauli-specific algebraic operations.
-//! 
+//!
 
 use pyo3::prelude::*;
 
@@ -83,7 +83,6 @@ where
     C: CoeffRepr,
     P: propaq_core::operator_index::Pos,
 {
-
     let inline_positions = match cutoff.max_weight {
         Some(w) => OperatorIndex::<P, W>::inline_width_for_support_cutoff(w as usize),
         None => INITIAL_INLINE_POSITIONS.min(2 * n_units),
@@ -108,7 +107,6 @@ where
     let mut gate_records: Vec<GateRecord> = Vec::new();
     let mut gate_idx = 0usize;
     for (layer_idx, layer) in layers.iter().enumerate() {
-
         if let Some(noise) = noise {
             match noise {
                 ResolvedNoise::WeightTable(table) => {

@@ -74,7 +74,6 @@ impl Rng {
     }
 }
 
-
 fn run_both(
     seed: u64,
     n_partitions: usize,
@@ -85,7 +84,6 @@ fn run_both(
 ) {
     run_both_with(seed, n_partitions, n_gates, &EmitCutoff::none())
 }
-
 
 fn run_both_with(
     seed: u64,
@@ -98,7 +96,6 @@ fn run_both_with(
 ) {
     run_both_inner(seed, n_partitions, n_gates, cutoff)
 }
-
 
 fn run_both_inner(
     seed: u64,
@@ -115,7 +112,6 @@ fn run_both_inner(
         .collect();
     let gates: Vec<(BasisString<W>, f64)> = (0..n_gates)
         .map(|_| {
-
             let a = rng.below(6) as usize;
             let b = (a + 1 + rng.below(5) as usize) % 6;
             (mono(&[a, b]), 0.1 + rng.unit())
@@ -158,7 +154,6 @@ fn one_partition_matches_the_single_partition_engine() {
 
 #[test]
 fn the_pair_rescue_is_independent_of_partition_count() {
-
     let cutoff = EmitCutoff {
         min_coeff: Some(0.1),
         ..Default::default()
@@ -180,7 +175,6 @@ fn the_pair_rescue_is_independent_of_partition_count() {
 
 #[test]
 fn reclaim_drops_decayed_terms_and_leaves_the_store_usable() {
-
     let cutoff = EmitCutoff {
         min_coeff: Some(0.1),
         ..Default::default()

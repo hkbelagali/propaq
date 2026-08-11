@@ -1,10 +1,10 @@
-//! 
-//! Store a term sum as a position list with open-addressed 
-//! hash indices over the rows. This architecture was adopted from 
+//!
+//! Store a term sum as a position list with open-addressed
+//! hash indices over the rows. This architecture was adopted from
 //! monoprop [1].
-//! 
+//!
 //! [1] https://github.com/Algorithmiq/monoprop
-//! 
+//!
 
 use std::collections::HashMap;
 

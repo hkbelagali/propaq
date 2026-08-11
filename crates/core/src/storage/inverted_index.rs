@@ -1,8 +1,8 @@
-//! 
-//! Transposed storage of an operator's bit positions for fast 
-//! anticommutation tests. This is adopted from monoprop's 
-//! architecture [1]. 
-//! 
+//!
+//! Transposed storage of an operator's bit positions for fast
+//! anticommutation tests. This is adopted from monoprop's
+//! architecture [1].
+//!
 //! [1]: https://github.com/Algorithmiq/monoprop
 //!
 
@@ -15,7 +15,7 @@ const PROMOTE_DENSITY_INV: usize = 64;
 enum Column {
     /// Full-height bitmap, one bit per row.
     Dense(Vec<u64>),
-    /// Ascending row indices. 
+    /// Ascending row indices.
     Sparse(Vec<TermIndex>),
 }
 

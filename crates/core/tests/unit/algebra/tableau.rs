@@ -3,7 +3,6 @@ use super::*;
 const W: usize = 2;
 const N_UNITS: usize = 8;
 
-
 struct TestPauli;
 
 impl Basis<W> for TestPauli {
@@ -89,7 +88,6 @@ fn a_fresh_tableau_is_the_identity() {
 
 #[test]
 fn a_single_qubit_rotation_reproduces_the_per_qubit_behaviour() {
-
     let t = CliffordTableau::<W>::for_rotation::<TestPauli, f64>(N_UNITS, &z(0), &QUARTER, EPS)
         .expect("a quarter turn is Clifford");
     let (img, _) = t.conjugate::<TestPauli>(&x(0));
@@ -107,7 +105,6 @@ fn a_single_qubit_rotation_reproduces_the_per_qubit_behaviour() {
 
 #[test]
 fn a_two_qubit_rotation_entangles_and_changes_weight() {
-
     let t = CliffordTableau::<W>::for_rotation::<TestPauli, f64>(N_UNITS, &zz(0, 1), &QUARTER, EPS)
         .expect("a quarter turn is Clifford");
     let (img, _) = t.conjugate::<TestPauli>(&x(0));
@@ -117,7 +114,6 @@ fn a_two_qubit_rotation_entangles_and_changes_weight() {
 
 #[test]
 fn conjugation_preserves_commutation_relations() {
-
     let t = CliffordTableau::<W>::for_rotation::<TestPauli, f64>(N_UNITS, &zz(0, 1), &QUARTER, EPS)
         .unwrap();
     let probes = [

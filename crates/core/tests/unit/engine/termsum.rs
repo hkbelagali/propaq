@@ -217,7 +217,6 @@ fn a_pair_rescue_keeps_the_branch_its_partner_paid_for() {
 
 #[test]
 fn a_term_floor_suppresses_the_lossy_predicates_while_the_store_is_small() {
-
     let angle = 0.3f64;
     let biting = EmitCutoff {
         min_coeff: Some(1e-6),
@@ -271,7 +270,6 @@ fn a_term_floor_suppresses_the_lossy_predicates_while_the_store_is_small() {
 
 #[test]
 fn a_term_floor_carries_through_a_lossless_copy() {
-
     let c = EmitCutoff {
         max_weight: Some(3),
         min_coeff: Some(1e-6),
@@ -285,7 +283,6 @@ fn a_term_floor_carries_through_a_lossless_copy() {
 
 #[test]
 fn a_pair_rescue_does_not_revive_a_branch_neither_half_earned() {
-
     let angle = 0.3f64;
     let cutoff = EmitCutoff {
         min_coeff: Some(1e-6),
@@ -306,7 +303,6 @@ fn a_pair_rescue_does_not_revive_a_branch_neither_half_earned() {
 
 #[test]
 fn a_pair_rescue_needs_both_halves_in_the_store() {
-
     let cutoff = EmitCutoff {
         min_coeff: Some(1e-6),
         ..Default::default()
@@ -428,7 +424,6 @@ fn a_weight_only_kernel_matches_the_table_pass_bit_for_bit() {
 
 #[test]
 fn scale_by_key_spans_more_than_one_batch_chunk() {
-
     let n = crate::term_kernel::KERNEL_BATCH + 37;
     let mut op = Op::new(32);
     for i in 0..n {

@@ -579,7 +579,6 @@ impl TermBasis for MajoranaBasis {
     }
 }
 
-
 struct QubitSets {
     /// Qubits with at least one Majorana mode set.
     occupied: u32,

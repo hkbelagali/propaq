@@ -167,7 +167,6 @@ fn inline_width_for_support_cutoff_reserves_two_slots_per_unit() {
 
 #[test]
 fn narrow_pos_types_carry_their_full_width() {
-
     let mut s = OperatorIndex::<u8, 2>::with_default_width();
     let m = BasisString::<2>::from_positions([0usize, 127]);
     let i = s.push(&m).unwrap();
@@ -191,7 +190,6 @@ fn memory_accounting_separates_rows_from_the_index() {
 
 #[test]
 fn bytes_per_term_at_benchmark_width() {
-
     const N_TERMS: usize = 100_000;
     let mut s = OperatorIndex::<u8, 2>::with_default_width();
     s.reserve(N_TERMS);
@@ -211,7 +209,6 @@ fn bytes_per_term_at_benchmark_width() {
     println!("old dense two-plane keys = 16 bytes/term (+ hashes + merge tables)");
     println!("old CSR sparse keys      = ~101 bytes/term (measured earlier)");
 
-
     assert!(
         rows < 16.0,
         "row storage ({rows:.1}) should beat the 16 byte dense key"
@@ -219,7 +216,6 @@ fn bytes_per_term_at_benchmark_width() {
 }
 
 impl<P: Pos, const W: usize> OperatorIndex<P, W> {
-
     fn for_each_position_count(&self, i: usize) -> usize {
         let mut n = 0;
         self.for_each_position(i, |_| n += 1);

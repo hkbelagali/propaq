@@ -1,6 +1,6 @@
-//! 
+//!
 //! Store terms as sparse lists and a parallel coefficient column
-//! 
+//!
 
 use num_complex::Complex64;
 use smallvec::{smallvec, SmallVec};
@@ -66,9 +66,7 @@ pub fn hash_positions(row: &[Position]) -> u64 {
 
 /// The algebra a `TermSum` needs from its term representation to
 /// run the shared kernels in `store::kernels`.
-
 pub trait TermBasis: Send + Sync + 'static {
-
     type Term: Clone + Send + Sync;
 
     fn stride_words(n_units: usize) -> usize {

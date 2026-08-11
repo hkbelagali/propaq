@@ -39,7 +39,6 @@ where
     }
 
     if apply_lossy {
-
         let max_frequency = cfg.frequency.map(|f| f.min(u32::MAX as usize) as u32);
         let coefficient = cfg.coefficient;
         op.with_coeffs_mut(|coeffs| {
@@ -71,7 +70,6 @@ where
         let mut overlaps: Vec<f64> = Vec::new();
         let mut survivors: Vec<SymbolicCoeff> = Vec::new();
         part.for_each_term_mut(|key, c| {
-
             let (image, sign) = frame.conjugate::<A>(&key);
             let overlap = sign * A::trace(&image, n_units, initial_state);
 

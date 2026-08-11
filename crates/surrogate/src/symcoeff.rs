@@ -760,7 +760,6 @@ pub enum GateParam {
 }
 
 impl GateParam {
-
     #[inline]
     pub fn symbolic(x: u32) -> Self {
         GateParam::Symbolic { param: x }
@@ -772,7 +771,6 @@ impl CoeffRepr for SymbolicCoeff {
 
     #[inline]
     fn from_real(c: f64) -> Self {
-
         SymbolicCoeff::from_scalar(c)
     }
 
@@ -784,7 +782,6 @@ impl CoeffRepr for SymbolicCoeff {
             (Some(a), Some(b)) => Some(Node::add(a, b)),
         };
     }
-
 
     fn apply_rotation(&mut self, param: &GateParam, phase: Complex64) -> Self {
         match param {
@@ -873,7 +870,6 @@ pub struct CompiledCoeff {
 }
 
 impl CompiledCoeff {
-
     pub fn evaluate(&self, lut: &[f64]) -> f64 {
         if self.ops.is_empty() {
             return 0.0;

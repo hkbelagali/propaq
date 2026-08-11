@@ -1,6 +1,6 @@
 //!
-//! impl for the surrogate/symbolic propagator! This uses the same 
-//! partitioned engine as the numerical propagators, with a symbolic 
+//! impl for the surrogate/symbolic propagator! This uses the same
+//! partitioned engine as the numerical propagators, with a symbolic
 //! coefficient type.
 //!
 use std::fs::OpenOptions;
@@ -45,7 +45,6 @@ impl<B: TermBasis> SurrogatePropagator<B>
 where
     B::Term: AbstractTerm + for<'a, 'py> FromPyObject<'a, 'py>,
 {
-
     pub fn new(
         truncators: Vec<Truncator>,
         n_threads: Option<usize>,

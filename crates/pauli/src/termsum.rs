@@ -101,7 +101,6 @@ fn add_raw<C: CoeffRepr>(
     index.insert(term, row);
 }
 
-
 struct RowDecoder {
     buf: Vec<u64>,
 }
@@ -133,7 +132,6 @@ where
 }
 
 impl PauliTermSum {
-
     pub fn from_store(inner: TermSum<f64>) -> Self {
         Self::from_storage(Storage::F64(inner))
     }

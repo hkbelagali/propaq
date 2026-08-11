@@ -1,6 +1,6 @@
-//! 
+//!
 //! Implements the Pauli basis and its algebra as an impl of Basis
-//! 
+//!
 
 use num_complex::Complex64;
 
@@ -9,7 +9,6 @@ use propaq_core::bitset::Bitset;
 use propaq_core::strings::BasisString;
 
 use crate::string::PauliString;
-
 
 const X_MASK: u64 = 0x5555_5555_5555_5555;
 
@@ -79,7 +78,6 @@ impl<const W: usize> Basis<W> for PauliAlgebra {
 
     #[inline]
     fn anticommutes(ctx: &Self::GenContext, string: &BasisString<W>) -> bool {
-
         string.parity_and(&ctx.fold_gen)
     }
 

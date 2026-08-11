@@ -219,7 +219,6 @@ fn local_word_identifies_single_nonzero_word() {
     assert_eq!(PauliBasis::local_word([&gen_x3, &gen_z3]), None);
 }
 
-
 #[test]
 fn commutes_at_word_and_product_at_word_hand_checked() {
     let gen_word = [0u64, 1u64]; // (x=0, z=1) = Z

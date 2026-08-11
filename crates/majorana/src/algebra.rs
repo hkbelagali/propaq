@@ -1,6 +1,6 @@
-//! 
+//!
 //! Implements the Majorana basis and its algebra as an impl of Basis
-//! 
+//!
 
 use num_complex::Complex64;
 

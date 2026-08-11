@@ -6,7 +6,7 @@
 //! accumulator in `apply_transfer`) is a flattened `bond x bond` matrix
 //! indexed `[ket_index * bond + bra_index]`. The ket index always contracts
 //! against an un-conjugated tensor entry, the bra index against a conjugated one
-//! 
+//!
 
 use ndarray::ArrayView2;
 use num_complex::Complex64;

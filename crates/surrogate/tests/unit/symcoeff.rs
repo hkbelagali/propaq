@@ -127,7 +127,7 @@ fn two_derivation_paths_through_the_same_parameter_sum_correctly() {
     let lut = make_lut(1);
     let phase = Complex64::new(0.0, -1.0);
     let mut a = SymbolicCoeff::from_scalar(1.0);
-    let mut path1 = a.apply_rotation(&GateParam::symbolic(0), phase); 
+    let mut path1 = a.apply_rotation(&GateParam::symbolic(0), phase);
     let _ = path1.apply_rotation(&GateParam::symbolic(0), phase);
 
     let mut b = SymbolicCoeff::from_scalar(1.0);

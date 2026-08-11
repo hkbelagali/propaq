@@ -254,7 +254,6 @@ fn random_mon(rng: &mut Rng, n_modes: usize) -> MajoranaMonomial {
 
 #[test]
 fn weight_matches_reference_exhaustive_small() {
-
     for n_qubits in 1usize..=6 {
         let n_modes = 2 * n_qubits;
         let space = 1u64 << n_modes;

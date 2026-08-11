@@ -1,7 +1,7 @@
-//! 
-//! Sparse storage for a term's keys. This architecture 
+//!
+//! Sparse storage for a term's keys. This architecture
 //! is adopted from monoprop [1]
-//! 
+//!
 //! [1]: https://github.com/Algorithmiq/monoprop
 //!
 

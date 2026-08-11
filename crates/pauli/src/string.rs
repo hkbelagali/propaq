@@ -273,7 +273,6 @@ impl Hash for PauliString {
     }
 }
 
-
 pub struct PauliBasis;
 
 impl TermBasis for PauliBasis {
@@ -344,7 +343,6 @@ impl TermBasis for PauliBasis {
     }
 
     fn commutes_at_word(term_word: [u64; 2], gen_word: [u64; 2]) -> bool {
-
         let xz = (term_word[0] & gen_word[1]).count_ones();
         let zx = (term_word[1] & gen_word[0]).count_ones();
         (xz + zx).is_multiple_of(2)

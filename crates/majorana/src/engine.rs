@@ -1,8 +1,8 @@
-//! 
-//! Implement the propagator for the Majorana algebra, taking the generic 
-//! architecture over the hash-partitioned term storage and injecting the 
+//!
+//! Implement the propagator for the Majorana algebra, taking the generic
+//! architecture over the hash-partitioned term storage and injecting the
 //! Majorana-specific algebraic operations.
-//! 
+//!
 
 use pyo3::prelude::*;
 
