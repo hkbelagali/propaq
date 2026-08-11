@@ -42,17 +42,7 @@ class Simplify(_RustSimplify):
 
 class NativeTruncator(_RustNativeTruncator):
     """Truncation policy backed by a dynamically loaded C, Rust, or
-    AOT-compiled Julia shared library, called directly per term with no
-    GIL and no Python call overhead. Numerical-only (the surrogate
-    propagators reject it): see ``propaq.MD`` / ``examples/plugins/``
-    for the ABI contract and example plugins.
-
-    Serves both plugin ABI versions, selected by what the plugin's
-    ``propaq_truncator_abi_version`` returns and readable afterwards from
-    ``.abi_version``: **v1** decides from ``(weight, |coeff|, active_modes)``,
-    **v2** from the term's raw basis-string words plus ``|coeff|``, which is what
-    a support- or locality-aware policy needs. A run carrying a v2 plugin turns
-    Clifford deferral off so the keys it sees are physical keys.
+    AOT-compiled Julia shared library
     """
 
 

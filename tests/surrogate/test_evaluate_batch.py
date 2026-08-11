@@ -28,9 +28,9 @@ def ps(x: int, z: int) -> PauliString:
 def build_model():
     obs = PauliTermSum({ps(0, 0b0001): 1.0})  # Z_0
     rotations = [
-        PauliRotation(ps(0b0001, 0), 0.0),        # X_0
-        PauliRotation(ps(0b0010, 0b0001), 0.0),   # X_1 Z_0
-        PauliRotation(ps(0b0100, 0b0010), 0.0),   # X_2 Z_1
+        PauliRotation(ps(0b0001, 0), 0.0),  # X_0
+        PauliRotation(ps(0b0010, 0b0001), 0.0),  # X_1 Z_0
+        PauliRotation(ps(0b0100, 0b0010), 0.0),  # X_2 Z_1
     ]
     circ = PauliCircuit(rotations)
     sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
@@ -40,10 +40,7 @@ def build_model():
 class TestEvaluateBatch:
     def test_matches_per_assignment_evaluate(self):
         model = build_model()
-        param_sets = [
-            [0.1 * (k + 1), 0.2 * (k + 1), 0.3 * (k + 1)]
-            for k in range(5)
-        ]
+        param_sets = [[0.1 * (k + 1), 0.2 * (k + 1), 0.3 * (k + 1)] for k in range(5)]
         batch = model.evaluate_batch(param_sets)
         assert batch == pytest.approx([model.evaluate(p) for p in param_sets], rel=1e-12)
 
@@ -68,7 +65,11 @@ class TestVariationalBatch:
         sc = SurrogatePauliCircuit.from_qiskit(qc)
         obs = PauliTermSum({PauliString(BitMask(0), BitMask(0b01), 2): 1.0})
         model = PauliSurrogatePropagator().build(obs, sc, initial_state=0b01)
-        return VariationalSurrogateModel(model, sc.parameter_sources, sc.qiskit_parameters), theta, phi
+        return (
+            VariationalSurrogateModel(model, sc.parameter_sources, sc.qiskit_parameters),
+            theta,
+            phi,
+        )
 
     def test_batch_matches_evaluate_for_both_binding_forms(self):
         variational, theta, phi = self.build_variational()
