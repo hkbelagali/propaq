@@ -53,29 +53,38 @@ def build_plugin(tmp_path_factory):
 # A noise plugin that records how propaq called it
 PROBE_SRC = r"""
 #include <math.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 
 #define PROPAQ_NOISE_ABI_VERSION 1u
 
-static uint64_t g_calls = 0;
-static uint64_t g_saw_words = 0;
-static uint32_t g_max_layer = 0;
+/*
+ * The key-aware path calls the plugin once per term, from every worker at
+ * once, so these counters have to be atomic: plain `++` loses increments and
+ * each counter loses a different set of them, which shows up as two tallies
+ * that disagree even though they are bumped by the same call.
+ */
+static _Atomic uint64_t g_calls = 0;
+static _Atomic uint64_t g_saw_words = 0;
+static _Atomic uint32_t g_max_layer = 0;
 
 uint32_t propaq_noise_abi_version(void) { return PROPAQ_NOISE_ABI_VERSION; }
 uint32_t propaq_noise_depends(void) { return DEPENDS_VALUE; }
 
-uint64_t probe_calls(void) { return g_calls; }
-uint64_t probe_saw_words(void) { return g_saw_words; }
-uint32_t probe_max_layer(void) { return g_max_layer; }
+uint64_t probe_calls(void) { return atomic_load(&g_calls); }
+uint64_t probe_saw_words(void) { return atomic_load(&g_saw_words); }
+uint32_t probe_max_layer(void) { return atomic_load(&g_max_layer); }
 
 double propaq_noise_factor(void* ctx, uint32_t basis_kind, const uint64_t* words, size_t n_words,
                            uint32_t n_units, uint32_t weight, uint32_t layer_index,
                            uint32_t n_layers) {
     (void)ctx; (void)basis_kind; (void)n_words; (void)n_units; (void)n_layers;
-    g_calls++;
-    if (words != NULL) g_saw_words++;
-    if (layer_index > g_max_layer) g_max_layer = layer_index;
+    atomic_fetch_add(&g_calls, 1);
+    if (words != NULL) atomic_fetch_add(&g_saw_words, 1);
+    uint32_t seen = atomic_load(&g_max_layer);
+    while (layer_index > seen && !atomic_compare_exchange_weak(&g_max_layer, &seen, layer_index)) {
+    }
     return exp(-0.01 * (double)weight);
 }
 """
