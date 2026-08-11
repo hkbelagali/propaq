@@ -18,6 +18,7 @@ def Y(qubit=0, n_qubits=1):
 def I(qubit=0, n_qubits=1):
     return PauliString(0, z=0, n_qubits=n_qubits)
 
+
 def test_xz_anticommute():
     x = X(n_qubits=1)
     z = Z(n_qubits=1)
@@ -59,14 +60,13 @@ def test_single_qubit_multiplication_table(a, b, expected_phase, expected_term):
 
 
 def test_associativity_up_to_phase():
-    # (A @ B) @ C and A @ (B @ C) should give the same Pauli term ignoring phase
     ops = [X(), Y(), Z()]
     for A in ops:
         for B in ops:
             for C in ops:
-                _, r1 = (A @ B)
+                _, r1 = A @ B
                 _, r1 = r1 @ C
-                _, r2 = (B @ C)
+                _, r2 = B @ C
                 _, r2 = A @ r2
                 assert r1 == r2
 
@@ -144,7 +144,6 @@ def test_to_bytes_consistent_for_equal_terms():
 
 
 def test_multiply_result_equals_expected_term_ignoring_phase():
-    # X @ Z -> -iY but term should equal Y
     a = X(n_qubits=1)
     b = Z(n_qubits=1)
     _, result = a @ b

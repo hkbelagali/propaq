@@ -46,7 +46,9 @@ def test_diagonal_coulomb_hamiltonian():
     mat_ab = mat_ab + mat_ab.T
     diag_coulomb_mats = np.stack([mat_aa, mat_ab])
 
-    ham = ffsim.DiagonalCoulombHamiltonian(one_body_tensor=one_body, diag_coulomb_mats=diag_coulomb_mats)
+    ham = ffsim.DiagonalCoulombHamiltonian(
+        one_body_tensor=one_body, diag_coulomb_mats=diag_coulomb_mats
+    )
     got = MajoranaTermSum.from_ffsim(ham)
     expected = ffsim.qiskit.jordan_wigner(ffsim.fermion_operator(ham), norb)
     _assert_matches(got, expected)
