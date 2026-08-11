@@ -1,18 +1,18 @@
-///
-/// Represent a linear combination of Pauli strings with real coefficients.
-///
+//!
+//! Represent a linear combination of Pauli strings with real coefficients.
+//!
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rustc_hash::FxHashMap;
 
 use propaq_core::coeff::CoeffRepr;
-use propaq_core::propagator::{load_terms_from_file, save_terms_to_file};
 use propaq_core::store::{TermBasis, TermSum};
-use propaq_core::truncation::TruncationPolicy;
+use propaq_core::term_io::{load_terms_from_file, save_terms_to_file};
+use propaq_core::truncators::TruncationPolicy;
 
-use crate::string::{PauliBasis, PauliString};
 use crate::streamer::PauliTermStreamer;
+use crate::string::{PauliBasis, PauliString};
 
 /// Backing storage for a `PauliTermSum`
 pub(crate) enum Storage {
@@ -41,6 +41,7 @@ impl Storage {
 /// Arguments:
 ///     terms: Optional initial mapping of PauliString to real coefficient.
 ///     dtype: Coefficient precision, "float64" (default) or "float32".
+#[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 pub struct PauliTermSum {
     pub(crate) inner: Storage,
@@ -56,7 +57,7 @@ fn parse_dtype(dtype: Option<&str>) -> PyResult<&str> {
 }
 
 fn ensure_sized<C: CoeffRepr>(inner: &mut TermSum<C>, n_qubits: usize) {
-    if inner.len() == 0 && inner.n_units != n_qubits {
+    if inner.is_empty() && inner.n_units != n_qubits {
         *inner = TermSum::new(n_qubits, PauliBasis::stride_words(n_qubits));
     }
 }
@@ -70,10 +71,6 @@ fn planes_of(term: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {
 
 /// Builds a term sum from the (key, coefficient) pairs the partitioned engine
 /// produces.
-///
-/// The engine keeps its own store and hands terms back as a flat list, so this
-/// is the seam between the two representations. Keys are already distinct there,
-/// but `add_raw` folds duplicates anyway rather than assuming it.
 pub fn term_sum_from_pairs<C: CoeffRepr>(
     pairs: Vec<(PauliString, C)>,
     n_units: usize,
@@ -104,16 +101,16 @@ fn add_raw<C: CoeffRepr>(
     index.insert(term, row);
 }
 
-/// A one-row dense decode buffer for the export boundaries that must hand back
-/// an owned `PauliString`. Reused across rows so a full export decodes one row at
-/// a time rather than materializing dense planes for the whole sum.
+
 struct RowDecoder {
     buf: Vec<u64>,
 }
 
 impl RowDecoder {
     fn new(stride: usize) -> Self {
-        RowDecoder { buf: vec![0u64; 2 * stride] }
+        RowDecoder {
+            buf: vec![0u64; 2 * stride],
+        }
     }
 
     fn term<C: CoeffRepr>(&mut self, terms: &TermSum<C>, i: usize) -> PauliString {
@@ -136,8 +133,7 @@ where
 }
 
 impl PauliTermSum {
-    /// Wrap an f64 `TermSum` produced by the propagator (or loaded from a
-    /// file), rebuilding the key index it doesn't carry itself.
+
     pub fn from_store(inner: TermSum<f64>) -> Self {
         Self::from_storage(Storage::F64(inner))
     }
@@ -183,6 +179,7 @@ impl PauliTermSum {
     }
 }
 
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl PauliTermSum {
     /// Initialize a Pauli term sum.
@@ -205,7 +202,10 @@ impl PauliTermSum {
                         add_raw(&mut inner, &mut index, key, val as f32);
                     }
                 }
-                Ok(PauliTermSum { inner: Storage::F32(inner), index })
+                Ok(PauliTermSum {
+                    inner: Storage::F32(inner),
+                    index,
+                })
             }
             _ => {
                 let mut inner = TermSum::<f64>::new(0, PauliBasis::stride_words(0));
@@ -218,7 +218,10 @@ impl PauliTermSum {
                         add_raw(&mut inner, &mut index, key, val);
                     }
                 }
-                Ok(PauliTermSum { inner: Storage::F64(inner), index })
+                Ok(PauliTermSum {
+                    inner: Storage::F64(inner),
+                    index,
+                })
             }
         }
     }
@@ -277,7 +280,11 @@ impl PauliTermSum {
                     add_raw(dst, &mut self.index, term, *src.coeff(i));
                 }
             }
-            _ => return Err(PyValueError::new_err("cannot merge PauliTermSums with different dtypes")),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "cannot merge PauliTermSums with different dtypes",
+                ))
+            }
         }
         Ok(())
     }
@@ -288,7 +295,11 @@ impl PauliTermSum {
     ///
     /// Arguments:
     ///     streamer: A PauliTermStreamer opened with PauliTermStreamer.from_file().
-    fn merge_from_file(&mut self, streamer: &mut PauliTermStreamer) -> PyResult<()> {
+    fn merge_from_file(
+        &mut self,
+        #[gen_stub(override_type(type_repr = "PauliTermStreamer"))]
+        streamer: &mut PauliTermStreamer,
+    ) -> PyResult<()> {
         match &mut self.inner {
             Storage::F64(inner) => {
                 for result in streamer.inner.by_ref() {
@@ -325,9 +336,7 @@ impl PauliTermSum {
 
     /// Bytes of resident sparse key storage held by this term sum.
     ///
-    /// Keys only: coefficients, merge metadata, and every temporary workspace
-    /// are excluded. See `propaq._rust_core.workspace_peak_bytes()` for the
-    /// temporary dense workspace high-water mark.
+    /// Keys only: coefficients and merge metadata are excluded.
     #[getter]
     fn sparse_key_bytes(&self) -> usize {
         match &self.inner {
@@ -376,7 +385,10 @@ impl PauliTermSum {
             Storage::F64(s) => Storage::F64(s.copy()),
             Storage::F32(s) => Storage::F32(s.copy()),
         };
-        PauliTermSum { inner, index: self.index.clone() }
+        PauliTermSum {
+            inner,
+            index: self.index.clone(),
+        }
     }
 
     /// Load a PauliTermSum from a gzip-compressed binary file saved by `propagate` or
@@ -397,7 +409,10 @@ impl PauliTermSum {
             inner.push([&gx, &gz], coeff);
             index.insert(term, row);
         }
-        Ok(PauliTermSum { inner: Storage::F64(inner), index })
+        Ok(PauliTermSum {
+            inner: Storage::F64(inner),
+            index,
+        })
     }
 
     /// Save this term sum to a gzip-compressed binary file. Coefficients are
@@ -438,8 +453,9 @@ fn truncate_impl<C: CoeffRepr>(
             let row = inner.row_positions(i);
             let w = PauliBasis::weight_sparse(row, plane_span, inner.n_units);
             let c = inner.coeff(i);
-            let should_remove: bool =
-                policy.call_method1("should_truncate", (w, c.magnitude()))?.extract()?;
+            let should_remove: bool = policy
+                .call_method1("should_truncate", (w, c.magnitude()))?
+                .extract()?;
             if !should_remove {
                 kept.push_positions(row, c.clone());
             }
@@ -466,20 +482,30 @@ fn apply_damping_impl<C: CoeffRepr>(
     }
     for i in 0..n {
         let w = PauliBasis::weight_sparse(inner.row_positions(i), plane_span, inner.n_units);
-        let damping: f64 = noise.call_method1("damping_factor", (w, active_modes))?.extract()?;
+        let damping: f64 = noise
+            .call_method1("damping_factor", (w, active_modes))?
+            .extract()?;
         inner.coeffs[i].scale_real(damping);
     }
     Ok(())
 }
 
 fn norm_squared_impl<C: CoeffRepr>(inner: &TermSum<C>) -> f64 {
-    inner.coeffs[..inner.len()].iter().map(|c| { let v = c.to_f64(); v * v }).sum()
+    inner.coeffs[..inner.len()]
+        .iter()
+        .map(|c| {
+            let v = c.to_f64();
+            v * v
+        })
+        .sum()
 }
 
 fn items_impl<C: CoeffRepr>(inner: &TermSum<C>) -> Vec<(PauliString, f64)> {
     let n = inner.len();
     let mut decoder = RowDecoder::new(inner.stride);
-    (0..n).map(|i| (decoder.term(inner, i), inner.coeff(i).to_f64())).collect()
+    (0..n)
+        .map(|i| (decoder.term(inner, i), inner.coeff(i).to_f64()))
+        .collect()
 }
 
 fn setitem_impl<C: CoeffRepr>(
@@ -504,5 +530,8 @@ fn getitem_impl<C: CoeffRepr>(
     index: &FxHashMap<PauliString, usize>,
     term: &PauliString,
 ) -> f64 {
-    index.get(term).map(|&row| inner.coeff(row).to_f64()).unwrap_or_default()
+    index
+        .get(term)
+        .map(|&row| inner.coeff(row).to_f64())
+        .unwrap_or_default()
 }

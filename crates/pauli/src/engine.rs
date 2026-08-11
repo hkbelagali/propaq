@@ -1,89 +1,47 @@
-///
-/// The monoprop-shaped engine behind the Pauli propagator's Python API.
-///
-/// `PartitionedOperator` is monomorphized on its storage width, so reaching it
-/// from a runtime qubit count needs a dispatch. That dispatch lives here, along
-/// with the driver that walks a circuit's layers.
-///
-/// This is propaq's only numerical backend. A request wider than the dispatch
-/// ladder is refused rather than served slowly; there is nothing to fall back
-/// to.
-///
+//! 
+//! Implement the propagator for the Pauli algebra, taking the generic 
+//! architecture over the hash-partitioned term storage and injecting the 
+//! Pauli-specific algebraic operations.
+//! 
+
 use pyo3::prelude::*;
 
+use propaq_core::basis::BasisKind;
 use propaq_core::coeff::CoeffRepr;
-use propaq_core::monomial::Monomial;
-use propaq_core::engine_noise::{resolve_noise_table, NoiseTable};
-use propaq_core::operator::EmitCutoff;
+use propaq_core::noise_resolver::{resolve_noise, ResolvedNoise, PYTHON_TERM_HOOK};
 use propaq_core::operator_index::OperatorIndex;
-use propaq_core::partitioned::{PartitionedOperator, PhaseStats};
-use propaq_core::propagator::PropagationResult;
+use propaq_core::partitioned_termsum::{PartitionedTermSum, PhaseStats};
+use propaq_core::results::PropagationResult;
+use propaq_core::strings::BasisString;
+use propaq_core::termsum::EmitCutoff;
 use propaq_core::truncators::ResolvedConfig;
 
-use crate::algebra::{from_monomial, to_monomial, PauliAlgebra};
+use crate::algebra::{from_basis_string, to_basis_string, PauliAlgebra};
 use crate::string::PauliString;
 
 /// Widest qubit count the dispatch covers.
-///
-/// Beyond this a request is refused with a `ValueError` naming this limit;
-/// there is no second backend to fall back to. Adding a width is one
-/// line, but every instantiation multiplies compiled code across both bases and
-/// every coefficient type, so the ladder stops where the monomorphized surface
-/// stops being worth it rather than at a physical limit. `u16` positions address
-/// 65535 bits, so the position type is not the constraint here.
 pub const MAX_DISPATCH_QUBITS: usize = 2048;
 
 /// One gate of a circuit, already converted out of Python.
-///
-/// Generic over the coefficient, because the gate parameter is: a numerical run
-/// carries an angle, and the surrogate carries a symbolic parameter index.
 struct Gate<C: CoeffRepr> {
     /// Position of the originating qiskit instruction, when there was one.
-    ///
-    /// Not an index into `qc.data`: `from_qiskit` counts DAG-traversal order,
-    /// so this only agrees with the authoring circuit when the layering did not
-    /// reorder.
     qiskit_gate_idx: Option<usize>,
     generator: PauliString,
     angle: C::GateParam,
 }
 
 /// Inline row width the store starts at when nothing bounds a term's support.
-///
-/// A row costs `1 + width` positions whether it fills them or not, and a row
-/// that outgrows its width pays an overflow-map lookup on every read, so both
-/// directions cost. Measured on 6x6 Ising-Trotter with no weight cutoff at 64
-/// threads, as (seconds, share of rows overflowing):
-///
-/// | step | 16 | 24 | 32 |
-/// | --- | --- | --- | --- |
-/// | 13 | 1.95, 2% | 1.98, 0% | 2.16, 0% |
-/// | 19 | 4.22, 22% | 3.74, 0% | 4.09, 0% |
-/// | 21 | 13.6, 29% | 11.3, 0% | 11.5, 0% |
-/// | 23 | 36.6, 35% | 27.1, 0% | - |
-///
-/// 24 is the knee and is where the store starts. Starting narrower and letting
-/// it widen was tried and is worse on both counts: the run spends its early
-/// depth overflowing, and then pays a full rebuild to reach a width the sweep
-/// already shows is past the knee. Step 19 measured 2.47s that way against
-/// 1.84s starting at 24.
 const INITIAL_INLINE_POSITIONS: usize = 24;
 
 /// Share of overflowed rows that triggers a repack to a wider row.
-///
-/// A safety net for depths past the sweep above, not a tuning knob: term
-/// support keeps growing, and a store that cannot restride would otherwise pay
-/// a hash lookup on most of its reads with no way out. Deliberately high, so a
-/// run that stays near the knee never pays for a rebuild.
 const OVERFLOW_REPACK_THRESHOLD: f64 = 0.20;
 
 /// Reads a circuit's layers into a flat gate list in application order.
-///
-/// Heisenberg propagation consumes layers in reverse, and each layer's
-/// rotations in reverse, which is the order the propagator uses. Matching it
-/// exactly is what makes the two engines comparable on the same circuit.
-fn extract_layers<C: CoeffRepr>(py: Python<'_>, circuit: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<Gate<C>>>> {
-    let layers: Vec<Vec<PyObject>> = circuit.getattr("layers")?.extract()?;
+fn extract_layers<C: CoeffRepr>(
+    py: Python<'_>,
+    circuit: &Bound<'_, PyAny>,
+) -> PyResult<Vec<Vec<Gate<C>>>> {
+    let layers: Vec<Vec<Py<PyAny>>> = circuit.getattr("layers")?.extract()?;
     let mut out = Vec::with_capacity(layers.len());
     for layer in layers.iter().rev() {
         let mut gates = Vec::with_capacity(layer.len());
@@ -96,7 +54,11 @@ fn extract_layers<C: CoeffRepr>(py: Python<'_>, circuit: &Bound<'_, PyAny>) -> P
                 .ok()
                 .and_then(|v| v.extract::<Option<usize>>().ok())
                 .flatten();
-            gates.push(Gate { generator, angle, qiskit_gate_idx });
+            gates.push(Gate {
+                generator,
+                angle,
+                qiskit_gate_idx,
+            });
         }
         out.push(gates);
     }
@@ -104,13 +66,14 @@ fn extract_layers<C: CoeffRepr>(py: Python<'_>, circuit: &Bound<'_, PyAny>) -> P
 }
 
 /// Runs one circuit at a fixed storage width.
+#[allow(clippy::too_many_arguments)]
 fn run_at_width<C, const W: usize, P>(
     observable: &[(PauliString, f64)],
     layers: &[Vec<Gate<C>>],
     n_units: usize,
     partitions: usize,
     cutoff: &EmitCutoff,
-    noise: Option<&NoiseTable>,
+    noise: Option<&ResolvedNoise>,
     collect_counts: bool,
     fock: Option<&[u64]>,
     want_terms: bool,
@@ -120,37 +83,60 @@ where
     C: CoeffRepr,
     P: propaq_core::operator_index::Pos,
 {
-    // Size the rows before the first term lands: the store cannot restride
-    // later, and a row that outgrows its width pays an overflow-map lookup on
-    // every read of it thereafter.
-    // A structural cutoff sizes rows exactly and nothing can ever overflow, so
-    // there is nothing to adapt. Without one the store starts narrow and widens
-    // itself when rows begin spilling; see `repack_if_overflowing`.
+
     let inline_positions = match cutoff.max_weight {
         Some(w) => OperatorIndex::<P, W>::inline_width_for_support_cutoff(w as usize),
         None => INITIAL_INLINE_POSITIONS.min(2 * n_units),
     };
     let adaptive_width = cutoff.max_weight.is_none();
-    let mut op: PartitionedOperator<C, P, W> =
-        PartitionedOperator::with_inline_positions(n_units, partitions, inline_positions);
+    let mut op: PartitionedTermSum<C, P, W> =
+        PartitionedTermSum::with_inline_positions(n_units, partitions, inline_positions);
+
+    if cutoff.term.is_some() || noise.is_some_and(ResolvedNoise::is_term_aware) {
+        op.set_defer_cliffords(false);
+    }
     for (term, coeff) in observable {
-        let (key, c) = (to_monomial::<W>(term), C::from_real(*coeff));
+        let (key, c) = (to_basis_string::<W>(term), C::from_real(*coeff));
         if !cutoff.admits_initial::<PauliAlgebra, C, W>(&key, &c, n_units) {
             continue;
         }
-        op.add(&key, c).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        op.add(&key, c)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
     }
 
     let mut n_terms = Vec::new();
     let mut gate_records: Vec<GateRecord> = Vec::new();
     let mut gate_idx = 0usize;
     for (layer_idx, layer) in layers.iter().enumerate() {
-        // Before the layer's gates, as the previous engine applied it. A damping
-        // channel only shrinks coefficients, so terms drift under the cutoff
-        // without being emitted again: the reclaim is what the append-only store
-        // needs to stop accumulating them.
-        if let Some(table) = noise {
-            op.scale_by_weight::<PauliAlgebra>(|w| table[(w as usize).min(table.len() - 1)]);
+
+        if let Some(noise) = noise {
+            match noise {
+                ResolvedNoise::WeightTable(table) => {
+                    op.scale_by_weight::<PauliAlgebra>(|w| {
+                        table[(w as usize).min(table.len() - 1)]
+                    });
+                }
+                ResolvedNoise::TermKernel(kernel) => {
+                    op.scale_by_key::<PauliAlgebra>(kernel.as_ref());
+                }
+
+                ResolvedNoise::PythonTerm(model) => Python::attach(|py| -> PyResult<()> {
+                    let model = model.bind(py);
+                    op.try_scale_by_key::<PauliAlgebra, PyErr>(|key, weight| {
+                        model
+                            .call_method1(
+                                PYTHON_TERM_HOOK,
+                                (
+                                    BasisKind::Pauli.as_u32(),
+                                    key.words().to_vec(),
+                                    n_units,
+                                    weight,
+                                ),
+                            )?
+                            .extract()
+                    })
+                })?,
+            }
             op.reclaim::<PauliAlgebra>(cutoff)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         }
@@ -158,9 +144,13 @@ where
             op.repack_if_overflowing(OVERFLOW_REPACK_THRESHOLD);
         }
         for gate in layer {
-            let gen: Monomial<W> = to_monomial(&gate.generator);
+            let gen: BasisString<W> = to_basis_string(&gate.generator);
             let (before, declined_before, t0) = if log_gates {
-                (op.len(), op.scan_counts().1, Some(std::time::Instant::now()))
+                (
+                    op.len(),
+                    op.scan_counts().1,
+                    Some(std::time::Instant::now()),
+                )
             } else {
                 (0, 0, None)
             };
@@ -186,14 +176,12 @@ where
 
     let phases = op.phase_stats(inline_positions);
 
-    // The deferred Clifford tableau is applied on the way out, by `iter` and by
-    // `expectation` alike, so nothing in the store was ever rewritten for it.
     let terms = want_terms.then(|| {
         op.iter::<PauliAlgebra>()
             .map(|(key, sign, c)| {
                 let mut coeff = c.clone();
                 coeff.scale_real(sign);
-                (from_monomial::<W>(&key, n_units), coeff)
+                (from_basis_string::<W>(&key, n_units), coeff)
             })
             .collect::<Vec<_>>()
     });
@@ -206,19 +194,13 @@ where
             n_terms,
             expectation_value,
             sparse_key_bytes: op.key_bytes(),
-            workspace_peak_bytes: 0,
             terms_below_cutoff,
-            engine: "partitioned".to_string(),
         },
         terms,
     })
 }
 
 /// Dispatches on qubit count to a monomorphized width, then runs the circuit.
-///
-/// Width is `ceil(2 * n_units / 64)`, since a monomial carries two bits per
-/// qubit. The position type is the narrowest that can address that width's bits:
-/// `u8` reaches 255 positions, which covers 128 bits but not 256.
 macro_rules! dispatch_width {
     ($c:ty, $n_units:expr, $($limit:expr => ($w:expr, $pos:ty)),+ $(,)?) => {{
         let n = $n_units;
@@ -230,28 +212,17 @@ macro_rules! dispatch_width {
 }
 
 /// One gate, as the verbose log sees it.
-///
-/// Collected during the run rather than written there: propagation releases the
-/// GIL and holds no file handle, so records are buffered and replayed once it
-/// returns.
 pub struct GateRecord {
     pub gate_idx: usize,
     pub layer_idx: usize,
     pub qiskit_gate_idx: Option<usize>,
     pub terms_before: usize,
     pub terms_after: usize,
-    /// Branches this gate's emit gate refused.
-    ///
-    /// Reported in the log's `terms_discarded`, which under the previous engine
-    /// counted terms *removed* from the live set by a sweep. There is no sweep
-    /// here, so this counts branches never created instead.
+
     pub declined: u64,
     pub elapsed_ms: f64,
 }
 
-/// What one run produced: always the result record, and the evolved terms when
-/// the caller asked for them (`propagate`, which has no reference state and so
-/// no expectation value to report).
 pub struct RunOutput<C> {
     pub result: PropagationResult,
     pub gates: Vec<GateRecord>,
@@ -260,10 +231,19 @@ pub struct RunOutput<C> {
     pub phases: PhaseStats,
 }
 
-type Runner<C> = fn(&[(PauliString, f64)], &[Vec<Gate<C>>], usize, usize, &EmitCutoff, Option<&NoiseTable>, bool, Option<&[u64]>, bool, bool)
-    -> PyResult<RunOutput<C>>;
+type Runner<C> = fn(
+    &[(PauliString, f64)],
+    &[Vec<Gate<C>>],
+    usize,
+    usize,
+    &EmitCutoff,
+    Option<&ResolvedNoise>,
+    bool,
+    Option<&[u64]>,
+    bool,
+    bool,
+) -> PyResult<RunOutput<C>>;
 
-/// The monomorphized runner for this qubit count and coefficient width.
 fn runner_for<C: CoeffRepr>(n_units: usize) -> Runner<C> {
     dispatch_width!(
         C,
@@ -278,13 +258,7 @@ fn runner_for<C: CoeffRepr>(n_units: usize) -> Runner<C> {
     )
 }
 
-
 /// Runs `observable` through `circuit` on the partitioned engine.
-///
-/// Returns `Ok(None)` when the request is wider than the dispatch ladder, which
-/// the caller turns into an error. `fock` is `None` for a plain propagation,
-/// which has no reference state and so no expectation value; `want_terms` asks
-/// for the evolved operator back.
 #[allow(clippy::too_many_arguments)]
 pub fn run<C: CoeffRepr>(
     py: Python<'_>,
@@ -304,27 +278,27 @@ pub fn run<C: CoeffRepr>(
         return Ok(None);
     }
     let layers = extract_layers::<C>(py, circuit)?;
-    // The whole resolved pipeline, not just the two bounds. `TermBudget`'s
-    // floor and a loaded plugin both decide at emit here, where the previous engine
-    // applied them in its post-hoc sweep. `max_terms` is a reclaim trigger and
-    // is handled by the caller, not by the gate.
-    let cutoff = EmitCutoff {
-        max_weight: cfg.weight,
-        min_coeff: cfg.coefficient,
-        native: cfg.native.clone(),
-        min_terms: cfg.min_terms,
-    };
+
+    let cutoff = EmitCutoff::from(cfg);
     let partitions = n_threads.unwrap_or_else(rayon::current_num_threads).max(1);
-    // Resolved with the GIL held: a `Bound` is not `Sync` and cannot enter the
-    // pool, and every arm is a function of weight alone anyway.
-    let noise_table = resolve_noise_table(noise, n_units)?;
+
+    let noise = resolve_noise(noise, n_units)?;
     let run = runner_for::<C>(n_units);
-    // Inside the propagator's own pool, which has one worker per partition; the
-    // global pool would fork across every core on the machine per gate.
-    let out = py.allow_threads(|| {
+
+    let out = py.detach(|| {
         pool.install(|| {
-            run(observable, &layers, n_units, partitions, &cutoff, noise_table.as_ref(),
-                collect_counts, fock, want_terms, log_gates)
+            run(
+                observable,
+                &layers,
+                n_units,
+                partitions,
+                &cutoff,
+                noise.as_ref(),
+                collect_counts,
+                fock,
+                want_terms,
+                log_gates,
+            )
         })
     })?;
     Ok(Some(out))

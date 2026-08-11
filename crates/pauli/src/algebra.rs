@@ -1,28 +1,20 @@
-///
-/// Pauli algebra over the interleaved [`Monomial`] representation.
-///
-/// Bit convention: unit `k` occupies bits `2k` (its X component) and `2k + 1`
-/// (its Z component), so the four single-qubit Paulis are
-/// `00 -> I, 01 -> X, 10 -> Z, 11 -> Y` read as `(bit 2k, bit 2k+1)`. This is
-/// the same information the old two-plane form carried in `x` and `z`, folded
-/// into one bitset so a product is a single XOR.
-///
+//! 
+//! Implements the Pauli basis and its algebra as an impl of Basis
+//! 
+
 use num_complex::Complex64;
 
-use propaq_core::algebra::Algebra;
+use propaq_core::basis::{Basis, BasisKind};
 use propaq_core::bitset::Bitset;
-use propaq_core::monomial::Monomial;
+use propaq_core::strings::BasisString;
 
 use crate::string::PauliString;
 
-/// Selects the X bit of every unit pair.
+
 const X_MASK: u64 = 0x5555_5555_5555_5555;
 
-/// Number of units carrying both an X and a Z component, which are the Y sites.
-///
-/// This is the `popcount(x & z)` term of the Pauli product phase.
 #[inline]
-fn count_y_sites<const W: usize>(m: &Monomial<W>) -> i32 {
+fn count_y_sites<const W: usize>(m: &BasisString<W>) -> i32 {
     let mut n = 0u32;
     for &w in m.words() {
         n += (w & (w >> 1) & X_MASK).count_ones();
@@ -31,10 +23,8 @@ fn count_y_sites<const W: usize>(m: &Monomial<W>) -> i32 {
 }
 
 /// Number of units where `a` has a Z component and `b` has an X component.
-///
-/// This is the `popcount(a.z & b.x)` cross term of the product phase.
 #[inline]
-fn count_z_and_x<const W: usize>(a: &Monomial<W>, b: &Monomial<W>) -> i32 {
+fn count_z_and_x<const W: usize>(a: &BasisString<W>, b: &BasisString<W>) -> i32 {
     let mut n = 0u32;
     for i in 0..W {
         n += ((a.words()[i] >> 1) & b.words()[i] & X_MASK).count_ones();
@@ -56,26 +46,24 @@ fn i_pow(p: i32) -> Complex64 {
 
 /// Per-gate precomputation for a Pauli rotation.
 pub struct PauliGenContext<const W: usize> {
-    gen: Monomial<W>,
-    /// `J(G)`, the generator with each unit's X and Z bits exchanged.
-    ///
-    /// Anticommutation is `parity(|M & J(G)|)`, so folding the swap into the
-    /// context turns the per-term test into one masked popcount.
-    fold_gen: Monomial<W>,
-    /// `popcount(gen.x & gen.z)`, constant across the gate.
+    gen: BasisString<W>,
+    fold_gen: BasisString<W>,
+
     gen_y_sites: i32,
-    /// Overall sign carried by the generator, from a Clifford frame conjugation.
+
     sign: f64,
 }
 
 /// The Pauli basis.
 pub struct PauliAlgebra;
 
-impl<const W: usize> Algebra<W> for PauliAlgebra {
+impl<const W: usize> Basis<W> for PauliAlgebra {
+    const KIND: BasisKind = BasisKind::Pauli;
+
     type GenContext = PauliGenContext<W>;
 
     #[inline]
-    fn make_signed_gen_context(gen: &Monomial<W>, sign: f64) -> Self::GenContext {
+    fn make_signed_gen_context(gen: &BasisString<W>, sign: f64) -> Self::GenContext {
         PauliGenContext {
             gen: *gen,
             fold_gen: gen.pair_swap(),
@@ -85,48 +73,46 @@ impl<const W: usize> Algebra<W> for PauliAlgebra {
     }
 
     #[inline]
-    fn generator(ctx: &Self::GenContext) -> &Monomial<W> {
+    fn generator(ctx: &Self::GenContext) -> &BasisString<W> {
         &ctx.gen
     }
 
     #[inline]
-    fn anticommutes(ctx: &Self::GenContext, mono: &Monomial<W>) -> bool {
-        // parity(|M.x & G.z|) + parity(|M.z & G.x|) collapses to a single
-        // parity against the pair-swapped generator.
-        mono.parity_and(&ctx.fold_gen)
+    fn anticommutes(ctx: &Self::GenContext, string: &BasisString<W>) -> bool {
+
+        string.parity_and(&ctx.fold_gen)
     }
 
     #[inline]
-    fn fold_generator(ctx: &Self::GenContext) -> &Monomial<W> {
+    fn fold_generator(ctx: &Self::GenContext) -> &BasisString<W> {
         &ctx.fold_gen
     }
 
     #[inline]
-    fn product(ctx: &Self::GenContext, mono: &Monomial<W>) -> (Monomial<W>, Complex64) {
-        let out = *mono ^ ctx.gen;
-        let p = (ctx.gen_y_sites + count_y_sites(mono) - count_y_sites(&out)
-            + 2 * count_z_and_x(&ctx.gen, mono))
-            .rem_euclid(4);
+    fn product(ctx: &Self::GenContext, string: &BasisString<W>) -> (BasisString<W>, Complex64) {
+        let out = *string ^ ctx.gen;
+        let p = (ctx.gen_y_sites + count_y_sites(string) - count_y_sites(&out)
+            + 2 * count_z_and_x(&ctx.gen, string))
+        .rem_euclid(4);
         (out, i_pow(p) * ctx.sign)
     }
 
     #[inline]
-    fn weight(mono: &Monomial<W>, _n_units: usize) -> u32 {
-        mono.support() as u32
+    fn weight(string: &BasisString<W>, _n_units: usize) -> u32 {
+        string.support() as u32
     }
 
     #[inline]
-    fn trace(mono: &Monomial<W>, _n_units: usize, fock: &[u64]) -> f64 {
+    fn trace(string: &BasisString<W>, _n_units: usize, fock: &[u64]) -> f64 {
         // Any X or Y component makes the term off-diagonal.
-        for &w in mono.words() {
+        for &w in string.words() {
             if w & X_MASK != 0 {
                 return 0.0;
             }
         }
-        // Every remaining position is a Z component at an odd bit, so its unit
-        // is just the position halved.
+
         let mut parity = 0u32;
-        for pos in mono.positions() {
+        for pos in string.positions() {
             let unit = pos / 2;
             parity ^= (fock.get(unit / 64).copied().unwrap_or(0) >> (unit % 64)) as u32 & 1;
         }
@@ -138,11 +124,9 @@ impl<const W: usize> Algebra<W> for PauliAlgebra {
     }
 }
 
-/// Converts a `PauliString` into the interleaved monomial form.
-///
-/// Panics if the string is wider than `W` words can hold.
-pub fn to_monomial<const W: usize>(term: &PauliString) -> Monomial<W> {
-    let mut m = Monomial::zero();
+/// Converts a `PauliString` into the interleaved basis-string form.
+pub fn to_basis_string<const W: usize>(term: &PauliString) -> BasisString<W> {
+    let mut m = BasisString::zero();
     let xw = term.x.as_words();
     let zw = term.z.as_words();
     for q in 0..term.n_qubits {
@@ -157,12 +141,12 @@ pub fn to_monomial<const W: usize>(term: &PauliString) -> Monomial<W> {
     m
 }
 
-/// Rebuilds a `PauliString` from the interleaved monomial form.
-pub fn from_monomial<const W: usize>(mono: &Monomial<W>, n_qubits: usize) -> PauliString {
+/// Rebuilds a `PauliString` from the interleaved basis-string form.
+pub fn from_basis_string<const W: usize>(string: &BasisString<W>, n_qubits: usize) -> PauliString {
     let n_words = n_qubits.div_ceil(64).max(1);
     let mut xw = vec![0u64; n_words];
     let mut zw = vec![0u64; n_words];
-    for pos in mono.positions() {
+    for pos in string.positions() {
         let q = pos / 2;
         if q >= n_qubits {
             continue;
@@ -173,12 +157,15 @@ pub fn from_monomial<const W: usize>(mono: &Monomial<W>, n_qubits: usize) -> Pau
     let x = Bitset::from_words(xw);
     let z = Bitset::from_words(zw);
     let weight = (&x | &z).count_ones();
-    PauliString { x, z, n_qubits, weight }
+    PauliString {
+        x,
+        z,
+        n_qubits,
+        weight,
+    }
 }
 
-/// Writes a `PauliString`'s two word planes, as the old `TermBasis` form.
-///
-/// Used by the differential tests to drive both engines from one term.
+/// Writes a `PauliString`'s two word planes
 pub fn planes_of(term: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {
     let mut x = vec![0u64; stride];
     let mut z = vec![0u64; stride];
