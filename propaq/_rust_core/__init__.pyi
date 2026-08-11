@@ -270,6 +270,8 @@ class MajoranaPropagator:
             two OpenBLAS copies that each start one spinner per core: measured
             449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
             before numpy imports is the better fix.
+        progress_bar: Draw a tqdm bar over the gate loop.
+        progress_every: Gates between progress bar ticks. Defaults to 1.
     """
     @property
     def noise(self) -> typing.Optional[typing.Any]: ...
@@ -278,7 +280,7 @@ class MajoranaPropagator:
         r"""
         The active truncation pipeline as a list of truncator objects.
         """
-    def __new__(cls, noise: typing.Optional[typing.Any] = None, truncation: typing.Optional[typing.Any] = None, n_threads: typing.Optional[builtins.int] = None, logger: typing.Optional[typing.Any] = None, pin_threads: builtins.bool = True) -> MajoranaPropagator:
+    def __new__(cls, noise: typing.Optional[typing.Any] = None, truncation: typing.Optional[typing.Any] = None, n_threads: typing.Optional[builtins.int] = None, logger: typing.Optional[typing.Any] = None, pin_threads: builtins.bool = True, progress_bar: builtins.bool = False, progress_every: builtins.int = 1) -> MajoranaPropagator:
         r"""
         Initialize the Majorana propagator. See the class docstring for arguments.
         """
@@ -339,7 +341,7 @@ class MajoranaSurrogatePropagator:
         r"""
         The active truncation pipeline as a list of truncator objects.
         """
-    def __new__(cls, truncation: typing.Optional[typing.Any] = None, n_threads: typing.Optional[builtins.int] = None, logger: typing.Optional[typing.Any] = None) -> MajoranaSurrogatePropagator: ...
+    def __new__(cls, truncation: typing.Optional[typing.Any] = None, n_threads: typing.Optional[builtins.int] = None, logger: typing.Optional[typing.Any] = None, progress_bar: builtins.bool = False, progress_every: builtins.int = 1) -> MajoranaSurrogatePropagator: ...
     def build(self, observable: MajoranaTermSum, circuit: typing.Any, initial_state: typing.Optional[typing.Any] = None) -> MajoranaSurrogateModel: ...
     def set_truncation(self, truncation: typing.Optional[typing.Any] = None) -> None:
         r"""
@@ -549,6 +551,8 @@ class PauliPropagator:
             two OpenBLAS copies that each start one spinner per core: measured
             449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
             before numpy imports is the better fix.
+        progress_bar: Draw a tqdm bar over the gate loop.
+        progress_every: Gates between progress bar ticks. Defaults to 1.
     """
     @property
     def noise(self) -> typing.Optional[typing.Any]:
@@ -560,7 +564,7 @@ class PauliPropagator:
         r"""
         The active truncation pipeline as a list of truncator objects.
         """
-    def __new__(cls, noise: typing.Optional[typing.Any] = None, truncation: typing.Optional[typing.Any] = None, n_threads: typing.Optional[builtins.int] = None, logger: typing.Optional[typing.Any] = None, pin_threads: builtins.bool = True) -> PauliPropagator:
+    def __new__(cls, noise: typing.Optional[typing.Any] = None, truncation: typing.Optional[typing.Any] = None, n_threads: typing.Optional[builtins.int] = None, logger: typing.Optional[typing.Any] = None, pin_threads: builtins.bool = True, progress_bar: builtins.bool = False, progress_every: builtins.int = 1) -> PauliPropagator:
         r"""
         Initialize the Pauli propagator. See the class docstring for arguments.
         """
@@ -719,13 +723,15 @@ class PauliSurrogatePropagator:
             legacy FrequencyTruncationPolicy (decomposed automatically), or None.
         n_threads: Number of worker threads. Defaults to the system thread count.
         logger: Optional Logger for verbose JSON Lines event logging.
+        progress_bar: Draw a tqdm bar over the build's gate loop.
+        progress_every: Gates between progress bar ticks. Defaults to 1.
     """
     @property
     def truncators(self) -> builtins.list[typing.Any]:
         r"""
         The active truncation pipeline as a list of truncator objects.
         """
-    def __new__(cls, truncation: typing.Optional[typing.Any] = None, n_threads: typing.Optional[builtins.int] = None, logger: typing.Optional[typing.Any] = None) -> PauliSurrogatePropagator: ...
+    def __new__(cls, truncation: typing.Optional[typing.Any] = None, n_threads: typing.Optional[builtins.int] = None, logger: typing.Optional[typing.Any] = None, progress_bar: builtins.bool = False, progress_every: builtins.int = 1) -> PauliSurrogatePropagator: ...
     def build(self, observable: PauliTermSum, circuit: typing.Any, initial_state: typing.Optional[typing.Any] = None) -> PauliSurrogateModel:
         r"""
         Compile the observable back-propagated through the circuit into a SurrogateModel.
