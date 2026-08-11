@@ -40,7 +40,6 @@ def orbital_rotation_generators(
         terms.extend((gen, 2 * coeff) for gen, coeff in piece_sum.items())
 
     for c, s, i, j in givens_rotations:
-
         block = np.array([[c, np.conj(s)], [-s, c]], dtype=complex)
         k_block = scipy.linalg.logm(block)
 

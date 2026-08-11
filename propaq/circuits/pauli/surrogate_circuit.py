@@ -91,13 +91,15 @@ class SurrogatePauliCircuit:
             new_layer: list[SurrogateRotation] = []
             for rot in layer:
                 idx = param_indices[flat_idx]
-                new_layer.append(SurrogateRotation(
-                    generator=rot.generator,
-                    param_index=idx,
-                    angle=None if idx is not None else rot.angle,
-                    is_intermediate=rot.is_intermediate,
-                    qiskit_gate_idx=rot.qiskit_gate_idx,
-                ))
+                new_layer.append(
+                    SurrogateRotation(
+                        generator=rot.generator,
+                        param_index=idx,
+                        angle=None if idx is not None else rot.angle,
+                        is_intermediate=rot.is_intermediate,
+                        qiskit_gate_idx=rot.qiskit_gate_idx,
+                    )
+                )
                 flat_idx += 1
             new_layers.append(new_layer)
         return cls(new_layers)
@@ -119,10 +121,7 @@ class SurrogatePauliCircuit:
         """
         if len(generators) != len(param_indices):
             raise ValueError("generators and param_indices must have equal length")
-        layers = [
-            [SurrogateRotation(gen, idx)]
-            for gen, idx in zip(generators, param_indices)
-        ]
+        layers = [[SurrogateRotation(gen, idx)] for gen, idx in zip(generators, param_indices)]
         return cls(layers)
 
     @classmethod
@@ -174,7 +173,9 @@ class SurrogatePauliCircuit:
                 for group in groups:
                     group_rots: list[SurrogateRotation] = []
                     for gen, angle in group:
-                        group_rots.extend(expand_affine_rotation(gen, angle, pool, SurrogateRotation, None))
+                        group_rots.extend(
+                            expand_affine_rotation(gen, angle, pool, SurrogateRotation, None)
+                        )
                     _mark_intermediate(group_rots)
                     rots.extend(group_rots)
                 for rot in rots:
@@ -248,7 +249,9 @@ class SurrogatePauliCircuit:
                 for group in groups:
                     group_rots: list[SurrogateRotation] = []
                     for gen, angle in group:
-                        group_rots.extend(_cirq_expand_affine_rotation(gen, angle, pool, SurrogateRotation, None))
+                        group_rots.extend(
+                            _cirq_expand_affine_rotation(gen, angle, pool, SurrogateRotation, None)
+                        )
                     _mark_intermediate(group_rots)
                     rots.extend(group_rots)
                 for rot in rots:

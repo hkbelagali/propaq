@@ -21,6 +21,7 @@ except ImportError:
     @dataclass(frozen=True, slots=True)
     class PauliString(AbstractTerm):  # type: ignore[no-redef]
         """Pure-Python fallback for PauliString (used when Rust extension is absent)."""
+
         x: BitMask
         """
         BitMask representing the X components of the Pauli string.

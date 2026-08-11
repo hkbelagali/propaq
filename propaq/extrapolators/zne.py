@@ -16,6 +16,7 @@ from propaq.propagators._abstract import AbstractPropagator
 @dataclass
 class ZNEResult:
     """Result of a zero-noise extrapolation run, including the fitted parameters and covariance."""
+
     zero_noise_value: float
     """Extrapolated expectation value at zero noise."""
 
@@ -47,9 +48,9 @@ class ZeroNoiseExtrapolator:
 
     def run(
         self,
-        propagator : AbstractPropagator,
-        observable : AbstractTermSum,
-        circuit : MajoranaCircuit | PauliCircuit,
+        propagator: AbstractPropagator,
+        observable: AbstractTermSum,
+        circuit: MajoranaCircuit | PauliCircuit,
         initial_state: int = 0,
         **curve_fit_kwargs,
     ) -> ZNEResult:
@@ -70,7 +71,9 @@ class ZeroNoiseExtrapolator:
             expectation_values = []
             for val in self.noise_values:
                 propagator.set_noise(UniformNoiseModel(val))
-                result = propagator.expectation_value(observable, circuit, initial_state=initial_state)
+                result = propagator.expectation_value(
+                    observable, circuit, initial_state=initial_state
+                )
                 expectation_values.append(result.expectation_value)
         finally:
             propagator.set_noise(original_noise)

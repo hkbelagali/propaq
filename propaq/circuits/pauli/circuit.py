@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 class PauliCircuit:
     """
     Class representing a circuit in the Pauli representation.
-    
-    The circuit is represented as a list of layers, where each layer is a list of 
+
+    The circuit is represented as a list of layers, where each layer is a list of
     gates that can be applied in parallel.
     """
 
@@ -54,7 +54,7 @@ class PauliCircuit:
     ):
         """
         Construct a PauliCircuit from lists of generators and angles.
-        
+
         Arguments:
             generators: A list of PauliStrings.
             angles: A list of angles.

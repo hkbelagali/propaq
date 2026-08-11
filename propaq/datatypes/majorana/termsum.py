@@ -63,7 +63,7 @@ def _cp_terms(phi, i: int, j: int, n_modes: int) -> list[tuple[MajoranaMonomial,
     return [
         (MajoranaMonomial(modes_i, n_modes), -phi / 2),
         (MajoranaMonomial(modes_j, n_modes), -phi / 2),
-        (MajoranaMonomial(modes_4, n_modes),  phi / 2),
+        (MajoranaMonomial(modes_4, n_modes), phi / 2),
     ]
 
 
@@ -90,7 +90,9 @@ def _expand_ladder_term(
     The result is not yet flushed into a real-valued MajoranaTermSum
     """
     acc: dict[int, complex] = {}
-    factor_options = [_ladder_factor_monomials(mode, is_raise, n_modes) for mode, is_raise in actions]
+    factor_options = [
+        _ladder_factor_monomials(mode, is_raise, n_modes) for mode, is_raise in actions
+    ]
 
     for combo in itertools.product(*factor_options):
         if not combo:
@@ -168,25 +170,25 @@ def _jw_transform(pauli_str: str, n_qubits: int) -> tuple[int, complex]:
     fwd_phase: complex = 1 + 0j
     for q in range(n_qubits - 1, -1, -1):
         p = pauli_str[n_qubits - 1 - q]
-        if p == 'I':
+        if p == "I":
             if z_parity:
                 modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
                 fwd_phase *= 1j
-        elif p == 'X':
+        elif p == "X":
             if z_parity == 0:
-                modes |= (1 << (2 * q))
+                modes |= 1 << (2 * q)
             else:
-                modes |= (1 << (2 * q + 1))
+                modes |= 1 << (2 * q + 1)
                 fwd_phase *= 1j
             z_parity ^= 1
-        elif p == 'Y':
+        elif p == "Y":
             if z_parity == 0:
-                modes |= (1 << (2 * q + 1))
+                modes |= 1 << (2 * q + 1)
             else:
-                modes |= (1 << (2 * q))
+                modes |= 1 << (2 * q)
                 fwd_phase *= -1j
             z_parity ^= 1
-        elif p == 'Z':
+        elif p == "Z":
             if z_parity == 0:
                 modes |= (1 << (2 * q)) | (1 << (2 * q + 1))
                 fwd_phase *= 1j
@@ -222,7 +224,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
     ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a phase gate on qubit q_indices[0].
-        
+
         Arguments:
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
@@ -237,7 +239,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         return term_sum
 
     @classmethod
-    def from_rz_angle(cls, q: int, angle: float, n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
+    def from_rz_angle(
+        cls, q: int, angle: float, n_modes: int
+    ) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a raw Rz rotation angle.
 
@@ -346,9 +350,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         return term_sum
 
     @classmethod
-    def from_sparse_pauli_op(
-        cls, op: SparsePauliOp
-    ) -> "MajoranaTermSum[MajoranaMonomial]":
+    def from_sparse_pauli_op(cls, op: SparsePauliOp) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from a SparsePauliOp via the Jordan-Wigner inverse transform.
 
@@ -365,9 +367,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         for pauli_str, coeff in op.to_list():
             modes, fwd_phase = _jw_transform(pauli_str, n_qubits)
 
-            k = bin(modes).count('1')
+            k = bin(modes).count("1")
             e = (k // 2) % 2
-            hermiticity_factor = 1j ** e
+            hermiticity_factor = 1j**e
 
             effective_coeff = coeff / (hermiticity_factor * fwd_phase)
 
@@ -378,9 +380,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         return term_sum
 
     @classmethod
-    def from_openfermion(
-        cls, op: Any, n_modes: int
-    ) -> "MajoranaTermSum[MajoranaMonomial]":
+    def from_openfermion(cls, op: Any, n_modes: int) -> "MajoranaTermSum[MajoranaMonomial]":
         """
         Construct from an OpenFermion FermionOperator.
 
@@ -472,7 +472,7 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             pauli_str, fwd_phase = _jw_inverse_transform(monomial.modes, n_qubits)
             k = bin(monomial.modes).count("1")
             e = (k // 2) % 2
-            hermiticity_factor = 1j ** e
+            hermiticity_factor = 1j**e
             original_coeff = coeff * hermiticity_factor * fwd_phase
             pairs.append((pauli_str, original_coeff))
         return SparsePauliOp.from_list(pairs).simplify()

@@ -7,13 +7,13 @@
 
 Fast Heisenberg-picture propagation for quantum circuit simulation, with a parallel Rust backend!
 
-Implements the algorithms described in: 
+Implements the algorithms described in:
 
 >  M. S. Rudolph, T. Jones, Y. Teng, A. Angrisani, and Z. Holmes, “Pauli Propagation: A Computational Framework for Simulating Quantum Systems,” May 27, 2025, arXiv: arXiv:2505.21606. doi: 10.48550/arXiv.2505.21606.
 
 >  A. Miller et al., "Simulation of Fermionic circuits using Majorana Propagation," Dec. 16, 2025, arXiv: arXiv:2503.18939. doi: 10.48550/arXiv.2503.18939.
 
-propaq also provides the functionality to run noisy simulations with user-defined noise models and truncation policies, and to log propagation events 
+propaq also provides the functionality to run noisy simulations with user-defined noise models and truncation policies, and to log propagation events
 for debugging and analysis. It is designed to parse Qiskit circuits and observables for easy integration with existing quantum computing workflows.
 ## Installation
 
@@ -23,11 +23,11 @@ pip install propaq
 
 Requires Python 3.10+ and a pre-built wheel for your platform (Linux x86-64, macOS, Windows).
 
-For development, clone the repo and install with: 
+For development, clone the repo and install with:
 ```bash
-pip install -e .[dev]   
+pip install -e .[dev]
 ```
-which will install the Rust toolchain and build the Rust backend from source via `maturin`. You can also build the Rust backend manually with 
+which will install the Rust toolchain and build the Rust backend from source via `maturin`. You can also build the Rust backend manually with
 `maturin develop` or `maturin build` and then install the resulting wheel with `pip install dist/propaq-*.whl`.
 
 ## Quick start
@@ -77,7 +77,7 @@ Full worked examples live under [`examples/`](https://github.com/hkbelagali/prop
 
 - [01_getting_started.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/01_getting_started.ipynb): Basic Majorana propagation: noise, truncation, and JSONL logging.
 - [02_pauli_vs_majorana.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/02_pauli_vs_majorana.ipynb): The same Hamiltonian/circuit propagated through both the Pauli and Majorana bases, compared directly.
-- [03_truncation_pipelines.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/03_truncation_pipelines.ipynb): Composable truncation: `FlushSchedule` merge cadence together with `WeightTruncator`/`CoefficientTruncator`/`TermBudget`.
+- [03_truncation_pipelines.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/03_truncation_pipelines.ipynb): Composable truncation with `WeightTruncator`/`CoefficientTruncator`/`TermBudget`.
 - [04_variational_surrogate.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/04_variational_surrogate.ipynb): VQE-style optimization over a compiled `SurrogateModel`.
 - [05_surrogate_persistence.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/05_surrogate_persistence.ipynb): `SurrogateModel.save()`/`.load()`, `n_terms`/`n_monomials` diagnostics, and batched evaluation.
 - [06_term_streaming.ipynb](https://github.com/hkbelagali/propaq/blob/main/examples/usage/06_term_streaming.ipynb): Streaming propagated terms to/from a gzip file without holding the whole result in memory.
@@ -162,7 +162,6 @@ from .log_parser import GateEvent as GateEvent
 from .log_parser import LogParser as LogParser
 from .log_parser import SurrogateFlushDeferredEvent as SurrogateFlushDeferredEvent
 from .log_parser import SurrogateFlushEvent as SurrogateFlushEvent
-from .log_parser import SurrogateMergeEvent as SurrogateMergeEvent
 from .log_parser import TruncationEvent as TruncationEvent
 from .models import (
     MajoranaSurrogateModel as MajoranaSurrogateModel,
@@ -193,9 +192,6 @@ from .propagators import (
 )
 from .truncation import (
     CoefficientTruncator as CoefficientTruncator,
-)
-from .truncation import (
-    FlushSchedule as FlushSchedule,
 )
 from .truncation import (
     FrequencyTruncator as FrequencyTruncator,

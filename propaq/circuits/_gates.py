@@ -73,9 +73,14 @@ class _Rep:
     qubits_in_width: Callable[[int], int]
 
 
-PAULI = _Rep(PauliTermSum, _pauli_rz_terms, _pauli_cp_terms, _pauli_xx_plus_yy_terms, lambda width: width)
+PAULI = _Rep(
+    PauliTermSum, _pauli_rz_terms, _pauli_cp_terms, _pauli_xx_plus_yy_terms, lambda width: width
+)
 MAJORANA = _Rep(
-    MajoranaTermSum, _majorana_rz_terms, _majorana_cp_terms, _majorana_xx_plus_yy_terms,
+    MajoranaTermSum,
+    _majorana_rz_terms,
+    _majorana_cp_terms,
+    _majorana_xx_plus_yy_terms,
     lambda width: width // 2,
 )
 
@@ -85,10 +90,12 @@ GateRep = _Rep
 
 
 @cache
-def _unit_pauli_term(termsum_cls: type[PauliTermSum] | type[MajoranaTermSum], label: str) -> tuple[Any, float]:
+def _unit_pauli_term(
+    termsum_cls: type[PauliTermSum] | type[MajoranaTermSum], label: str
+) -> tuple[Any, float]:
     """(generator, unit coefficient) for a weight-1 Pauli label, via from_sparse_pauli_op."""
     term_sum = termsum_cls.from_sparse_pauli_op(SparsePauliOp(label))
-    (gen, coeff), = term_sum.items()
+    ((gen, coeff),) = term_sum.items()
     return gen, float(coeff.real)
 
 
@@ -101,7 +108,9 @@ def pauli_rotation_generator(rep: _Rep, label: str) -> tuple[Any, float]:
     return _unit_pauli_term(rep.termsum_cls, label)  # type: ignore[arg-type]
 
 
-def _single_pauli_terms(rep: _Rep, axis: str, angle: Any, qubit: int, width: int) -> list[tuple[Any, Any]]:
+def _single_pauli_terms(
+    rep: _Rep, axis: str, angle: Any, qubit: int, width: int
+) -> list[tuple[Any, Any]]:
     """Terms for a rotation about a single Pauli axis (X or Y) on one qubit."""
     n_qubits = rep.qubits_in_width(width)
     label = ["I"] * n_qubits
@@ -113,8 +122,7 @@ def _single_pauli_terms(rep: _Rep, axis: str, angle: Any, qubit: int, width: int
 def _two_pauli_terms(
     rep: _Rep, axis_i: str, axis_j: str, angle: Any, i: int, j: int, width: int
 ) -> list[tuple[Any, Any]]:
-    """Terms for a two-qubit Pauli-axis rotation (RZZ/RXX/RYY/RZX) as one generator.
-    """
+    """Terms for a two-qubit Pauli-axis rotation (RZZ/RXX/RYY/RZX) as one generator."""
     n_qubits = rep.qubits_in_width(width)
     label = ["I"] * n_qubits
     label[n_qubits - 1 - i] = axis_i
@@ -170,7 +178,9 @@ def _decompose(instr: Instruction) -> list[tuple[Instruction, list[int]]]:
     return ops
 
 
-def gate_terms(instr: Instruction, q_indices: list[int], width: int, rep: _Rep) -> list[list[tuple[Any, Any]]]:
+def gate_terms(
+    instr: Instruction, q_indices: list[int], width: int, rep: _Rep
+) -> list[list[tuple[Any, Any]]]:
     """Groups of ordered (generator, angle) terms for one Qiskit instruction.
 
     `angle` may be a plain float or a Qiskit ParameterExpression.
@@ -189,7 +199,9 @@ def gate_terms(instr: Instruction, q_indices: list[int], width: int, rep: _Rep) 
     return _dispatch_native(instr, q_indices, width, rep)
 
 
-def _dispatch_native(instr: Instruction, q_indices: list[int], width: int, rep: _Rep) -> list[list[tuple[Any, Any]]]:
+def _dispatch_native(
+    instr: Instruction, q_indices: list[int], width: int, rep: _Rep
+) -> list[list[tuple[Any, Any]]]:
     """Groups of ordered (generator, angle) terms via propaq's built-in native gates and
     Qiskit-transpilation fallback, bypassing the custom-gate registry entirely.
 

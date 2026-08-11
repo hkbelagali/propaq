@@ -1,7 +1,6 @@
 """Composable truncation operators shared by the numerical and surrogate propagators."""
 
 from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
-from propaq._rust_core import FlushSchedule as FlushSchedule
 from propaq._rust_core import FrequencyTruncator as _RustFrequencyTruncator
 from propaq._rust_core import MonomialBudget as _RustMonomialBudget
 from propaq._rust_core import NativeTruncator as _RustNativeTruncator
@@ -24,7 +23,7 @@ class WeightTruncator(_RustWeightTruncator):
 
 
 class TermBudget(_RustTermBudget):
-    """Term-count budget: ``max_terms`` triggers a flush; ``min_terms`` gates the lossy ops."""
+    """Term-count budget: ``max_terms`` triggers truncation; ``min_terms`` gates lossy ops."""
 
 
 class MonomialBudget(_RustMonomialBudget):
@@ -47,6 +46,13 @@ class NativeTruncator(_RustNativeTruncator):
     GIL and no Python call overhead. Numerical-only (the surrogate
     propagators reject it): see ``propaq.MD`` / ``examples/plugins/``
     for the ABI contract and example plugins.
+
+    Serves both plugin ABI versions, selected by what the plugin's
+    ``propaq_truncator_abi_version`` returns and readable afterwards from
+    ``.abi_version``: **v1** decides from ``(weight, |coeff|, active_modes)``,
+    **v2** from the term's raw basis-string words plus ``|coeff|``, which is what
+    a support- or locality-aware policy needs. A run carrying a v2 plugin turns
+    Clifford deferral off so the keys it sees are physical keys.
     """
 
 
@@ -73,5 +79,4 @@ __all__ = [
     "MonomialBudget",
     "Simplify",
     "NativeTruncator",
-    "FlushSchedule",
 ]

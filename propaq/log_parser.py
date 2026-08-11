@@ -9,6 +9,7 @@ from dataclasses import dataclass
 @dataclass
 class GateEvent:
     """Class representing a logged gate application event."""
+
     gate_idx: int
     """Index of the gate in the circuit, starting from 0."""
     layer_idx: int
@@ -31,6 +32,7 @@ class TruncationEvent:
 
     See `SurrogateFlushEvent` for the surrogate propagators' equivalent.
     """
+
     gate_idx: int
     """Index of the gate at which truncation was triggered."""
     layer_idx: int
@@ -68,6 +70,7 @@ class SurrogateFlushEvent:
     monomial-count stats, and the cutoffs are the surrogate truncators'
     (`FrequencyTruncator`/`WeightTruncator`/`CoefficientTruncator`).
     """
+
     gate_idx: int
     """Index of the gate at which the flush was triggered."""
     layer_idx: int
@@ -107,6 +110,7 @@ class SurrogateFlushDeferredEvent:
     (logged separately as a `SurrogateFlushEvent`); this event only records
     that the trigger latched and why the flush didn't happen immediately.
     """
+
     gate_idx: int
     """Index of the gate at which the trigger latched."""
     layer_idx: int
@@ -124,27 +128,6 @@ class SurrogateFlushDeferredEvent:
 
 
 @dataclass
-class SurrogateMergeEvent:
-    """Class representing a surrogate merge-only cadence event (no truncation).
-
-    Emitted when `merge_max_terms` triggers a dedup merge between truncation
-    flushes; term/monomial counts are refreshed but no lossy truncator runs.
-    """
-    gate_idx: int
-    """Index of the gate at which the merge occurred."""
-    layer_idx: int
-    """Index of the layer at which the merge occurred."""
-    terms_before: int
-    """Term count before the merge (may include duplicates)."""
-    terms_after: int
-    """Deduplicated term count after the merge."""
-    monomials_after: int
-    """Exact total monomial count across all live coefficients after the merge."""
-    qiskit_gate_idx: int | None
-    """Index of the originating Qiskit gate, or None for non-Qiskit circuits."""
-
-
-@dataclass
 class EnginePhasesEvent:
     """Class representing the closing per-run summary of the propagation engine.
 
@@ -154,6 +137,7 @@ class EnginePhasesEvent:
     Release builds inline the scan and absorb phases into one closure and carry
     no frame pointers, so this event is the only place the split is visible.
     """
+
     partitions: int
     """Hash partitions the run used, which is also its worker count."""
     scan_s: float
@@ -202,7 +186,6 @@ class LogParser:
         self._truncation_events: list[TruncationEvent] = []
         self._surrogate_flush_events: list[SurrogateFlushEvent] = []
         self._surrogate_flush_deferred_events: list[SurrogateFlushDeferredEvent] = []
-        self._surrogate_merge_events: list[SurrogateMergeEvent] = []
         self._engine_phases_events: list[EnginePhasesEvent] = []
         self._load()
 
@@ -211,7 +194,6 @@ class LogParser:
         self._truncation_events.clear()
         self._surrogate_flush_events.clear()
         self._surrogate_flush_deferred_events.clear()
-        self._surrogate_merge_events.clear()
         self._engine_phases_events.clear()
         with open(self._filename) as f:
             for line in f:
@@ -221,70 +203,69 @@ class LogParser:
                 ev = json.loads(line)
                 kind = ev["event"]
                 if kind == "gate":
-                    self._gate_events.append(GateEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        map_terms=ev["map_terms"],
-                        outbox_terms=ev["outbox_terms"],
-                        avg_ms_per_gate=ev.get("avg_ms_per_gate"),
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                        monomials=ev.get("monomials"),
-                    ))
+                    self._gate_events.append(
+                        GateEvent(
+                            gate_idx=ev["gate_idx"],
+                            layer_idx=ev["layer_idx"],
+                            map_terms=ev["map_terms"],
+                            outbox_terms=ev["outbox_terms"],
+                            avg_ms_per_gate=ev.get("avg_ms_per_gate"),
+                            qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                            monomials=ev.get("monomials"),
+                        )
+                    )
                 elif kind == "truncation":
-                    self._truncation_events.append(TruncationEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        trigger=ev["trigger"],
-                        terms_before=ev["terms_before"],
-                        terms_after=ev["terms_after"],
-                        terms_discarded=ev["terms_discarded"],
-                        discarded_coeff_l1=ev["discarded_coeff_l1"],
-                        discarded_coeff_max=ev["discarded_coeff_max"],
-                        weight_cutoff=ev["weight_cutoff"],
-                        coeff_cutoff=ev["coeff_cutoff"],
-                        elapsed_ms=ev["elapsed_ms"],
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                    ))
+                    self._truncation_events.append(
+                        TruncationEvent(
+                            gate_idx=ev["gate_idx"],
+                            layer_idx=ev["layer_idx"],
+                            trigger=ev["trigger"],
+                            terms_before=ev["terms_before"],
+                            terms_after=ev["terms_after"],
+                            terms_discarded=ev["terms_discarded"],
+                            discarded_coeff_l1=ev["discarded_coeff_l1"],
+                            discarded_coeff_max=ev["discarded_coeff_max"],
+                            weight_cutoff=ev["weight_cutoff"],
+                            coeff_cutoff=ev["coeff_cutoff"],
+                            elapsed_ms=ev["elapsed_ms"],
+                            qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                        )
+                    )
                 elif kind == "surrogate_flush":
-                    self._surrogate_flush_events.append(SurrogateFlushEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        trigger=ev["trigger"],
-                        terms_before=ev["terms_before"],
-                        terms_after=ev["terms_after"],
-                        terms_discarded=ev["terms_discarded"],
-                        monomials_before=ev["monomials_before"],
-                        monomials_after=ev["monomials_after"],
-                        monomials_discarded=ev["monomials_discarded"],
-                        frequency=ev["frequency"],
-                        weight=ev["weight"],
-                        coefficient=ev["coefficient"],
-                        elapsed_ms=ev["elapsed_ms"],
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                    ))
+                    self._surrogate_flush_events.append(
+                        SurrogateFlushEvent(
+                            gate_idx=ev["gate_idx"],
+                            layer_idx=ev["layer_idx"],
+                            trigger=ev["trigger"],
+                            terms_before=ev["terms_before"],
+                            terms_after=ev["terms_after"],
+                            terms_discarded=ev["terms_discarded"],
+                            monomials_before=ev["monomials_before"],
+                            monomials_after=ev["monomials_after"],
+                            monomials_discarded=ev["monomials_discarded"],
+                            frequency=ev["frequency"],
+                            weight=ev["weight"],
+                            coefficient=ev["coefficient"],
+                            elapsed_ms=ev["elapsed_ms"],
+                            qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                        )
+                    )
                 elif kind == "surrogate_flush_deferred":
-                    self._surrogate_flush_deferred_events.append(SurrogateFlushDeferredEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        trigger=ev["trigger"],
-                        terms=ev["terms"],
-                        monomials=ev["monomials"],
-                        reason=ev["reason"],
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                    ))
+                    self._surrogate_flush_deferred_events.append(
+                        SurrogateFlushDeferredEvent(
+                            gate_idx=ev["gate_idx"],
+                            layer_idx=ev["layer_idx"],
+                            trigger=ev["trigger"],
+                            terms=ev["terms"],
+                            monomials=ev["monomials"],
+                            reason=ev["reason"],
+                            qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                        )
+                    )
                 elif kind == "engine_phases":
-                    self._engine_phases_events.append(EnginePhasesEvent(**{
-                        k: v for k, v in ev.items() if k != "event"
-                    }))
-                elif kind == "surrogate_merge":
-                    self._surrogate_merge_events.append(SurrogateMergeEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        terms_before=ev["terms_before"],
-                        terms_after=ev["terms_after"],
-                        monomials_after=ev["monomials_after"],
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                    ))
+                    self._engine_phases_events.append(
+                        EnginePhasesEvent(**{k: v for k, v in ev.items() if k != "event"})
+                    )
 
     def reload(self) -> None:
         """Re-read the log file, picking up any new events appended since construction."""
@@ -309,11 +290,6 @@ class LogParser:
     def surrogate_flush_deferred_events(self) -> list[SurrogateFlushDeferredEvent]:
         """All deferred-flush-trigger events in file order (surrogate propagators only)."""
         return self._surrogate_flush_deferred_events
-
-    @property
-    def surrogate_merge_events(self) -> list[SurrogateMergeEvent]:
-        """All merge-only cadence events in file order (surrogate propagators only)."""
-        return self._surrogate_merge_events
 
     @property
     def engine_phases_events(self) -> list[EnginePhasesEvent]:

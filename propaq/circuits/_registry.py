@@ -57,8 +57,14 @@ def register_cirq_gate(gate_type: type, terms_fn: CirqTermsFn, *, validate: bool
     import cirq
 
     native_types = (
-        cirq.ZPowGate, cirq.XPowGate, cirq.YPowGate, cirq.CZPowGate,
-        cirq.PhasedISwapPowGate, cirq.ZZPowGate, cirq.XXPowGate, cirq.YYPowGate,
+        cirq.ZPowGate,
+        cirq.XPowGate,
+        cirq.YPowGate,
+        cirq.CZPowGate,
+        cirq.PhasedISwapPowGate,
+        cirq.ZZPowGate,
+        cirq.XXPowGate,
+        cirq.YYPowGate,
         cirq.SwapPowGate,
     )
     if issubclass(gate_type, native_types):

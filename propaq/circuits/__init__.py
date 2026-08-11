@@ -16,10 +16,18 @@ from .pauli.surrogate_circuit import SurrogatePauliCircuit as SurrogatePauliCirc
 from .pauli.surrogate_rotation import SurrogateRotation as SurrogateRotation
 
 __all__ = [
-    "GateDecompositionWarning", "GateValidationError", "GateRep",
-    "pauli_rotation_generator", "register_qiskit_gate", "register_cirq_gate",
-    "MajoranaRotation", "MajoranaCircuit",
-    "SurrogateMajoranaRotation", "SurrogateMajoranaCircuit",
-    "PauliRotation", "PauliCircuit",
-    "SurrogateRotation", "SurrogatePauliCircuit",
+    "GateDecompositionWarning",
+    "GateValidationError",
+    "GateRep",
+    "pauli_rotation_generator",
+    "register_qiskit_gate",
+    "register_cirq_gate",
+    "MajoranaRotation",
+    "MajoranaCircuit",
+    "SurrogateMajoranaRotation",
+    "SurrogateMajoranaCircuit",
+    "PauliRotation",
+    "PauliCircuit",
+    "SurrogateRotation",
+    "SurrogatePauliCircuit",
 ]

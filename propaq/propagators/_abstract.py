@@ -24,7 +24,9 @@ class AbstractPropagator(ABC):
         """The current noise model, or None."""
 
     @abstractmethod
-    def set_noise(self, noise: UniformNoiseModel | GateNoiseModel | NativeNoiseModel | None = None) -> None:
+    def set_noise(
+        self, noise: UniformNoiseModel | GateNoiseModel | NativeNoiseModel | None = None
+    ) -> None:
         """Replace the noise model."""
 
     @property
@@ -48,7 +50,9 @@ class AbstractPropagator(ABC):
         """
 
     @abstractmethod
-    def expectation_value(self, observable, circuit, initial_state: int = 0, filename=None) -> PropagationResult:
+    def expectation_value(
+        self, observable, circuit, initial_state: int = 0, filename=None
+    ) -> PropagationResult:
         """Compute the expectation value of *observable* after evolving through *circuit*.
 
         If *filename* is given, the final term sum is saved to a gzip-compressed
