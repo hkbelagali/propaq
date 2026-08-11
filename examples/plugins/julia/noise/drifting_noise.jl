@@ -1,11 +1,14 @@
-# Example propaq native noise plugin, implemented in Julia (AOT-compiled via
+# Example propaq noise plugin, implemented in Julia (AOT-compiled via
 # PackageCompiler.jl into a C-ABI shared library; see the plugins README).
 #
-# Non-stationary noise: damping grows with the number of calls already made
-# through this ctx, modeling drift/heating that worsens over circuit depth
-# rather than staying fixed like UniformNoiseModel.
+# A demonstration of *stateful ctx*: damping grows with the number of calls
+# already made through this ctx, rather than staying fixed like
+# UniformNoiseModel.
 #
 #   damping_factor = exp(-damping * weight * (1 + drift_rate * call_index))
+#
+# This is not depth-dependent noise.
+# 
 
 const PROPAQ_NOISE_ABI_VERSION = UInt32(1)
 
@@ -23,9 +26,9 @@ function parse_field(json::AbstractString, key::AbstractString, fallback::Float6
     m === nothing ? fallback : parse(Float64, m.captures[1])
 end
 
-function damping_factor(damping::Float64, drift_rate::Float64, term_weight::UInt32, call_index::UInt64)
+function damping_factor(damping::Float64, drift_rate::Float64, weight::UInt32, call_index::UInt64)
     factor = 1.0 + drift_rate * Float64(call_index)
-    return exp(-damping * Float64(term_weight) * factor)
+    return exp(-damping * Float64(weight) * factor)
 end
 
 Base.@ccallable function propaq_noise_abi_version()::UInt32
@@ -49,22 +52,28 @@ Base.@ccallable function propaq_noise_destroy(ctx::Ptr{Cvoid})::Cvoid
     return nothing
 end
 
-Base.@ccallable function propaq_noise_damping_factor(ctx::Ptr{Cvoid}, term_weight::UInt32, active_modes::UInt32)::Cdouble
+Base.@ccallable function propaq_noise_factor(ctx::Ptr{Cvoid}, basis_kind::UInt32,
+                                             words::Ptr{UInt64}, n_words::Csize_t,
+                                             n_units::UInt32, weight::UInt32,
+                                             layer_index::UInt32, n_layers::UInt32)::Cdouble
     c = unsafe_pointer_to_objref(ctx)::Ctx
     call_index = Threads.atomic_add!(c.call_index, UInt64(1))
-    damping_factor(c.damping, c.drift_rate, term_weight, call_index)
+    damping_factor(c.damping, c.drift_rate, weight, call_index)
 end
 
-Base.@ccallable function propaq_noise_damping_batch(ctx::Ptr{Cvoid}, term_weights::Ptr{UInt32},
-                                                     active_modes::Ptr{UInt32}, out::Ptr{Cdouble}, n::Csize_t)::Int32
+Base.@ccallable function propaq_noise_factor_batch(ctx::Ptr{Cvoid}, basis_kind::UInt32,
+                                                   words::Ptr{UInt64}, n_words_per_term::Csize_t,
+                                                   n_units::UInt32, weights::Ptr{UInt32},
+                                                   layer_index::UInt32, n_layers::UInt32,
+                                                   out::Ptr{Cdouble}, n_terms::Csize_t)::Int32
     c = unsafe_pointer_to_objref(ctx)::Ctx
     # Reserve the whole chunk's worth of call indices with one atomic op
     # instead of one fetch-add per term.
-    base = Threads.atomic_add!(c.call_index, UInt64(n))
-    weights = unsafe_wrap(Array, term_weights, n)
-    result = unsafe_wrap(Array, out, n)
-    @inbounds for i in 1:n
-        result[i] = damping_factor(c.damping, c.drift_rate, weights[i], base + UInt64(i - 1))
+    base = Threads.atomic_add!(c.call_index, UInt64(n_terms))
+    w = unsafe_wrap(Array, weights, n_terms)
+    result = unsafe_wrap(Array, out, n_terms)
+    @inbounds for i in 1:n_terms
+        result[i] = damping_factor(c.damping, c.drift_rate, w[i], base + UInt64(i - 1))
     end
     return Int32(0)
 end

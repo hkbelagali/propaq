@@ -1,10 +1,9 @@
-# Example propaq native noise plugin, implemented in Julia (AOT-compiled via
+# Example propaq noise plugin, implemented in Julia (AOT-compiled via
 # PackageCompiler.jl into a C-ABI shared library; see the plugins README).
 #
 # Stretched-exponential relaxation: damping_factor = exp(-(gamma * weight)^beta).
-# beta = 1 reduces exactly to UniformNoiseModel's plain exponential; beta != 1
-# gives a different decay shape (sub-/super-exponential in weight), which is
-# not expressible by UniformNoiseModel's single-parameter formula.
+#
+# Only requires the weight of the term, so it declares no dependencies.
 #
 
 const PROPAQ_NOISE_ABI_VERSION = UInt32(1)
@@ -22,8 +21,8 @@ function parse_field(json::AbstractString, key::AbstractString, fallback::Float6
     m === nothing ? fallback : parse(Float64, m.captures[1])
 end
 
-damping_factor(gamma::Float64, beta::Float64, term_weight::UInt32) =
-    exp(-(gamma * Float64(term_weight))^beta)
+damping_factor(gamma::Float64, beta::Float64, weight::UInt32) =
+    exp(-(gamma * Float64(weight))^beta)
 
 Base.@ccallable function propaq_noise_abi_version()::UInt32
     PROPAQ_NOISE_ABI_VERSION
@@ -46,18 +45,24 @@ Base.@ccallable function propaq_noise_destroy(ctx::Ptr{Cvoid})::Cvoid
     return nothing
 end
 
-Base.@ccallable function propaq_noise_damping_factor(ctx::Ptr{Cvoid}, term_weight::UInt32, active_modes::UInt32)::Cdouble
+Base.@ccallable function propaq_noise_factor(ctx::Ptr{Cvoid}, basis_kind::UInt32,
+                                             words::Ptr{UInt64}, n_words::Csize_t,
+                                             n_units::UInt32, weight::UInt32,
+                                             layer_index::UInt32, n_layers::UInt32)::Cdouble
     c = unsafe_pointer_to_objref(ctx)::Ctx
-    damping_factor(c.gamma, c.beta, term_weight)
+    damping_factor(c.gamma, c.beta, weight)
 end
 
-Base.@ccallable function propaq_noise_damping_batch(ctx::Ptr{Cvoid}, term_weights::Ptr{UInt32},
-                                                     active_modes::Ptr{UInt32}, out::Ptr{Cdouble}, n::Csize_t)::Int32
+Base.@ccallable function propaq_noise_factor_batch(ctx::Ptr{Cvoid}, basis_kind::UInt32,
+                                                   words::Ptr{UInt64}, n_words_per_term::Csize_t,
+                                                   n_units::UInt32, weights::Ptr{UInt32},
+                                                   layer_index::UInt32, n_layers::UInt32,
+                                                   out::Ptr{Cdouble}, n_terms::Csize_t)::Int32
     c = unsafe_pointer_to_objref(ctx)::Ctx
-    weights = unsafe_wrap(Array, term_weights, n)
-    result = unsafe_wrap(Array, out, n)
-    @inbounds for i in 1:n
-        result[i] = damping_factor(c.gamma, c.beta, weights[i])
+    w = unsafe_wrap(Array, weights, n_terms)
+    result = unsafe_wrap(Array, out, n_terms)
+    @inbounds for i in 1:n_terms
+        result[i] = damping_factor(c.gamma, c.beta, w[i])
     end
     return Int32(0)
 end

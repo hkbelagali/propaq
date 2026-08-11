@@ -477,26 +477,32 @@ class NativeNoiseModel:
     @property
     def abi_version(self) -> builtins.int:
         r"""
-        The ABI version the loaded plugin declared, 1 or 2.
+        The ABI version the loaded plugin declared.
+        """
+    @property
+    def depends(self) -> builtins.int:
+        r"""
+        The dependency bitmask the plugin declared: 1 = reads the term's key,
+        2 = reads the layer index. 0 means a function of weight alone.
         """
     def __new__(cls, path: builtins.str, config: typing.Optional[builtins.str] = None) -> NativeNoiseModel: ...
-    def damping_factor(self, term_weight: builtins.int, active_modes: builtins.int) -> builtins.float:
+    def factor_term(self, basis_kind: builtins.int, words: typing.Sequence[builtins.int], n_units: builtins.int, weight: builtins.int, layer_index: builtins.int = 0, n_layers: builtins.int = 0) -> builtins.float:
         r"""
-        Delegate to the plugin's `propaq_noise_damping_factor`. ABI v1 plugins only.
-        """
-    def factor_term(self, basis_kind: builtins.int, words: typing.Sequence[builtins.int], n_units: builtins.int, weight: builtins.int) -> builtins.float:
-        r"""
-        Delegate to the plugin's `propaq_noise_factor_v2`. ABI v2 plugins only.
+        Delegate to the plugin's `propaq_noise_factor`.
         
         Exposed so a plugin can be exercised from Python without running a
         circuit; propagation calls the same entry point directly from the pool.
         
         Arguments:
             basis_kind: 0 for Pauli, 1 for Majorana.
-            words: The term's raw basis-string words, two bits per unit.
+            words: The term's raw basis-string words, two bits per unit. Ignored
+                (and passed as NULL) unless the plugin declared it reads keys.
             n_units: Qubits (Pauli) or modes (Majorana) of the register.
             weight: The term's weight.
+            layer_index: Zero-based circuit layer.
+            n_layers: Layers in the circuit.
         """
+    def __repr__(self) -> builtins.str: ...
 
 class NativeTruncator:
     r"""
@@ -511,23 +517,31 @@ class NativeTruncator:
     @property
     def abi_version(self) -> builtins.int:
         r"""
-        The ABI version the loaded plugin declared, 1 or 2.
+        The ABI version the loaded plugin declared.
+        """
+    @property
+    def depends(self) -> builtins.int:
+        r"""
+        The dependency bitmask the plugin declared: 1 = reads the term's key,
+        2 = reads the layer index. 0 means weight and magnitude alone.
         """
     def __new__(cls, path: builtins.str, config: typing.Optional[builtins.str] = None) -> NativeTruncator: ...
-    def keep_term(self, term_weight: builtins.int, coeff_magnitude: builtins.float, active_modes: builtins.int) -> builtins.bool: ...
-    def keep_term_v2(self, basis_kind: builtins.int, words: typing.Sequence[builtins.int], n_units: builtins.int, weight: builtins.int, coeff_magnitude: builtins.float) -> builtins.bool:
+    def keep_term(self, basis_kind: builtins.int, words: typing.Sequence[builtins.int], n_units: builtins.int, weight: builtins.int, coeff_magnitude: builtins.float, layer_index: builtins.int = 0, n_layers: builtins.int = 0) -> builtins.bool:
         r"""
-        Delegate to the plugin's `propaq_truncator_keep_v2`. ABI v2 plugins only.
+        Delegate to the plugin's `propaq_truncator_keep`.
         
         Exposed so a plugin can be exercised from Python without running a
         circuit; propagation calls the same entry point directly from the pool.
         
         Arguments:
             basis_kind: 0 for Pauli, 1 for Majorana.
-            words: The term's raw basis-string words, two bits per unit.
+            words: The term's raw basis-string words, two bits per unit. Ignored
+                (and passed as NULL) unless the plugin declared it reads keys.
             n_units: Qubits (Pauli) or modes (Majorana) of the register.
             weight: The term's weight.
             coeff_magnitude: The term's coefficient magnitude.
+            layer_index: Zero-based circuit layer.
+            n_layers: Layers in the circuit.
         """
     def __repr__(self) -> builtins.str: ...
 
