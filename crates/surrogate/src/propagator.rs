@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 use propaq_core::bitset::Bitset;
 use propaq_core::helpers::pyint_to_bitset;
 use propaq_core::logger::Logger;
+use propaq_core::progress::Progress;
 use propaq_core::store::TermBasis;
 use propaq_core::traits::AbstractTerm;
 
@@ -38,6 +39,10 @@ pub struct SurrogatePropagator<B: TermBasis> {
     pub truncators: Vec<Truncator>,
     pub log_filename: Option<String>,
     pub log_every: usize,
+    /// Draw a tqdm bar over the build's gate loop.
+    pub progress_bar: bool,
+    /// Gates between bar ticks.
+    pub progress_every: usize,
     _marker: PhantomData<B>,
 }
 
@@ -49,6 +54,8 @@ where
         truncators: Vec<Truncator>,
         n_threads: Option<usize>,
         logger: Option<Py<PyAny>>,
+        progress_bar: bool,
+        progress_every: usize,
     ) -> PyResult<Self> {
         let mut builder = rayon::ThreadPoolBuilder::new();
         if let Some(n) = n_threads {
@@ -71,6 +78,8 @@ where
             truncators,
             log_filename,
             log_every,
+            progress_bar,
+            progress_every: progress_every.max(1),
             _marker: PhantomData,
         })
     }
@@ -123,7 +132,7 @@ use propaq_pauli::algebra::to_basis_string as to_basis_string_pauli;
 /// Width dispatch for a surrogate build, one arm per basis-string storage width.
 macro_rules! surrogate_build {
     ($algebra:ty, $to_basis:ident, $obs:expr, $layers:expr, $n_units:expr,
-     $partitions:expr, $cfg:expr, $fock:expr, $n_params:expr) => {{
+     $partitions:expr, $cfg:expr, $fock:expr, $n_params:expr, $progress:expr) => {{
         let n = $n_units;
         let inline = crate::engine::INITIAL_INLINE_POSITIONS.min(2 * n.max(1));
         macro_rules! arm {
@@ -138,6 +147,7 @@ macro_rules! surrogate_build {
                     $cfg,
                     $fock,
                     $n_params,
+                    $progress,
                 )
             };
         }
@@ -169,6 +179,9 @@ macro_rules! surrogate_build {
 ///         legacy FrequencyTruncationPolicy (decomposed automatically), or None.
 ///     n_threads: Number of worker threads. Defaults to the system thread count.
 ///     logger: Optional Logger for verbose JSON Lines event logging.
+///     progress_bar: Draw a tqdm bar over the build's gate loop.
+///     progress_every: Gates between progress bar ticks. Defaults to 1.
+///
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliSurrogatePropagator {
@@ -179,16 +192,24 @@ pub struct PauliSurrogatePropagator {
 #[pymethods]
 impl PauliSurrogatePropagator {
     #[new]
-    #[pyo3(signature = (truncation=None, n_threads=None, logger=None))]
+    #[pyo3(signature = (truncation=None, n_threads=None, logger=None, progress_bar=false, progress_every=1))]
     fn new(
         truncation: Option<Bound<'_, PyAny>>,
         n_threads: Option<usize>,
         logger: Option<Py<PyAny>>,
+        progress_bar: bool,
+        progress_every: usize,
     ) -> PyResult<Self> {
         let truncators = resolve_truncation(truncation.as_ref())?;
         reject_numerical_only(&truncators)?;
         Ok(PauliSurrogatePropagator {
-            inner: SurrogatePropagator::new(truncators, n_threads, logger)?,
+            inner: SurrogatePropagator::new(
+                truncators,
+                n_threads,
+                logger,
+                progress_bar,
+                progress_every,
+            )?,
         })
     }
 
@@ -220,6 +241,13 @@ impl PauliSurrogatePropagator {
         let cfg = resolve_config(&self.inner.truncators);
         let pool = std::sync::Arc::clone(&self.inner.pool);
         let partitions = pool.current_num_threads().max(1);
+        let total_gates = layers.iter().map(Vec::len).sum();
+        let progress = Progress::new(
+            py,
+            self.inner.progress_bar,
+            total_gates,
+            self.inner.progress_every,
+        )?;
         let model = py.detach(|| {
             pool.install(|| {
                 surrogate_build!(
@@ -231,11 +259,16 @@ impl PauliSurrogatePropagator {
                     partitions,
                     &cfg,
                     initial_state.as_words(),
-                    n_params
+                    n_params,
+                    progress.as_ref()
                 )
             })
-        })?;
-        let (model, flushes) = model;
+        });
+
+        if let Some(p) = progress.as_ref() {
+            p.close();
+        }
+        let (model, flushes) = model?;
         write_flush_log(self.inner.log_filename.as_deref(), &flushes)?;
         Ok(PauliSurrogateModel { inner: model })
     }
@@ -272,16 +305,24 @@ pub struct MajoranaSurrogatePropagator {
 #[pymethods]
 impl MajoranaSurrogatePropagator {
     #[new]
-    #[pyo3(signature = (truncation=None, n_threads=None, logger=None))]
+    #[pyo3(signature = (truncation=None, n_threads=None, logger=None, progress_bar=false, progress_every=1))]
     fn new(
         truncation: Option<Bound<'_, PyAny>>,
         n_threads: Option<usize>,
         logger: Option<Py<PyAny>>,
+        progress_bar: bool,
+        progress_every: usize,
     ) -> PyResult<Self> {
         let truncators = resolve_truncation(truncation.as_ref())?;
         reject_numerical_only(&truncators)?;
         Ok(MajoranaSurrogatePropagator {
-            inner: SurrogatePropagator::new(truncators, n_threads, logger)?,
+            inner: SurrogatePropagator::new(
+                truncators,
+                n_threads,
+                logger,
+                progress_bar,
+                progress_every,
+            )?,
         })
     }
 
@@ -309,6 +350,13 @@ impl MajoranaSurrogatePropagator {
         let cfg = resolve_config(&self.inner.truncators);
         let pool = std::sync::Arc::clone(&self.inner.pool);
         let partitions = pool.current_num_threads().max(1);
+        let total_gates = layers.iter().map(Vec::len).sum();
+        let progress = Progress::new(
+            py,
+            self.inner.progress_bar,
+            total_gates,
+            self.inner.progress_every,
+        )?;
         let model = py.detach(|| {
             pool.install(|| {
                 surrogate_build!(
@@ -320,11 +368,16 @@ impl MajoranaSurrogatePropagator {
                     partitions,
                     &cfg,
                     initial_state.as_words(),
-                    n_params
+                    n_params,
+                    progress.as_ref()
                 )
             })
-        })?;
-        let (model, flushes) = model;
+        });
+
+        if let Some(p) = progress.as_ref() {
+            p.close();
+        }
+        let (model, flushes) = model?;
         write_flush_log(self.inner.log_filename.as_deref(), &flushes)?;
         Ok(MajoranaSurrogateModel { inner: model })
     }

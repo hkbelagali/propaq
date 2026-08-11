@@ -7,6 +7,7 @@ use propaq_core::basis::Basis;
 use propaq_core::coeff::CoeffRepr;
 use propaq_core::operator_index::Pos;
 use propaq_core::partitioned_termsum::PartitionedTermSum;
+use propaq_core::progress::Progress;
 use propaq_core::strings::BasisString;
 use propaq_core::termsum::EmitCutoff;
 use propaq_core::truncators::ResolvedConfig;
@@ -128,6 +129,7 @@ pub fn build<A, P, T, const W: usize>(
     cfg: &ResolvedConfig,
     initial_state: &[u64],
     n_params: usize,
+    progress: Option<&Progress>,
 ) -> PyResult<(SurrogateModel, Vec<FlushRecord>)>
 where
     A: Basis<W>,
@@ -178,6 +180,11 @@ where
                     monomials_after: monomials,
                 });
             }
+            if let Some(p) = progress {
+                if gate_idx.is_multiple_of(p.every()) {
+                    p.tick_surrogate(p.every(), op.len(), monomials);
+                }
+            }
         }
         let (before, mono_before) = (op.len(), monomials);
         monomials = apply_truncation::<A, P, W>(&mut op, cfg, n_units, monomials);
@@ -190,6 +197,15 @@ where
             monomials_before: mono_before,
             monomials_after: monomials,
         });
+    }
+
+    // Gates left over when the circuit does not divide by the tick interval,
+    // so the bar still lands on its total.
+    if let Some(p) = progress {
+        let remainder = gate_idx % p.every();
+        if remainder != 0 {
+            p.tick_surrogate(remainder, op.len(), monomials);
+        }
     }
 
     let (tape, raw) = compile::<A, P, W>(&mut op, n_units, initial_state);

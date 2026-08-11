@@ -32,6 +32,8 @@ pub mod noise_resolver;
 pub mod operator_index;
 #[path = "engine/partitioned_termsum.rs"]
 pub mod partitioned_termsum;
+#[path = "interface/progress.rs"]
+pub mod progress;
 #[path = "interface/results.rs"]
 pub mod results;
 #[path = "engine/run_config.rs"]
@@ -63,6 +65,7 @@ pub use logger::Logger;
 pub use native_noise::NativeNoiseModel;
 pub use native_truncator::NativeTruncator;
 pub use noise::{GateNoiseModel, UniformNoiseModel};
+pub use progress::Progress;
 pub use results::PropagationResult;
 pub use term_kernel::{NoiseKernel, TermView, TruncationKernel};
 pub use truncators::{

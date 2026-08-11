@@ -21,6 +21,10 @@ pub struct RunConfig {
     pub log_filename: Option<String>,
     /// Emit one record every this many gates.
     pub log_every: usize,
+    /// Draw a tqdm bar over the gate loop.
+    pub progress_bar: bool,
+    /// Gates between bar ticks.
+    pub progress_every: usize,
 }
 
 impl RunConfig {
@@ -31,6 +35,8 @@ impl RunConfig {
         n_threads: Option<usize>,
         logger: Option<Py<PyAny>>,
         pin_threads: bool,
+        progress_bar: bool,
+        progress_every: usize,
     ) -> PyResult<Self> {
         let mut builder = rayon::ThreadPoolBuilder::new();
         if let Some(n) = n_threads {
@@ -64,6 +70,8 @@ impl RunConfig {
             truncators,
             log_filename,
             log_every,
+            progress_bar,
+            progress_every: progress_every.max(1),
         })
     }
 

@@ -114,6 +114,9 @@ fn write_phase_event(log: &mut impl Write, p: &propaq_core::partitioned_termsum:
 ///         two OpenBLAS copies that each start one spinner per core: measured
 ///         449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
 ///         before numpy imports is the better fix.
+///     progress_bar: Draw a tqdm bar over the gate loop.
+///     progress_every: Gates between progress bar ticks. Defaults to 1. 
+///
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaPropagator {
@@ -125,18 +128,28 @@ pub struct MajoranaPropagator {
 impl MajoranaPropagator {
     /// Initialize the Majorana propagator. See the class docstring for arguments.
     #[new]
-    #[pyo3(signature = (noise=None, truncation=None, n_threads=None, logger=None, pin_threads=true))]
+    #[pyo3(signature = (noise=None, truncation=None, n_threads=None, logger=None, pin_threads=true, progress_bar=false, progress_every=1))]
     fn new(
         noise: Option<Py<PyAny>>,
         truncation: Option<Bound<'_, PyAny>>,
         n_threads: Option<usize>,
         logger: Option<Py<PyAny>>,
         pin_threads: bool,
+        progress_bar: bool,
+        progress_every: usize,
     ) -> PyResult<Self> {
         let truncators = resolve_truncation(truncation.as_ref())?;
         reject_surrogate_only(&truncators)?;
         Ok(MajoranaPropagator {
-            inner: RunConfig::new(noise, truncators, n_threads, logger, pin_threads)?,
+            inner: RunConfig::new(
+                noise,
+                truncators,
+                n_threads,
+                logger,
+                pin_threads,
+                progress_bar,
+                progress_every,
+            )?,
         })
     }
 
@@ -169,7 +182,20 @@ impl MajoranaPropagator {
                     let terms: Vec<(MajoranaMonomial, f64)> =
                         crate::termsum::materialize(src).into_iter().collect();
                     engine::run::<f64>(
-                        py, &terms, circuit, None, n, &cfg, pool, threads, noise, false, true, log,
+                        py,
+                        &terms,
+                        circuit,
+                        None,
+                        n,
+                        &cfg,
+                        pool,
+                        threads,
+                        noise,
+                        false,
+                        true,
+                        log,
+                        self.inner.progress_bar,
+                        self.inner.progress_every,
                     )?
                     .and_then(|o| {
                         recs = o.gates;
@@ -188,7 +214,20 @@ impl MajoranaPropagator {
                     let terms: Vec<(MajoranaMonomial, f64)> =
                         crate::termsum::materialize(src).into_iter().collect();
                     engine::run::<f32>(
-                        py, &terms, circuit, None, n, &cfg, pool, threads, noise, false, true, log,
+                        py,
+                        &terms,
+                        circuit,
+                        None,
+                        n,
+                        &cfg,
+                        pool,
+                        threads,
+                        noise,
+                        false,
+                        true,
+                        log,
+                        self.inner.progress_bar,
+                        self.inner.progress_every,
                     )?
                     .and_then(|o| {
                         recs = o.gates;
@@ -271,6 +310,8 @@ impl MajoranaPropagator {
                         true,
                         want_terms,
                         log,
+                        self.inner.progress_bar,
+                        self.inner.progress_every,
                     )
                     .map(|o| {
                         o.map(|o| {
@@ -300,6 +341,8 @@ impl MajoranaPropagator {
                         true,
                         want_terms,
                         log,
+                        self.inner.progress_bar,
+                        self.inner.progress_every,
                     )
                     .map(|o| {
                         o.map(|o| {

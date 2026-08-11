@@ -11,6 +11,7 @@ use propaq_core::coeff::CoeffRepr;
 use propaq_core::noise_resolver::{resolve_noise, ResolvedNoise, PYTHON_TERM_HOOK};
 use propaq_core::operator_index::OperatorIndex;
 use propaq_core::partitioned_termsum::{PartitionedTermSum, PhaseStats};
+use propaq_core::progress::Progress;
 use propaq_core::results::PropagationResult;
 use propaq_core::strings::BasisString;
 use propaq_core::termsum::EmitCutoff;
@@ -78,6 +79,7 @@ fn run_at_width<C, const W: usize, P>(
     fock: Option<&[u64]>,
     want_terms: bool,
     log_gates: bool,
+    progress: Option<&Progress>,
 ) -> PyResult<RunOutput<C>>
 where
     C: CoeffRepr,
@@ -169,6 +171,18 @@ where
             if collect_counts {
                 n_terms.push(op.len());
             }
+            if let Some(p) = progress {
+                if gate_idx.is_multiple_of(p.every()) {
+                    p.tick(p.every(), op.len());
+                }
+            }
+        }
+    }
+
+    if let Some(p) = progress {
+        let remainder = gate_idx % p.every();
+        if remainder != 0 {
+            p.tick(remainder, op.len());
         }
     }
 
@@ -240,6 +254,7 @@ type Runner<C> = fn(
     Option<&[u64]>,
     bool,
     bool,
+    Option<&Progress>,
 ) -> PyResult<RunOutput<C>>;
 
 fn runner_for<C: CoeffRepr>(n_units: usize) -> Runner<C> {
@@ -271,6 +286,8 @@ pub fn run<C: CoeffRepr>(
     collect_counts: bool,
     want_terms: bool,
     log_gates: bool,
+    progress_bar: bool,
+    progress_every: usize,
 ) -> PyResult<Option<RunOutput<C>>> {
     if n_units > MAX_DISPATCH_QUBITS {
         return Ok(None);
@@ -282,6 +299,9 @@ pub fn run<C: CoeffRepr>(
 
     let noise = resolve_noise(noise, n_units)?;
     let run = runner_for::<C>(n_units);
+
+    let total_gates = layers.iter().map(Vec::len).sum();
+    let progress = Progress::new(py, progress_bar, total_gates, progress_every)?;
 
     let out = py.detach(|| {
         pool.install(|| {
@@ -296,8 +316,13 @@ pub fn run<C: CoeffRepr>(
                 fock,
                 want_terms,
                 log_gates,
+                progress.as_ref(),
             )
         })
-    })?;
-    Ok(Some(out))
+    });
+
+    if let Some(p) = progress.as_ref() {
+        p.close();
+    }
+    Ok(Some(out?))
 }
