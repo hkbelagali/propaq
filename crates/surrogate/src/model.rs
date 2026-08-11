@@ -16,11 +16,11 @@
 /// impls for Pauli and Majorana surrogate models.
 ///
 use std::cell::RefCell;
-use std::io::{BufReader, BufWriter, Read, Write};
 use std::fs::OpenOptions;
+use std::io::{BufReader, BufWriter, Read, Write};
 
-use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use flate2::Compression;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -38,7 +38,7 @@ pub struct SurrogateTerm {
 const EMPTY_ROOT: usize = usize::MAX;
 
 thread_local! {
-    static EVAL_SCRATCH: RefCell<Vec<f64>> = RefCell::new(Vec::new());
+    static EVAL_SCRATCH: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Compiled output of a surrogate propagation run.
@@ -52,7 +52,11 @@ pub struct SurrogateModel {
 impl SurrogateModel {
     /// Builds a model from its compiled terms, shared coefficient tape, and parameter count.
     pub fn new(terms: Vec<SurrogateTerm>, tape: CompiledCoeff, n_params: usize) -> Self {
-        SurrogateModel { terms, tape, n_params }
+        SurrogateModel {
+            terms,
+            tape,
+            n_params,
+        }
     }
 
     /// Evaluate the expectation value for the given parameter angles.
@@ -61,7 +65,13 @@ impl SurrogateModel {
         let results = self.tape.evaluate_all(&lut);
         self.terms
             .par_iter()
-            .map(|t| if t.root == EMPTY_ROOT { 0.0 } else { t.overlap * results[t.root as usize] })
+            .map(|t| {
+                if t.root == EMPTY_ROOT {
+                    0.0
+                } else {
+                    t.overlap * results[t.root]
+                }
+            })
             .sum()
     }
 
@@ -77,7 +87,13 @@ impl SurrogateModel {
                     self.tape.evaluate_into(&lut, &mut results);
                     self.terms
                         .iter()
-                        .map(|t| if t.root == EMPTY_ROOT { 0.0 } else { t.overlap * results[t.root] })
+                        .map(|t| {
+                            if t.root == EMPTY_ROOT {
+                                0.0
+                            } else {
+                                t.overlap * results[t.root]
+                            }
+                        })
                         .sum()
                 })
             })
@@ -115,9 +131,6 @@ impl SurrogateModel {
             .into_iter()
             .collect::<std::io::Result<_>>()?;
 
-        // Contiguous shards, one per worker (at least one term each). Each shard
-        // is serialized + compressed on its own thread; blobs come back in term
-        // order because `par_chunks` preserves order.
         let n_terms = self.terms.len();
         let chunk = n_terms.div_ceil(target_shards).max(1);
         let term_blobs: Vec<Vec<u8>> = self
@@ -132,7 +145,11 @@ impl SurrogateModel {
             })
             .collect::<std::io::Result<_>>()?;
 
-        let file = OpenOptions::new().create(true).write(true).truncate(true).open(path)?;
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)?;
         let mut w = BufWriter::new(file);
         w.write_all(&MAGIC.to_le_bytes())?;
         w.write_all(&FORMAT_VERSION.to_le_bytes())?;
@@ -155,19 +172,22 @@ impl SurrogateModel {
         Ok(())
     }
 
-    /// Load from a file produced by `save`. The header and compressed blobs
-    /// are read sequentially, then both the tape shards and the term shards
-    /// are decompressed/parsed in parallel and reassembled (in shard order).
     pub fn load(path: &str) -> std::io::Result<Self> {
         let mut r = BufReader::new(std::fs::File::open(path)?);
 
         let mut u64_buf = [0u8; 8];
         let mut u32_buf = [0u8; 4];
         macro_rules! read_u64 {
-            () => {{ r.read_exact(&mut u64_buf)?; u64::from_le_bytes(u64_buf) }};
+            () => {{
+                r.read_exact(&mut u64_buf)?;
+                u64::from_le_bytes(u64_buf)
+            }};
         }
         macro_rules! read_u32 {
-            () => {{ r.read_exact(&mut u32_buf)?; u32::from_le_bytes(u32_buf) }};
+            () => {{
+                r.read_exact(&mut u32_buf)?;
+                u32::from_le_bytes(u32_buf)
+            }};
         }
 
         let magic = read_u32!();
@@ -192,7 +212,7 @@ impl SurrogateModel {
             r.read_exact(&mut blob)?;
             tape_blobs.push(blob);
         }
-        // Decompress AND parse each shard in one fused step per shard.
+
         let tape_shards: Vec<CompiledCoeff> = tape_blobs
             .into_par_iter()
             .map(|blob| -> std::io::Result<CompiledCoeff> {
@@ -209,8 +229,7 @@ impl SurrogateModel {
         for _ in 0..n_shards {
             shard_lens.push(read_u64!() as usize);
         }
-        // Read each compressed blob sequentially (I/O is serial), then decode +
-        // parse them in parallel.
+
         let mut blobs: Vec<Vec<u8>> = Vec::with_capacity(n_shards);
         for len in shard_lens {
             let mut blob = vec![0u8; len];
@@ -228,7 +247,11 @@ impl SurrogateModel {
             terms.extend(shard);
         }
 
-        Ok(SurrogateModel { terms, tape, n_params })
+        Ok(SurrogateModel {
+            terms,
+            tape,
+            n_params,
+        })
     }
 }
 
@@ -279,45 +302,43 @@ fn parse_shard(compressed: &[u8]) -> std::io::Result<Vec<SurrogateTerm>> {
 }
 
 /// Compiled surrogate model for Pauli observables.
-///
-/// Produced by `PauliSurrogatePropagator.build`. Call `evaluate(params)` to
-/// obtain the expectation value for a specific parameter assignment without
-/// re-running propagation. Use `save`/`load` for persistence.
+#[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliSurrogateModel {
     pub(crate) inner: SurrogateModel,
 }
 
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl PauliSurrogateModel {
-    /// Evaluate the expectation value. `params[i]` is the angle (radians) for parameter `i`.
     fn evaluate(&self, py: Python<'_>, params: Vec<f64>) -> PyResult<f64> {
         if params.len() < self.inner.n_params {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "params has {} elements but model requires {}",
-                params.len(), self.inner.n_params
+                params.len(),
+                self.inner.n_params
             )));
         }
-        Ok(py.allow_threads(|| self.inner.evaluate(&params)))
+        Ok(py.detach(|| self.inner.evaluate(&params)))
     }
 
-    /// Evaluate many parameter assignments at once (parallelized across
-    /// assignments); returns one expectation value per assignment.
     fn evaluate_batch(&self, py: Python<'_>, param_sets: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
         for (i, params) in param_sets.iter().enumerate() {
             if params.len() < self.inner.n_params {
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "param_sets[{i}] has {} elements but model requires {}",
-                    params.len(), self.inner.n_params
+                    params.len(),
+                    self.inner.n_params
                 )));
             }
         }
-        Ok(py.allow_threads(|| self.inner.evaluate_batch(&param_sets)))
+        Ok(py.detach(|| self.inner.evaluate_batch(&param_sets)))
     }
 
     /// Save to a gzip-compressed binary file.
     fn save(&self, path: &str) -> PyResult<()> {
-        self.inner.save(path)
+        self.inner
+            .save(path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
     }
 
@@ -341,9 +362,6 @@ impl PauliSurrogateModel {
         self.inner.n_terms()
     }
 
-    /// Total pre-dedup monomial-instance count across every surviving term
-    /// (an upper bound, not deduplicated: `n_terms` alone doesn't say how
-    /// much underlying computation a term represents).
     #[getter]
     fn n_monomials(&self) -> u128 {
         self.inner.n_monomials()
@@ -352,17 +370,20 @@ impl PauliSurrogateModel {
     fn __repr__(&self) -> String {
         format!(
             "PauliSurrogateModel(n_terms={}, n_params={})",
-            self.inner.n_terms(), self.inner.n_params
+            self.inner.n_terms(),
+            self.inner.n_params
         )
     }
 }
 
 /// Compiled surrogate model for Majorana observables.
+#[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaSurrogateModel {
     pub(crate) inner: SurrogateModel,
 }
 
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl MajoranaSurrogateModel {
     /// Evaluate the expectation value. `params[i]` is the angle (radians) for parameter `i`.
@@ -370,10 +391,11 @@ impl MajoranaSurrogateModel {
         if params.len() < self.inner.n_params {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "params has {} elements but model requires {}",
-                params.len(), self.inner.n_params
+                params.len(),
+                self.inner.n_params
             )));
         }
-        Ok(py.allow_threads(|| self.inner.evaluate(&params)))
+        Ok(py.detach(|| self.inner.evaluate(&params)))
     }
 
     fn evaluate_batch(&self, py: Python<'_>, param_sets: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
@@ -381,15 +403,17 @@ impl MajoranaSurrogateModel {
             if params.len() < self.inner.n_params {
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "param_sets[{i}] has {} elements but model requires {}",
-                    params.len(), self.inner.n_params
+                    params.len(),
+                    self.inner.n_params
                 )));
             }
         }
-        Ok(py.allow_threads(|| self.inner.evaluate_batch(&param_sets)))
+        Ok(py.detach(|| self.inner.evaluate_batch(&param_sets)))
     }
 
     fn save(&self, path: &str) -> PyResult<()> {
-        self.inner.save(path)
+        self.inner
+            .save(path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
     }
 
@@ -418,102 +442,12 @@ impl MajoranaSurrogateModel {
     fn __repr__(&self) -> String {
         format!(
             "MajoranaSurrogateModel(n_terms={}, n_params={})",
-            self.inner.n_terms(), self.inner.n_params
+            self.inner.n_terms(),
+            self.inner.n_params
         )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::symcoeff::{GateParam, SymbolicCoeff};
-    use num_complex::Complex64;
-    use propaq_core::coeff::CoeffRepr;
-
-    fn build_shared_model() -> (SurrogateModel, Vec<SymbolicCoeff>, Vec<f64>) {
-        let phase = Complex64::new(0.0, -1.0);
-        let mut base = SymbolicCoeff::from_scalar(1.0);
-        let _ = base.apply_rotation(&GateParam::symbolic(0), phase);
-
-        let overlaps = [1.5f64, -0.5, 2.0];
-        let coeffs: Vec<SymbolicCoeff> = overlaps
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                let mut c = base.clone();
-                let _ = c.apply_rotation(&GateParam::symbolic(1 + i as u32), phase);
-                c
-            })
-            .collect();
-
-        let (tape, roots) = SymbolicCoeff::compile_batch(coeffs.clone());
-        let terms: Vec<SurrogateTerm> = overlaps
-            .iter()
-            .zip(&roots)
-            .map(|(&overlap, &root)| SurrogateTerm { overlap, root })
-            .collect();
-
-        (SurrogateModel::new(terms, tape, 4), coeffs, overlaps.to_vec())
-    }
-
-    #[test]
-    fn evaluate_matches_the_old_per_term_compile_algorithm() {
-        let (model, coeffs, overlaps) = build_shared_model();
-        let params = [0.3, 0.7, 1.1, 1.9];
-        let lut = SurrogateModel::make_lut(&params);
-
-        let expected: f64 = overlaps
-            .iter()
-            .zip(&coeffs)
-            .map(|(&overlap, c)| overlap * c.compile().evaluate(&lut))
-            .sum();
-
-        let got = model.evaluate(&params);
-        assert!((got - expected).abs() < 1e-12, "got {got}, expected {expected}");
-    }
-
-    #[test]
-    fn n_monomials_matches_the_original_node_count_sum() {
-        let (model, coeffs, _overlaps) = build_shared_model();
-        let expected: u128 = coeffs.iter().map(|c| c.monomial_count()).sum();
-        assert_eq!(model.n_monomials(), expected);
-    }
-
-    #[test]
-    fn n_monomials_saturates_instead_of_wrapping_when_summing_many_huge_terms() {
-        let mut coeffs = Vec::new();
-        for i in 0..3 {
-            let mut c = SymbolicCoeff::from_scalar(1.0 + i as f64);
-            for _ in 0..135 {
-                let other = c.clone();
-                c.add_assign(other);
-            }
-            assert_eq!(c.monomial_count(), u128::MAX, "each term must itself be saturated already");
-            coeffs.push(c);
-        }
-        let (tape, roots) = SymbolicCoeff::compile_batch(coeffs);
-        let terms: Vec<SurrogateTerm> =
-            roots.iter().map(|&root| SurrogateTerm { overlap: 1.0, root }).collect();
-        let model = SurrogateModel::new(terms, tape, 1);
-        assert_eq!(model.n_monomials(), u128::MAX);
-    }
-
-    #[test]
-    fn save_load_round_trips_evaluate_output() {
-        let (model, _coeffs, _overlaps) = build_shared_model();
-        let params = [0.3, 0.7, 1.1, 1.9];
-        let before = model.evaluate(&params);
-
-        let path = std::env::temp_dir()
-            .join(format!("propaq_surrogate_model_test_{}.bin", std::process::id()));
-        let path_str = path.to_str().unwrap();
-        model.save(path_str).expect("save should succeed");
-        let loaded = SurrogateModel::load(path_str).expect("load should succeed");
-        let _ = std::fs::remove_file(&path);
-
-        assert_eq!(loaded.n_params, model.n_params);
-        assert_eq!(loaded.n_terms(), model.n_terms());
-        let after = loaded.evaluate(&params);
-        assert!((after - before).abs() < 1e-12, "round-tripped {after} vs original {before}");
-    }
-}
+#[path = "../tests/unit/model.rs"]
+mod tests;
