@@ -6,10 +6,10 @@
 //! allows one to wrap a custom Python noise model object
 //! that implements the same interface as `UniformNoiseModel`.
 //! propaq also supports dynamically loaded noise models from
-//! shared libraries written in compatible languages. These are 
-//! significantly faster than Python noise models due to GIL overhead, 
-//! and are competitive with built-in noise model performance. 
-//! We strongly recommend custom noise models be implemented 
+//! shared libraries written in compatible languages. These are
+//! significantly faster than Python noise models due to GIL overhead,
+//! and are competitive with built-in noise model performance.
+//! We strongly recommend custom noise models be implemented
 //! via the plugin ABI rather than Python.
 //!
 

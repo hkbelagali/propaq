@@ -19,8 +19,8 @@
 //!
 //! ## ABI contract, version 2
 //!
-//! Similar to the noise models, this provides access to an entire term's bitmask, 
-//! allowing for structure-aware truncation decisions. This still maintains backwards 
+//! Similar to the noise models, this provides access to an entire term's bitmask,
+//! allowing for structure-aware truncation decisions. This still maintains backwards
 //! compatibility with the v1 ABI, so a plugin can implement either one.
 //!
 //! ```c

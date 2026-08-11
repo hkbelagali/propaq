@@ -1,34 +1,17 @@
-///
-/// Term storage: sparse keys in one arena, coefficients in a parallel column.
-///
-/// This is the interchange representation the Python datatypes are built on
-/// (`PauliTermSum`, `MajoranaTermSum`) and what the hybrid contraction reads.
-/// It is deliberately *only* storage: propagation lives in
-/// `crate::partitioned`, which keeps its own store, and a term sum is what a run
-/// is seeded from and what it hands back.
-///
-/// It was the working state of an earlier structure-of-arrays engine, which is
-/// why the layout is columnar. That engine is gone; the scratch columns it
-/// needed (merge flags, hashes, per-batch tables) went with it, leaving the four
-/// fields that actually hold a term sum.
-///
+//! 
+//! Store terms as sparse lists and a parallel coefficient column
+//! 
 
 use num_complex::Complex64;
 use smallvec::{smallvec, SmallVec};
 
 use crate::coeff::CoeffRepr;
+use crate::sparse;
 
-/// Below this row count a pass runs serially: the rayon fork costs more than
-/// the work saves.
+pub use crate::sparse::{Position, SparseRows};
+
+/// Below this row count a pass runs serially
 pub const PAR_MIN_LEN: usize = 512;
-
-pub mod sparse;
-
-pub use sparse::{
-    reset_workspace_peak, workspace_peak_bytes, DenseWorkspace, Position, SparseRows,
-};
-
-/// Chunk size floor below which a pass runs serially.
 
 /// A raw pointer that rayon tasks may carry into disjoint-index scatters.
 pub(crate) struct SendPtr<T>(pub(crate) *mut T);
@@ -41,11 +24,6 @@ impl<T> SendPtr<T> {
     }
 }
 
-
-
-
-
-
 /// Splits a row into its plane-0 and plane-1 position slices.
 #[inline]
 pub fn split_planes(row: &[Position], plane_span: usize) -> (&[Position], &[Position]) {
@@ -53,9 +31,6 @@ pub fn split_planes(row: &[Position], plane_span: usize) -> (&[Position], &[Posi
 }
 
 /// Decodes one row into a stack-resident buffer and hands its word planes to `f`.
-///
-/// Only ever one row wide, so it is bounded regardless of term count; the
-/// chunked [`DenseWorkspace`] is for callers that need a run of rows at once.
 fn with_decoded<R>(row: &[Position], plane_span: usize, f: impl FnOnce([&[u64]; 2]) -> R) -> R {
     let stride = plane_span / 64;
     let mut buf: SmallVec<[u64; 8]> = smallvec![0u64; 2 * stride];
@@ -89,18 +64,13 @@ pub fn hash_positions(row: &[Position]) -> u64 {
     h.finish()
 }
 
-/// The algebra a `TermSum` needs from its term representation (Pauli, Majorana, etc.) to
+/// The algebra a `TermSum` needs from its term representation to
 /// run the shared kernels in `store::kernels`.
-///
-/// The word-plane methods define the algebra. The `*_sparse` methods are what
-/// the kernels actually call on the hot path; their defaults decode a single
-/// row and delegate, so a basis only overrides the ones worth doing directly on
-/// positions.
+
 pub trait TermBasis: Send + Sync + 'static {
-    /// The owned, per-term representation used at the Python/FFI boundary (e.g. `PauliString`).
+
     type Term: Clone + Send + Sync;
 
-    /// Number of `u64` words needed to store one term's plane for `n_units` qubits/modes.
     fn stride_words(n_units: usize) -> usize {
         let width = n_units.next_power_of_two().max(1);
         width.div_ceil(64)
@@ -112,13 +82,13 @@ pub trait TermBasis: Send + Sync + 'static {
     /// Computes `gen * term`, writing the result into `out` and returning its phase factor.
     fn product(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64;
 
-    /// The term's weight (number of non-identity single-qubit/mode factors).
+    /// The term's weight.
     fn weight(term: [&[u64]; 2], n_units: usize) -> u32;
 
     /// The term's expectation value trace against a computational basis state `fock`.
     fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64;
 
-    /// Hash of `term`'s key (its algebraic content, ignoring any coefficient), for the merge
+    /// Hash of `term`'s key, for the merge
     /// hash table. Must agree with `key_eq`.
     fn key_hash(term: [&[u64]; 2]) -> u64;
 
@@ -144,10 +114,6 @@ pub trait TermBasis: Send + Sync + 'static {
     }
 
     /// The weight of a term given as a sparse row.
-    ///
-    /// The default is the number of distinct units the two planes touch, which
-    /// is the usual definition; a basis whose weight is not a per-unit popcount
-    /// (Majorana's Jordan-Wigner weight, for instance) overrides this.
     fn weight_sparse(row: &[Position], plane_span: usize, _n_units: usize) -> u32 {
         let (p0, p1) = split_planes(row, plane_span);
         sparse::shifted_union_count(p0, p1, plane_span)
@@ -193,20 +159,12 @@ pub trait TermBasis: Send + Sync + 'static {
 }
 
 /// Structure-of-Arrays storage for a sum of terms.
-///
-/// Keys live in `rows` as sparse position lists; coefficients and merge
-/// metadata stay row-aligned with them. There is no persistent dense plane
-/// storage.
 pub struct TermSum<C: CoeffRepr> {
-    /// Sparse, row-major term keys. Authoritative: nothing else stores a key.
+    /// Sparse, row-major term keys.
     rows: SparseRows,
 
     /// Per-row coefficients, parallel to `rows`.
     pub coeffs: Vec<C>,
-
-
-
-
 
     /// Number of `u64` words one decoded row occupies per plane.
     pub stride: usize,
@@ -268,20 +226,18 @@ impl<C: CoeffRepr> TermSum<C> {
         &self.coeffs[i]
     }
 
-    /// Decodes row `i` into `buf` (which must be `2 * stride` words long) and
-    /// returns its two word planes.
-    ///
-    /// For reconstructing an owned `Self::Term` at an export boundary; the hot
-    /// kernels work on `row_positions` instead.
+    /// Decodes row `i` into `buf` and returns its two word planes.
     pub fn decode_row<'a>(&self, i: usize, buf: &'a mut [u64]) -> [&'a [u64]; 2] {
         let stride = self.stride;
-        assert!(buf.len() >= 2 * stride, "decode buffer must hold both planes");
+        assert!(
+            buf.len() >= 2 * stride,
+            "decode buffer must hold both planes"
+        );
         let (a, rest) = buf.split_at_mut(stride);
         let (b, _) = rest.split_at_mut(stride);
         self.rows.decode_into(i, [&mut *a, &mut *b]);
         [&*a, &*b]
     }
-
 
     /// Appends one new row with the given word planes and coefficient, growing capacity if
     /// needed.
@@ -302,13 +258,9 @@ impl<C: CoeffRepr> TermSum<C> {
         self.coeffs.clear();
     }
 
-
-
-
     /// Bytes occupied by the resident sparse term keys.
     ///
-    /// Excludes coefficients, merge metadata, and every temporary workspace;
-    /// see [`workspace_peak_bytes`] for the latter.
+    /// Excludes coefficients and merge metadata.
     pub fn sparse_key_bytes(&self) -> usize {
         self.rows.memory_bytes()
     }
@@ -317,7 +269,6 @@ impl<C: CoeffRepr> TermSum<C> {
     pub fn coeff_bytes(&self) -> usize {
         self.coeffs.capacity() * std::mem::size_of::<C>()
     }
-
 
     /// Deep-copies the live rows into a fresh term sum
     pub fn copy(&self) -> Self
@@ -344,46 +295,5 @@ impl<C: CoeffRepr> TermSum<C> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Guards the storage objective directly: two persistent dense planes would
-    /// cost `2 * stride * rows` words no matter how few bits each key sets, so a
-    /// wide, low-weight term sum whose key bytes stay near the set-bit count can
-    /// have no persistent dense plane fields.
-    #[test]
-    fn production_term_sum_has_no_persistent_dense_planes() {
-        let stride = 64; // 4096 qubits per plane
-        let n_rows = 1000;
-        let mut terms = TermSum::<f64>::new(4096, stride);
-        let mut x = vec![0u64; stride];
-        let z = vec![0u64; stride];
-        for i in 0..n_rows {
-            x[i % stride] = 1;
-            terms.push([&x, &z], 1.0);
-            x[i % stride] = 0;
-        }
-        assert_eq!(terms.len(), n_rows);
-
-        let dense_bytes = 2 * stride * n_rows * std::mem::size_of::<u64>();
-        assert!(
-            terms.sparse_key_bytes() * 8 < dense_bytes,
-            "key storage ({} bytes) is not sparse against the dense equivalent ({dense_bytes} bytes)",
-            terms.sparse_key_bytes()
-        );
-    }
-
-    #[test]
-    fn decode_row_reproduces_the_pushed_planes() {
-        let stride = 3;
-        let mut terms = TermSum::<f64>::new(160, stride);
-        let x = [0b101u64, 0, 1 << 40];
-        let z = [0u64, 1 << 7, 0];
-        terms.push([&x, &z], 2.0);
-        let mut buf = vec![0u64; 2 * stride];
-        let planes = terms.decode_row(0, &mut buf);
-        assert_eq!(planes[0], &x[..]);
-        assert_eq!(planes[1], &z[..]);
-    }
-
-}
+#[path = "../../tests/unit/storage/store.rs"]
+mod tests;

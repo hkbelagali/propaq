@@ -1,5 +1,5 @@
-//! 
-//! Custom noise and truncation models that require an 
+//!
+//! Custom noise and truncation models that require an
 //! individual term's key are implemented as a plugin ABI.
 //!
 

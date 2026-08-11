@@ -20,7 +20,7 @@
 //!
 //! ## ABI contract, version 2
 //!
-//! Version 2 handles noise models that need to see a term's entire symplectic representation, 
+//! Version 2 handles noise models that need to see a term's entire symplectic representation,
 //! so they're called per-term rather than being compressed into an LUT.
 //!
 //! ```c
@@ -43,9 +43,9 @@
 //! present, the damping pass calls one once per chunk instead of once per term,
 //! which lets performance-sensitive plugin authors (C, Rust, or AOT-compiled
 //! Julia via `PackageCompiler.create_library`) amortize the FFI boundary cost
-//! across many terms. NOTE: Designing a batch path could incur race conditions 
+//! across many terms. NOTE: Designing a batch path could incur race conditions
 //! for particular types of stateful noise models. This is something we plan
-//! to work on more in the future. 
+//! to work on more in the future.
 //!
 //! ## Safety contract
 //! Loading and calling a native plugin is unsandboxed arbitrary code
@@ -90,7 +90,7 @@ type FactorBatchV2Fn = unsafe extern "C" fn(
 ) -> i32;
 
 /// Wraps the resolved plugin entry points and its `ctx` pointer so they
-/// can cross into a rayon parallel closure. 
+/// can cross into a rayon parallel closure.
 #[derive(Clone, Copy)]
 pub struct NativeNoiseHandle {
     ctx: *mut c_void,

@@ -357,7 +357,6 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
         busy_nanos: &std::sync::atomic::AtomicU64,
         drain_into: Option<(&A::GenContext, &mut [Vec<Vec<Routed<C, W>>>])>,
     ) -> Result<usize, TermIndexCeilingReached> {
-
         let drain = drain_into.map(|(ctx, rows)| (ctx, WorkerSlots::new(rows)));
         let body = |dst: usize,
                     partition: &mut TermSum<C, P, W>|
@@ -379,7 +378,6 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
                 }
             }
             if let Some((ctx, rows)) = &drain {
-
                 let outbox = unsafe { rows.take(dst) };
                 for bucket in outbox.iter_mut() {
                     bucket.clear();
@@ -496,7 +494,6 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
         &mut self,
         f: impl Fn(&mut TermSum<C, P, W>, &CliffordTableau<W>) -> R + Sync + Send,
     ) -> Vec<R> {
-
         let PartitionedTermSum {
             partitions, frame, ..
         } = self;
@@ -508,9 +505,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
         let body = |partition: &mut TermSum<C, P, W>| partition.with_coeffs_mut(&f);
         if broadcast_applies(self.partitions.len()) {
             let ps = WorkerSlots::new(&mut self.partitions);
-            rayon::broadcast(|worker| {
-                body(unsafe { ps.take(worker.index()) })
-            });
+            rayon::broadcast(|worker| body(unsafe { ps.take(worker.index()) }));
             return;
         }
         self.partitions.par_iter_mut().for_each(body);
@@ -568,10 +563,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
 
         if broadcast_applies(self.partitions.len()) {
             let ps = WorkerSlots::new(&mut self.partitions);
-            let counts = rayon::broadcast(|worker| {
-
-                body(unsafe { ps.take(worker.index()) })
-            });
+            let counts = rayon::broadcast(|worker| body(unsafe { ps.take(worker.index()) }));
             let mut total = 0usize;
             for c in counts {
                 total += c?;
