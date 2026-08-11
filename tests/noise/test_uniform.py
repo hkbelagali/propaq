@@ -21,7 +21,7 @@ def test_damping_factor_matches_formula():
 def test_apply_noise_scales_term_sum():
     model = UniformNoiseModel(0.5)
     ts = MajoranaTermSum()
-    t = mon(0b00000011)  # one fermionic site → weight 1
+    t = mon(0b00000011)  # one fermionic site -> weight 1
     ts.add(t, 2.0)
     model.apply_noise(ts)
     _, coeff = list(ts.items())[0]
