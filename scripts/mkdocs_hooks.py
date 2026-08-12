@@ -65,8 +65,7 @@ def _staged_bytes(src: Path) -> bytes:
 
 
 def _stage_notebook(src: Path, dest: Path) -> bool:
-    """Stage *src* at *dest*, returning True only if *dest* actually changed.
-    """
+    """Stage *src* at *dest*, returning True only if *dest* actually changed."""
     payload = _staged_bytes(src)
     if dest.exists() and dest.read_bytes() == payload:
         return False

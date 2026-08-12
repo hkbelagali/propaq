@@ -149,7 +149,6 @@ class _NotebookScope:
             return None
 
         if isinstance(base, _Inst):
-
             cls = base.cls
             if node.attr in _instance_attributes(cls):
                 value = getattr(cls, node.attr, None)
@@ -288,7 +287,6 @@ class _NotebookScope:
         try:
             tree = ast.parse(source)
         except SyntaxError:
-
             return
 
         for node in ast.walk(tree):
