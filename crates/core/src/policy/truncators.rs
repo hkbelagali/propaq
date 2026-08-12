@@ -94,10 +94,7 @@ impl WeightTruncator {
 /// reaches it. Applies to both propagators. Either field `None` disables that
 /// bound.
 ///
-/// The two are keyword-only. They are a floor/ceiling pair of the same type, so
-/// a positional call is easy to transpose, and a transposed pair fails silently
-/// rather than loudly: `TermBudget(None, 1)` reads like a ceiling of 1 but sets
-/// no ceiling at all, and truncation then never fires.
+/// The two are keyword-only.
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
@@ -129,14 +126,6 @@ impl TermBudget {
     }
 }
 
-/// Monomial-count budget: `min_monomials` is the count below which lossy
-/// operators are suppressed; `max_monomials` triggers a flush once the live
-/// monomial count reaches it. Surrogate-only. Either field `None` disables that
-/// bound.
-///
-/// The two are keyword-only, for the same reason as `TermBudget`: they are a
-/// floor/ceiling pair of the same type, so a positional call is easy to
-/// transpose, and a transposed pair fails silently rather than loudly.
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]

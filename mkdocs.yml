@@ -1,0 +1,220 @@
+site_name: propaq
+site_description: Fast Heisenberg-picture propagation for quantum circuit simulation, with a parallel Rust backend.
+site_url: https://hkbelagali.github.io/propaq/
+repo_url: https://github.com/hkbelagali/propaq
+repo_name: hkbelagali/propaq
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Hrishikesh Belagali &mdash; MIT License
+
+watch:
+  - propaq
+  - examples
+  - README.md
+  - CHANGELOG.md
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+
+  font: false
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - content.tooltips
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/hkbelagali/propaq
+      name: propaq on GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/propaq/
+      name: propaq on PyPI
+
+hooks:
+  - scripts/mkdocs_hooks.py
+
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            docstring_section_style: table
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            show_signature_annotations: true
+            separate_signature: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+            inherited_members: true
+            filters:
+              - "!^_"
+              - "!^__"
+            members_order: source
+            group_by_category: true
+            heading_level: 2
+            annotations_path: brief
+            unwrap_annotated: true
+            modernize_annotations: true
+            parameter_headings: false
+            summary:
+              attributes: true
+              functions: true
+              classes: true
+              modules: false
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+      include_requirejs: true
+      ignore_h1_titles: true
+      show_input: true
+      no_input: false
+      remove_tag_config:
+        remove_input: [hide_input]
+        remove_all_outputs: [hide_output]
+      highlight_extra_classes: nb-cell
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: On this page
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets:
+      base_path: [.]
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Core concepts: getting-started/concepts.md
+  - Guides:
+      - guides/index.md
+      - Circuits and gates: guides/circuits.md
+      - Truncation: guides/truncation.md
+      - Noise models: guides/noise.md
+      - Surrogate propagation: guides/surrogate.md
+      - Extrapolation: guides/extrapolation.md
+      - Streaming and I/O: guides/streaming.md
+      - Hybrid simulation: guides/hybrid.md
+      - Logging and profiling: guides/logging.md
+      - Native plugins: guides/plugins.md
+  - Examples:
+      - examples/index.md
+      - Usage:
+          - examples/usage/01_getting_started.ipynb
+          - examples/usage/02_pauli_vs_majorana.ipynb
+          - examples/usage/03_truncation_pipelines.ipynb
+          - examples/usage/04_variational_surrogate.ipynb
+          - examples/usage/05_surrogate_persistence.ipynb
+          - examples/usage/06_term_streaming.ipynb
+          - examples/usage/07_zero_cutoff_extrapolation.ipynb
+          - examples/usage/08_zero_noise_extrapolation.ipynb
+          - examples/usage/09_custom_gate_registration.ipynb
+          - examples/usage/10_hybrid_schrodinger_heisenberg.ipynb
+          - examples/usage/11_custom_basis_qudit_weyl.ipynb
+      - Native plugins:
+          - examples/plugins/01_c_plugins.ipynb
+          - examples/plugins/02_rust_plugins.ipynb
+          - examples/plugins/03_julia_aot_plugins.ipynb
+          - examples/plugins/04_batch_abi_benchmark.ipynb
+  - API reference:
+      - reference/index.md
+      - propaq.datatypes: reference/datatypes.md
+      - propaq.circuits: reference/circuits.md
+      - propaq.propagators: reference/propagators.md
+      - propaq.noise: reference/noise.md
+      - propaq.truncation: reference/truncation.md
+      - propaq.models: reference/models.md
+      - propaq.extrapolators: reference/extrapolators.md
+      - propaq.hybrid: reference/hybrid.md
+      - propaq.log_parser: reference/log_parser.md
+      - Results and logging: reference/runtime.md
+  - Changelog: changelog.md

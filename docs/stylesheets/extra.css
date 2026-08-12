@@ -1,0 +1,777 @@
+/* ==========================================================================
+   propaq documentation theme
+   ========================================================================== */
+
+/* --- Fonts ----------------------------------------------------------------
+
+   Source Sans 3 for text, Source Code Pro for code, both as variable cuts over
+   300-700. `theme.font` is set to false in mkdocs.yml so that this is the only
+   font request: Material's own loader asks for fixed 300/400/700 faces, and the
+   theme below uses 500 and 600 as well, which the browser would otherwise have
+   to synthesize. Loading the variable axis costs one request and covers every
+   weight used here.
+   -------------------------------------------------------------------------- */
+
+@import url("https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,400..700;1,400..700&family=Source+Sans+3:ital,wght@0,300..700;1,300..700&display=fallback");
+
+/* Material builds --md-text-font-family from these; with theme.font disabled it
+   no longer emits them itself. */
+:root {
+  --md-text-font: "Source Sans 3";
+  --md-code-font: "Source Code Pro";
+}
+
+/* --- Palette --------------------------------------------------------------
+
+   A restrained, paper-like scheme for a scientific-computing library. One hue
+   only - the violet of the logo mark - used for links, marks and focus. Every
+   other distinction is made with hairline rules and whitespace rather than
+   with fills, which is what keeps dense reference material legible.
+
+   Light                        Dark
+   Background  #FFFFFF          Background  #1E1E21
+   Surface     #FFFFFF          Surface     #26262A
+   Text        #1A1A1E          Text        #E6E6E9
+   Accent      #6D28D9          Accent      #A78BFA
+   Rule        #E4E4E8          Rule        #3A3A41
+
+   Light mode is white throughout - page, chrome, cards and code all share the
+   same ground, and borders do the separating. Dark mode is neutral gray, not
+   a tinted navy, so that plots and figures dropped into a page do not pick up
+   a colour cast from their surroundings.
+   -------------------------------------------------------------------------- */
+
+[data-md-color-scheme="default"] {
+  --pq-bg: #ffffff;
+  --pq-surface: #ffffff;
+  --pq-surface-alt: #ffffff;
+  --pq-text: #1a1a1e;
+  --pq-accent: #6d28d9;
+  --pq-accent-strong: #5b21b6;
+  --pq-border: #e4e4e8;
+  --pq-rule: #c9c9d0;
+
+  --md-default-bg-color: var(--pq-bg);
+  --md-default-fg-color: var(--pq-text);
+  --md-default-fg-color--light: #55555e;
+  --md-default-fg-color--lighter: #8a8a94;
+  --md-default-fg-color--lightest: #d4d4da;
+
+  /* Translucent variants of the ground, used for sticky-nav fades and overlays.
+     Material derives these from --md-hue, which would tint them blue. */
+  --md-default-bg-color--light: rgba(255, 255, 255, 0.7);
+  --md-default-bg-color--lighter: rgba(255, 255, 255, 0.45);
+  --md-default-bg-color--lightest: rgba(255, 255, 255, 0.12);
+
+  /* Material paints the header and tab bar with --md-primary-fg-color. A white
+     band there keeps the chrome from competing with the content; the hairline
+     rule in `.md-header` below is what separates it from the page. */
+  --md-primary-fg-color: var(--pq-bg);
+  --md-primary-fg-color--light: var(--pq-surface-alt);
+  --md-primary-fg-color--dark: var(--pq-bg);
+  --md-primary-bg-color: var(--pq-text);
+  --md-primary-bg-color--light: var(--md-default-fg-color--light);
+
+  --md-accent-fg-color: var(--pq-accent-strong);
+  --md-accent-fg-color--transparent: rgba(109, 40, 217, 0.08);
+
+  --md-typeset-a-color: var(--pq-accent);
+  --md-typeset-mark-color: rgba(109, 40, 217, 0.14);
+  --md-typeset-table-color: var(--pq-rule);
+
+  --md-code-bg-color: var(--pq-bg);
+  --md-code-fg-color: var(--pq-text);
+
+  --md-footer-bg-color: var(--pq-bg);
+  --md-footer-bg-color--dark: var(--pq-bg);
+  --md-footer-fg-color: var(--pq-text);
+  --md-footer-fg-color--light: var(--md-default-fg-color--light);
+  --md-footer-fg-color--lighter: var(--md-default-fg-color--lighter);
+
+  /* Syntax highlighting. Material's defaults run to saturated pink, green and
+     cyan; every page here carries at least one code block, so the range is
+     pulled back to violet (keywords, tying to the accent), one muted blue,
+     and desaturated earth tones for literals. */
+  --md-code-hl-keyword-color: #6d28d9;
+  --md-code-hl-special-color: #6d28d9;
+  --md-code-hl-function-color: #1f5fa9;
+  --md-code-hl-name-color: var(--pq-text);
+  --md-code-hl-variable-color: var(--pq-text);
+  --md-code-hl-string-color: #2f6f52;
+  --md-code-hl-number-color: #9a4a17;
+  --md-code-hl-constant-color: #9a4a17;
+  --md-code-hl-operator-color: #55555e;
+  --md-code-hl-punctuation-color: #55555e;
+  --md-code-hl-comment-color: #71717a;
+  --md-code-hl-generic-color: var(--md-default-fg-color--light);
+  --md-code-hl-color: rgba(109, 40, 217, 0.1);
+  --md-code-hl-color--light: rgba(109, 40, 217, 0.05);
+}
+
+[data-md-color-scheme="slate"] {
+  --pq-bg: #1e1e21;
+  --pq-surface: #26262a;
+  --pq-surface-alt: #26262a;
+  --pq-text: #e6e6e9;
+  --pq-accent: #a78bfa;
+  --pq-accent-strong: #c4b5fd;
+  --pq-border: #3a3a41;
+  --pq-rule: #4d4d56;
+
+  --md-default-bg-color: var(--pq-bg);
+  --md-default-fg-color: var(--pq-text);
+  --md-default-fg-color--light: #a6a6b0;
+  --md-default-fg-color--lighter: #7a7a85;
+  --md-default-fg-color--lightest: #45454d;
+
+  /* See the note in the light scheme: slate's own values are hue-derived and
+     would put a blue cast on the neutral gray. */
+  --md-default-bg-color--light: rgba(30, 30, 33, 0.7);
+  --md-default-bg-color--lighter: rgba(30, 30, 33, 0.45);
+  --md-default-bg-color--lightest: rgba(30, 30, 33, 0.12);
+
+  --md-primary-fg-color: var(--pq-bg);
+  --md-primary-fg-color--light: var(--pq-surface);
+  --md-primary-fg-color--dark: var(--pq-bg);
+  --md-primary-bg-color: var(--pq-text);
+  --md-primary-bg-color--light: var(--md-default-fg-color--light);
+
+  --md-accent-fg-color: var(--pq-accent-strong);
+  --md-accent-fg-color--transparent: rgba(167, 139, 250, 0.12);
+
+  --md-typeset-a-color: var(--pq-accent);
+  --md-typeset-mark-color: rgba(167, 139, 250, 0.2);
+  --md-typeset-table-color: var(--pq-rule);
+
+  --md-code-bg-color: var(--pq-surface);
+  --md-code-fg-color: var(--pq-text);
+
+  --md-footer-bg-color: var(--pq-bg);
+  --md-footer-bg-color--dark: var(--pq-bg);
+  --md-footer-fg-color: var(--pq-text);
+  --md-footer-fg-color--light: var(--md-default-fg-color--light);
+  --md-footer-fg-color--lighter: var(--md-default-fg-color--lighter);
+
+  /* The same restrained range as the light scheme, lifted for a dark ground. */
+  --md-code-hl-keyword-color: #a78bfa;
+  --md-code-hl-special-color: #c4b5fd;
+  --md-code-hl-function-color: #8ab4d8;
+  --md-code-hl-name-color: var(--pq-text);
+  --md-code-hl-variable-color: var(--pq-text);
+  --md-code-hl-string-color: #9cbf95;
+  --md-code-hl-number-color: #d8a06a;
+  --md-code-hl-constant-color: #d8a06a;
+  --md-code-hl-operator-color: #a6a6b0;
+  --md-code-hl-punctuation-color: #a6a6b0;
+  --md-code-hl-comment-color: #8a8a94;
+  --md-code-hl-generic-color: var(--md-default-fg-color--light);
+  --md-code-hl-color: rgba(167, 139, 250, 0.16);
+  --md-code-hl-color--light: rgba(167, 139, 250, 0.08);
+}
+
+/* --- Chrome ---------------------------------------------------------------
+
+   Header, tab bar and footer share the page ground in both schemes, so each
+   needs a rule rather than a shadow to sit apart from the content. Material's
+   default header shadow is suppressed for the same reason. */
+
+.md-header {
+  box-shadow: none;
+  border-bottom: 1px solid var(--pq-border);
+}
+
+.md-tabs {
+  border-bottom: 1px solid var(--pq-border);
+}
+
+.md-footer {
+  border-top: 1px solid var(--pq-border);
+}
+
+.md-footer-meta {
+  border-top: 1px solid var(--pq-border);
+}
+
+/* Material tints the meta strip a shade darker than the footer; both are the
+   page ground here, so the rule above is the only separation needed. */
+.md-footer-meta.md-typeset a {
+  color: var(--md-typeset-a-color);
+}
+
+/* The search field is a filled pill by default, which reads as a button on a
+   white header. A bordered field matches the rest of the chrome. */
+.md-search__form {
+  border: 1px solid var(--pq-border);
+  border-radius: 0.2rem;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.md-search__form:hover {
+  background-color: var(--md-accent-fg-color--transparent);
+}
+
+[data-md-toggle="search"]:checked ~ .md-header .md-search__form {
+  border-radius: 0.2rem 0.2rem 0 0;
+  background-color: var(--pq-surface);
+}
+
+.md-search__output {
+  border-radius: 0 0 0.2rem 0.2rem;
+}
+
+/* The logo is a violet chosen to read on both grounds (see assets/logo.svg),
+   so it needs no per-scheme treatment. */
+
+/* --- Typography -----------------------------------------------------------
+
+   Headings are set at a normal weight and separated by rules, not size jumps:
+   an API page runs to four heading levels and an 800-weight display face makes
+   that hierarchy harder to scan, not easier. */
+
+.md-typeset {
+  font-feature-settings: "kern", "liga", "tnum";
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4 {
+  color: var(--md-default-fg-color);
+  letter-spacing: -0.01em;
+}
+
+.md-typeset h1 {
+  font-size: 1.85em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.8em;
+}
+
+.md-typeset h2 {
+  font-weight: 600;
+  margin-top: 2.4em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--pq-border);
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+}
+
+.md-typeset h4 {
+  font-weight: 600;
+}
+
+/* Numeric-heavy prose reads better with lining tabular figures. */
+.md-typeset table:not([class]),
+.md-typeset .doc-contents {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Landing page hero ----------------------------------------------------
+
+   A title, a one-line abstract and the entry points - the shape of a paper's
+   masthead. No gradient fill: the wordmark is the library's name, and it
+   should be the same colour as every other heading on the site. */
+
+.pq-hero {
+  padding: 3rem 0 1.5rem;
+  text-align: center;
+}
+
+.md-typeset .pq-hero-title {
+  margin: 0;
+  font-size: 3rem;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset .pq-hero-tagline {
+  max-width: 36rem;
+  margin: 0.9rem auto 1.8rem;
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.65;
+  color: var(--md-default-fg-color--light);
+}
+
+/* A rule under the hero, in the accent, is the one place colour is spent on
+   decoration - it stands in for the header band the chrome no longer has. */
+.pq-hero::after {
+  content: "";
+  display: block;
+  width: 3rem;
+  height: 2px;
+  margin: 2rem auto 0;
+  background: var(--pq-accent);
+}
+
+.pq-hero .md-button {
+  margin: 0.3rem 0.25rem;
+}
+
+.pq-badges {
+  margin-top: 1.8rem !important;
+}
+
+.pq-badges img {
+  height: 18px;
+  margin: 0 0.15rem;
+  vertical-align: middle;
+}
+
+@media screen and (max-width: 44.9375em) {
+  .md-typeset .pq-hero-title {
+    font-size: 2.25rem;
+  }
+  .pq-hero {
+    padding-top: 1.5rem;
+  }
+}
+
+/* --- Grid cards -----------------------------------------------------------
+
+   Flat, ruled panels. The hover lift and drop shadow are deliberately gone:
+   these are a table of contents, not controls, and nothing about them is
+   clickable as a whole. */
+
+.md-typeset .grid.cards > ul > li {
+  display: flex;
+  flex-direction: column;
+  row-gap: 0.8em;
+  border: 1px solid var(--pq-border);
+  border-radius: 0.2rem;
+  background: var(--pq-surface);
+  box-shadow: none;
+  transition: border-color 150ms;
+}
+
+.md-typeset .grid.cards > ul > li:hover {
+  box-shadow: none;
+  border-color: var(--pq-rule);
+}
+
+/* Flex items do not collapse their margins the way blocks do, so the stacked
+   paragraph margins would add up instead of overlapping and the cards would
+   grow by roughly a line per gap. Zero them and let row-gap own the rhythm. */
+.md-typeset .grid.cards > ul > li > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.md-typeset .grid.cards > ul > li > hr {
+  background-color: var(--pq-border);
+}
+
+/* The grid already stretches every card in a row to the same height, but their
+   bodies are different lengths, so a trailing "go here" link lands at whatever
+   height the prose above it happens to end. Let that link absorb the slack and
+   the links line up along the bottom of the row, the way the titles do at the
+   top.
+
+   The :has() test is what keeps this off cards that end in prose - the grids on
+   the home, guides, examples and reference pages carry no trailing link, and
+   pushing their body text down would strand it under a gap. Browsers without
+   :has() just leave the links where they sit today. */
+.md-typeset .grid.cards > ul > li > p:last-child:has(> a > .twemoji) {
+  margin-top: auto;
+  padding-top: 0.2em;
+}
+
+/* Only the large standalone card icons take the muted treatment. An arrow icon
+   inside a link is part of the link and should read in the link's colour. */
+.md-typeset .grid.cards .lg.middle {
+  color: var(--md-default-fg-color--light);
+}
+
+/* --- Code blocks ----------------------------------------------------------
+
+   Code shares the page ground in light mode, so the border is what marks it as
+   code. Inline code gets the same treatment for the same reason. */
+
+.md-typeset pre > code {
+  border-radius: 0.2rem;
+  border: 1px solid var(--pq-border);
+}
+
+.md-typeset code {
+  border-radius: 0.2rem;
+  font-size: 0.85em;
+}
+
+.md-typeset :not(pre) > code {
+  border: 1px solid var(--pq-border);
+  padding: 0.05em 0.3em;
+}
+
+/* Headings and links carry their own colour; a boxed inline code span inside
+   one competes with it. mkdocstrings' symbol chips are excluded - they are
+   <code> elements in a heading, but they are labels, not code, and the reset
+   would strip the background that distinguishes class from func from attr. */
+.md-typeset h1 code:not(.doc-symbol),
+.md-typeset h2 code:not(.doc-symbol),
+.md-typeset h3 code:not(.doc-symbol),
+.md-typeset h4 code:not(.doc-symbol),
+.md-typeset h5 code:not(.doc-symbol),
+.md-typeset a > code:not(.doc-symbol) {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.md-typeset .highlight .c,
+.md-typeset .highlight .c1,
+.md-typeset .highlight .cm,
+.md-typeset .highlight .cs,
+.md-typeset .highlight .ch {
+  font-style: italic;
+}
+
+.md-typeset .highlight > .filename,
+.md-typeset .highlighttable .filename {
+  border-radius: 0.2rem 0.2rem 0 0;
+  background: var(--pq-surface-alt);
+  border: 1px solid var(--pq-border);
+  border-bottom: none;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--md-default-fg-color--light);
+}
+
+/* --- Tables ---------------------------------------------------------------
+
+   Booktabs rules: a heavy rule above and below the table, a light one under
+   the header, and no vertical lines or fills anywhere. This is the convention
+   the papers these docs cite already use, and it keeps wide parameter tables
+   from turning into a grid. */
+
+.md-typeset table:not([class]) {
+  border: none;
+  border-top: 2px solid var(--pq-rule);
+  border-bottom: 2px solid var(--pq-rule);
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 0.72rem;
+}
+
+.md-typeset table:not([class]) th {
+  background: transparent;
+  border-bottom: 1px solid var(--pq-rule);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.md-typeset table:not([class]) td {
+  border-top: none;
+  vertical-align: top;
+}
+
+.md-typeset table:not([class]) tr:hover {
+  background-color: var(--md-accent-fg-color--transparent);
+}
+
+/* --- API reference (mkdocstrings) ----------------------------------------- */
+
+.md-typeset .doc-heading {
+  scroll-margin-top: 4rem;
+}
+
+/* Each documented object gets a left rail so nesting stays legible. */
+.md-typeset .doc-contents:not(.first) {
+  padding-left: 1.1rem;
+  border-left: 1px solid var(--pq-border);
+  margin-left: 0.1rem;
+}
+
+.md-typeset .doc-contents:not(.first):hover {
+  border-left-color: var(--pq-rule);
+}
+
+/* Symbol-type chips (class / func / attr). The chip's own fill is the signal,
+   so it opts out of the border every other inline <code> carries. */
+.md-typeset .doc-symbol {
+  border: none;
+  border-radius: 0.15rem;
+  font-size: 0.64em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 0.1em 0.36em;
+}
+
+.md-typeset .doc-signature,
+.md-typeset code.doc-signature {
+  border-radius: 0.2rem;
+}
+
+.md-typeset .doc-contents table:not([class]) td:first-child code {
+  white-space: nowrap;
+}
+
+/* Object headings should not carry the full-width section rule that h2 gets
+   in prose pages - an API page is mostly headings. */
+.md-typeset h2.doc-heading {
+  margin-top: 2em;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid var(--pq-border);
+}
+
+.md-typeset h3.doc-heading,
+.md-typeset h4.doc-heading,
+.md-typeset h5.doc-heading {
+  border-bottom: none;
+}
+
+/* --- Admonitions and details ---------------------------------------------
+
+   Reduced to a left rule and a title in the admonition's colour. The default
+   tinted body and coloured title bar are a lot of fill for a page that already
+   carries code blocks, tables and equations. */
+
+.md-typeset .admonition,
+.md-typeset details {
+  border: none;
+  border-left: 2px solid var(--md-default-fg-color--lightest);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  font-size: 0.72rem;
+}
+
+.md-typeset .admonition-title,
+.md-typeset summary {
+  background: transparent !important;
+  font-weight: 600;
+}
+
+.md-typeset .admonition-title::before,
+.md-typeset summary::before {
+  background-color: currentcolor;
+}
+
+.md-typeset details > summary::after {
+  color: var(--md-default-fg-color--light);
+}
+
+/* Quoted citations on the landing page read as blockquotes, not callouts. */
+.md-typeset .admonition.quote,
+.md-typeset details.quote {
+  border-left-color: var(--pq-rule);
+}
+
+.md-typeset .admonition.quote > .admonition-title {
+  color: var(--md-default-fg-color--light);
+}
+
+/* --- Buttons --------------------------------------------------------------
+
+   Two weights only: one filled entry point, the rest outlined. */
+
+.md-typeset .md-button {
+  border-width: 1px;
+  border-radius: 0.2rem;
+  border-color: var(--pq-rule);
+  color: var(--md-default-fg-color);
+  font-weight: 500;
+  padding: 0.4em 1em;
+  transition:
+    border-color 150ms,
+    color 150ms,
+    background-color 150ms;
+}
+
+.md-typeset .md-button:hover,
+.md-typeset .md-button:focus {
+  border-color: var(--pq-accent);
+  background-color: transparent;
+  color: var(--pq-accent);
+}
+
+.md-typeset .md-button--primary {
+  border-color: var(--pq-accent);
+  background-color: var(--pq-accent);
+  color: var(--pq-bg);
+}
+
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:focus {
+  border-color: var(--pq-accent-strong);
+  background-color: var(--pq-accent-strong);
+  color: var(--pq-bg);
+}
+
+/* --- Navigation ----------------------------------------------------------- */
+
+/* The active nav item is set in the accent; Material's default also bolds it,
+   which shifts the whole sidebar as you navigate. */
+.md-nav__link--active,
+.md-nav__link--active code {
+  color: var(--pq-accent);
+}
+
+.md-nav__item--section > .md-nav__link {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.md-sidebar--secondary .md-nav__title {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--md-default-fg-color--light);
+}
+
+/* --- Math ----------------------------------------------------------------- */
+
+/* Display equations get room to breathe and scroll rather than overflow. */
+mjx-container[jax="CHTML"][display="true"] {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35rem 0;
+}
+
+/* --- Notebooks (mkdocs-jupyter) ------------------------------------------- */
+
+/* mkdocs-jupyter embeds nbconvert's JupyterLab stylesheet, which is driven
+   entirely by --jp-* custom properties defined on .jupyter-wrapper and hardcoded
+   to a light theme. Re-point those variables at Material's tokens rather than
+   fighting the individual selectors: everything downstream (cells, tables,
+   tracebacks, syntax colours) then follows the active colour scheme. */
+
+.jupyter-wrapper {
+  --jp-content-font-family: var(--md-text-font-family), -apple-system, sans-serif;
+  --jp-code-font-family: var(--md-code-font-family), monospace;
+  --jp-content-font-size1: 0.8rem;
+  --jp-code-font-size: 0.7rem;
+  --jp-cell-prompt-width: 0px;
+
+  --jp-layout-color0: var(--md-default-bg-color);
+  --jp-layout-color1: var(--md-default-bg-color);
+  --jp-layout-color2: var(--pq-surface-alt);
+  --jp-layout-color3: var(--pq-border);
+
+  --jp-content-font-color0: var(--md-default-fg-color);
+  --jp-content-font-color1: var(--md-default-fg-color);
+  --jp-content-font-color2: var(--md-default-fg-color--light);
+  --jp-content-font-color3: var(--md-default-fg-color--lighter);
+  --jp-ui-font-color0: var(--md-default-fg-color);
+  --jp-ui-font-color1: var(--md-default-fg-color);
+  --jp-ui-font-color2: var(--md-default-fg-color--light);
+  --jp-ui-font-color3: var(--md-default-fg-color--lighter);
+  --jp-content-link-color: var(--md-typeset-a-color);
+
+  --jp-border-color0: var(--pq-border);
+  --jp-border-color1: var(--pq-border);
+  --jp-border-color2: var(--pq-border);
+  --jp-border-color3: var(--pq-border);
+
+  --jp-cell-editor-background: var(--md-code-bg-color);
+  --jp-cell-editor-border-color: var(--pq-border);
+  --jp-cell-editor-active-background: var(--md-code-bg-color);
+  --jp-cell-editor-active-border-color: var(--pq-rule);
+  --jp-cell-editor-box-shadow: none;
+
+  --jp-brand-color1: var(--pq-accent);
+  --jp-rendermime-table-row-background: transparent;
+  --jp-rendermime-table-row-hover-background: var(--md-accent-fg-color--transparent);
+
+  background: transparent;
+}
+
+/* Syntax colours. JupyterLab's defaults are tuned for a white editor and go
+   muddy on a dark surface, so give the dark scheme its own set - the same
+   restrained range used elsewhere: violet for keywords, muted blue for names,
+   desaturated warm tones for literals. */
+[data-md-color-scheme="slate"] .jupyter-wrapper {
+  --jp-mirror-editor-keyword-color: #a78bfa;
+  --jp-mirror-editor-atom-color: #c4b5fd;
+  --jp-mirror-editor-number-color: #d8b070;
+  --jp-mirror-editor-def-color: #8ab4d8;
+  --jp-mirror-editor-variable-color: var(--pq-text);
+  --jp-mirror-editor-variable-2-color: #9dbdd6;
+  --jp-mirror-editor-variable-3-color: #86bfb0;
+  --jp-mirror-editor-punctuation-color: #9a9aa4;
+  --jp-mirror-editor-property-color: #9dbdd6;
+  --jp-mirror-editor-operator-color: #a78bfa;
+  --jp-mirror-editor-comment-color: #7a7a85;
+  --jp-mirror-editor-string-color: #c9a86a;
+  --jp-mirror-editor-string-2-color: #c9a86a;
+  --jp-mirror-editor-meta-color: #a78bfa;
+  --jp-mirror-editor-builtin-color: #86bfb0;
+  --jp-mirror-editor-bracket-color: #9a9aa4;
+  --jp-rendermime-error-background: rgba(200, 100, 100, 0.1);
+}
+
+/* Prompts ("In [3]:") take a fixed 64px gutter and add no information here. */
+.jupyter-wrapper .jp-InputPrompt,
+.jupyter-wrapper .jp-OutputPrompt {
+  display: none !important;
+}
+
+.jupyter-wrapper .jp-Cell {
+  padding: 0;
+  margin-bottom: 0.7rem;
+}
+
+.jupyter-wrapper .jp-InputArea-editor {
+  border-radius: 0.2rem;
+  border: 1px solid var(--pq-border);
+}
+
+.jupyter-wrapper .jp-OutputArea-output {
+  border-radius: 0.2rem;
+}
+
+/* Wide outputs must scroll inside the cell, never widen the page. */
+.jupyter-wrapper .jp-OutputArea-child,
+.jupyter-wrapper .jp-RenderedText {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.jupyter-wrapper .jp-RenderedHTMLCommon table {
+  font-size: 0.72rem;
+}
+
+/* Matplotlib figures are drawn on a transparent or white canvas by default.
+   In dark mode, keep a light plate behind them rather than letting dark axes
+   and dark text disappear into the page. */
+.jupyter-wrapper .jp-OutputArea-output img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.15rem;
+}
+
+[data-md-color-scheme="slate"] .jupyter-wrapper .jp-OutputArea-output img {
+  background: #ffffff;
+  padding: 0.35rem;
+}
+
+/* --- Example gallery ------------------------------------------------------ */
+
+.pq-nb-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 1.4rem;
+}
+
+.pq-nb-meta > span {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--pq-border);
+  border-radius: 0.15rem;
+  background: transparent;
+  font-family: var(--md-code-font-family), monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.01em;
+  color: var(--md-default-fg-color--light);
+}

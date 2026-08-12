@@ -13,6 +13,11 @@ target/
 # Docs build output
 _site/
 site/
+.cache/
+
+# Docs: notebooks staged into the docs tree by scripts/mkdocs_hooks.py
+docs/examples/usage/
+docs/examples/plugins/
 
 # ASV benchmark working directories
 .asv/

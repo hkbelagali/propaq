@@ -332,6 +332,14 @@ class TestComposableTruncation:
         ]:
             assert isinstance(op, Truncator)
 
+    def test_budgets_reject_positional_arguments(self):
+        # A floor/ceiling pair of the same type transposes silently, so both
+        # budgets are keyword-only.
+        with pytest.raises(TypeError):
+            TermBudget(None, 1)
+        with pytest.raises(TypeError):
+            MonomialBudget(None, 1)
+
     def test_none_valued_truncators_are_noop_exact(self):
         obs, sc, circ, angles = self._circ()
         model = PauliSurrogatePropagator(
@@ -339,7 +347,7 @@ class TestComposableTruncation:
                 FrequencyTruncator(None),
                 CoefficientTruncator(None),
                 WeightTruncator(None),
-                MonomialBudget(None, None),
+                MonomialBudget(min_monomials=None, max_monomials=None),
             ]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
