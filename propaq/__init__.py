@@ -44,6 +44,7 @@ from .datatypes import (
 from .datatypes import (
     PauliTermSum as PauliTermSum,
 )
+from .extrapolators import ZeroCutoffExtrapolator as ZeroCutoffExtrapolator
 from .extrapolators import ZeroNoiseExtrapolator as ZeroNoiseExtrapolator
 from .extrapolators import ZNEResult as ZNEResult
 from .log_parser import EnginePhasesEvent as EnginePhasesEvent

@@ -47,9 +47,9 @@ def _cp_terms(phi, i: int, j: int, n_modes: int) -> list[tuple[PauliString, Any]
 class PauliTermSum(_RustPauliTermSum, Generic[T]):
     r"""
     Class representing a sum of Pauli terms:
-    $$
+    \[
     \sum_i c_i P_i
-    $$
+    \]
 
     Backend is implemented in Rust for performance, but this class provides a
     Python interface for constructing and manipulating sums of Pauli terms.

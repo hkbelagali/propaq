@@ -29,8 +29,9 @@ class TermBudget(_RustTermBudget):
 
 
 class MonomialBudget(_RustMonomialBudget):
-    """Monomial-count budget: ``max_monomials`` triggers a flush; ``min_monomials`` gates the
-    lossy ops. Structurally identical to ``TermBudget``, keyed on monomial count. Surrogate-only.
+    """Monomial-count budget: ``min_monomials`` gates the lossy ops; ``max_monomials`` triggers
+    a flush. Structurally identical to ``TermBudget``, keyed on monomial count, and keyword-only
+    for the same reason. Surrogate-only.
     """
 
 

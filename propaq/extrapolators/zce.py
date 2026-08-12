@@ -48,10 +48,6 @@ class ZCEResult:
 class ZeroCutoffExtrapolator(ABC):
     """
     Zero cutoff extrapolation via curve fitting.
-
-    A concrete subclass targets one truncator kind (weight or coefficient) that
-    must already be present in the propagator's truncation pipeline; the sweep
-    replaces that truncator's cutoff value in place and restores it afterward.
     """
 
     fitting_fn: Callable
