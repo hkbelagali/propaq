@@ -1,9 +1,9 @@
 use num_complex::Complex64;
 ///
-/// An abstract class for $\sum_i c_i B_i$
-/// where $B_i$ is a basis element belgonging to
+/// An abstract class for \(\sum_i c_i B_i\)
+/// where \(B_i\) is a basis element belgonging to
 /// an operator basis (usually Pauli or Majorana)
-/// and $c_i$ is a coefficient.
+/// and \(c_i\) is a coefficient.
 ///
 use std::hash::Hash;
 

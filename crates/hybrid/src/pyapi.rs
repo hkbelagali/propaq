@@ -31,15 +31,15 @@ fn mps_from_numpy(arrays: &[PyReadonlyArray3<'_, Complex64>]) -> PyResult<Mps> {
     Mps::new(tensors).map_err(PyValueError::new_err)
 }
 
-/// Computes $\sum_i c_i \langle\Psi|P_i|\Psi\rangle$ over every term in `observable`,
-/// given $|\Psi\rangle$ as a list of MPS site tensors (each rank-3, shape
+/// Computes \(\sum_i c_i \langle\Psi|P_i|\Psi\rangle\) over every term in `observable`,
+/// given \(|\Psi\rangle\) as a list of MPS site tensors (each rank-3, shape
 /// `(bond_left, 2, bond_right)`, with dummy size-1 bonds at the open
 /// boundaries
 ///
 /// Arguments:
 ///     observable: A Heisenberg-propagated `PauliTermSum` (e.g. the result
 ///         of `PauliPropagator.propagate(observable, circuit1)`).
-///     mps_arrays: $|\Psi\rangle$'s site tensors in left-to-right qubit order,
+///     mps_arrays: \(|\Psi\rangle\)'s site tensors in left-to-right qubit order,
 ///         complex128, rank-3, contiguous.
 #[gen_stub_pyfunction(module = "propaq._rust_core")]
 #[pyfunction]

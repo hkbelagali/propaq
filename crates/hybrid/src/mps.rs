@@ -197,7 +197,7 @@ pub fn build_environments(mps: &Mps) -> Environments {
     Environments { l, r }
 }
 
-/// $\langle\Psi|\Psi\rangle$, read off the fully-contracted left environment
+/// \(\langle\Psi|\Psi\rangle\), read off the fully-contracted left environment
 pub fn norm_squared(env: &Environments) -> Complex64 {
     env.l[env.l.len() - 1][0]
 }

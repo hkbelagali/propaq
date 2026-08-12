@@ -1,7 +1,7 @@
 //!
-//! Sparse representation of $\sum_i c_i B_i$ where $B_i$ is
+//! Sparse representation of \(\sum_i c_i B_i\) where \(B_i\) is
 //! a basis element represented by a `BasisString<W>`, and
-//! $c_i$ is a coefficient represented by a `CoeffRepr`.
+//! \(c_i\) is a coefficient represented by a `CoeffRepr`.
 //!
 
 use std::sync::Arc;
@@ -16,7 +16,7 @@ use crate::strings::BasisString;
 use crate::term_kernel::{LayerContext, NoiseKernel, TermView, TruncationKernel, KERNEL_BATCH};
 use crate::truncators::ResolvedConfig;
 
-/// Tolerance for treating `$\sin(\theta)$` as zero when classifying a rotation.
+/// Tolerance for treating `\(\sin(\theta)\)` as zero when classifying a rotation.
 const PHASE_ONLY_EPS: f64 = 1e-9;
 
 /// Truncation predicates for the emit gate.

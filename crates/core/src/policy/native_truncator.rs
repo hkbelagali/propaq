@@ -7,7 +7,7 @@
 //! ## ABI contract
 //!
 //! One entry point, with the plugin declaring what it reads through
-//! `propaq_truncator_depends` — see [`crate::term_kernel::Depends`] and the
+//! `propaq_truncator_depends`, see [`crate::term_kernel::Depends`] and the
 //! noise counterpart in [`crate::native_noise`].
 //!
 //! ```c

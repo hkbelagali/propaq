@@ -2,9 +2,9 @@
 /// Representation of a compiled surrogate model for expectation value calculations.
 /// After a symbolic propagation, the resulting object is a mapping
 ///
-/// $f : \theta \mapsto tr(U(\theta)^\dagger H U(\theta) \rho)$
+/// \(f : \theta \mapsto tr(U(\theta)^\dagger H U(\theta) \rho)\)
 ///
-/// for some parameters $\theta$.
+/// for some parameters \(\theta\).
 /// The parameter values are stored in an LUT for fast lookup, and the evaluation
 /// of the mapping is parallelized. In order to make the evaluations faster,
 /// the terms are structurally pruned to remove zero contributions.

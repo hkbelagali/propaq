@@ -15,10 +15,10 @@
 
 use pyo3::prelude::*;
 
-/// Exponential damping noise: each term of weight w is scaled by $\exp(-\gamma w)$, where $w$ is the term's Pauli weight.
+/// Exponential damping noise: each term of weight w is scaled by \(\exp(-\gamma w)\), where \(w\) is the term's Pauli weight.
 ///
 /// Arguments:
-///     damping: Damping rate $\gamma$.
+///     damping: Damping rate \(\gamma\).
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
@@ -33,13 +33,13 @@ impl UniformNoiseModel {
     /// Initialize the uniform noise model.
     ///
     /// Arguments:
-    ///     damping: Per-weight damping rate $\gamma$. Each term is multiplied by $\exp(-\gamma w)$.
+    ///     damping: Per-weight damping rate \(\gamma\). Each term is multiplied by \(\exp(-\gamma w)\).
     #[new]
     fn new(damping: f64) -> Self {
         UniformNoiseModel { damping }
     }
 
-    /// Return $\exp(-\gamma w)$: the multiplicative factor applied to a term's coefficient.
+    /// Return \(\exp(-\gamma w)\): the multiplicative factor applied to a term's coefficient.
     ///
     /// Arguments:
     ///     term_weight: Pauli weight of the term.

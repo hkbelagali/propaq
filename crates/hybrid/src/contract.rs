@@ -73,7 +73,7 @@ fn decode_sites(row: &[Position], plane_span: usize, n_units: usize) -> Vec<(usi
     sites
 }
 
-/// $\langle\Psi|P|\Psi\rangle$ for a single Pauli string
+/// \(\langle\Psi|P|\Psi\rangle\) for a single Pauli string
 pub fn window_expectation(mps: &Mps, env: &Environments, sites: &[(usize, PauliOp)]) -> Complex64 {
     if sites.is_empty() {
         return env.l[env.l.len() - 1][0];
@@ -99,7 +99,7 @@ pub fn window_expectation(mps: &Mps, env: &Environments, sites: &[(usize, PauliO
     current.iter().zip(r.iter()).map(|(a, b)| a * b).sum()
 }
 
-/// $\sum_i c_i \langle\Psi|P_i|\Psi\rangle$ over every row of `terms`
+/// \(\sum_i c_i \langle\Psi|P_i|\Psi\rangle\) over every row of `terms`
 pub fn hybrid_expectation_sum(mps: &Mps, env: &Environments, terms: &TermSum<f64>) -> Complex64 {
     let n = terms.len();
     let plane_span = terms.plane_span();

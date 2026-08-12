@@ -16,8 +16,8 @@ use propaq_core::traits::AbstractTerm;
 
 /// A Majorana monomial, a product of Majorana operators encoded as a mode bitmask.
 ///
-/// Bit 2k is set if $\gamma_{2k}$ (even mode) is active on site k.
-/// Bit 2k+1 is set if $\gamma_{2k+1}$ (odd mode) is active on site k.
+/// Bit 2k is set if \(\gamma_{2k}\) (even mode) is active on site k.
+/// Bit 2k+1 is set if \(\gamma_{2k+1}\) (odd mode) is active on site k.
 ///
 /// Arguments:
 ///     modes: Integer bitmask encoding occupied Majorana modes.
@@ -288,10 +288,10 @@ impl MajoranaMonomial {
         Ok(self.matmul_internal(other))
     }
 
-    /// Compute $\langle \psi |M| \psi \rangle$ for this Majorana monomial M.
+    /// Compute \(\langle \psi |M| \psi \rangle\) for this Majorana monomial M.
     ///
     /// Returns 0.0 if M has any unpaired modes.
-    /// For paired modes, returns the product of $(2n_k - 1)$ values for each occupied pair.
+    /// For paired modes, returns the product of \((2n_k - 1)\) values for each occupied pair.
     ///
     /// Arguments:
     ///     fock_state: Computational basis state as a bitstring integer.

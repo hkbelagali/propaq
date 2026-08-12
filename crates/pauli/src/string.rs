@@ -166,10 +166,10 @@ impl PauliString {
         Ok(self.matmul_impl(other))
     }
 
-    /// Compute $\langle \psi | P | \psi \rangle$ for this Pauli string P.
+    /// Compute \(\langle \psi | P | \psi \rangle\) for this Pauli string P.
     ///
     /// Returns 0.0 if P has any X or Y components (off-diagonal).
-    /// For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.
+    /// For Z-only P, returns \((-1)^{\text{popcount}(z \text{ AND } \psi)}\).
     ///
     /// Arguments:
     ///     fock_state: Computational basis state as a bitstring integer.

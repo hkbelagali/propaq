@@ -90,10 +90,14 @@ impl WeightTruncator {
 }
 
 /// Term-count budget: `min_terms` is the count below which lossy operators are
-/// suppressed. `max_terms` triggers a truncation pass once the live term count
+/// suppressed; `max_terms` triggers a truncation pass once the live term count
 /// reaches it. Applies to both propagators. Either field `None` disables that
 /// bound.
 ///
+/// The two are keyword-only. They are a floor/ceiling pair of the same type, so
+/// a positional call is easy to transpose, and a transposed pair fails silently
+/// rather than loudly: `TermBudget(None, 1)` reads like a ceiling of 1 but sets
+/// no ceiling at all, and truncation then never fires.
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
@@ -125,33 +129,41 @@ impl TermBudget {
     }
 }
 
+/// Monomial-count budget: `min_monomials` is the count below which lossy
+/// operators are suppressed; `max_monomials` triggers a flush once the live
+/// monomial count reaches it. Surrogate-only. Either field `None` disables that
+/// bound.
+///
+/// The two are keyword-only, for the same reason as `TermBudget`: they are a
+/// floor/ceiling pair of the same type, so a positional call is easy to
+/// transpose, and a transposed pair fails silently rather than loudly.
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct MonomialBudget {
     #[pyo3(get, set)]
-    pub max_monomials: Option<u128>,
-    #[pyo3(get, set)]
     pub min_monomials: Option<u128>,
+    #[pyo3(get, set)]
+    pub max_monomials: Option<u128>,
 }
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl MonomialBudget {
     #[new]
-    #[pyo3(signature = (max_monomials=None, min_monomials=None))]
-    pub fn new(max_monomials: Option<u128>, min_monomials: Option<u128>) -> Self {
+    #[pyo3(signature = (*, min_monomials=None, max_monomials=None))]
+    pub fn new(min_monomials: Option<u128>, max_monomials: Option<u128>) -> Self {
         MonomialBudget {
-            max_monomials,
             min_monomials,
+            max_monomials,
         }
     }
     fn __repr__(&self) -> String {
         let f = |v: Option<u128>| v.map_or_else(|| "None".to_string(), |x| x.to_string());
         format!(
-            "MonomialBudget(max_monomials={}, min_monomials={})",
-            f(self.max_monomials),
+            "MonomialBudget(min_monomials={}, max_monomials={})",
             f(self.min_monomials),
+            f(self.max_monomials),
         )
     }
 }
@@ -283,7 +295,7 @@ const DEFAULT_MAX_TERMS: usize = 10_000_000;
 ///     coeff_cutoff: Discard terms with |coefficient| strictly less than this value.
 ///     truncation_range: (min_terms, max_terms) pair. Truncation fires when the term
 ///         count reaches max_terms and will not reduce it below min_terms.
-///         Defaults to (None, $10^7$).
+///         Defaults to (None, \(10^7\)).
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
