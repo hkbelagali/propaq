@@ -68,13 +68,13 @@
                                 <a class="function" href="#PauliSurrogateModel.load">load</a>
                         </li>
                         <li>
+                                <a class="variable" href="#PauliSurrogateModel.n_params">n_params</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#PauliSurrogateModel.n_monomials">n_monomials</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliSurrogateModel.n_terms">n_terms</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#PauliSurrogateModel.n_params">n_params</a>
                         </li>
                 </ul>
 
@@ -98,10 +98,10 @@
                                 <a class="variable" href="#MajoranaSurrogateModel.n_monomials">n_monomials</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogateModel.n_params">n_params</a>
+                                <a class="variable" href="#MajoranaSurrogateModel.n_terms">n_terms</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogateModel.n_terms">n_terms</a>
+                                <a class="variable" href="#MajoranaSurrogateModel.n_params">n_params</a>
                         </li>
                 </ul>
 
@@ -194,10 +194,6 @@
     <a class="headerlink" href="#PauliSurrogateModel"></a>
     
             <div class="docstring"><p>Compiled surrogate model for Pauli observables.</p>
-
-<p>Produced by <code>PauliSurrogatePropagator.build</code>. Call <code>evaluate(params)</code> to
-obtain the expectation value for a specific parameter assignment without
-re-running propagation. Use <code><a href="#PauliSurrogateModel.save">save</a></code>/<code><a href="#PauliSurrogateModel.load">load</a></code> for persistence.</p>
 </div>
 
 
@@ -211,9 +207,7 @@ re-running propagation. Use <code><a href="#PauliSurrogateModel.save">save</a></
     </div>
     <a class="headerlink" href="#PauliSurrogateModel.evaluate"></a>
     
-            <div class="docstring"><p>Evaluate the expectation value. <code>params[i]</code> is the angle (radians) for parameter <code>i</code>.</p>
-</div>
-
+    
 
                             </div>
                             <div id="PauliSurrogateModel.evaluate_batch" class="classattr">
@@ -226,10 +220,7 @@ re-running propagation. Use <code><a href="#PauliSurrogateModel.save">save</a></
     </div>
     <a class="headerlink" href="#PauliSurrogateModel.evaluate_batch"></a>
     
-            <div class="docstring"><p>Evaluate many parameter assignments at once (parallelized across
-assignments); returns one expectation value per assignment.</p>
-</div>
-
+    
 
                             </div>
                             <div id="PauliSurrogateModel.save" class="classattr">
@@ -262,6 +253,19 @@ assignments); returns one expectation value per assignment.</p>
 
 
                             </div>
+                            <div id="PauliSurrogateModel.n_params" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_params</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogateModel.n_params"></a>
+    
+            <div class="docstring"><p>Number of parameter indices used by this model.</p>
+</div>
+
+
+                            </div>
                             <div id="PauliSurrogateModel.n_monomials" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_monomials</span>
@@ -270,11 +274,7 @@ assignments); returns one expectation value per assignment.</p>
     </div>
     <a class="headerlink" href="#PauliSurrogateModel.n_monomials"></a>
     
-            <div class="docstring"><p>Total pre-dedup monomial-instance count across every surviving term
-(an upper bound, not deduplicated: <code><a href="#PauliSurrogateModel.n_terms">n_terms</a></code> alone doesn't say how
-much underlying computation a term represents).</p>
-</div>
-
+    
 
                             </div>
                             <div id="PauliSurrogateModel.n_terms" class="classattr">
@@ -286,19 +286,6 @@ much underlying computation a term represents).</p>
     <a class="headerlink" href="#PauliSurrogateModel.n_terms"></a>
     
             <div class="docstring"><p>Number of compiled terms.</p>
-</div>
-
-
-                            </div>
-                            <div id="PauliSurrogateModel.n_params" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_params</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliSurrogateModel.n_params"></a>
-    
-            <div class="docstring"><p>Number of parameter indices used by this model.</p>
 </div>
 
 
@@ -383,17 +370,6 @@ much underlying computation a term represents).</p>
     
 
                             </div>
-                            <div id="MajoranaSurrogateModel.n_params" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_params</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaSurrogateModel.n_params"></a>
-    
-    
-
-                            </div>
                             <div id="MajoranaSurrogateModel.n_terms" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_terms</span>
@@ -401,6 +377,17 @@ much underlying computation a term represents).</p>
         
     </div>
     <a class="headerlink" href="#MajoranaSurrogateModel.n_terms"></a>
+    
+    
+
+                            </div>
+                            <div id="MajoranaSurrogateModel.n_params" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_params</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogateModel.n_params"></a>
     
     
 
@@ -527,32 +514,34 @@ constant equal to <code><a href="#ParamSource.scale">scale</a></code>, independe
 </span><span id="VariationalSurrogateModel-50"><a href="#VariationalSurrogateModel-50"><span class="linenos">50</span></a>            <span class="n">binding</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span> <span class="n">values</span><span class="p">))</span>
 </span><span id="VariationalSurrogateModel-51"><a href="#VariationalSurrogateModel-51"><span class="linenos">51</span></a>
 </span><span id="VariationalSurrogateModel-52"><a href="#VariationalSurrogateModel-52"><span class="linenos">52</span></a>        <span class="k">return</span> <span class="p">[</span>
-</span><span id="VariationalSurrogateModel-53"><a href="#VariationalSurrogateModel-53"><span class="linenos">53</span></a>            <span class="n">source</span><span class="o">.</span><span class="n">scale</span> <span class="o">*</span> <span class="n">binding</span><span class="p">[</span><span class="n">source</span><span class="o">.</span><span class="n">parameter</span><span class="p">]</span> <span class="k">if</span> <span class="n">source</span><span class="o">.</span><span class="n">parameter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">source</span><span class="o">.</span><span class="n">scale</span>
-</span><span id="VariationalSurrogateModel-54"><a href="#VariationalSurrogateModel-54"><span class="linenos">54</span></a>            <span class="k">for</span> <span class="n">source</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parameter_sources</span>
-</span><span id="VariationalSurrogateModel-55"><a href="#VariationalSurrogateModel-55"><span class="linenos">55</span></a>        <span class="p">]</span>
-</span><span id="VariationalSurrogateModel-56"><a href="#VariationalSurrogateModel-56"><span class="linenos">56</span></a>
-</span><span id="VariationalSurrogateModel-57"><a href="#VariationalSurrogateModel-57"><span class="linenos">57</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values</span><span class="p">:</span> <span class="s2">&quot;Mapping[Parameter, float] | Sequence[float]&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
-</span><span id="VariationalSurrogateModel-58"><a href="#VariationalSurrogateModel-58"><span class="linenos">58</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="VariationalSurrogateModel-59"><a href="#VariationalSurrogateModel-59"><span class="linenos">59</span></a><span class="sd">        Evaluate the expectation value for the given Qiskit Parameter values.</span>
-</span><span id="VariationalSurrogateModel-60"><a href="#VariationalSurrogateModel-60"><span class="linenos">60</span></a>
-</span><span id="VariationalSurrogateModel-61"><a href="#VariationalSurrogateModel-61"><span class="linenos">61</span></a><span class="sd">        Arguments:</span>
-</span><span id="VariationalSurrogateModel-62"><a href="#VariationalSurrogateModel-62"><span class="linenos">62</span></a><span class="sd">            values: Either a mapping from Parameter to its value, or a plain</span>
-</span><span id="VariationalSurrogateModel-63"><a href="#VariationalSurrogateModel-63"><span class="linenos">63</span></a><span class="sd">                sequence of values aligned with `self.parameters`.</span>
-</span><span id="VariationalSurrogateModel-64"><a href="#VariationalSurrogateModel-64"><span class="linenos">64</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="VariationalSurrogateModel-65"><a href="#VariationalSurrogateModel-65"><span class="linenos">65</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_bind</span><span class="p">(</span><span class="n">values</span><span class="p">))</span>
-</span><span id="VariationalSurrogateModel-66"><a href="#VariationalSurrogateModel-66"><span class="linenos">66</span></a>
-</span><span id="VariationalSurrogateModel-67"><a href="#VariationalSurrogateModel-67"><span class="linenos">67</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate_batch</span><span class="p">(</span>
-</span><span id="VariationalSurrogateModel-68"><a href="#VariationalSurrogateModel-68"><span class="linenos">68</span></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">values_batch</span><span class="p">:</span> <span class="s2">&quot;Sequence[Mapping[Parameter, float] | Sequence[float]]&quot;</span>
-</span><span id="VariationalSurrogateModel-69"><a href="#VariationalSurrogateModel-69"><span class="linenos">69</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
-</span><span id="VariationalSurrogateModel-70"><a href="#VariationalSurrogateModel-70"><span class="linenos">70</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="VariationalSurrogateModel-71"><a href="#VariationalSurrogateModel-71"><span class="linenos">71</span></a><span class="sd">        Evaluate many Qiskit Parameter assignments at once (parallelized across</span>
-</span><span id="VariationalSurrogateModel-72"><a href="#VariationalSurrogateModel-72"><span class="linenos">72</span></a><span class="sd">        assignments in Rust), returning one expectation value per assignment.</span>
-</span><span id="VariationalSurrogateModel-73"><a href="#VariationalSurrogateModel-73"><span class="linenos">73</span></a>
-</span><span id="VariationalSurrogateModel-74"><a href="#VariationalSurrogateModel-74"><span class="linenos">74</span></a><span class="sd">        Arguments:</span>
-</span><span id="VariationalSurrogateModel-75"><a href="#VariationalSurrogateModel-75"><span class="linenos">75</span></a><span class="sd">            values_batch: A sequence of assignments, each accepted in either</span>
-</span><span id="VariationalSurrogateModel-76"><a href="#VariationalSurrogateModel-76"><span class="linenos">76</span></a><span class="sd">                form `evaluate` takes.</span>
-</span><span id="VariationalSurrogateModel-77"><a href="#VariationalSurrogateModel-77"><span class="linenos">77</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="VariationalSurrogateModel-78"><a href="#VariationalSurrogateModel-78"><span class="linenos">78</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">evaluate_batch</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">_bind</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">values_batch</span><span class="p">])</span>
+</span><span id="VariationalSurrogateModel-53"><a href="#VariationalSurrogateModel-53"><span class="linenos">53</span></a>            <span class="n">source</span><span class="o">.</span><span class="n">scale</span> <span class="o">*</span> <span class="n">binding</span><span class="p">[</span><span class="n">source</span><span class="o">.</span><span class="n">parameter</span><span class="p">]</span>
+</span><span id="VariationalSurrogateModel-54"><a href="#VariationalSurrogateModel-54"><span class="linenos">54</span></a>            <span class="k">if</span> <span class="n">source</span><span class="o">.</span><span class="n">parameter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+</span><span id="VariationalSurrogateModel-55"><a href="#VariationalSurrogateModel-55"><span class="linenos">55</span></a>            <span class="k">else</span> <span class="n">source</span><span class="o">.</span><span class="n">scale</span>
+</span><span id="VariationalSurrogateModel-56"><a href="#VariationalSurrogateModel-56"><span class="linenos">56</span></a>            <span class="k">for</span> <span class="n">source</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parameter_sources</span>
+</span><span id="VariationalSurrogateModel-57"><a href="#VariationalSurrogateModel-57"><span class="linenos">57</span></a>        <span class="p">]</span>
+</span><span id="VariationalSurrogateModel-58"><a href="#VariationalSurrogateModel-58"><span class="linenos">58</span></a>
+</span><span id="VariationalSurrogateModel-59"><a href="#VariationalSurrogateModel-59"><span class="linenos">59</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values</span><span class="p">:</span> <span class="s2">&quot;Mapping[Parameter, float] | Sequence[float]&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+</span><span id="VariationalSurrogateModel-60"><a href="#VariationalSurrogateModel-60"><span class="linenos">60</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="VariationalSurrogateModel-61"><a href="#VariationalSurrogateModel-61"><span class="linenos">61</span></a><span class="sd">        Evaluate the expectation value for the given Qiskit Parameter values.</span>
+</span><span id="VariationalSurrogateModel-62"><a href="#VariationalSurrogateModel-62"><span class="linenos">62</span></a>
+</span><span id="VariationalSurrogateModel-63"><a href="#VariationalSurrogateModel-63"><span class="linenos">63</span></a><span class="sd">        Arguments:</span>
+</span><span id="VariationalSurrogateModel-64"><a href="#VariationalSurrogateModel-64"><span class="linenos">64</span></a><span class="sd">            values: Either a mapping from Parameter to its value, or a plain</span>
+</span><span id="VariationalSurrogateModel-65"><a href="#VariationalSurrogateModel-65"><span class="linenos">65</span></a><span class="sd">                sequence of values aligned with `self.parameters`.</span>
+</span><span id="VariationalSurrogateModel-66"><a href="#VariationalSurrogateModel-66"><span class="linenos">66</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="VariationalSurrogateModel-67"><a href="#VariationalSurrogateModel-67"><span class="linenos">67</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_bind</span><span class="p">(</span><span class="n">values</span><span class="p">))</span>
+</span><span id="VariationalSurrogateModel-68"><a href="#VariationalSurrogateModel-68"><span class="linenos">68</span></a>
+</span><span id="VariationalSurrogateModel-69"><a href="#VariationalSurrogateModel-69"><span class="linenos">69</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate_batch</span><span class="p">(</span>
+</span><span id="VariationalSurrogateModel-70"><a href="#VariationalSurrogateModel-70"><span class="linenos">70</span></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">values_batch</span><span class="p">:</span> <span class="s2">&quot;Sequence[Mapping[Parameter, float] | Sequence[float]]&quot;</span>
+</span><span id="VariationalSurrogateModel-71"><a href="#VariationalSurrogateModel-71"><span class="linenos">71</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
+</span><span id="VariationalSurrogateModel-72"><a href="#VariationalSurrogateModel-72"><span class="linenos">72</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="VariationalSurrogateModel-73"><a href="#VariationalSurrogateModel-73"><span class="linenos">73</span></a><span class="sd">        Evaluate many Qiskit Parameter assignments at once (parallelized across</span>
+</span><span id="VariationalSurrogateModel-74"><a href="#VariationalSurrogateModel-74"><span class="linenos">74</span></a><span class="sd">        assignments in Rust), returning one expectation value per assignment.</span>
+</span><span id="VariationalSurrogateModel-75"><a href="#VariationalSurrogateModel-75"><span class="linenos">75</span></a>
+</span><span id="VariationalSurrogateModel-76"><a href="#VariationalSurrogateModel-76"><span class="linenos">76</span></a><span class="sd">        Arguments:</span>
+</span><span id="VariationalSurrogateModel-77"><a href="#VariationalSurrogateModel-77"><span class="linenos">77</span></a><span class="sd">            values_batch: A sequence of assignments, each accepted in either</span>
+</span><span id="VariationalSurrogateModel-78"><a href="#VariationalSurrogateModel-78"><span class="linenos">78</span></a><span class="sd">                form `evaluate` takes.</span>
+</span><span id="VariationalSurrogateModel-79"><a href="#VariationalSurrogateModel-79"><span class="linenos">79</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="VariationalSurrogateModel-80"><a href="#VariationalSurrogateModel-80"><span class="linenos">80</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">evaluate_batch</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">_bind</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">values_batch</span><span class="p">])</span>
 </span></pre></div>
 
 
@@ -641,15 +630,15 @@ in the order used for positional <code><a href="#VariationalSurrogateModel.evalu
 
     </div>
     <a class="headerlink" href="#VariationalSurrogateModel.evaluate"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="VariationalSurrogateModel.evaluate-57"><a href="#VariationalSurrogateModel.evaluate-57"><span class="linenos">57</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values</span><span class="p">:</span> <span class="s2">&quot;Mapping[Parameter, float] | Sequence[float]&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
-</span><span id="VariationalSurrogateModel.evaluate-58"><a href="#VariationalSurrogateModel.evaluate-58"><span class="linenos">58</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="VariationalSurrogateModel.evaluate-59"><a href="#VariationalSurrogateModel.evaluate-59"><span class="linenos">59</span></a><span class="sd">        Evaluate the expectation value for the given Qiskit Parameter values.</span>
-</span><span id="VariationalSurrogateModel.evaluate-60"><a href="#VariationalSurrogateModel.evaluate-60"><span class="linenos">60</span></a>
-</span><span id="VariationalSurrogateModel.evaluate-61"><a href="#VariationalSurrogateModel.evaluate-61"><span class="linenos">61</span></a><span class="sd">        Arguments:</span>
-</span><span id="VariationalSurrogateModel.evaluate-62"><a href="#VariationalSurrogateModel.evaluate-62"><span class="linenos">62</span></a><span class="sd">            values: Either a mapping from Parameter to its value, or a plain</span>
-</span><span id="VariationalSurrogateModel.evaluate-63"><a href="#VariationalSurrogateModel.evaluate-63"><span class="linenos">63</span></a><span class="sd">                sequence of values aligned with `self.parameters`.</span>
-</span><span id="VariationalSurrogateModel.evaluate-64"><a href="#VariationalSurrogateModel.evaluate-64"><span class="linenos">64</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="VariationalSurrogateModel.evaluate-65"><a href="#VariationalSurrogateModel.evaluate-65"><span class="linenos">65</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_bind</span><span class="p">(</span><span class="n">values</span><span class="p">))</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="VariationalSurrogateModel.evaluate-59"><a href="#VariationalSurrogateModel.evaluate-59"><span class="linenos">59</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values</span><span class="p">:</span> <span class="s2">&quot;Mapping[Parameter, float] | Sequence[float]&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+</span><span id="VariationalSurrogateModel.evaluate-60"><a href="#VariationalSurrogateModel.evaluate-60"><span class="linenos">60</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="VariationalSurrogateModel.evaluate-61"><a href="#VariationalSurrogateModel.evaluate-61"><span class="linenos">61</span></a><span class="sd">        Evaluate the expectation value for the given Qiskit Parameter values.</span>
+</span><span id="VariationalSurrogateModel.evaluate-62"><a href="#VariationalSurrogateModel.evaluate-62"><span class="linenos">62</span></a>
+</span><span id="VariationalSurrogateModel.evaluate-63"><a href="#VariationalSurrogateModel.evaluate-63"><span class="linenos">63</span></a><span class="sd">        Arguments:</span>
+</span><span id="VariationalSurrogateModel.evaluate-64"><a href="#VariationalSurrogateModel.evaluate-64"><span class="linenos">64</span></a><span class="sd">            values: Either a mapping from Parameter to its value, or a plain</span>
+</span><span id="VariationalSurrogateModel.evaluate-65"><a href="#VariationalSurrogateModel.evaluate-65"><span class="linenos">65</span></a><span class="sd">                sequence of values aligned with `self.parameters`.</span>
+</span><span id="VariationalSurrogateModel.evaluate-66"><a href="#VariationalSurrogateModel.evaluate-66"><span class="linenos">66</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="VariationalSurrogateModel.evaluate-67"><a href="#VariationalSurrogateModel.evaluate-67"><span class="linenos">67</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_bind</span><span class="p">(</span><span class="n">values</span><span class="p">))</span>
 </span></pre></div>
 
 
@@ -676,18 +665,18 @@ sequence of values aligned with <code>self.parameters</code>.</li>
 
     </div>
     <a class="headerlink" href="#VariationalSurrogateModel.evaluate_batch"></a>
-            <div class="pdoc-code codehilite"><pre><span></span><span id="VariationalSurrogateModel.evaluate_batch-67"><a href="#VariationalSurrogateModel.evaluate_batch-67"><span class="linenos">67</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate_batch</span><span class="p">(</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-68"><a href="#VariationalSurrogateModel.evaluate_batch-68"><span class="linenos">68</span></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">values_batch</span><span class="p">:</span> <span class="s2">&quot;Sequence[Mapping[Parameter, float] | Sequence[float]]&quot;</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-69"><a href="#VariationalSurrogateModel.evaluate_batch-69"><span class="linenos">69</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-70"><a href="#VariationalSurrogateModel.evaluate_batch-70"><span class="linenos">70</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-71"><a href="#VariationalSurrogateModel.evaluate_batch-71"><span class="linenos">71</span></a><span class="sd">        Evaluate many Qiskit Parameter assignments at once (parallelized across</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-72"><a href="#VariationalSurrogateModel.evaluate_batch-72"><span class="linenos">72</span></a><span class="sd">        assignments in Rust), returning one expectation value per assignment.</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-73"><a href="#VariationalSurrogateModel.evaluate_batch-73"><span class="linenos">73</span></a>
-</span><span id="VariationalSurrogateModel.evaluate_batch-74"><a href="#VariationalSurrogateModel.evaluate_batch-74"><span class="linenos">74</span></a><span class="sd">        Arguments:</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-75"><a href="#VariationalSurrogateModel.evaluate_batch-75"><span class="linenos">75</span></a><span class="sd">            values_batch: A sequence of assignments, each accepted in either</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-76"><a href="#VariationalSurrogateModel.evaluate_batch-76"><span class="linenos">76</span></a><span class="sd">                form `evaluate` takes.</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-77"><a href="#VariationalSurrogateModel.evaluate_batch-77"><span class="linenos">77</span></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="VariationalSurrogateModel.evaluate_batch-78"><a href="#VariationalSurrogateModel.evaluate_batch-78"><span class="linenos">78</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">evaluate_batch</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">_bind</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">values_batch</span><span class="p">])</span>
+            <div class="pdoc-code codehilite"><pre><span></span><span id="VariationalSurrogateModel.evaluate_batch-69"><a href="#VariationalSurrogateModel.evaluate_batch-69"><span class="linenos">69</span></a>    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate_batch</span><span class="p">(</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-70"><a href="#VariationalSurrogateModel.evaluate_batch-70"><span class="linenos">70</span></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">values_batch</span><span class="p">:</span> <span class="s2">&quot;Sequence[Mapping[Parameter, float] | Sequence[float]]&quot;</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-71"><a href="#VariationalSurrogateModel.evaluate_batch-71"><span class="linenos">71</span></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-72"><a href="#VariationalSurrogateModel.evaluate_batch-72"><span class="linenos">72</span></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-73"><a href="#VariationalSurrogateModel.evaluate_batch-73"><span class="linenos">73</span></a><span class="sd">        Evaluate many Qiskit Parameter assignments at once (parallelized across</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-74"><a href="#VariationalSurrogateModel.evaluate_batch-74"><span class="linenos">74</span></a><span class="sd">        assignments in Rust), returning one expectation value per assignment.</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-75"><a href="#VariationalSurrogateModel.evaluate_batch-75"><span class="linenos">75</span></a>
+</span><span id="VariationalSurrogateModel.evaluate_batch-76"><a href="#VariationalSurrogateModel.evaluate_batch-76"><span class="linenos">76</span></a><span class="sd">        Arguments:</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-77"><a href="#VariationalSurrogateModel.evaluate_batch-77"><span class="linenos">77</span></a><span class="sd">            values_batch: A sequence of assignments, each accepted in either</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-78"><a href="#VariationalSurrogateModel.evaluate_batch-78"><span class="linenos">78</span></a><span class="sd">                form `evaluate` takes.</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-79"><a href="#VariationalSurrogateModel.evaluate_batch-79"><span class="linenos">79</span></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="VariationalSurrogateModel.evaluate_batch-80"><a href="#VariationalSurrogateModel.evaluate_batch-80"><span class="linenos">80</span></a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">evaluate_batch</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">_bind</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">values_batch</span><span class="p">])</span>
 </span></pre></div>
 
 

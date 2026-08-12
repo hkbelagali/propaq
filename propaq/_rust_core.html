@@ -74,16 +74,16 @@
                                 <a class="function" href="#MajoranaMonomial.to_bytes">to_bytes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#MajoranaMonomial.modes">modes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.weight">weight</a>
+                                <a class="variable" href="#MajoranaMonomial.length">length</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaMonomial.length">length</a>
+                                <a class="variable" href="#MajoranaMonomial.is_number_preserving">is_number_preserving</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaMonomial.weight">weight</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaMonomial.n_modes">n_modes</a>
@@ -104,16 +104,16 @@
                                 <a class="function" href="#PauliString.to_bytes">to_bytes</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.z">z</a>
+                                <a class="variable" href="#PauliString.n_qubits">n_qubits</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#PauliString.weight">weight</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliString.x">x</a>
                         </li>
                         <li>
-                                <a class="variable" href="#PauliString.n_qubits">n_qubits</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#PauliString.weight">weight</a>
+                                <a class="variable" href="#PauliString.z">z</a>
                         </li>
                 </ul>
 
@@ -153,6 +153,9 @@
                         </li>
                         <li>
                                 <a class="function" href="#MajoranaTermSum.save">save</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#MajoranaTermSum.sparse_key_bytes">sparse_key_bytes</a>
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaTermSum.dtype">dtype</a>
@@ -206,6 +209,9 @@
                                 <a class="function" href="#PauliTermSum.save">save</a>
                         </li>
                         <li>
+                                <a class="variable" href="#PauliTermSum.sparse_key_bytes">sparse_key_bytes</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#PauliTermSum.dtype">dtype</a>
                         </li>
                 </ul>
@@ -227,13 +233,13 @@
                                 <a class="function" href="#TruncationPolicy.should_truncate">should_truncate</a>
                         </li>
                         <li>
-                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#TruncationPolicy.coeff_cutoff">coeff_cutoff</a>
                         </li>
                         <li>
                                 <a class="variable" href="#TruncationPolicy.truncation_range">truncation_range</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#TruncationPolicy.weight_cutoff">weight_cutoff</a>
                         </li>
                 </ul>
 
@@ -260,6 +266,9 @@
                                 <a class="function" href="#GateNoiseModel.damping_factor">damping_factor</a>
                         </li>
                         <li>
+                                <a class="function" href="#GateNoiseModel.damping_factor_term">damping_factor_term</a>
+                        </li>
+                        <li>
                                 <a class="function" href="#GateNoiseModel.apply_noise">apply_noise</a>
                         </li>
                         <li>
@@ -272,7 +281,13 @@
                     <a class="class" href="#NativeNoiseModel">NativeNoiseModel</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="function" href="#NativeNoiseModel.damping_factor">damping_factor</a>
+                                <a class="function" href="#NativeNoiseModel.factor_term">factor_term</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#NativeNoiseModel.depends">depends</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#NativeNoiseModel.abi_version">abi_version</a>
                         </li>
                 </ul>
 
@@ -298,9 +313,6 @@
                         <li>
                                 <a class="variable" href="#MajoranaPropagator.noise">noise</a>
                         </li>
-                        <li>
-                                <a class="variable" href="#MajoranaPropagator.schedule">schedule</a>
-                        </li>
                 </ul>
 
             </li>
@@ -325,15 +337,18 @@
                         <li>
                                 <a class="variable" href="#PauliPropagator.truncators">truncators</a>
                         </li>
-                        <li>
-                                <a class="variable" href="#PauliPropagator.schedule">schedule</a>
-                        </li>
                 </ul>
 
             </li>
             <li>
                     <a class="class" href="#PropagationResult">PropagationResult</a>
                             <ul class="memberlist">
+                        <li>
+                                <a class="variable" href="#PropagationResult.terms_below_cutoff">terms_below_cutoff</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#PropagationResult.sparse_key_bytes">sparse_key_bytes</a>
+                        </li>
                         <li>
                                 <a class="variable" href="#PropagationResult.n_terms">n_terms</a>
                         </li>
@@ -365,19 +380,7 @@
                                 <a class="variable" href="#FrequencyTruncationPolicy.weight_cutoff">weight_cutoff</a>
                         </li>
                         <li>
-                                <a class="variable" href="#FrequencyTruncationPolicy.merge_max_terms">merge_max_terms</a>
-                        </li>
-                        <li>
                                 <a class="variable" href="#FrequencyTruncationPolicy.truncation_range">truncation_range</a>
-                        </li>
-                </ul>
-
-            </li>
-            <li>
-                    <a class="class" href="#FlushSchedule">FlushSchedule</a>
-                            <ul class="memberlist">
-                        <li>
-                                <a class="variable" href="#FlushSchedule.merge_max_terms">merge_max_terms</a>
                         </li>
                 </ul>
 
@@ -425,10 +428,10 @@
                     <a class="class" href="#MonomialBudget">MonomialBudget</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="variable" href="#MonomialBudget.max_monomials">max_monomials</a>
+                                <a class="variable" href="#MonomialBudget.min_monomials">min_monomials</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MonomialBudget.min_monomials">min_monomials</a>
+                                <a class="variable" href="#MonomialBudget.max_monomials">max_monomials</a>
                         </li>
                 </ul>
 
@@ -438,6 +441,12 @@
                             <ul class="memberlist">
                         <li>
                                 <a class="function" href="#NativeTruncator.keep_term">keep_term</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#NativeTruncator.abi_version">abi_version</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#NativeTruncator.depends">depends</a>
                         </li>
                 </ul>
 
@@ -467,13 +476,13 @@
                                 <a class="function" href="#PauliSurrogateModel.load">load</a>
                         </li>
                         <li>
+                                <a class="variable" href="#PauliSurrogateModel.n_params">n_params</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#PauliSurrogateModel.n_monomials">n_monomials</a>
                         </li>
                         <li>
                                 <a class="variable" href="#PauliSurrogateModel.n_terms">n_terms</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#PauliSurrogateModel.n_params">n_params</a>
                         </li>
                 </ul>
 
@@ -497,10 +506,10 @@
                                 <a class="variable" href="#MajoranaSurrogateModel.n_monomials">n_monomials</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogateModel.n_params">n_params</a>
+                                <a class="variable" href="#MajoranaSurrogateModel.n_terms">n_terms</a>
                         </li>
                         <li>
-                                <a class="variable" href="#MajoranaSurrogateModel.n_terms">n_terms</a>
+                                <a class="variable" href="#MajoranaSurrogateModel.n_params">n_params</a>
                         </li>
                 </ul>
 
@@ -517,9 +526,6 @@
                         <li>
                                 <a class="variable" href="#PauliSurrogatePropagator.truncators">truncators</a>
                         </li>
-                        <li>
-                                <a class="variable" href="#PauliSurrogatePropagator.schedule">schedule</a>
-                        </li>
                 </ul>
 
             </li>
@@ -534,9 +540,6 @@
                         </li>
                         <li>
                                 <a class="variable" href="#MajoranaSurrogatePropagator.truncators">truncators</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#MajoranaSurrogatePropagator.schedule">schedule</a>
                         </li>
                 </ul>
 
@@ -569,7 +572,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">rust_available</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="nb">bool</span>:</span></span>
+        <span class="name">rust_available</span><span class="signature pdoc-code condensed">(<span class="return-annotation">):</span></span>
 
         
     </div>
@@ -729,17 +732,6 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
-                            <div id="MajoranaMonomial.is_number_preserving" class="classattr">
-                                <div class="attr variable">
-            <span class="name">is_number_preserving</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.is_number_preserving"></a>
-    
-    
-
-                            </div>
                             <div id="MajoranaMonomial.modes" class="classattr">
                                 <div class="attr variable">
             <span class="name">modes</span>
@@ -753,19 +745,6 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
 
 
                             </div>
-                            <div id="MajoranaMonomial.weight" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaMonomial.weight"></a>
-    
-            <div class="docstring"><p>Pauli weight of this monomial under the Jordan-Wigner mapping.</p>
-</div>
-
-
-                            </div>
                             <div id="MajoranaMonomial.length" class="classattr">
                                 <div class="attr variable">
             <span class="name">length</span>
@@ -775,6 +754,30 @@ For paired modes, returns the product of $(2n_k - 1)$ values for each occupied p
     <a class="headerlink" href="#MajoranaMonomial.length"></a>
     
             <div class="docstring"><p>Number of active Majorana modes in the monomial (popcount of the mode bitmask).</p>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaMonomial.is_number_preserving" class="classattr">
+                                <div class="attr variable">
+            <span class="name">is_number_preserving</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.is_number_preserving"></a>
+    
+    
+
+                            </div>
+                            <div id="MajoranaMonomial.weight" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaMonomial.weight"></a>
+    
+            <div class="docstring"><p>Pauli weight of this monomial under the Jordan-Wigner mapping.</p>
 </div>
 
 
@@ -892,32 +895,6 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
 
 
                             </div>
-                            <div id="PauliString.z" class="classattr">
-                                <div class="attr variable">
-            <span class="name">z</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliString.z"></a>
-    
-            <div class="docstring"><p>Z-component bitmask as a Python int.</p>
-</div>
-
-
-                            </div>
-                            <div id="PauliString.x" class="classattr">
-                                <div class="attr variable">
-            <span class="name">x</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliString.x"></a>
-    
-            <div class="docstring"><p>X-component bitmask as a Python int.</p>
-</div>
-
-
-                            </div>
                             <div id="PauliString.n_qubits" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_qubits</span>
@@ -938,6 +915,32 @@ For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.</p>
     <a class="headerlink" href="#PauliString.weight"></a>
     
             <div class="docstring"><p>Number of non-identity single-qubit Pauli operators (popcount of x | z).</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliString.x" class="classattr">
+                                <div class="attr variable">
+            <span class="name">x</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliString.x"></a>
+    
+            <div class="docstring"><p>X-component bitmask as a Python int.</p>
+</div>
+
+
+                            </div>
+                            <div id="PauliString.z" class="classattr">
+                                <div class="attr variable">
+            <span class="name">z</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliString.z"></a>
+    
+            <div class="docstring"><p>Z-component bitmask as a Python int.</p>
 </div>
 
 
@@ -1147,6 +1150,21 @@ always widened to f64 on disk regardless of in-memory precision.</p>
 <ul>
 <li><strong>path:</strong>  Destination file path.</li>
 </ul>
+</div>
+
+
+                            </div>
+                            <div id="MajoranaTermSum.sparse_key_bytes" class="classattr">
+                                <div class="attr variable">
+            <span class="name">sparse_key_bytes</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaTermSum.sparse_key_bytes"></a>
+    
+            <div class="docstring"><p>Bytes of resident sparse key storage held by this term sum.</p>
+
+<p>Keys only: coefficients and merge metadata are excluded.</p>
 </div>
 
 
@@ -1405,6 +1423,21 @@ always widened to f64 on disk regardless of in-memory precision.</p>
 
 
                             </div>
+                            <div id="PauliTermSum.sparse_key_bytes" class="classattr">
+                                <div class="attr variable">
+            <span class="name">sparse_key_bytes</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliTermSum.sparse_key_bytes"></a>
+    
+            <div class="docstring"><p>Bytes of resident sparse key storage held by this term sum.</p>
+
+<p>Keys only: coefficients and merge metadata are excluded.</p>
+</div>
+
+
+                            </div>
                             <div id="PauliTermSum.dtype" class="classattr">
                                 <div class="attr variable">
             <span class="name">dtype</span>
@@ -1493,17 +1526,6 @@ Defaults to (None, $10^7$).</li>
 
 
                             </div>
-                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
-                                <div class="attr variable">
-            <span class="name">weight_cutoff</span>
-
-        
-    </div>
-    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
-    
-    
-
-                            </div>
                             <div id="TruncationPolicy.coeff_cutoff" class="classattr">
                                 <div class="attr variable">
             <span class="name">coeff_cutoff</span>
@@ -1526,6 +1548,17 @@ Defaults to (None, $10^7$).</li>
             <div class="docstring"><p>The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.</p>
 </div>
 
+
+                            </div>
+                            <div id="TruncationPolicy.weight_cutoff" class="classattr">
+                                <div class="attr variable">
+            <span class="name">weight_cutoff</span>
+
+        
+    </div>
+    <a class="headerlink" href="#TruncationPolicy.weight_cutoff"></a>
+    
+    
 
                             </div>
                 </section>
@@ -1640,6 +1673,34 @@ and apply_noise(term_sum) methods.</li>
 
 
                             </div>
+                            <div id="GateNoiseModel.damping_factor_term" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">damping_factor_term</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">basis_kind</span>, </span><span class="param"><span class="n">words</span>, </span><span class="param"><span class="n">n_units</span>, </span><span class="param"><span class="n">weight</span></span><span class="return-annotation">):</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#GateNoiseModel.damping_factor_term"></a>
+    
+            <div class="docstring"><p>Delegate to the wrapped model's <code><a href="#GateNoiseModel.damping_factor_term">damping_factor_term</a></code> method.</p>
+
+<p>Only meaningful for a wrapped object that defines one; propagation
+unwraps this model and calls the inner object directly, so this exists
+for symmetry with <code><a href="#GateNoiseModel.damping_factor">damping_factor</a></code> rather than as the hot path.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>basis_kind:</strong>  0 for Pauli, 1 for Majorana.</li>
+<li><strong>words:</strong>  The term's raw basis-string words, two bits per unit.</li>
+<li><strong>n_units:</strong>  Qubits (Pauli) or modes (Majorana) of the register.</li>
+<li><strong>weight:</strong>  The term's weight.</li>
+</ul>
+</div>
+
+
+                            </div>
                             <div id="GateNoiseModel.apply_noise" class="classattr">
                                 <div class="attr function">
             
@@ -1692,17 +1753,59 @@ plugin.</p>
 </div>
 
 
-                            <div id="NativeNoiseModel.damping_factor" class="classattr">
+                            <div id="NativeNoiseModel.factor_term" class="classattr">
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">damping_factor</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">term_weight</span>, </span><span class="param"><span class="n">active_modes</span></span><span class="return-annotation">):</span></span>
+        <span class="name">factor_term</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="bp">self</span>,</span><span class="param">	<span class="o">/</span>,</span><span class="param">	<span class="n">basis_kind</span>,</span><span class="param">	<span class="n">words</span>,</span><span class="param">	<span class="n">n_units</span>,</span><span class="param">	<span class="n">weight</span>,</span><span class="param">	<span class="n">layer_index</span><span class="o">=</span><span class="mi">0</span>,</span><span class="param">	<span class="n">n_layers</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
-    <a class="headerlink" href="#NativeNoiseModel.damping_factor"></a>
+    <a class="headerlink" href="#NativeNoiseModel.factor_term"></a>
     
-            <div class="docstring"><p>Delegate to the plugin's <code>propaq_noise_damping_factor</code>.</p>
+            <div class="docstring"><p>Delegate to the plugin's <code>propaq_noise_factor</code>.</p>
+
+<p>Exposed so a plugin can be exercised from Python without running a
+circuit; propagation calls the same entry point directly from the pool.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>basis_kind:</strong>  0 for Pauli, 1 for Majorana.</li>
+<li><strong>words:</strong>  The term's raw basis-string words, two bits per unit. Ignored
+(and passed as NULL) unless the plugin declared it reads keys.</li>
+<li><strong>n_units:</strong>  Qubits (Pauli) or modes (Majorana) of the register.</li>
+<li><strong>weight:</strong>  The term's weight.</li>
+<li><strong>layer_index:</strong>  Zero-based circuit layer.</li>
+<li><strong>n_layers:</strong>  Layers in the circuit.</li>
+</ul>
+</div>
+
+
+                            </div>
+                            <div id="NativeNoiseModel.depends" class="classattr">
+                                <div class="attr variable">
+            <span class="name">depends</span>
+
+        
+    </div>
+    <a class="headerlink" href="#NativeNoiseModel.depends"></a>
+    
+            <div class="docstring"><p>The dependency bitmask the plugin declared: 1 = reads the term's key,
+2 = reads the layer index. 0 means a function of weight alone.</p>
+</div>
+
+
+                            </div>
+                            <div id="NativeNoiseModel.abi_version" class="classattr">
+                                <div class="attr variable">
+            <span class="name">abi_version</span>
+
+        
+    </div>
+    <a class="headerlink" href="#NativeNoiseModel.abi_version"></a>
+    
+            <div class="docstring"><p>The ABI version the loaded plugin declared.</p>
 </div>
 
 
@@ -1728,10 +1831,18 @@ plugin.</p>
 (WeightTruncator, CoefficientTruncator, TermBudget), a single such
 truncator, a legacy TruncationPolicy (decomposed), or None. The
 symbolic-only FrequencyTruncator is rejected.</li>
-<li><strong>schedule:</strong>  Optional FlushSchedule controlling the lossless merge cadence.</li>
 <li><strong>n_threads:</strong>  Number of worker threads. Defaults to the system thread count.</li>
-<li><strong>progress_bar:</strong>  Display a tqdm progress bar during propagation.</li>
 <li><strong>logger:</strong>  Optional Logger for verbose JSON Lines event logging.</li>
+<li><strong>pin_threads:</strong>  Bind each worker to its own CPU. On by default, and worth
+8x to 32x on the partitioned engine, because a partition's store fits
+a core's private cache only if the same core keeps serving it.
+<strong>Turn it off when the process also runs threaded BLAS.</strong> A pinned
+worker cannot step around a spinning BLAS thread, and qiskit loads
+two OpenBLAS copies that each start one spinner per core: measured
+449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
+before numpy imports is the better fix.</li>
+<li><strong>progress_bar:</strong>  Draw a tqdm bar over the gate loop.</li>
+<li><strong>progress_every:</strong>  Gates between progress bar ticks. Defaults to 1.</li>
 </ul>
 </div>
 
@@ -1807,7 +1918,7 @@ symbolic-only FrequencyTruncator is rejected.</li>
     <a class="headerlink" href="#MajoranaPropagator.set_truncation"></a>
     
             <div class="docstring"><p>Replace the truncation pipeline (accepts the same forms as the
-constructor's <code>truncation</code>); the current schedule is preserved.</p>
+constructor's <code>truncation</code>).</p>
 </div>
 
 
@@ -1836,19 +1947,6 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
     
 
                             </div>
-                            <div id="MajoranaPropagator.schedule" class="classattr">
-                                <div class="attr variable">
-            <span class="name">schedule</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaPropagator.schedule"></a>
-    
-            <div class="docstring"><p>The flush/merge schedule.</p>
-</div>
-
-
-                            </div>
                 </section>
                 <section id="PauliPropagator">
                     <div class="attr class">
@@ -1869,10 +1967,18 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
 <li><strong>truncation:</strong>  A list of truncators (WeightTruncator, CoefficientTruncator, TermBudget), a single such
 truncator, a legacy TruncationPolicy (decomposed), or None. The
 symbolic-only FrequencyTruncator is rejected.</li>
-<li><strong>schedule:</strong>  Optional FlushSchedule controlling the lossless merge cadence.</li>
 <li><strong>n_threads:</strong>  Number of worker threads. Defaults to the system thread count.</li>
-<li><strong>progress_bar:</strong>  Display a tqdm progress bar during propagation.</li>
 <li><strong>logger:</strong>  Optional Logger for verbose JSON Lines event logging.</li>
+<li><strong>pin_threads:</strong>  Bind each worker to its own CPU. On by default, and worth
+8x to 32x on the partitioned engine, because a partition's store fits
+a core's private cache only if the same core keeps serving it.
+<strong>Turn it off when the process also runs threaded BLAS.</strong> A pinned
+worker cannot step around a spinning BLAS thread, and qiskit loads
+two OpenBLAS copies that each start one spinner per core: measured
+449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
+before numpy imports is the better fix.</li>
+<li><strong>progress_bar:</strong>  Draw a tqdm bar over the gate loop.</li>
+<li><strong>progress_every:</strong>  Gates between progress bar ticks. Defaults to 1.</li>
 </ul>
 </div>
 
@@ -1950,7 +2056,7 @@ symbolic-only FrequencyTruncator is rejected.</li>
     <a class="headerlink" href="#PauliPropagator.set_truncation"></a>
     
             <div class="docstring"><p>Replace the truncation pipeline (accepts the same forms as the
-constructor's <code>truncation</code>); the current schedule is preserved.</p>
+constructor's <code>truncation</code>).</p>
 </div>
 
 
@@ -1981,19 +2087,6 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
 
 
                             </div>
-                            <div id="PauliPropagator.schedule" class="classattr">
-                                <div class="attr variable">
-            <span class="name">schedule</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliPropagator.schedule"></a>
-    
-            <div class="docstring"><p>The flush/merge schedule.</p>
-</div>
-
-
-                            </div>
                 </section>
                 <section id="PropagationResult">
                     <div class="attr class">
@@ -2005,10 +2098,35 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
     </div>
     <a class="headerlink" href="#PropagationResult"></a>
     
-            <div class="docstring"><p>Result returned by <code><a href="#PropagationResult.expectation_value">expectation_value</a></code>: per-gate term counts and the final expectation value.</p>
+    
+
+                            <div id="PropagationResult.terms_below_cutoff" class="classattr">
+                                <div class="attr variable">
+            <span class="name">terms_below_cutoff</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PropagationResult.terms_below_cutoff"></a>
+    
+            <div class="docstring"><p>Live terms whose magnitude is below the coefficient cutoff.</p>
 </div>
 
 
+                            </div>
+                            <div id="PropagationResult.sparse_key_bytes" class="classattr">
+                                <div class="attr variable">
+            <span class="name">sparse_key_bytes</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PropagationResult.sparse_key_bytes"></a>
+    
+            <div class="docstring"><p>Bytes of resident sparse term keys held by the evolved term sum at the
+end of the run.</p>
+</div>
+
+
+                            </div>
                             <div id="PropagationResult.n_terms" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_terms</span>
@@ -2114,21 +2232,6 @@ constructor's <code>truncation</code>); the current schedule is preserved.</p>
 
 
                             </div>
-                            <div id="FrequencyTruncationPolicy.merge_max_terms" class="classattr">
-                                <div class="attr variable">
-            <span class="name">merge_max_terms</span>
-
-        
-    </div>
-    <a class="headerlink" href="#FrequencyTruncationPolicy.merge_max_terms"></a>
-    
-            <div class="docstring"><p>Finer lossless merge cadence: when this many terms accumulate in the
-outboxes since the last flush, collapse duplicate Pauli strings into the
-partition maps (no truncation). <code>None</code> disables the finer cadence.</p>
-</div>
-
-
-                            </div>
                             <div id="FrequencyTruncationPolicy.truncation_range" class="classattr">
                                 <div class="attr variable">
             <span class="name">truncation_range</span>
@@ -2140,37 +2243,6 @@ partition maps (no truncation). <code>None</code> disables the finer cadence.</p
             <div class="docstring"><p>The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.</p>
 </div>
 
-
-                            </div>
-                </section>
-                <section id="FlushSchedule">
-                    <div class="attr class">
-            
-    <span class="def">class</span>
-    <span class="name">FlushSchedule</span>:
-
-        
-    </div>
-    <a class="headerlink" href="#FlushSchedule"></a>
-    
-            <div class="docstring"><p>When to do the finer lossless merge. </p>
-
-<p><code><a href="#FlushSchedule.merge_max_terms">merge_max_terms</a></code>: once this many terms accumulate in the outboxes since the
-last flush, collapse duplicate Pauli/Majorana strings into the maps without
-truncating. <code>None</code> disables the finer cadence (merging then happens only at
-truncation flushes).</p>
-</div>
-
-
-                            <div id="FlushSchedule.merge_max_terms" class="classattr">
-                                <div class="attr variable">
-            <span class="name">merge_max_terms</span>
-
-        
-    </div>
-    <a class="headerlink" href="#FlushSchedule.merge_max_terms"></a>
-    
-    
 
                             </div>
                 </section>
@@ -2236,7 +2308,7 @@ truncation flushes).</p>
 Applies to both propagators.</p>
 
 <p>A term with weight <code>w</code> is exponentially unlikely in <code>w</code> to
-contribute to the final state, which is why this is a useful 
+contribute to the final state, which is why this is a useful
 truncation criterion for larger circuits!</p>
 </div>
 
@@ -2263,10 +2335,10 @@ truncation criterion for larger circuits!</p>
     </div>
     <a class="headerlink" href="#TermBudget"></a>
     
-            <div class="docstring"><p>Term-count budget: <code><a href="#TermBudget.max_terms">max_terms</a></code> triggers a flush-and-truncate once the live
-term count reaches it; <code><a href="#TermBudget.min_terms">min_terms</a></code> is the count below which the lossy
-operators are suppressed (only lossless dedup/merge runs). Applies to both
-propagators. Either field <code>None</code> disables that bound.</p>
+            <div class="docstring"><p>Term-count budget: <code><a href="#TermBudget.max_terms">max_terms</a></code> triggers a truncation pass once the live
+term count reaches it; <code><a href="#TermBudget.min_terms">min_terms</a></code> is the count below which lossy operators
+are suppressed. Applies to both propagators. Either field <code>None</code> disables
+that bound.</p>
 </div>
 
 
@@ -2305,17 +2377,6 @@ propagators. Either field <code>None</code> disables that bound.</p>
     
     
 
-                            <div id="MonomialBudget.max_monomials" class="classattr">
-                                <div class="attr variable">
-            <span class="name">max_monomials</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MonomialBudget.max_monomials"></a>
-    
-    
-
-                            </div>
                             <div id="MonomialBudget.min_monomials" class="classattr">
                                 <div class="attr variable">
             <span class="name">min_monomials</span>
@@ -2323,6 +2384,17 @@ propagators. Either field <code>None</code> disables that bound.</p>
         
     </div>
     <a class="headerlink" href="#MonomialBudget.min_monomials"></a>
+    
+    
+
+                            </div>
+                            <div id="MonomialBudget.max_monomials" class="classattr">
+                                <div class="attr variable">
+            <span class="name">max_monomials</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MonomialBudget.max_monomials"></a>
     
     
 
@@ -2355,13 +2427,56 @@ plugin.</p>
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">keep_term</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">/</span>, </span><span class="param"><span class="n">term_weight</span>, </span><span class="param"><span class="n">coeff_magnitude</span>, </span><span class="param"><span class="n">active_modes</span></span><span class="return-annotation">):</span></span>
+        <span class="name">keep_term</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="bp">self</span>,</span><span class="param">	<span class="o">/</span>,</span><span class="param">	<span class="n">basis_kind</span>,</span><span class="param">	<span class="n">words</span>,</span><span class="param">	<span class="n">n_units</span>,</span><span class="param">	<span class="n">weight</span>,</span><span class="param">	<span class="n">coeff_magnitude</span>,</span><span class="param">	<span class="n">layer_index</span><span class="o">=</span><span class="mi">0</span>,</span><span class="param">	<span class="n">n_layers</span><span class="o">=</span><span class="mi">0</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
     <a class="headerlink" href="#NativeTruncator.keep_term"></a>
     
             <div class="docstring"><p>Delegate to the plugin's <code>propaq_truncator_keep</code>.</p>
+
+<p>Exposed so a plugin can be exercised from Python without running a
+circuit; propagation calls the same entry point directly from the pool.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>basis_kind:</strong>  0 for Pauli, 1 for Majorana.</li>
+<li><strong>words:</strong>  The term's raw basis-string words, two bits per unit. Ignored
+(and passed as NULL) unless the plugin declared it reads keys.</li>
+<li><strong>n_units:</strong>  Qubits (Pauli) or modes (Majorana) of the register.</li>
+<li><strong>weight:</strong>  The term's weight.</li>
+<li><strong>coeff_magnitude:</strong>  The term's coefficient magnitude.</li>
+<li><strong>layer_index:</strong>  Zero-based circuit layer.</li>
+<li><strong>n_layers:</strong>  Layers in the circuit.</li>
+</ul>
+</div>
+
+
+                            </div>
+                            <div id="NativeTruncator.abi_version" class="classattr">
+                                <div class="attr variable">
+            <span class="name">abi_version</span>
+
+        
+    </div>
+    <a class="headerlink" href="#NativeTruncator.abi_version"></a>
+    
+            <div class="docstring"><p>The ABI version the loaded plugin declared.</p>
+</div>
+
+
+                            </div>
+                            <div id="NativeTruncator.depends" class="classattr">
+                                <div class="attr variable">
+            <span class="name">depends</span>
+
+        
+    </div>
+    <a class="headerlink" href="#NativeTruncator.depends"></a>
+    
+            <div class="docstring"><p>The dependency bitmask the plugin declared: 1 = reads the term's key,
+2 = reads the layer index. 0 means weight and magnitude alone.</p>
 </div>
 
 
@@ -2402,10 +2517,6 @@ plugin.</p>
     <a class="headerlink" href="#PauliSurrogateModel"></a>
     
             <div class="docstring"><p>Compiled surrogate model for Pauli observables.</p>
-
-<p>Produced by <code><a href="#PauliSurrogatePropagator.build">PauliSurrogatePropagator.build</a></code>. Call <code>evaluate(params)</code> to
-obtain the expectation value for a specific parameter assignment without
-re-running propagation. Use <code><a href="#PauliSurrogateModel.save">save</a></code>/<code><a href="#PauliSurrogateModel.load">load</a></code> for persistence.</p>
 </div>
 
 
@@ -2419,9 +2530,7 @@ re-running propagation. Use <code><a href="#PauliSurrogateModel.save">save</a></
     </div>
     <a class="headerlink" href="#PauliSurrogateModel.evaluate"></a>
     
-            <div class="docstring"><p>Evaluate the expectation value. <code>params[i]</code> is the angle (radians) for parameter <code>i</code>.</p>
-</div>
-
+    
 
                             </div>
                             <div id="PauliSurrogateModel.evaluate_batch" class="classattr">
@@ -2434,10 +2543,7 @@ re-running propagation. Use <code><a href="#PauliSurrogateModel.save">save</a></
     </div>
     <a class="headerlink" href="#PauliSurrogateModel.evaluate_batch"></a>
     
-            <div class="docstring"><p>Evaluate many parameter assignments at once (parallelized across
-assignments); returns one expectation value per assignment.</p>
-</div>
-
+    
 
                             </div>
                             <div id="PauliSurrogateModel.save" class="classattr">
@@ -2470,6 +2576,19 @@ assignments); returns one expectation value per assignment.</p>
 
 
                             </div>
+                            <div id="PauliSurrogateModel.n_params" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_params</span>
+
+        
+    </div>
+    <a class="headerlink" href="#PauliSurrogateModel.n_params"></a>
+    
+            <div class="docstring"><p>Number of parameter indices used by this model.</p>
+</div>
+
+
+                            </div>
                             <div id="PauliSurrogateModel.n_monomials" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_monomials</span>
@@ -2478,11 +2597,7 @@ assignments); returns one expectation value per assignment.</p>
     </div>
     <a class="headerlink" href="#PauliSurrogateModel.n_monomials"></a>
     
-            <div class="docstring"><p>Total pre-dedup monomial-instance count across every surviving term
-(an upper bound, not deduplicated: <code><a href="#PauliSurrogateModel.n_terms">n_terms</a></code> alone doesn't say how
-much underlying computation a term represents).</p>
-</div>
-
+    
 
                             </div>
                             <div id="PauliSurrogateModel.n_terms" class="classattr">
@@ -2494,19 +2609,6 @@ much underlying computation a term represents).</p>
     <a class="headerlink" href="#PauliSurrogateModel.n_terms"></a>
     
             <div class="docstring"><p>Number of compiled terms.</p>
-</div>
-
-
-                            </div>
-                            <div id="PauliSurrogateModel.n_params" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_params</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliSurrogateModel.n_params"></a>
-    
-            <div class="docstring"><p>Number of parameter indices used by this model.</p>
 </div>
 
 
@@ -2591,17 +2693,6 @@ much underlying computation a term represents).</p>
     
 
                             </div>
-                            <div id="MajoranaSurrogateModel.n_params" class="classattr">
-                                <div class="attr variable">
-            <span class="name">n_params</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaSurrogateModel.n_params"></a>
-    
-    
-
-                            </div>
                             <div id="MajoranaSurrogateModel.n_terms" class="classattr">
                                 <div class="attr variable">
             <span class="name">n_terms</span>
@@ -2609,6 +2700,17 @@ much underlying computation a term represents).</p>
         
     </div>
     <a class="headerlink" href="#MajoranaSurrogateModel.n_terms"></a>
+    
+    
+
+                            </div>
+                            <div id="MajoranaSurrogateModel.n_params" class="classattr">
+                                <div class="attr variable">
+            <span class="name">n_params</span>
+
+        
+    </div>
+    <a class="headerlink" href="#MajoranaSurrogateModel.n_params"></a>
     
     
 
@@ -2634,13 +2736,10 @@ that can be re-evaluated for any parameter assignment.</p>
 (FrequencyTruncator, CoefficientTruncator, WeightTruncator,
 TermBudget) applied at each flush, a single such truncator, a
 legacy FrequencyTruncationPolicy (decomposed automatically), or None.</li>
-<li><strong>schedule:</strong>  Optional FlushSchedule controlling flush/merge cadence. Omitted
--> sensible defaults when any truncator is given, or "flush only at the
-end" when truncation is also None. A legacy policy supplies its own
-schedule unless one is passed explicitly here.</li>
 <li><strong>n_threads:</strong>  Number of worker threads. Defaults to the system thread count.</li>
-<li><strong>progress_bar:</strong>  Display a tqdm progress bar during propagation.</li>
 <li><strong>logger:</strong>  Optional Logger for verbose JSON Lines event logging.</li>
+<li><strong>progress_bar:</strong>  Draw a tqdm bar over the build's gate loop.</li>
+<li><strong>progress_every:</strong>  Gates between progress bar ticks. Defaults to 1.</li>
 </ul>
 </div>
 
@@ -2679,7 +2778,7 @@ schedule unless one is passed explicitly here.</li>
     <a class="headerlink" href="#PauliSurrogatePropagator.set_truncation"></a>
     
             <div class="docstring"><p>Replace the truncation pipeline (accepts the same forms as the
-constructor's <code>truncation</code>). The current schedule is preserved.</p>
+constructor's <code>truncation</code>).</p>
 </div>
 
 
@@ -2693,19 +2792,6 @@ constructor's <code>truncation</code>). The current schedule is preserved.</p>
     <a class="headerlink" href="#PauliSurrogatePropagator.truncators"></a>
     
             <div class="docstring"><p>The active truncation pipeline as a list of truncator objects.</p>
-</div>
-
-
-                            </div>
-                            <div id="PauliSurrogatePropagator.schedule" class="classattr">
-                                <div class="attr variable">
-            <span class="name">schedule</span>
-
-        
-    </div>
-    <a class="headerlink" href="#PauliSurrogatePropagator.schedule"></a>
-    
-            <div class="docstring"><p>The flush/merge schedule.</p>
 </div>
 
 
@@ -2749,7 +2835,7 @@ constructor's <code>truncation</code>). The current schedule is preserved.</p>
     <a class="headerlink" href="#MajoranaSurrogatePropagator.set_truncation"></a>
     
             <div class="docstring"><p>Replace the truncation pipeline (accepts the same forms as the
-constructor's <code>truncation</code>). The current schedule is preserved.</p>
+constructor's <code>truncation</code>).</p>
 </div>
 
 
@@ -2767,32 +2853,19 @@ constructor's <code>truncation</code>). The current schedule is preserved.</p>
 
 
                             </div>
-                            <div id="MajoranaSurrogatePropagator.schedule" class="classattr">
-                                <div class="attr variable">
-            <span class="name">schedule</span>
-
-        
-    </div>
-    <a class="headerlink" href="#MajoranaSurrogatePropagator.schedule"></a>
-    
-            <div class="docstring"><p>The flush/merge schedule.</p>
-</div>
-
-
-                            </div>
                 </section>
                 <section id="hybrid_expectation">
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">hybrid_expectation</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">observable</span><span class="p">:</span> <span class="s1">&#39;PauliTermSum&#39;</span>, </span><span class="param"><span class="n">mps_arrays</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span></span><span class="return-annotation">) -> <span class="nb">float</span>:</span></span>
+        <span class="name">hybrid_expectation</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">observable</span>, </span><span class="param"><span class="n">mps_arrays</span></span><span class="return-annotation">):</span></span>
 
         
     </div>
     <a class="headerlink" href="#hybrid_expectation"></a>
     
-            <div class="docstring"><p>Computes <code>sum_i coeff_i * &lt;Psi|P_i|Psi&gt;</code> over every term in <code>observable</code>,
-given <code>|Psi&gt;</code> as a list of MPS site tensors (each rank-3, shape
+            <div class="docstring"><p>Computes $\sum_i c_i \langle\Psi|P_i|\Psi\rangle$ over every term in <code>observable</code>,
+given $|\Psi\rangle$ as a list of MPS site tensors (each rank-3, shape
 <code>(bond_left, 2, bond_right)</code>, with dummy size-1 bonds at the open
 boundaries</p>
 
@@ -2801,7 +2874,7 @@ boundaries</p>
 <ul>
 <li><strong>observable:</strong>  A Heisenberg-propagated <code><a href="#PauliTermSum">PauliTermSum</a></code> (e.g. the result
 of <code><a href="#PauliPropagator.propagate">PauliPropagator.propagate</a>(observable, circuit1)</code>).</li>
-<li><strong>mps_arrays:</strong>  <code>|Psi&gt;</code>'s site tensors in left-to-right qubit order,
+<li><strong>mps_arrays:</strong>  $|\Psi\rangle$'s site tensors in left-to-right qubit order,
 complex128, rank-3, contiguous.</li>
 </ul>
 </div>
