@@ -4,7 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.3] - 2026-08-12
+
+### Added 
+- Term-aware truncation and noise plugin compatibility through dependencies.
+- A notebook demonstrating the use of `AbstractPropagator` with a custom basis, namely the Weyl-Heisenberg group for qudit systems.
+- More example plugins in C, Julia, and Rust with the new plugin ABI 
+
+### Fixed 
+- Parameter ordering issue in `TermBudget` and `MonomialBudget` 
+
+### Changed 
+- Rust backend now uses a sparse list representation with a transpose view for efficient anticommutation checks.
+- Progress bar is now routed through the engine rather than a direct call to `tqdm`. 
+- Documentation is now generated with mkdocs.
 
 ## [0.1.2] - 2026-07-31
 
