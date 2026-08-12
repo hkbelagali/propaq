@@ -4,27 +4,77 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
-permissions:
-  contents: write
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
+    name: build site
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: docs-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: docs-cargo-${{ runner.os }}-
+
       - name: Install propaq and docs dependencies
-        run: pip install -e .[dev,docs]
-      - name: Build docs
-        run: pdoc --math --docformat google --output-dir _site propaq
+        run: pip install -e ".[docs]"
+
+      - name: Check example notebooks against the current API
+        run: python scripts/check_notebooks.py
+
+      - name: Build site
+        run: mkdocs build --strict --site-dir _site
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: _site/
+          retention-days: 7
+
+  deploy:
+    name: deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download site artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: _site
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:

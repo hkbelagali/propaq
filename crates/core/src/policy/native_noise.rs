@@ -6,7 +6,7 @@
 //! ## ABI contract
 //!
 //! There is one entry point. A plugin declares *what it reads* through
-//! `propaq_noise_depends`, and that declaration — not a version number — is
+//! `propaq_noise_depends`, and that declaration is
 //! what picks the engine's evaluation strategy.
 //!
 //! ```c

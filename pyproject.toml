@@ -54,7 +54,12 @@ dev = [
     "coverage~=7.14.0",
 ]
 docs = [
-    "pdoc>=14",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
+    "mkdocs-jupyter>=0.25",
+    "mkdocs-autorefs>=1.2",
+    "pymdown-extensions>=10.9",
 ]
 cirq = [
     "cirq~=1.5.0",
@@ -78,7 +83,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-exclude = ["benchmarks/", "examples/", "propaq/_rust_core/__init__.pyi"]
+exclude = ["benchmarks/", "examples/", "docs/", "propaq/_rust_core/__init__.pyi"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -131,5 +136,3 @@ omit = [
 fail_under = 85
 show_missing = true
 
-[tool.pdoc]
-docformat = "google"

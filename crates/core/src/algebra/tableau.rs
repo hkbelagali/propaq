@@ -27,10 +27,10 @@ pub struct Row<const W: usize> {
 /// A deferred Clifford of arbitrary support.
 #[derive(Clone, Debug)]
 pub struct CliffordTableau<const W: usize> {
-    /// The readout map $P \mapsto C^\dagger P C$
+    /// The readout map \(P \mapsto C^\dagger P C\)
     readout: Vec<Row<W>>,
 
-    /// The generator map $P \mapsto C P C^\dagger$, the inverse of `readout`.
+    /// The generator map \(P \mapsto C P C^\dagger\), the inverse of `readout`.
     generator: Vec<Row<W>>,
     identity: bool,
 }
@@ -97,7 +97,7 @@ impl<const W: usize> CliffordTableau<W> {
         Self::apply_rows::<A>(&self.readout, mono)
     }
 
-    /// Pushes a later gate's generator through the tableau, $P \mapsto C P C^\dagger$.
+    /// Pushes a later gate's generator through the tableau, \(P \mapsto C P C^\dagger\).
     pub fn conjugate_generator<A: Basis<W>>(&self, mono: &BasisString<W>) -> (BasisString<W>, f64) {
         if self.identity {
             return (*mono, 1.0);

@@ -9,21 +9,21 @@ class PauliRotation:
 
     The gate parameterization is given by:
 
-    $$
+    \[
     G = e^{-i \theta P / 2}
-    $$
+    \]
 
-    where $P$ is a Pauli string and $\theta$ is the rotation angle in radians
+    where \(P\) is a Pauli string and \(\theta\) is the rotation angle in radians
     (the same half-angle convention as Qiskit's RZ/CP gate parameters, enforced by
-    the propagator regardless of what a naive dense-matrix exponential of $P$ alone
+    the propagator regardless of what a naive dense-matrix exponential of \(P\) alone
     would suggest).
     """
 
     generator: PauliString
-    """The Pauli string $P$ that generates the rotation."""
+    """The Pauli string \\(P\\) that generates the rotation."""
 
     angle: float
-    r"""The rotation angle $\theta$ in radians."""
+    r"""The rotation angle \(\theta\) in radians."""
 
     is_intermediate: bool
     """

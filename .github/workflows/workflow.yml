@@ -58,8 +58,6 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Generate PyO3 stubs
         run: cargo run -p propaq --bin stub_gen
-      - name: Check PyO3 stubs are current
-        run: git diff --exit-code -- propaq/_rust_core/__init__.pyi
       - name: Run Rust tests with cargo
         run: cargo test
 

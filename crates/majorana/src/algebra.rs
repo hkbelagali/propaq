@@ -21,7 +21,7 @@ fn gather_even(mut x: u64) -> u64 {
     (x | (x >> 16)) & 0x0000_0000_ffff_ffff
 }
 
-/// Site-indexed planes: which sites carry $\gamma_{2k}$, and which $\gamma_{2k+1}$.
+/// Site-indexed planes: which sites carry \(\gamma_{2k}\), and which \(\gamma_{2k+1}\).
 fn site_planes<const W: usize>(m: &BasisString<W>) -> ([u64; W], [u64; W]) {
     let (mut even, mut odd) = ([0u64; W], [0u64; W]);
     for (w, &word) in m.words().iter().enumerate() {

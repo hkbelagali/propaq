@@ -75,7 +75,19 @@ result = prop.expectation_value(mts, mc, initial_state=0)
 print("Expectation value:", result.expectation_value)
 ```
 
-For a more detailed introduction, see the example notebooks in the documentation.
+For a more detailed introduction, see the [documentation](https://hkbelagali.github.io/propaq):
+
+- [Getting started](https://hkbelagali.github.io/propaq/getting-started/) - installation, quickstart, core concepts
+- [Guides](https://hkbelagali.github.io/propaq/guides/) - truncation, noise, surrogate propagation, extrapolation, streaming, plugins
+- [Examples](https://hkbelagali.github.io/propaq/examples/) - the notebooks under [`examples/`](examples), rendered
+- [API reference](https://hkbelagali.github.io/propaq/reference/)
+
+### Building the docs locally
+
+```bash
+pip install -e ".[docs]"
+mkdocs serve
+```
 
 ## Citation
 
