@@ -106,14 +106,7 @@ fn write_phase_event(log: &mut impl Write, p: &propaq_core::partitioned_termsum:
 ///         symbolic-only FrequencyTruncator is rejected.
 ///     n_threads: Number of worker threads. Defaults to the system thread count.
 ///     logger: Optional Logger for verbose JSON Lines event logging.
-///     pin_threads: Bind each worker to its own CPU. On by default, and worth
-///         8x to 32x on the partitioned engine, because a partition's store fits
-///         a core's private cache only if the same core keeps serving it.
-///         **Turn it off when the process also runs threaded BLAS.** A pinned
-///         worker cannot step around a spinning BLAS thread, and qiskit loads
-///         two OpenBLAS copies that each start one spinner per core: measured
-///         449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
-///         before numpy imports is the better fix.
+///     pin_threads: Bind each worker to its own CPU.
 ///     progress_bar: Draw a tqdm bar over the gate loop.
 ///     progress_every: Gates between progress bar ticks. Defaults to 1.
 ///

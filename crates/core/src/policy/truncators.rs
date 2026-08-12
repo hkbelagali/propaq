@@ -89,37 +89,38 @@ impl WeightTruncator {
     }
 }
 
-/// Term-count budget: `max_terms` triggers a truncation pass once the live
-/// term count reaches it; `min_terms` is the count below which lossy operators
-/// are suppressed. Applies to both propagators. Either field `None` disables
-/// that bound.
+/// Term-count budget: `min_terms` is the count below which lossy operators are
+/// suppressed. `max_terms` triggers a truncation pass once the live term count
+/// reaches it. Applies to both propagators. Either field `None` disables that
+/// bound.
+///
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct TermBudget {
     #[pyo3(get, set)]
-    pub max_terms: Option<usize>,
-    #[pyo3(get, set)]
     pub min_terms: Option<usize>,
+    #[pyo3(get, set)]
+    pub max_terms: Option<usize>,
 }
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl TermBudget {
     #[new]
-    #[pyo3(signature = (max_terms=None, min_terms=None))]
-    pub fn new(max_terms: Option<usize>, min_terms: Option<usize>) -> Self {
+    #[pyo3(signature = (*, min_terms=None, max_terms=None))]
+    pub fn new(min_terms: Option<usize>, max_terms: Option<usize>) -> Self {
         TermBudget {
-            max_terms,
             min_terms,
+            max_terms,
         }
     }
     fn __repr__(&self) -> String {
         let f = |v: Option<usize>| v.map_or_else(|| "None".to_string(), |x| x.to_string());
         format!(
-            "TermBudget(max_terms={}, min_terms={})",
-            f(self.max_terms),
-            f(self.min_terms)
+            "TermBudget(min_terms={}, max_terms={})",
+            f(self.min_terms),
+            f(self.max_terms)
         )
     }
 }

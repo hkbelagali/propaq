@@ -23,7 +23,9 @@ class WeightTruncator(_RustWeightTruncator):
 
 
 class TermBudget(_RustTermBudget):
-    """Term-count budget: ``max_terms`` triggers truncation; ``min_terms`` gates lossy ops."""
+    """
+    Term-count budget: ``min_terms`` gates lossy ops. ``max_terms`` triggers truncation.
+    """
 
 
 class MonomialBudget(_RustMonomialBudget):

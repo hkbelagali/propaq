@@ -262,14 +262,7 @@ class MajoranaPropagator:
             symbolic-only FrequencyTruncator is rejected.
         n_threads: Number of worker threads. Defaults to the system thread count.
         logger: Optional Logger for verbose JSON Lines event logging.
-        pin_threads: Bind each worker to its own CPU. On by default, and worth
-            8x to 32x on the partitioned engine, because a partition's store fits
-            a core's private cache only if the same core keeps serving it.
-            **Turn it off when the process also runs threaded BLAS.** A pinned
-            worker cannot step around a spinning BLAS thread, and qiskit loads
-            two OpenBLAS copies that each start one spinner per core: measured
-            449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
-            before numpy imports is the better fix.
+        pin_threads: Bind each worker to its own CPU.
         progress_bar: Draw a tqdm bar over the gate loop.
         progress_every: Gates between progress bar ticks. Defaults to 1.
     """
@@ -557,14 +550,7 @@ class PauliPropagator:
             symbolic-only FrequencyTruncator is rejected.
         n_threads: Number of worker threads. Defaults to the system thread count.
         logger: Optional Logger for verbose JSON Lines event logging.
-        pin_threads: Bind each worker to its own CPU. On by default, and worth
-            8x to 32x on the partitioned engine, because a partition's store fits
-            a core's private cache only if the same core keeps serving it.
-            **Turn it off when the process also runs threaded BLAS.** A pinned
-            worker cannot step around a spinning BLAS thread, and qiskit loads
-            two OpenBLAS copies that each start one spinner per core: measured
-            449ms against 184ms at 64 threads. Setting OPENBLAS_NUM_THREADS=1
-            before numpy imports is the better fix.
+        pin_threads: Bind each worker to its own CPU.
         progress_bar: Draw a tqdm bar over the gate loop.
         progress_every: Gates between progress bar ticks. Defaults to 1.
     """
@@ -890,20 +876,25 @@ class Simplify:
 
 class TermBudget:
     r"""
-    Term-count budget: `max_terms` triggers a truncation pass once the live
-    term count reaches it; `min_terms` is the count below which lossy operators
-    are suppressed. Applies to both propagators. Either field `None` disables
-    that bound.
+    Term-count budget: `min_terms` is the count below which lossy operators are
+    suppressed; `max_terms` triggers a truncation pass once the live term count
+    reaches it. Applies to both propagators. Either field `None` disables that
+    bound.
+    
+    The two are keyword-only. They are a floor/ceiling pair of the same type, so
+    a positional call is easy to transpose, and a transposed pair fails silently
+    rather than loudly: `TermBudget(None, 1)` reads like a ceiling of 1 but sets
+    no ceiling at all, and truncation then never fires.
     """
-    @property
-    def max_terms(self) -> typing.Optional[builtins.int]: ...
-    @max_terms.setter
-    def max_terms(self, value: typing.Optional[builtins.int]) -> None: ...
     @property
     def min_terms(self) -> typing.Optional[builtins.int]: ...
     @min_terms.setter
     def min_terms(self, value: typing.Optional[builtins.int]) -> None: ...
-    def __new__(cls, max_terms: typing.Optional[builtins.int] = None, min_terms: typing.Optional[builtins.int] = None) -> TermBudget: ...
+    @property
+    def max_terms(self) -> typing.Optional[builtins.int]: ...
+    @max_terms.setter
+    def max_terms(self, value: typing.Optional[builtins.int]) -> None: ...
+    def __new__(cls, *, min_terms: typing.Optional[builtins.int] = None, max_terms: typing.Optional[builtins.int] = None) -> TermBudget: ...
     def __repr__(self) -> builtins.str: ...
 
 class TruncationPolicy:
