@@ -1,11 +1,11 @@
 [package]
 name = "propaq"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 
 [lib]
 name = "_rust_core"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
@@ -17,4 +17,5 @@ propaq-majorana = { path = "../majorana" }
 propaq-pauli = { path = "../pauli" }
 propaq-surrogate = { path = "../surrogate" }
 propaq-hybrid = { path = "../hybrid" }
-pyo3 = { version = "0.23", features = ["num-complex"] }
+pyo3 = { version = "0.27", features = ["num-complex"] }
+pyo3-stub-gen = "0.23"

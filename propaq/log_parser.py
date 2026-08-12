@@ -9,6 +9,7 @@ from dataclasses import dataclass
 @dataclass
 class GateEvent:
     """Class representing a logged gate application event."""
+
     gate_idx: int
     """Index of the gate in the circuit, starting from 0."""
     layer_idx: int
@@ -31,6 +32,7 @@ class TruncationEvent:
 
     See `SurrogateFlushEvent` for the surrogate propagators' equivalent.
     """
+
     gate_idx: int
     """Index of the gate at which truncation was triggered."""
     layer_idx: int
@@ -68,6 +70,7 @@ class SurrogateFlushEvent:
     monomial-count stats, and the cutoffs are the surrogate truncators'
     (`FrequencyTruncator`/`WeightTruncator`/`CoefficientTruncator`).
     """
+
     gate_idx: int
     """Index of the gate at which the flush was triggered."""
     layer_idx: int
@@ -107,6 +110,7 @@ class SurrogateFlushDeferredEvent:
     (logged separately as a `SurrogateFlushEvent`); this event only records
     that the trigger latched and why the flush didn't happen immediately.
     """
+
     gate_idx: int
     """Index of the gate at which the trigger latched."""
     layer_idx: int
@@ -124,24 +128,50 @@ class SurrogateFlushDeferredEvent:
 
 
 @dataclass
-class SurrogateMergeEvent:
-    """Class representing a surrogate merge-only cadence event (no truncation).
+class EnginePhasesEvent:
+    """Class representing the closing per-run summary of the propagation engine.
 
-    Emitted when `merge_max_terms` triggers a dedup merge between truncation
-    flushes; term/monomial counts are refreshed but no lossy truncator runs.
+    One per run. Wall seconds are for the whole run; occupancy is the share of
+    the worker pool doing work rather than waiting at a barrier or behind a
+    straggler, so a low figure points at imbalance rather than at slow work.
+    Release builds inline the scan and absorb phases into one closure and carry
+    no frame pointers, so this event is the only place the split is visible.
     """
-    gate_idx: int
-    """Index of the gate at which the merge occurred."""
-    layer_idx: int
-    """Index of the layer at which the merge occurred."""
-    terms_before: int
-    """Term count before the merge (may include duplicates)."""
-    terms_after: int
-    """Deduplicated term count after the merge."""
-    monomials_after: int
-    """Exact total monomial count across all live coefficients after the merge."""
-    qiskit_gate_idx: int | None
-    """Index of the originating Qiskit gate, or None for non-Qiskit circuits."""
+
+    partitions: int
+    """Hash partitions the run used, which is also its worker count."""
+    scan_s: float
+    """Wall seconds spent scanning rows and emitting branches."""
+    absorb_s: float
+    """Wall seconds spent absorbing the routing exchange."""
+    claims_s: float
+    """Wall seconds spent in the pair rule's rescue round."""
+    scan_occupancy: float
+    """Fraction of the pool busy during the scan phase, in [0, 1]."""
+    absorb_occupancy: float
+    """Fraction of the pool busy during the absorb phase, in [0, 1]."""
+    terms: int
+    """Live terms at the end of the run."""
+    inline_positions: int
+    """Inline key capacity per row the store settled on."""
+    overflow_rows: int
+    """Rows whose keys spilled past that capacity, costing a lookup per read."""
+    overflow_share: float
+    """`overflow_rows` as a fraction of `terms`."""
+    visited: int
+    """Rows the scan read across the run."""
+    emitted: int
+    """Branches the scan emitted."""
+    declined: int
+    """Branches the emit gate refused before forming them."""
+    emitted_share: float
+    """`emitted` as a fraction of `visited`."""
+    declined_share: float
+    """`declined` as a fraction of `visited`."""
+    exchange_hits: int
+    """Emitted branches that landed on a key the destination already held."""
+    exchange_hit_share: float
+    """`exchange_hits` as a fraction of `emitted`."""
 
 
 class LogParser:
@@ -156,7 +186,7 @@ class LogParser:
         self._truncation_events: list[TruncationEvent] = []
         self._surrogate_flush_events: list[SurrogateFlushEvent] = []
         self._surrogate_flush_deferred_events: list[SurrogateFlushDeferredEvent] = []
-        self._surrogate_merge_events: list[SurrogateMergeEvent] = []
+        self._engine_phases_events: list[EnginePhasesEvent] = []
         self._load()
 
     def _load(self) -> None:
@@ -164,7 +194,7 @@ class LogParser:
         self._truncation_events.clear()
         self._surrogate_flush_events.clear()
         self._surrogate_flush_deferred_events.clear()
-        self._surrogate_merge_events.clear()
+        self._engine_phases_events.clear()
         with open(self._filename) as f:
             for line in f:
                 line = line.strip()
@@ -173,66 +203,69 @@ class LogParser:
                 ev = json.loads(line)
                 kind = ev["event"]
                 if kind == "gate":
-                    self._gate_events.append(GateEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        map_terms=ev["map_terms"],
-                        outbox_terms=ev["outbox_terms"],
-                        avg_ms_per_gate=ev.get("avg_ms_per_gate"),
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                        monomials=ev.get("monomials"),
-                    ))
+                    self._gate_events.append(
+                        GateEvent(
+                            gate_idx=ev["gate_idx"],
+                            layer_idx=ev["layer_idx"],
+                            map_terms=ev["map_terms"],
+                            outbox_terms=ev["outbox_terms"],
+                            avg_ms_per_gate=ev.get("avg_ms_per_gate"),
+                            qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                            monomials=ev.get("monomials"),
+                        )
+                    )
                 elif kind == "truncation":
-                    self._truncation_events.append(TruncationEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        trigger=ev["trigger"],
-                        terms_before=ev["terms_before"],
-                        terms_after=ev["terms_after"],
-                        terms_discarded=ev["terms_discarded"],
-                        discarded_coeff_l1=ev["discarded_coeff_l1"],
-                        discarded_coeff_max=ev["discarded_coeff_max"],
-                        weight_cutoff=ev["weight_cutoff"],
-                        coeff_cutoff=ev["coeff_cutoff"],
-                        elapsed_ms=ev["elapsed_ms"],
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                    ))
+                    self._truncation_events.append(
+                        TruncationEvent(
+                            gate_idx=ev["gate_idx"],
+                            layer_idx=ev["layer_idx"],
+                            trigger=ev["trigger"],
+                            terms_before=ev["terms_before"],
+                            terms_after=ev["terms_after"],
+                            terms_discarded=ev["terms_discarded"],
+                            discarded_coeff_l1=ev["discarded_coeff_l1"],
+                            discarded_coeff_max=ev["discarded_coeff_max"],
+                            weight_cutoff=ev["weight_cutoff"],
+                            coeff_cutoff=ev["coeff_cutoff"],
+                            elapsed_ms=ev["elapsed_ms"],
+                            qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                        )
+                    )
                 elif kind == "surrogate_flush":
-                    self._surrogate_flush_events.append(SurrogateFlushEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        trigger=ev["trigger"],
-                        terms_before=ev["terms_before"],
-                        terms_after=ev["terms_after"],
-                        terms_discarded=ev["terms_discarded"],
-                        monomials_before=ev["monomials_before"],
-                        monomials_after=ev["monomials_after"],
-                        monomials_discarded=ev["monomials_discarded"],
-                        frequency=ev["frequency"],
-                        weight=ev["weight"],
-                        coefficient=ev["coefficient"],
-                        elapsed_ms=ev["elapsed_ms"],
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                    ))
+                    self._surrogate_flush_events.append(
+                        SurrogateFlushEvent(
+                            gate_idx=ev["gate_idx"],
+                            layer_idx=ev["layer_idx"],
+                            trigger=ev["trigger"],
+                            terms_before=ev["terms_before"],
+                            terms_after=ev["terms_after"],
+                            terms_discarded=ev["terms_discarded"],
+                            monomials_before=ev["monomials_before"],
+                            monomials_after=ev["monomials_after"],
+                            monomials_discarded=ev["monomials_discarded"],
+                            frequency=ev["frequency"],
+                            weight=ev["weight"],
+                            coefficient=ev["coefficient"],
+                            elapsed_ms=ev["elapsed_ms"],
+                            qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                        )
+                    )
                 elif kind == "surrogate_flush_deferred":
-                    self._surrogate_flush_deferred_events.append(SurrogateFlushDeferredEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        trigger=ev["trigger"],
-                        terms=ev["terms"],
-                        monomials=ev["monomials"],
-                        reason=ev["reason"],
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                    ))
-                elif kind == "surrogate_merge":
-                    self._surrogate_merge_events.append(SurrogateMergeEvent(
-                        gate_idx=ev["gate_idx"],
-                        layer_idx=ev["layer_idx"],
-                        terms_before=ev["terms_before"],
-                        terms_after=ev["terms_after"],
-                        monomials_after=ev["monomials_after"],
-                        qiskit_gate_idx=ev.get("qiskit_gate_idx"),
-                    ))
+                    self._surrogate_flush_deferred_events.append(
+                        SurrogateFlushDeferredEvent(
+                            gate_idx=ev["gate_idx"],
+                            layer_idx=ev["layer_idx"],
+                            trigger=ev["trigger"],
+                            terms=ev["terms"],
+                            monomials=ev["monomials"],
+                            reason=ev["reason"],
+                            qiskit_gate_idx=ev.get("qiskit_gate_idx"),
+                        )
+                    )
+                elif kind == "engine_phases":
+                    self._engine_phases_events.append(
+                        EnginePhasesEvent(**{k: v for k, v in ev.items() if k != "event"})
+                    )
 
     def reload(self) -> None:
         """Re-read the log file, picking up any new events appended since construction."""
@@ -259,9 +292,9 @@ class LogParser:
         return self._surrogate_flush_deferred_events
 
     @property
-    def surrogate_merge_events(self) -> list[SurrogateMergeEvent]:
-        """All merge-only cadence events in file order (surrogate propagators only)."""
-        return self._surrogate_merge_events
+    def engine_phases_events(self) -> list[EnginePhasesEvent]:
+        """The closing engine summary, one per run recorded in this file."""
+        return self._engine_phases_events
 
     @property
     def gate_indices(self) -> list[int]:

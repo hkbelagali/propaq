@@ -7,11 +7,13 @@ use propaq_core::streamer::TermStreamer;
 
 use crate::string::PauliString;
 
+#[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliTermStreamer {
     pub inner: TermStreamer<PauliString>,
 }
 
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl PauliTermStreamer {
     /// Open a gzip-compressed binary file for lazy streaming.
@@ -20,7 +22,9 @@ impl PauliTermStreamer {
     ///     path: Path to a file written by `PauliTermSum.save()`.
     #[staticmethod]
     fn from_file(path: &str) -> PyResult<Self> {
-        Ok(Self { inner: TermStreamer::open(path)? })
+        Ok(Self {
+            inner: TermStreamer::open(path)?,
+        })
     }
 
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {

@@ -6,28 +6,28 @@
 // always, which trades a small amount of variance for keeping the estimator
 // unbiased in expectation.
 //
-// Plugin callbacks run concurrently from arbitrary worker threads sharing one
-// ctx, so this deliberately avoids a shared, mutable RNG state (which would
-// need a lock to read-modify-write safely). Instead each call draws its
-// randomness from splitmix64 seeded by `seed ^ call_index`, where
-// `call_index` is a lock-free atomic counter reserved once per call (once per
-// chunk for the batch entry point)
+
 #include <math.h>
-#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define PROPAQ_TRUNCATOR_ABI_VERSION 1u
 
+#define PROPAQ_DEPENDS_KEY   (1u << 0)
+#define PROPAQ_DEPENDS_LAYER (1u << 1)
+
 typedef struct {
     double threshold;
     uint64_t seed;
-    _Atomic uint64_t call_index;
 } Ctx;
 
 uint32_t propaq_truncator_abi_version(void) {
     return PROPAQ_TRUNCATOR_ABI_VERSION;
+}
+
+uint32_t propaq_truncator_depends(void) {
+    return PROPAQ_DEPENDS_KEY;
 }
 
 static double parse_double(const char* config_json, const char* key, double fallback) {
@@ -56,7 +56,6 @@ void* propaq_truncator_create(const char* config_json) {
     Ctx* ctx = (Ctx*)malloc(sizeof(Ctx));
     ctx->threshold = parse_double(config_json, "\"threshold\"", 1e-6);
     ctx->seed = (uint64_t)parse_double(config_json, "\"seed\"", 42.0);
-    atomic_init(&ctx->call_index, 0);
     return ctx;
 }
 
@@ -64,30 +63,39 @@ void propaq_truncator_destroy(void* ctx) {
     free(ctx);
 }
 
-static int32_t keep(const Ctx* ctx, double coeff_magnitude, uint64_t call_index) {
+// A stream position derived from the term itself
+static uint64_t key_stream(const Ctx* ctx, const uint64_t* words, size_t n_words) {
+    uint64_t h = ctx->seed;
+    for (size_t i = 0; i < n_words; i++) {
+        h = splitmix64(h ^ words[i]);
+    }
+    return h;
+}
+
+static int32_t keep(const Ctx* ctx, const uint64_t* words, size_t n_words, double coeff_magnitude) {
     double probability = coeff_magnitude / ctx->threshold;
     if (probability >= 1.0) return 1;
-    double draw = unit_interval(splitmix64(ctx->seed ^ call_index));
+    double draw = unit_interval(splitmix64(key_stream(ctx, words, n_words)));
     return draw < probability ? 1 : 0;
 }
 
-int32_t propaq_truncator_keep(void* ctx, uint32_t term_weight, double coeff_magnitude, uint32_t active_modes) {
-    (void)term_weight;
-    (void)active_modes;
-    Ctx* c = (Ctx*)ctx;
-    uint64_t call_index = atomic_fetch_add_explicit(&c->call_index, 1, memory_order_relaxed);
-    return keep(c, coeff_magnitude, call_index);
+int32_t propaq_truncator_keep(void* ctx, uint32_t basis_kind, const uint64_t* words, size_t n_words,
+                              uint32_t n_units, uint32_t weight, double coeff_magnitude,
+                              uint32_t layer_index, uint32_t n_layers) {
+    (void)basis_kind; (void)n_units; (void)weight; (void)layer_index; (void)n_layers;
+    return keep((const Ctx*)ctx, words, n_words, coeff_magnitude);
 }
 
-int32_t propaq_truncator_keep_batch(void* ctx, const uint32_t* term_weights,
-                                     const double* coeff_magnitudes, const uint32_t* active_modes,
-                                     uint8_t* out_keep, size_t n) {
-    (void)term_weights;
-    (void)active_modes;
-    Ctx* c = (Ctx*)ctx;
-    uint64_t base = atomic_fetch_add_explicit(&c->call_index, (uint64_t)n, memory_order_relaxed);
-    for (size_t i = 0; i < n; i++) {
-        out_keep[i] = (uint8_t)keep(c, coeff_magnitudes[i], base + (uint64_t)i);
+int32_t propaq_truncator_keep_batch(void* ctx, uint32_t basis_kind, const uint64_t* words,
+                                    size_t n_words_per_term, uint32_t n_units,
+                                    const uint32_t* weights, const double* coeff_magnitudes,
+                                    uint32_t layer_index, uint32_t n_layers, uint8_t* out_keep,
+                                    size_t n_terms) {
+    (void)basis_kind; (void)n_units; (void)weights; (void)layer_index; (void)n_layers;
+    const Ctx* c = (const Ctx*)ctx;
+    for (size_t i = 0; i < n_terms; i++) {
+        out_keep[i] = (uint8_t)keep(c, words + i * n_words_per_term, n_words_per_term,
+                                    coeff_magnitudes[i]);
     }
     return 0;
 }

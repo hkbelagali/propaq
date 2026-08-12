@@ -1,0 +1,21 @@
+[files]
+ignore-hidden = false
+extend-exclude = [
+    "/.git",
+    "/.mypy_cache",
+    "/.pytest_cache",
+    "/.ruff_cache",
+    "/.venv",
+    "/_site",
+    "/build",
+    "/dist",
+    "*.ipynb",
+    "/target",
+    "/venv",
+]
+
+[default.extend-words]
+BA = "BA"
+ba = "ba"
+ket = "ket"
+propaq = "propaq"

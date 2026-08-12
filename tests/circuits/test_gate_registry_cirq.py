@@ -52,7 +52,11 @@ def _label(rep, i, j, axis_i, axis_j, width):
 def _correct_cnot_terms(op, q_indices, width, rep):
     i, j = q_indices
     terms = []
-    for axis_i, axis_j, coeff in (("Z", None, math.pi / 2), (None, "X", math.pi / 2), ("Z", "X", -math.pi / 2)):
+    for axis_i, axis_j, coeff in (
+        ("Z", None, math.pi / 2),
+        (None, "X", math.pi / 2),
+        ("Z", "X", -math.pi / 2),
+    ):
         gen, unit = pauli_rotation_generator(rep, _label(rep, i, j, axis_i, axis_j, width))
         terms.append((gen, coeff * unit))
     return [terms]
@@ -82,7 +86,11 @@ def test_correct_registration_matches_native_decomposition():
     gens = [g for group in groups for g, _ in group]
     angles = [float(a) for group in groups for _, a in group]
     ground_truth_circuit = PauliCircuit.from_generators_and_angles(gens, angles)
-    want = PauliPropagator().expectation_value(obs, ground_truth_circuit, initial_state=0).expectation_value
+    want = (
+        PauliPropagator()
+        .expectation_value(obs, ground_truth_circuit, initial_state=0)
+        .expectation_value
+    )
 
     assert got == pytest.approx(want, abs=1e-9)
 
@@ -129,6 +137,10 @@ def test_majorana_correct_registration_matches_native_decomposition():
 
     obs = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("XX"))
     got = MajoranaPropagator().expectation_value(obs, circuit, initial_state=0).expectation_value
-    want = MajoranaPropagator().expectation_value(obs, ground_truth_circuit, initial_state=0).expectation_value
+    want = (
+        MajoranaPropagator()
+        .expectation_value(obs, ground_truth_circuit, initial_state=0)
+        .expectation_value
+    )
 
     assert got == pytest.approx(want, abs=1e-9)

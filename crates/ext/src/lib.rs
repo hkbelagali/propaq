@@ -2,24 +2,26 @@
 /// Export the core Rust functionality to Python via PyO3.
 ///
 use pyo3::prelude::*;
+use pyo3_stub_gen::{derive::gen_stub_pyfunction, Result as StubResult, StubInfo};
 
-use propaq_core::{
-    TruncationPolicy, UniformNoiseModel, GateNoiseModel, NativeNoiseModel, NativeTruncator,
-    PropagationResult, Logger,
-};
 use propaq_core::truncators::{
-    CoefficientTruncator, FlushSchedule, FrequencyTruncator, MonomialBudget, Simplify, TermBudget,
-    WeightTruncator,
+    CoefficientTruncator, FrequencyTruncator, MonomialBudget, Simplify, TermBudget, WeightTruncator,
 };
-use propaq_majorana::{MajoranaMonomial, MajoranaTermSum, MajoranaPropagator, MajoranaTermStreamer};
-use propaq_pauli::{PauliString, PauliTermSum, PauliPropagator, PauliTermStreamer};
-use propaq_surrogate::{
-    FrequencyTruncationPolicy,
-    PauliSurrogateModel, MajoranaSurrogateModel,
-    PauliSurrogatePropagator, MajoranaSurrogatePropagator,
+use propaq_core::{
+    GateNoiseModel, Logger, NativeNoiseModel, NativeTruncator, PropagationResult, TruncationPolicy,
+    UniformNoiseModel,
 };
 use propaq_hybrid::pyapi::hybrid_expectation;
+use propaq_majorana::{
+    MajoranaMonomial, MajoranaPropagator, MajoranaTermStreamer, MajoranaTermSum,
+};
+use propaq_pauli::{PauliPropagator, PauliString, PauliTermStreamer, PauliTermSum};
+use propaq_surrogate::{
+    FrequencyTruncationPolicy, MajoranaSurrogateModel, MajoranaSurrogatePropagator,
+    PauliSurrogateModel, PauliSurrogatePropagator,
+};
 
+#[gen_stub_pyfunction(module = "propaq._rust_core")]
 #[pyfunction]
 fn rust_available() -> bool {
     true
@@ -43,7 +45,6 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PropagationResult>()?;
     m.add_class::<Logger>()?;
     m.add_class::<FrequencyTruncationPolicy>()?;
-    m.add_class::<FlushSchedule>()?;
     m.add_class::<FrequencyTruncator>()?;
     m.add_class::<CoefficientTruncator>()?;
     m.add_class::<WeightTruncator>()?;
@@ -57,4 +58,9 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MajoranaSurrogatePropagator>()?;
     m.add_function(wrap_pyfunction!(hybrid_expectation, m)?)?;
     Ok(())
+}
+
+pub fn stub_info() -> StubResult<StubInfo> {
+    let manifest_dir: &std::path::Path = env!("CARGO_MANIFEST_DIR").as_ref();
+    StubInfo::from_pyproject_toml(manifest_dir.join("../../pyproject.toml"))
 }

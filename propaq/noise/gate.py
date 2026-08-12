@@ -6,6 +6,8 @@ from propaq.noise.base import NoiseModel
 
 class GateNoiseModel(_RustGateNoiseModel):
     """Python noise model class"""
+
     pass
+
 
 NoiseModel.register(GateNoiseModel)

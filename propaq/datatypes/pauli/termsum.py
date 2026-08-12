@@ -20,8 +20,8 @@ def _xx_plus_yy_terms(theta, i: int, j: int, n_modes: int) -> list[tuple[PauliSt
     factor = theta / 2.0
     xy_bits = BitMask((1 << i) | (1 << j))
     return [
-        (PauliString(xy_bits, BitMask(0), n_modes), factor),   # XX
-        (PauliString(xy_bits, xy_bits, n_modes), factor),      # YY
+        (PauliString(xy_bits, BitMask(0), n_modes), factor),  # XX
+        (PauliString(xy_bits, xy_bits, n_modes), factor),  # YY
     ]
 
 
@@ -38,8 +38,8 @@ def _cp_terms(phi, i: int, j: int, n_modes: int) -> list[tuple[PauliString, Any]
     z_j = BitMask(1 << j)
     z_ij = BitMask(z_i | z_j)
     return [
-        (PauliString(BitMask(0), z_i,  n_modes),  phi / 2),
-        (PauliString(BitMask(0), z_j,  n_modes),  phi / 2),
+        (PauliString(BitMask(0), z_i, n_modes), phi / 2),
+        (PauliString(BitMask(0), z_j, n_modes), phi / 2),
         (PauliString(BitMask(0), z_ij, n_modes), -phi / 2),
     ]
 
@@ -163,9 +163,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
         angle = math.pi / 2
 
         term_sum = cls()
-        term_sum.add(PauliString(xy_bits, BitMask(0), n_modes), angle)   # XX
-        term_sum.add(PauliString(xy_bits, xy_bits,    n_modes), angle)   # YY
-        term_sum.add(PauliString(BitMask(0), xy_bits, n_modes), angle)   # ZZ
+        term_sum.add(PauliString(xy_bits, BitMask(0), n_modes), angle)  # XX
+        term_sum.add(PauliString(xy_bits, xy_bits, n_modes), angle)  # YY
+        term_sum.add(PauliString(BitMask(0), xy_bits, n_modes), angle)  # ZZ
         return term_sum
 
     @classmethod
@@ -186,9 +186,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
         return term_sum
 
     @classmethod
-    def from_sparse_pauli_op(
-        cls, op: SparsePauliOp
-    ) -> "PauliTermSum[PauliString]":
+    def from_sparse_pauli_op(cls, op: SparsePauliOp) -> "PauliTermSum[PauliString]":
         """
         Construct directly from a SparsePauliOp.
 
@@ -204,7 +202,7 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             x = 0
             z = 0
             for q in range(n_qubits):
-                p = pauli_str[n_qubits - 1 - q]   # Qiskit uses big-endian notation
+                p = pauli_str[n_qubits - 1 - q]  # Qiskit uses big-endian notation
                 if p in ("X", "Y"):
                     x |= 1 << q
                 if p in ("Z", "Y"):
@@ -243,4 +241,3 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
                     chars.append("I")
             pairs.append(("".join(chars), coeff))
         return SparsePauliOp.from_list(pairs).simplify()
-

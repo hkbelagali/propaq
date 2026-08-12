@@ -1,16 +1,18 @@
-///
-/// Defines the core algebra of Majorana monomials, products of Majorana operators
-///
+//!
+//! Defines the core algebra of Majorana monomials, products of Majorana operators
+//!
+
+use num_complex::Complex64;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use num_complex::Complex64;
-use std::hash::{Hash, Hasher};
 use rustc_hash::FxHasher;
+use std::hash::{Hash, Hasher};
 
 use propaq_core::bitset::Bitset;
-use propaq_core::helpers::{pyint_to_bitset, bitset_to_pyint};
+use propaq_core::helpers::{bitset_to_pyint, pyint_to_bitset};
+use propaq_core::sparse::{intersection_count, symmetric_difference_into};
+use propaq_core::store::{hash_positions, split_planes, Position, TermBasis};
 use propaq_core::traits::AbstractTerm;
-use propaq_core::soa::SoaBasis;
 
 /// A Majorana monomial, a product of Majorana operators encoded as a mode bitmask.
 ///
@@ -21,6 +23,7 @@ use propaq_core::soa::SoaBasis;
 ///     modes: Integer bitmask encoding occupied Majorana modes.
 ///     n_modes: Total number of Majorana modes (must be even, equal to 2 * n_qubits).
 ///     is_number_preserving: Whether the monomial preserves particle number (default True).
+#[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct MajoranaMonomial {
@@ -43,9 +46,8 @@ impl MajoranaMonomial {
         let overlap: u32 = (0..a.len().min(b.len()))
             .map(|i| (a[i] & b[i]).count_ones())
             .sum();
-        (self.modes.count_ones() as usize * other.modes.count_ones() as usize
-            + overlap as usize)
-            % 2 == 0
+        (self.modes.count_ones() as usize * other.modes.count_ones() as usize + overlap as usize)
+            .is_multiple_of(2)
     }
 
     fn trace_fock_state_impl(&self, fock_state: &Bitset) -> f64 {
@@ -54,7 +56,7 @@ impl MajoranaMonomial {
         let mut product = 1i32;
 
         for k in 0..n_fermionic {
-            let low  = self.modes.bit(2 * k) as i32;
+            let low = self.modes.bit(2 * k) as i32;
             let high = self.modes.bit(2 * k + 1) as i32;
 
             if low != high {
@@ -71,9 +73,6 @@ impl MajoranaMonomial {
         (phase * product) as f64
     }
 
-    /// Per-qubit `single = x ^ y` (unpaired Majorana site, needs a Z-string)
-    /// and `occupied = x | y` (site touched at all), compressed from the
-    /// mode bitmask. Cheap: two `compress_to_qubits` passes, no scan.
     fn compress_single_occupied(modes: &Bitset, n_qubits: usize) -> (Bitset, Bitset) {
         let x_bits = compress_to_qubits(modes, n_qubits, 0);
         let y_bits = compress_to_qubits(modes, n_qubits, 1);
@@ -94,7 +93,12 @@ impl MajoranaMonomial {
 
     /// Final weight from the compressed parts: complements `p` into the
     /// Jordan-Wigner Z-string parity, then counts non-identity qubits.
-    fn weight_from_parts(single: &Bitset, occupied: &Bitset, p: &Bitset, qubit_mask: &Bitset) -> u32 {
+    fn weight_from_parts(
+        single: &Bitset,
+        occupied: &Bitset,
+        p: &Bitset,
+        qubit_mask: &Bitset,
+    ) -> u32 {
         let string = if single.count_ones() & 1 == 1 {
             p ^ qubit_mask
         } else {
@@ -103,11 +107,26 @@ impl MajoranaMonomial {
         (single | &(occupied ^ &string)).count_ones()
     }
 
-    /// Computes the Jordan-Wigner qubit weight of a Majorana mode set, without also returning
-    /// the intermediate `p` plane. See `weight_and_p_for` if both are needed.
+    /// Builds a monomial from a mode set, deriving everything else.
+    pub fn from_modes(modes: Bitset, n_modes: usize) -> Self {
+        let (weight, p) = Self::weight_and_p_for(&modes, n_modes);
+        let is_number_preserving =
+            (0..n_modes / 2).all(|k| modes.bit(2 * k) == modes.bit(2 * k + 1));
+        MajoranaMonomial {
+            modes,
+            n_modes,
+            is_number_preserving,
+            weight,
+            p,
+        }
+    }
+
+    /// Computes the Jordan-Wigner qubit weight of a Majorana mode set
     pub fn compute_weight_for(modes: &Bitset, n_modes: usize) -> u32 {
         let n_qubits = n_modes / 2;
-        if n_qubits == 0 { return 0; }
+        if n_qubits == 0 {
+            return 0;
+        }
         let qubit_mask = Bitset::all_ones_upto(n_qubits);
         let (single, occupied) = Self::compress_single_occupied(modes, n_qubits);
         let p = Self::scan_p(&single, n_qubits, &qubit_mask);
@@ -115,11 +134,12 @@ impl MajoranaMonomial {
     }
 
     /// Computes both the Jordan-Wigner qubit weight and the `p` (Z-string parity) plane for a
-    /// Majorana mode set. `p` must travel alongside `modes` in the SoA representation, since
-    /// `weight`/`product` depend on it.
+    /// Majorana mode set.
     pub fn weight_and_p_for(modes: &Bitset, n_modes: usize) -> (u32, Bitset) {
         let n_qubits = n_modes / 2;
-        if n_qubits == 0 { return (0, Bitset::zero()); }
+        if n_qubits == 0 {
+            return (0, Bitset::zero());
+        }
         let qubit_mask = Bitset::all_ones_upto(n_qubits);
         let (single, occupied) = Self::compress_single_occupied(modes, n_qubits);
         let p = Self::scan_p(&single, n_qubits, &qubit_mask);
@@ -134,7 +154,9 @@ impl MajoranaMonomial {
         other_p: &Bitset,
     ) -> (u32, Bitset) {
         let n_qubits = n_modes / 2;
-        if n_qubits == 0 { return (0, Bitset::zero()); }
+        if n_qubits == 0 {
+            return (0, Bitset::zero());
+        }
         let qubit_mask = Bitset::all_ones_upto(n_qubits);
         let (single, occupied) = Self::compress_single_occupied(result_modes, n_qubits);
         let p = self_p ^ other_p;
@@ -142,11 +164,16 @@ impl MajoranaMonomial {
         (weight, p)
     }
 
-    pub(crate) fn matmul_internal(&self, other: &MajoranaMonomial) -> (Complex64, MajoranaMonomial) {
+    pub(crate) fn matmul_internal(
+        &self,
+        other: &MajoranaMonomial,
+    ) -> (Complex64, MajoranaMonomial) {
         let result_modes = &self.modes ^ &other.modes;
-        let (weight, p) = Self::weight_and_p_from_product(&result_modes, self.n_modes, &self.p, &other.p);
+        let (weight, p) =
+            Self::weight_and_p_from_product(&result_modes, self.n_modes, &self.p, &other.p);
         let n_fermionic = self.n_modes / 2;
-        let is_np = (0..n_fermionic).all(|k| result_modes.bit(2 * k) == result_modes.bit(2 * k + 1));
+        let is_np =
+            (0..n_fermionic).all(|k| result_modes.bit(2 * k) == result_modes.bit(2 * k + 1));
         let result = MajoranaMonomial {
             modes: result_modes,
             n_modes: self.n_modes,
@@ -173,6 +200,7 @@ impl MajoranaMonomial {
     }
 }
 
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl MajoranaMonomial {
     /// Construct a Majorana monomial from a mode bitmask.
@@ -186,16 +214,22 @@ impl MajoranaMonomial {
     fn new(modes: &Bound<'_, PyAny>, n_modes: usize, is_number_preserving: bool) -> PyResult<Self> {
         let bitset = pyint_to_bitset(modes, n_modes)?;
         let (weight, p) = Self::weight_and_p_for(&bitset, n_modes);
-        Ok(MajoranaMonomial { modes: bitset, n_modes, is_number_preserving, weight, p })
+        Ok(MajoranaMonomial {
+            modes: bitset,
+            n_modes,
+            is_number_preserving,
+            weight,
+            p,
+        })
     }
 
     /// The active mode indices as a Python integer bitmask.
     #[getter]
-    fn modes(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn modes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         bitset_to_pyint(py, &self.modes)
     }
 
-    /// The number of Majorana modes in the system 
+    /// The number of Majorana modes in the system
     #[getter]
     fn n_modes(&self) -> usize {
         self.n_modes
@@ -206,7 +240,7 @@ impl MajoranaMonomial {
     fn is_number_preserving(&self) -> bool {
         self.is_number_preserving
     }
-    
+
     /// Number of active Majorana modes in the monomial (popcount of the mode bitmask).
     #[getter]
     fn length(&self) -> usize {
@@ -270,7 +304,7 @@ impl MajoranaMonomial {
 
     /// Serialize the mode bitmask as a little-endian byte string.
     fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        let byte_length = (self.n_modes + 7) / 8;
+        let byte_length = self.n_modes.div_ceil(8);
         let mut bytes = self.modes.to_le_bytes();
         bytes.resize(byte_length, 0);
         PyBytes::new(py, &bytes)
@@ -288,12 +322,20 @@ impl MajoranaMonomial {
 }
 
 impl AbstractTerm for MajoranaMonomial {
-    fn weight(&self) -> u32 { self.weight }
-    fn commutes_with(&self, other: &Self) -> bool { self.commutes_with_impl(other) }
-    fn matmul_internal(&self, other: &Self) -> (Complex64, Self) { MajoranaMonomial::matmul_internal(self, other) }
-    fn trace_with_fock_state(&self, fock_state: &Bitset) -> f64 { self.trace_fock_state_impl(fock_state) }
+    fn weight(&self) -> u32 {
+        self.weight
+    }
+    fn commutes_with(&self, other: &Self) -> bool {
+        self.commutes_with_impl(other)
+    }
+    fn matmul_internal(&self, other: &Self) -> (Complex64, Self) {
+        MajoranaMonomial::matmul_internal(self, other)
+    }
+    fn trace_with_fock_state(&self, fock_state: &Bitset) -> f64 {
+        self.trace_fock_state_impl(fock_state)
+    }
     fn to_bytes_vec(&self) -> Vec<u8> {
-        let byte_length = (self.n_modes + 7) / 8;
+        let byte_length = self.n_modes.div_ceil(8);
         let mut bytes = self.modes.to_le_bytes();
         bytes.resize(byte_length, 0);
         bytes
@@ -303,33 +345,47 @@ impl AbstractTerm for MajoranaMonomial {
         self.modes.hash(&mut h);
         h.finish()
     }
-    fn is_number_preserving(&self) -> bool { self.is_number_preserving }
-    fn system_size(&self) -> u64 { self.n_modes as u64 }
+    fn is_number_preserving(&self) -> bool {
+        self.is_number_preserving
+    }
+    fn system_size(&self) -> u64 {
+        self.n_modes as u64
+    }
     fn from_bytes_vec(bytes: &[u8], system_size: u64) -> Self {
         let n_modes = system_size as usize;
         let modes = Bitset::from_le_bytes(bytes);
         let (weight, p) = Self::weight_and_p_for(&modes, n_modes);
         let n_fermionic = n_modes / 2;
         let is_np = (0..n_fermionic).all(|k| modes.bit(2 * k) == modes.bit(2 * k + 1));
-        MajoranaMonomial { modes, n_modes, is_number_preserving: is_np, weight, p }
+        MajoranaMonomial {
+            modes,
+            n_modes,
+            is_number_preserving: is_np,
+            weight,
+            p,
+        }
     }
 }
 
 impl PartialEq for MajoranaMonomial {
-    fn eq(&self, other: &Self) -> bool { self.modes == other.modes }
+    fn eq(&self, other: &Self) -> bool {
+        self.modes == other.modes
+    }
 }
 
 impl Eq for MajoranaMonomial {}
 
 impl Hash for MajoranaMonomial {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.modes.hash(state); }
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.modes.hash(state);
+    }
 }
 
-/// The `SoaBasis` implementation for Majorana fermion strings, encoded as a Jordan-Wigner
+/// The `TermBasis` implementation for Majorana fermion strings, encoded as a Jordan-Wigner
 /// mode-occupation bitmask (`MajoranaMonomial`).
 pub struct MajoranaBasis;
 
-impl SoaBasis for MajoranaBasis {
+impl TermBasis for MajoranaBasis {
     type Term = MajoranaMonomial;
 
     fn commutes(term: [&[u64]; 2], gen: [&[u64]; 2]) -> bool {
@@ -337,10 +393,14 @@ impl SoaBasis for MajoranaBasis {
         if term[0] == gen[0] {
             return true;
         }
-        let overlap: u32 = term[0].iter().zip(gen[0]).map(|(a, b)| (a & b).count_ones()).sum();
+        let overlap: u32 = term[0]
+            .iter()
+            .zip(gen[0])
+            .map(|(a, b)| (a & b).count_ones())
+            .sum();
         let term_len: usize = term[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
         let gen_len: usize = gen[0].iter().map(|w| w.count_ones()).sum::<u32>() as usize;
-        (term_len * gen_len + overlap as usize) % 2 == 0
+        (term_len * gen_len + overlap as usize).is_multiple_of(2)
     }
 
     fn product(term: [&[u64]; 2], gen: [&[u64]; 2], out: [&mut [u64]; 2]) -> Complex64 {
@@ -378,8 +438,6 @@ impl SoaBasis for MajoranaBasis {
     }
 
     fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64 {
-        // `trace_fock_state_impl` only reads `modes`/`n_modes`; the other
-        // fields are irrelevant to it, so a throwaway monomial is fine here.
         let modes = Bitset::from_slice(term[0]);
         let m = MajoranaMonomial {
             modes,
@@ -393,7 +451,6 @@ impl SoaBasis for MajoranaBasis {
     }
 
     fn key_hash(term: [&[u64]; 2]) -> u64 {
-        // Only `modes` is identity; `p` is a derived cache.
         let mut h = FxHasher::default();
         term[0].hash(&mut h);
         h.finish()
@@ -415,7 +472,13 @@ impl SoaBasis for MajoranaBasis {
             MajoranaMonomial::weight_from_parts(&single, &occupied, &p, &qubit_mask)
         };
         let is_np = (0..n_qubits).all(|k| modes.bit(2 * k) == modes.bit(2 * k + 1));
-        MajoranaMonomial { modes, n_modes: n_units, is_number_preserving: is_np, weight, p }
+        MajoranaMonomial {
+            modes,
+            n_modes: n_units,
+            is_number_preserving: is_np,
+            weight,
+            p,
+        }
     }
 
     fn term_into_planes(term: &MajoranaMonomial, _n_units: usize, out: [&mut [u64]; 2]) {
@@ -426,6 +489,156 @@ impl SoaBasis for MajoranaBasis {
         out[1].fill(0);
         out[1][..pw.len()].copy_from_slice(pw);
     }
+
+    fn key_hash_sparse(row: &[Position], plane_span: usize) -> u64 {
+        hash_positions(split_planes(row, plane_span).0)
+    }
+
+    fn key_eq_sparse(a: &[Position], b: &[Position], plane_span: usize) -> bool {
+        split_planes(a, plane_span).0 == split_planes(b, plane_span).0
+    }
+
+    /// The Jordan-Wigner qubit weight, as set algebra over the qubits the mode
+    /// positions and the `p` positions touch.
+    fn weight_sparse(row: &[Position], plane_span: usize, n_units: usize) -> u32 {
+        let n_qubits = n_units / 2;
+        if n_qubits == 0 {
+            return 0;
+        }
+        let parts = QubitSets::of(row, plane_span, n_qubits);
+        let (occ, single, p) = (parts.occupied as i64, parts.single as i64, parts.p as i64);
+        let (occ_p, single_p) = (parts.occupied_and_p as i64, parts.single_and_p as i64);
+
+        let weight = if parts.single.is_multiple_of(2) {
+            occ + p - 2 * occ_p + single_p
+        } else {
+            n_qubits as i64 + 2 * occ_p - occ - p + single - single_p
+        };
+        debug_assert!(weight >= 0 && weight <= n_qubits as i64);
+        weight as u32
+    }
+
+    /// A Majorana monomial is diagonal only where every occupied site carries
+    /// both of its modes, so the trace walks the mode positions in pairs.
+    fn trace_sparse(row: &[Position], plane_span: usize, n_units: usize, fock: &[u64]) -> f64 {
+        let n_fermionic = n_units / 2;
+        let (modes, _) = split_planes(row, plane_span);
+        let limit = (2 * n_fermionic) as Position;
+        let modes = &modes[..modes.partition_point(|&m| m < limit)];
+        let (mut occupied_pairs, mut product) = (0i32, 1i32);
+        let mut i = 0usize;
+        while i < modes.len() {
+            let m = modes[i];
+
+            if m % 2 != 0 || i + 1 >= modes.len() || modes[i + 1] != m + 1 {
+                return 0.0;
+            }
+            let k = (m / 2) as usize;
+            let n_k = ((fock.get(k >> 6).copied().unwrap_or(0) >> (k & 63)) & 1) as i32;
+            product *= 2 * n_k - 1;
+            occupied_pairs += 1;
+            i += 2;
+        }
+        let phase = if (occupied_pairs / 2) % 2 == 0 { 1 } else { -1 };
+        (phase * product) as f64
+    }
+
+    fn commutes_sparse(term: &[Position], gen: &[Position], plane_span: usize) -> bool {
+        let (tm, _) = split_planes(term, plane_span);
+        let (gm, _) = split_planes(gen, plane_span);
+        if tm == gm {
+            return true;
+        }
+        let overlap = intersection_count(tm, gm) as usize;
+        (tm.len() * gm.len() + overlap).is_multiple_of(2)
+    }
+
+    fn product_sparse(
+        term: &[Position],
+        gen: &[Position],
+        plane_span: usize,
+        out: &mut Vec<Position>,
+    ) -> Complex64 {
+        let start = out.len();
+        symmetric_difference_into(term, gen, out);
+        let (tm, _) = split_planes(term, plane_span);
+        let (gm, _) = split_planes(gen, plane_span);
+        let (nm, _) = split_planes(&out[start..], plane_span);
+        let r_a = hermiticity_exp(gm.len());
+        let r_b = hermiticity_exp(tm.len());
+        let r_c = hermiticity_exp(nm.len());
+        let total_parity = resorting_parity_sparse(gm, tm);
+        let phase_exp = (r_a + r_b - r_c + 2 * (total_parity as i32)).rem_euclid(4);
+        match phase_exp {
+            0 => Complex64::new(1.0, 0.0),
+            1 => Complex64::new(0.0, 1.0),
+            2 => Complex64::new(-1.0, 0.0),
+            3 => Complex64::new(0.0, -1.0),
+            _ => unreachable!(),
+        }
+    }
+}
+
+struct QubitSets {
+    /// Qubits with at least one Majorana mode set.
+    occupied: u32,
+    /// Qubits with exactly one of their two modes set.
+    single: u32,
+    /// Qubits set in the `p` plane.
+    p: u32,
+    occupied_and_p: u32,
+    single_and_p: u32,
+}
+
+impl QubitSets {
+    fn of(row: &[Position], plane_span: usize, n_qubits: usize) -> Self {
+        let (modes, p_positions) = split_planes(row, plane_span);
+        let mode_limit = (2 * n_qubits) as Position;
+        let modes = &modes[..modes.partition_point(|&m| m < mode_limit)];
+        let p_limit = (plane_span + n_qubits) as Position;
+        let p_positions = &p_positions[..p_positions.partition_point(|&p| p < p_limit)];
+
+        let mut sets = QubitSets {
+            occupied: 0,
+            single: 0,
+            p: p_positions.len() as u32,
+            occupied_and_p: 0,
+            single_and_p: 0,
+        };
+        let (mut i, mut j) = (0usize, 0usize);
+        while i < modes.len() {
+            let k = (modes[i] >> 1) as usize;
+            let paired = i + 1 < modes.len() && (modes[i + 1] >> 1) as usize == k;
+            i += if paired { 2 } else { 1 };
+            sets.occupied += 1;
+            if !paired {
+                sets.single += 1;
+            }
+
+            while j < p_positions.len() && (p_positions[j] as usize - plane_span) < k {
+                j += 1;
+            }
+            if j < p_positions.len() && (p_positions[j] as usize - plane_span) == k {
+                sets.occupied_and_p += 1;
+                if !paired {
+                    sets.single_and_p += 1;
+                }
+            }
+        }
+        sets
+    }
+}
+
+fn resorting_parity_sparse(a: &[Position], b: &[Position]) -> bool {
+    let mut count = 0u64;
+    let mut i = 0usize;
+    for &bv in b {
+        while i < a.len() && a[i] <= bv {
+            i += 1;
+        }
+        count += (a.len() - i) as u64;
+    }
+    (count & 1) != 0
 }
 
 fn compress_to_qubits(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {
@@ -436,29 +649,28 @@ fn compress_to_qubits(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset 
     compress_to_qubits_scalar(modes, n_qubits, offset)
 }
 
-/// We can use BMI2's PEXT instruction to compress 
-/// the even and odd bits of the Majorana mode bitmask quickly.
-/// Each modes word covers 64 mode bits = 32 qubits.
-/// Two consecutive modes words interleave into one qubit word:
-/// qubit_word[q] = pext(modes_word[2q], mask) | (pext(modes_word[2q+1], mask) << 32)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "bmi2")]
 unsafe fn compress_to_qubits_bmi2(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {
     use std::arch::x86_64::_pext_u64;
-    let mask: u64 = if offset == 0 { 0x5555_5555_5555_5555 } else { 0xAAAA_AAAA_AAAA_AAAA };
-    let n_qubit_words = (n_qubits + 63) / 64;
+    let mask: u64 = if offset == 0 {
+        0x5555_5555_5555_5555
+    } else {
+        0xAAAA_AAAA_AAAA_AAAA
+    };
+    let n_qubit_words = n_qubits.div_ceil(64);
     let mut words = vec![0u64; n_qubit_words];
     let mode_words = modes.as_words();
-    for qw in 0..n_qubit_words {
+    for (qw, word) in words.iter_mut().enumerate().take(n_qubit_words) {
         let lo = mode_words.get(2 * qw).copied().unwrap_or(0);
         let hi = mode_words.get(2 * qw + 1).copied().unwrap_or(0);
-        words[qw] = _pext_u64(lo, mask) | (_pext_u64(hi, mask) << 32);
+        *word = _pext_u64(lo, mask) | (_pext_u64(hi, mask) << 32);
     }
     Bitset::from_words(words)
 }
 
 fn compress_to_qubits_scalar(modes: &Bitset, n_qubits: usize, offset: usize) -> Bitset {
-    let n_words = (n_qubits + 63) / 64;
+    let n_words = n_qubits.div_ceil(64);
     let mut words = vec![0u64; n_words];
     for k in 0..n_qubits {
         if modes.bit(2 * k + offset) != 0 {
@@ -468,19 +680,15 @@ fn compress_to_qubits_scalar(modes: &Bitset, n_qubits: usize, offset: usize) -> 
     Bitset::from_words(words)
 }
 
-fn hermiticity_exp(length: usize) -> i32 {
-    if matches!(length % 4, 0 | 1) { 0 } else { 1 }
+pub(crate) fn hermiticity_exp(length: usize) -> i32 {
+    if matches!(length % 4, 0 | 1) {
+        0
+    } else {
+        1
+    }
 }
 
-/// Operates directly on word slices (rather than `&Bitset`) so the SoA
-/// `MajoranaBasis::product` kernel can call it on `SoaTermSum` plane rows
-/// without allocating a temporary `Bitset` per call on the propagation hot
-/// path. Correct for slices of any (possibly unequal) length: an
-/// all-zero-valued `a` or `b` naturally drives every term in the sum to
-/// zero, so unlike the earlier `&Bitset` version this needs no empty-input
-/// short-circuit (`Bitset` could be zero-*length*; a fixed-stride slice
-/// never is, just possibly all-zero-*valued*).
-fn resorting_parity(a_words: &[u64], b_words: &[u64]) -> bool {
+pub(crate) fn resorting_parity(a_words: &[u64], b_words: &[u64]) -> bool {
     let total: u64 = a_words.iter().map(|w| w.count_ones() as u64).sum();
     let mut running = 0u64;
     let mut count = 0u64;
@@ -505,401 +713,5 @@ fn resorting_parity(a_words: &[u64], b_words: &[u64]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn mon(bits: u64, n_modes: usize) -> MajoranaMonomial {
-        let modes = Bitset::from_le_bytes(&bits.to_le_bytes());
-        let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
-        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
-    }
-
-    fn mon_bits(bits: Vec<u64>, n_modes: usize) -> MajoranaMonomial {
-        let modes = Bitset::from_words(bits);
-        let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
-        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
-    }
-
-    /// `MajoranaBasis` deliberately does not implement `local_word`, so it never gets the
-    /// single-word `commutes_at_word`/`product_at_word` shortcuts or the single-qubit Clifford
-    /// lookup table (those are Pauli-specific). The `sin(theta) ~ 0` phase-only path is
-    /// different: it needs nothing but the generic `commutes` pass, so it applies to every
-    /// basis. This pins that down, because losing it here would be silent (correct results,
-    /// just an appended-then-truncated row per anticommuting term on every such gate).
-    #[test]
-    fn phase_only_rotation_applies_to_the_majorana_basis_too() {
-        use propaq_core::soa::{kernels, SoaTermSum};
-        use std::f64::consts::PI;
-
-        let n_modes = 8;
-        let stride = MajoranaBasis::stride_words(n_modes);
-        let mut terms: SoaTermSum<f64> = SoaTermSum::new(n_modes, stride);
-
-        let mut push = |m: &MajoranaMonomial, c: f64| {
-            let mut x = vec![0u64; stride];
-            let mut z = vec![0u64; stride];
-            MajoranaBasis::term_into_planes(m, n_modes, [&mut x, &mut z]);
-            terms.push([&x, &z], c);
-        };
-        let gen = mon(0b0011, n_modes);
-        let anti = mon(0b0001, n_modes); // shares one mode with `gen` -> anticommutes
-        let comm = mon(0b0011, n_modes); // equals `gen` -> commutes with it
-        assert!(!anti.commutes_with(&gen));
-        assert!(comm.commutes_with(&gen));
-        push(&anti, 2.0);
-        push(&comm, 3.0);
-
-        let mut gx = vec![0u64; stride];
-        let mut gz = vec![0u64; stride];
-        MajoranaBasis::term_into_planes(&gen, n_modes, [&mut gx, &mut gz]);
-
-        let added = kernels::apply_rotation::<MajoranaBasis, f64>(&mut terms, [&gx, &gz], &PI, false);
-        assert_eq!(added, 0, "sin(pi) == 0 must not append a Majorana term");
-        assert_eq!(terms.len(), 2, "container must not grow");
-        assert_eq!(*terms.coeff(0), -2.0, "anticommuting term scaled by cos(pi) = -1");
-        assert_eq!(*terms.coeff(1), 3.0, "commuting term left untouched");
-    }
-
-    fn fock(bits: u64) -> Bitset {
-        Bitset::from_le_bytes(&bits.to_le_bytes())
-    }
-
-    #[test]
-    fn hermiticity_exp_all_residues() {
-        for (len, expected) in [(0,0),(1,0),(2,1),(3,1),(4,0),(5,0),(6,1),(7,1),(8,0)] {
-            assert_eq!(hermiticity_exp(len), expected, "hermiticity_exp({len})");
-        }
-    }
-
-    #[test]
-    fn parity_disjoint_no_inversions() {
-        let a = Bitset::from_le_bytes(&[0b0011]);
-        let b = Bitset::from_le_bytes(&[0b1100]);
-        assert!(!resorting_parity(a.as_words(), b.as_words()));
-    }
-
-    #[test]
-    fn parity_single_inversion() {
-        let a = Bitset::from_le_bytes(&[0b0010]);
-        let b = Bitset::from_le_bytes(&[0b0001]);
-        assert!(resorting_parity(a.as_words(), b.as_words()));
-    }
-
-    #[test]
-    fn parity_two_inversions_even() {
-        let a = Bitset::from_le_bytes(&[0b1100]);
-        let b = Bitset::from_le_bytes(&[0b0011]);
-        assert!(!resorting_parity(a.as_words(), b.as_words()));
-    }
-
-    #[test]
-    fn parity_empty_b_is_false() {
-        let a = Bitset::from_le_bytes(&[0xFF]);
-        let b = Bitset::zero();
-        assert!(!resorting_parity(a.as_words(), b.as_words()));
-    }
-
-    #[test]
-    fn weight_identity() { assert_eq!(mon(0, 8).weight, 0); }
-
-    #[test]
-    fn weight_single_gamma() { assert_eq!(mon(0b01, 8).weight, 1); }
-
-    #[test]
-    fn weight_number_operator() { assert_eq!(mon(0b11, 8).weight, 1); }
-
-    #[test]
-    fn weight_four_x_modes() { assert_eq!(mon(0b0101_0101, 8).weight, 4); }
-
-    #[test]
-    fn weight_large_n_modes() { assert_eq!(mon(0b01, 128).weight, 1); }
-
-    #[test]
-    fn weight_multi_word_mode() {
-        let m = mon_bits(vec![0u64, 1u64], 128);
-        assert_eq!(m.weight, 33);
-    }
-
-    #[test]
-    fn trace_identity_any_fock() {
-        let m = mon(0, 8);
-        assert_eq!(m.trace_fock_state_impl(&fock(0)), 1.0);
-        assert_eq!(m.trace_fock_state_impl(&fock(0b1111)), 1.0);
-    }
-
-    #[test]
-    fn trace_unpaired_mode_is_zero() {
-        let m = mon(0b01, 8);
-        assert_eq!(m.trace_fock_state_impl(&fock(0)), 0.0);
-        assert_eq!(m.trace_fock_state_impl(&fock(1)), 0.0);
-    }
-
-    #[test]
-    fn trace_site0_empty_fock() { assert_eq!(mon(0b11, 8).trace_fock_state_impl(&fock(0)), -1.0); }
-
-    #[test]
-    fn trace_site0_occupied_fock() { assert_eq!(mon(0b11, 8).trace_fock_state_impl(&fock(1)), 1.0); }
-
-    #[test]
-    fn trace_two_sites_all_combinations() {
-        let m = mon(0b1111, 8);
-        assert_eq!(m.trace_fock_state_impl(&fock(0b00)), -1.0);
-        assert_eq!(m.trace_fock_state_impl(&fock(0b01)),  1.0);
-        assert_eq!(m.trace_fock_state_impl(&fock(0b10)),  1.0);
-        assert_eq!(m.trace_fock_state_impl(&fock(0b11)), -1.0);
-    }
-
-    fn assert_weight_and_p_correct(result: &MajoranaMonomial) {
-        let expected_weight = MajoranaMonomial::compute_weight_for(&result.modes, result.n_modes);
-        assert_eq!(result.weight, expected_weight, "weight mismatch for modes={:?}", result.modes);
-        let (_, expected_p) = MajoranaMonomial::weight_and_p_for(&result.modes, result.n_modes);
-        assert_eq!(result.p, expected_p, "p drifted for modes={:?}", result.modes);
-    }
-
-    #[test]
-    fn matmul_identity_on_left() {
-        let identity = mon(0, 8);
-        let m = mon(0b0011, 8);
-        let (phase, result) = identity.matmul_internal(&m);
-        assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
-        assert_eq!(result.modes, m.modes);
-        assert_weight_and_p_correct(&result);
-    }
-
-    #[test]
-    fn matmul_identity_on_right() {
-        let m = mon(0b0011, 8);
-        let identity = mon(0, 8);
-        let (phase, result) = m.matmul_internal(&identity);
-        assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
-        assert_eq!(result.modes, m.modes);
-        assert_weight_and_p_correct(&result);
-    }
-
-    #[test]
-    fn matmul_self_is_identity() {
-        let m = mon(0b0111, 8);
-        let (phase, result) = m.matmul_internal(&m);
-        assert!((phase - Complex64::new(1.0, 0.0)).norm() < 1e-10);
-        assert!(result.modes.is_zero());
-        assert_weight_and_p_correct(&result);
-    }
-
-    #[test]
-    fn matmul_disjoint_phase_is_minus_one() {
-        let a = mon(0b0011, 8);
-        let b = mon(0b1100, 8);
-        let (phase, result) = a.matmul_internal(&b);
-        assert!((phase - Complex64::new(-1.0, 0.0)).norm() < 1e-10);
-        assert_eq!(result.modes.count_ones(), 4);
-        assert_weight_and_p_correct(&result);
-    }
-
-    #[test]
-    fn commutes_with_itself() {
-        let m = mon(0b0011, 8);
-        assert!(m.commutes_with_impl(&m));
-    }
-
-    #[test]
-    fn commutes_disjoint_even_lengths() {
-        let a = mon(0b0011, 8);
-        let b = mon(0b1100, 8);
-        assert!(a.commutes_with_impl(&b));
-    }
-
-    #[test]
-    fn anticommutes_single_overlap_even_lengths() {
-        let a = mon(0b0011, 8);
-        let b = mon(0b0110, 8);
-        assert!(!a.commutes_with_impl(&b));
-    }
-
-    #[test]
-    fn commutes_single_modes_disjoint() {
-        let a = mon(0b0001, 8);
-        let b = mon(0b0010, 8);
-        assert!(!a.commutes_with_impl(&b));
-    }
-
-    struct Rng(u64);
-    impl Rng {
-        fn next_u64(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = self.0;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        }
-    }
-
-    fn random_bitset(rng: &mut Rng, n_modes: usize) -> Bitset {
-        let n_words = (n_modes + 63) / 64;
-        let mut words: Vec<u64> = (0..n_words).map(|_| rng.next_u64()).collect();
-        let rem = n_modes % 64;
-        if rem != 0 {
-            let mask = (1u64 << rem) - 1;
-            *words.last_mut().unwrap() &= mask;
-        }
-        Bitset::from_words(words)
-    }
-
-    fn random_mon(rng: &mut Rng, n_modes: usize) -> MajoranaMonomial {
-        let modes = random_bitset(rng, n_modes);
-        let (weight, p) = MajoranaMonomial::weight_and_p_for(&modes, n_modes);
-        MajoranaMonomial { modes, n_modes, is_number_preserving: true, weight, p }
-    }
-
-    #[test]
-    fn weight_matches_reference_exhaustive_small() {
-        // Exhaustive over `a`, strided over `b`, for every small system size
-        // (mirrors the pre-implementation simulation's coverage).
-        for n_qubits in 1usize..=6 {
-            let n_modes = 2 * n_qubits;
-            let space = 1u64 << n_modes;
-            let stride = (space / 37).max(1);
-            for a_bits in 0..space {
-                let a = mon(a_bits, n_modes);
-                let mut b_bits = 0u64;
-                while b_bits < space {
-                    let b = mon(b_bits, n_modes);
-                    let (_, result) = a.matmul_internal(&b);
-                    assert_weight_and_p_correct(&result);
-                    b_bits += stride;
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn weight_matches_reference_randomized_multiword() {
-        let mut rng = Rng(0xC0FFEE_D15EA5E5);
-        for &n_qubits in &[30usize, 31, 32, 33, 63, 64, 65, 100, 127, 128, 129, 200] {
-            let n_modes = 2 * n_qubits;
-            for _ in 0..300 {
-                let a = random_mon(&mut rng, n_modes);
-                let b = random_mon(&mut rng, n_modes);
-                let (_, result) = a.matmul_internal(&b);
-                assert_weight_and_p_correct(&result);
-            }
-        }
-    }
-
-    #[test]
-    fn weight_and_p_no_drift_over_chained_updates() {
-        // Simulates a term being multiplied by 200 successive gate
-        // generators in sequence, checking after every step that neither
-        // the incrementally-tracked weight nor the cached `p` has drifted
-        // from a full from-scratch recomputation.
-        let mut rng = Rng(0x1234_5678_9ABC_DEF0);
-        for &n_qubits in &[8usize, 33, 65, 128] {
-            let n_modes = 2 * n_qubits;
-            let mut term = random_mon(&mut rng, n_modes);
-            for _ in 0..200 {
-                let generator = random_mon(&mut rng, n_modes);
-                let (_, next) = generator.matmul_internal(&term);
-                assert_weight_and_p_correct(&next);
-                term = next;
-            }
-        }
-    }
-
-    // Section: `MajoranaBasis` (SoA) vs `MajoranaMonomial` (AoS) cross-checks, the seam most
-    // at risk since `weight`/`product` depend on the cached `p` plane tracking `modes`.
-
-    fn planes_of(m: &MajoranaMonomial, stride: usize) -> (Vec<u64>, Vec<u64>) {
-        let mut g0 = vec![0u64; stride];
-        let mut g1 = vec![0u64; stride];
-        MajoranaBasis::term_into_planes(m, m.n_modes, [&mut g0, &mut g1]);
-        (g0, g1)
-    }
-
-    fn assert_majorana_basis_matches(a: &MajoranaMonomial, b: &MajoranaMonomial, stride: usize) {
-        let (a0, a1) = planes_of(a, stride);
-        let (b0, b1) = planes_of(b, stride);
-        let a_planes = [a0.as_slice(), a1.as_slice()];
-        let b_planes = [b0.as_slice(), b1.as_slice()];
-        let ctx = || format!("a.modes={a0:?} b.modes={b0:?}");
-
-        assert_eq!(
-            MajoranaBasis::commutes(a_planes, b_planes),
-            a.commutes_with_impl(b),
-            "commutes mismatch for {}", ctx(),
-        );
-        assert_eq!(MajoranaBasis::weight(a_planes, a.n_modes), a.weight, "weight mismatch for {}", ctx());
-
-        // gen=a, term=b => a @ b, matching `a.matmul_internal(b)`.
-        let (expected_phase, expected_result) = a.matmul_internal(b);
-        let mut out0 = vec![0u64; stride];
-        let mut out1 = vec![0u64; stride];
-        let phase = MajoranaBasis::product(b_planes, a_planes, [&mut out0, &mut out1]);
-        assert!((phase - expected_phase).norm() < 1e-10, "phase mismatch for {}", ctx());
-        let result = MajoranaBasis::term_from_planes([&out0, &out1], a.n_modes);
-        assert_eq!(result.modes, expected_result.modes, "product modes mismatch for {}", ctx());
-        assert_eq!(result.p, expected_result.p, "product p mismatch for {}", ctx());
-        assert_eq!(result.weight, expected_result.weight, "product weight mismatch for {}", ctx());
-
-        for fock_bits in 0u64..16 {
-            let fock_words = [fock_bits];
-            assert_eq!(
-                MajoranaBasis::trace(a_planes, a.n_modes, &fock_words),
-                a.trace_fock_state_impl(&fock(fock_bits)),
-                "trace mismatch for {} fock={fock_bits}", ctx(),
-            );
-        }
-
-        assert_eq!(MajoranaBasis::key_eq(a_planes, b_planes), *a == *b, "key_eq mismatch for {}", ctx());
-        if MajoranaBasis::key_eq(a_planes, b_planes) {
-            assert_eq!(
-                MajoranaBasis::key_hash(a_planes), MajoranaBasis::key_hash(b_planes),
-                "key_eq monomials must key_hash equally for {}", ctx(),
-            );
-        }
-    }
-
-    #[test]
-    fn majorana_basis_matches_aos_exhaustive_small() {
-        for n_qubits in 1usize..=4 {
-            let n_modes = 2 * n_qubits;
-            let stride = MajoranaBasis::stride_words(n_modes);
-            let space = 1u64 << n_modes;
-            for a_bits in 0..space {
-                let a = mon(a_bits, n_modes);
-                for b_bits in 0..space {
-                    let b = mon(b_bits, n_modes);
-                    assert_majorana_basis_matches(&a, &b, stride);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn majorana_basis_matches_aos_randomized_multiword() {
-        let mut rng = Rng(0xFEED_FACE_C0FF_EE00);
-        for &n_qubits in &[30usize, 33, 64, 100, 128] {
-            let n_modes = 2 * n_qubits;
-            let stride = MajoranaBasis::stride_words(n_modes);
-            for _ in 0..100 {
-                let a = random_mon(&mut rng, n_modes);
-                let b = random_mon(&mut rng, n_modes);
-                assert_majorana_basis_matches(&a, &b, stride);
-            }
-        }
-    }
-
-    #[test]
-    fn majorana_basis_key_eq_and_hash_ignore_p_plane() {
-        let stride = 1;
-        let a = mon(0b0101, 8);
-        let (a0, a1) = planes_of(&a, stride);
-        let mut a1_garbage = a1.clone();
-        a1_garbage[0] ^= 0xDEAD_BEEF;
-        assert!(MajoranaBasis::key_eq([&a0, &a1], [&a0, &a1_garbage]));
-        assert_eq!(
-            MajoranaBasis::key_hash([&a0, &a1]), MajoranaBasis::key_hash([&a0, &a1_garbage]),
-        );
-        let c = mon(0b1111, 8);
-        let (c0, c1) = planes_of(&c, stride);
-        assert!(!MajoranaBasis::key_eq([&a0, &a1], [&c0, &c1]));
-    }
-}
+#[path = "../tests/unit/monomial.rs"]
+mod tests;

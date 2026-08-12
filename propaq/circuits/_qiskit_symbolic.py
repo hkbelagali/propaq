@@ -22,7 +22,9 @@ class ParamSource:
     scale: float
 
 
-def affine_components(expr: "ParameterExpression | float") -> tuple[list[tuple[Parameter, float]], float]:
+def affine_components(
+    expr: "ParameterExpression | float",
+) -> tuple[list[tuple[Parameter, float]], float]:
     """
     Decompose a gate angle into its affine components.
 

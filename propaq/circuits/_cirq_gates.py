@@ -99,8 +99,7 @@ def _decompose(op: cirq.Operation) -> list[tuple[cirq.Operation, list[int]]]:
 def cirq_gate_terms(
     op: cirq.Operation, q_indices: list[int], width: int, rep: _Rep
 ) -> list[list[tuple[Any, Any]]]:
-    """Groups of ordered (generator, angle) terms for one Cirq operation.
-    """
+    """Groups of ordered (generator, angle) terms for one Cirq operation."""
     import cirq
 
     if _is_non_unitary(op):

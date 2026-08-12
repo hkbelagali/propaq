@@ -23,7 +23,7 @@ def empty_circuit() -> PauliCircuit:
 
 
 def test_expectation_value_zeros_state():
-    # Z on qubit 0: ⟨0|Z|0⟩ = +1.0
+    # Z on qubit 0: <0|Z|0> = +1.0
     obs = PauliTermSum({ps(0, 0b0001): 1.0})
     prop = PauliPropagator()
     val = prop.expectation_value(obs, empty_circuit(), initial_state=0).expectation_value
@@ -31,7 +31,7 @@ def test_expectation_value_zeros_state():
 
 
 def test_expectation_value_qubit0_excited():
-    # Z on qubit 0: ⟨1|Z|1⟩ = -1.0
+    # Z on qubit 0: <1|Z|1> = -1.0
     obs = PauliTermSum({ps(0, 0b0001): 1.0})
     prop = PauliPropagator()
     val = prop.expectation_value(obs, empty_circuit(), initial_state=1).expectation_value
@@ -39,15 +39,19 @@ def test_expectation_value_qubit0_excited():
 
 
 def test_expectation_value_qubit1():
-    # Z on qubit 1: +1 when qubit 1 = |0⟩, -1 when qubit 1 = |1⟩
+    # Z on qubit 1: +1 when qubit 1 = |0>, -1 when qubit 1 = |1>
     obs = PauliTermSum({ps(0, 0b0010): 1.0})
     prop = PauliPropagator()
-    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b00).expectation_value == pytest.approx(1.0)
-    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b10).expectation_value == pytest.approx(-1.0)
+    assert prop.expectation_value(
+        obs, empty_circuit(), initial_state=0b00
+    ).expectation_value == pytest.approx(1.0)
+    assert prop.expectation_value(
+        obs, empty_circuit(), initial_state=0b10
+    ).expectation_value == pytest.approx(-1.0)
 
 
 def test_expectation_value_linear_in_coefficient():
-    # Z on qubit 0 with coefficient 3: 3 * ⟨0|Z|0⟩ = 3.0
+    # Z on qubit 0 with coefficient 3: 3 * <0|Z|0> = 3.0
     obs = PauliTermSum({ps(0, 0b0001): 3.0})
     prop = PauliPropagator()
     val = prop.expectation_value(obs, empty_circuit(), initial_state=0).expectation_value
@@ -58,16 +62,20 @@ def test_expectation_value_superposition_of_terms():
     # Z_0 (coeff 1.0) + Z_1 (coeff 2.0)
     obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b0010): 2.0})
     prop = PauliPropagator()
-    # initial_state=0b00: both qubits |0⟩ → 1*(+1) + 2*(+1) = +3
-    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b00).expectation_value == pytest.approx(3.0)
-    # initial_state=0b11: both qubits |1⟩ → 1*(-1) + 2*(-1) = -3
-    assert prop.expectation_value(obs, empty_circuit(), initial_state=0b11).expectation_value == pytest.approx(-3.0)
+    # initial_state=0b00: both qubits |0> -> 1*(+1) + 2*(+1) = +3
+    assert prop.expectation_value(
+        obs, empty_circuit(), initial_state=0b00
+    ).expectation_value == pytest.approx(3.0)
+    # initial_state=0b11: both qubits |1> -> 1*(-1) + 2*(-1) = -3
+    assert prop.expectation_value(
+        obs, empty_circuit(), initial_state=0b11
+    ).expectation_value == pytest.approx(-3.0)
 
 
 def test_noise_damps_commuting_term():
     obs_term = ps(0, 0b0001)  # Z_0, weight = 1
     obs = PauliTermSum({obs_term: 1.0})
-    # Same generator as obs → commutes → rotation is trivial
+    # Same generator as obs -> commutes -> rotation is trivial
     generator = ps(0, 0b0001)  # Z_0
     circuit = PauliCircuit([PauliRotation(generator, 0.5)])
     noise = UniformNoiseModel(damping=0.5)
@@ -81,7 +89,7 @@ def test_noise_damps_commuting_term():
 def test_no_noise_preserves_norm():
     obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b0010): 0.5})
     original_norm = obs.norm_squared()
-    # X_0 anticommutes with Z_0, commutes with Z_1 → spawns a new term
+    # X_0 anticommutes with Z_0, commutes with Z_1 -> spawns a new term
     generator = ps(0b0001, 0)  # X_0
     circuit = PauliCircuit([PauliRotation(generator, math.pi / 4)])
     prop = PauliPropagator(noise=None)
@@ -92,7 +100,7 @@ def test_no_noise_preserves_norm():
 def test_noise_strictly_reduces_norm():
     obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b0010): 0.5})
     original_norm = obs.norm_squared()
-    # Z_0 commutes with both terms → trivial rotation, noise alone reduces norm
+    # Z_0 commutes with both terms -> trivial rotation, noise alone reduces norm
     generator = ps(0, 0b0001)  # Z_0
     circuit = PauliCircuit([PauliRotation(generator, math.pi / 4)])
     noise = UniformNoiseModel(damping=0.3)
@@ -103,7 +111,7 @@ def test_noise_strictly_reduces_norm():
 
 def test_truncation_removes_heavy_terms():
     obs = PauliTermSum({ps(0, 0b0001): 1.0})  # Z_0, weight = 1
-    # X_0 X_1 anticommutes with Z_0 I → spawns Y_0 X_1 (weight 2)
+    # X_0 X_1 anticommutes with Z_0 I -> spawns Y_0 X_1 (weight 2)
     generator = ps(0b0011, 0)  # X_0 X_1
     circuit = PauliCircuit([PauliRotation(generator, math.pi / 4)])
     trunc = TruncationPolicy(weight_cutoff=1, coeff_cutoff=0.0)
@@ -133,6 +141,7 @@ def test_n_threads_does_not_raise():
     prop = PauliPropagator(n_threads=2)
     obs = PauliTermSum({ps(0, 0b0001): 1.0})
     prop.propagate(obs, empty_circuit())
+
 
 def test_propagate_filename_saves_file(tmp_path):
     obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0b0001, 0): 0.5})
@@ -165,12 +174,14 @@ def test_expectation_value_filename_saves_file(tmp_path):
 
 def test_roundtrip_preserves_all_terms_and_coefficients(tmp_path):
     # Build a term sum with multiple terms and real coefficients.
-    obs = PauliTermSum({
-        ps(0, 0b0001): 1.0,
-        ps(0, 0b0010): -0.3,
-        ps(0b0001, 0b0001): 2.0,
-        ps(0b0010, 0b0010): -1.0,
-    })
+    obs = PauliTermSum(
+        {
+            ps(0, 0b0001): 1.0,
+            ps(0, 0b0010): -0.3,
+            ps(0b0001, 0b0001): 2.0,
+            ps(0b0010, 0b0010): -1.0,
+        }
+    )
     generator = ps(0b1111, 0)
     circuit = PauliCircuit([PauliRotation(generator, math.pi / 6)])
     prop = PauliPropagator()
@@ -201,10 +212,12 @@ def test_from_file_no_information_lost_with_noise(tmp_path):
 
 def test_termsum_save_and_from_file_roundtrip(tmp_path):
     # Test the standalone save/from_file methods without going through propagation.
-    obs = PauliTermSum({
-        ps(0, 0b0001): 3.14,
-        ps(0b0010, 0b0001): -2.71,
-    })
+    obs = PauliTermSum(
+        {
+            ps(0, 0b0001): 3.14,
+            ps(0b0010, 0b0001): -2.71,
+        }
+    )
     out = tmp_path / "direct.bin.gz"
     obs.save(str(out))
     loaded = PauliTermSum.from_file(str(out))

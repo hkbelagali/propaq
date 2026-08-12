@@ -1,0 +1,21 @@
+# Build artifacts from the example plugins.
+#
+notebooks/_build/
+notebooks/_build_c/
+.ipynb_checkpoints/
+
+*.so
+*.dylib
+*.dll
+*.lib
+*.exp
+*.pdb
+*.o
+*.obj
+*.a
+
+target/
+
+Cargo.lock
+
+Manifest.toml

@@ -1,7 +1,6 @@
 """Composable truncation operators shared by the numerical and surrogate propagators."""
 
 from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
-from propaq._rust_core import FlushSchedule as FlushSchedule
 from propaq._rust_core import FrequencyTruncator as _RustFrequencyTruncator
 from propaq._rust_core import MonomialBudget as _RustMonomialBudget
 from propaq._rust_core import NativeTruncator as _RustNativeTruncator
@@ -24,7 +23,7 @@ class WeightTruncator(_RustWeightTruncator):
 
 
 class TermBudget(_RustTermBudget):
-    """Term-count budget: ``max_terms`` triggers a flush; ``min_terms`` gates the lossy ops."""
+    """Term-count budget: ``max_terms`` triggers truncation; ``min_terms`` gates lossy ops."""
 
 
 class MonomialBudget(_RustMonomialBudget):
@@ -43,10 +42,7 @@ class Simplify(_RustSimplify):
 
 class NativeTruncator(_RustNativeTruncator):
     """Truncation policy backed by a dynamically loaded C, Rust, or
-    AOT-compiled Julia shared library, called directly per term with no
-    GIL and no Python call overhead. Numerical-only (the surrogate
-    propagators reject it): see ``propaq.MD`` / ``examples/plugins/``
-    for the ABI contract and example plugins.
+    AOT-compiled Julia shared library
     """
 
 
@@ -73,5 +69,4 @@ __all__ = [
     "MonomialBudget",
     "Simplify",
     "NativeTruncator",
-    "FlushSchedule",
 ]

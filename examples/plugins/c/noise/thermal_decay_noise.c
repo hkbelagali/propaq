@@ -3,6 +3,8 @@
 // Stretched-exponential relaxation: damping_factor = exp(-(gamma * weight)^beta).
 // beta = 1 reduces exactly to UniformNoiseModel's plain exponential; beta != 1
 // gives a different decay shape (sub-/super-exponential in weight)
+//
+
 
 #include <math.h>
 #include <stdint.h>
@@ -44,17 +46,23 @@ static double damping_factor(const Ctx* ctx, uint32_t term_weight) {
     return exp(-pow(ctx->gamma * (double)term_weight, ctx->beta));
 }
 
-double propaq_noise_damping_factor(void* ctx, uint32_t term_weight, uint32_t active_modes) {
-    (void)active_modes;
-    return damping_factor((const Ctx*)ctx, term_weight);
+double propaq_noise_factor(void* ctx, uint32_t basis_kind, const uint64_t* words, size_t n_words,
+                           uint32_t n_units, uint32_t weight, uint32_t layer_index,
+                           uint32_t n_layers) {
+    (void)basis_kind; (void)words; (void)n_words; (void)n_units;
+    (void)layer_index; (void)n_layers;
+    return damping_factor((const Ctx*)ctx, weight);
 }
 
-int32_t propaq_noise_damping_batch(void* ctx, const uint32_t* term_weights,
-                                    const uint32_t* active_modes, double* out, size_t n) {
-    (void)active_modes;
+int32_t propaq_noise_factor_batch(void* ctx, uint32_t basis_kind, const uint64_t* words,
+                                  size_t n_words_per_term, uint32_t n_units,
+                                  const uint32_t* weights, uint32_t layer_index, uint32_t n_layers,
+                                  double* out, size_t n_terms) {
+    (void)basis_kind; (void)words; (void)n_words_per_term; (void)n_units;
+    (void)layer_index; (void)n_layers;
     const Ctx* c = (const Ctx*)ctx;
-    for (size_t i = 0; i < n; i++) {
-        out[i] = damping_factor(c, term_weights[i]);
+    for (size_t i = 0; i < n_terms; i++) {
+        out[i] = damping_factor(c, weights[i]);
     }
     return 0;
 }

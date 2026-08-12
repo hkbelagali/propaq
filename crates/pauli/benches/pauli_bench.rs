@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use propaq_core::bitset::Bitset;
-use propaq_core::soa::{SoaBasis, SoaTermSum};
+use propaq_core::store::{TermBasis, TermSum};
 use propaq_core::traits::AbstractTerm;
 use propaq_pauli::string::{PauliBasis, PauliString};
 use propaq_pauli::termsum::PauliTermSum;
@@ -11,12 +11,17 @@ fn make_pauli(x: u64, z: u64, n: usize) -> PauliString {
     let xb = Bitset::from_le_bytes(&x.to_le_bytes());
     let zb = Bitset::from_le_bytes(&z.to_le_bytes());
     let weight = (&xb | &zb).count_ones();
-    PauliString { x: xb, z: zb, n_qubits: n, weight }
+    PauliString {
+        x: xb,
+        z: zb,
+        n_qubits: n,
+        weight,
+    }
 }
 
 fn build_termsum(n_terms: usize, n_qubits: usize) -> PauliTermSum {
     let stride = PauliBasis::stride_words(n_qubits);
-    let mut inner = SoaTermSum::<f64>::new(n_qubits, stride);
+    let mut inner = TermSum::<f64>::new(n_qubits, stride);
     for i in 0..n_terms {
         let x = 1u64 << (i % n_qubits);
         let z = 1u64 << ((i + 1) % n_qubits);
@@ -26,22 +31,30 @@ fn build_termsum(n_terms: usize, n_qubits: usize) -> PauliTermSum {
         PauliBasis::term_into_planes(&term, n_qubits, [&mut gx, &mut gz]);
         inner.push([&gx, &gz], 1.0 / (i + 1) as f64);
     }
-    PauliTermSum::from_soa(inner)
+    PauliTermSum::from_store(inner)
 }
 
 fn bench_commutes_with(c: &mut Criterion) {
     let mut group = c.benchmark_group("PauliString/commutes_with");
     for n_qubits in [4usize, 20, 40, 64] {
         let lower = (1u64 << (n_qubits / 2)) - 1;
-        let upper = if n_qubits < 64 { ((1u64 << n_qubits) - 1) ^ lower } else { u64::MAX ^ lower };
+        let upper = if n_qubits < 64 {
+            ((1u64 << n_qubits) - 1) ^ lower
+        } else {
+            u64::MAX ^ lower
+        };
         let a = make_pauli(lower, 0, n_qubits);
         let b = make_pauli(0, upper, n_qubits);
-        group.bench_with_input(BenchmarkId::from_parameter(n_qubits), &n_qubits, |bench, _| {
-            bench.iter(|| {
-                let result: bool = AbstractTerm::commutes_with(black_box(&a), black_box(&b));
-                black_box(result)
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(n_qubits),
+            &n_qubits,
+            |bench, _| {
+                bench.iter(|| {
+                    let result: bool = AbstractTerm::commutes_with(black_box(&a), black_box(&b));
+                    black_box(result)
+                })
+            },
+        );
     }
     group.finish();
 }
@@ -50,12 +63,21 @@ fn bench_matmul(c: &mut Criterion) {
     let mut group = c.benchmark_group("PauliString/matmul");
     for n_qubits in [4usize, 20, 40, 64] {
         let lower = (1u64 << (n_qubits / 2)) - 1;
-        let upper = if n_qubits < 64 { ((1u64 << n_qubits) - 1) ^ lower } else { u64::MAX ^ lower };
+        let upper = if n_qubits < 64 {
+            ((1u64 << n_qubits) - 1) ^ lower
+        } else {
+            u64::MAX ^ lower
+        };
         let a = make_pauli(lower, 0, n_qubits);
         let b = make_pauli(0, upper, n_qubits);
-        group.bench_with_input(BenchmarkId::from_parameter(n_qubits), &n_qubits, |bench, _| {
-            bench.iter(|| black_box(AbstractTerm::matmul_internal(black_box(&a), black_box(&b))))
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(n_qubits),
+            &n_qubits,
+            |bench, _| {
+                bench
+                    .iter(|| black_box(AbstractTerm::matmul_internal(black_box(&a), black_box(&b))))
+            },
+        );
     }
     group.finish();
 }
@@ -65,16 +87,20 @@ fn bench_termsum_add(c: &mut Criterion) {
     let n_qubits = 64;
     for n_terms in [10usize, 100, 1000] {
         let term = make_pauli(1, 2, n_qubits);
-        group.bench_with_input(BenchmarkId::from_parameter(n_terms), &n_terms, |bench, &n| {
-            bench.iter_batched(
-                || build_termsum(n, n_qubits),
-                |mut ts| {
-                    ts.add(black_box(term.clone()), black_box(0.5));
-                    black_box(ts)
-                },
-                BatchSize::SmallInput,
-            )
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(n_terms),
+            &n_terms,
+            |bench, &n| {
+                bench.iter_batched(
+                    || build_termsum(n, n_qubits),
+                    |mut ts| {
+                        ts.add(black_box(term.clone()), black_box(0.5));
+                        black_box(ts)
+                    },
+                    BatchSize::SmallInput,
+                )
+            },
+        );
     }
     group.finish();
 }
@@ -83,16 +109,20 @@ fn bench_termsum_merge(c: &mut Criterion) {
     let mut group = c.benchmark_group("PauliTermSum/merge");
     let n_qubits = 64;
     for n_terms in [10usize, 100, 1000] {
-        group.bench_with_input(BenchmarkId::from_parameter(n_terms), &n_terms, |bench, &n| {
-            bench.iter_batched(
-                || (build_termsum(n, n_qubits), build_termsum(n, n_qubits)),
-                |(mut ts1, ts2)| {
-                    let _ = ts1.merge(black_box(&ts2));
-                    black_box(ts1)
-                },
-                BatchSize::SmallInput,
-            )
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(n_terms),
+            &n_terms,
+            |bench, &n| {
+                bench.iter_batched(
+                    || (build_termsum(n, n_qubits), build_termsum(n, n_qubits)),
+                    |(mut ts1, ts2)| {
+                        let _ = ts1.merge(black_box(&ts2));
+                        black_box(ts1)
+                    },
+                    BatchSize::SmallInput,
+                )
+            },
+        );
     }
     group.finish();
 }
@@ -102,9 +132,11 @@ fn bench_termsum_norm_squared(c: &mut Criterion) {
     let n_qubits = 64;
     for n_terms in [10usize, 100, 1000] {
         let ts = build_termsum(n_terms, n_qubits);
-        group.bench_with_input(BenchmarkId::from_parameter(n_terms), &n_terms, |bench, _| {
-            bench.iter(|| black_box(ts.norm_squared()))
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(n_terms),
+            &n_terms,
+            |bench, _| bench.iter(|| black_box(ts.norm_squared())),
+        );
     }
     group.finish();
 }

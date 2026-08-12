@@ -8,6 +8,18 @@ on:
       - main
 
 jobs:
+  typos:
+    name: typo check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check spelling with typos
+        uses: crate-ci/typos@v1.47.0
 
   prebuild:
     name: test, lint, type check
@@ -30,6 +42,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Set up environment
         run: pip install -e .[dev,cirq]
+      - name: Check formatting with ruff
+        run: ruff format --check .
       - name: Lint with ruff
         run: ruff check .
       - name: Type check with mypy
@@ -38,6 +52,14 @@ jobs:
         run: coverage run -m pytest
       - name: Check coverage threshold
         run: coverage report
+      - name: Check Rust formatting with cargo
+        run: cargo fmt --all -- --check
+      - name: Lint Rust with clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Generate PyO3 stubs
+        run: cargo run -p propaq --bin stub_gen
+      - name: Check PyO3 stubs are current
+        run: git diff --exit-code -- propaq/_rust_core/__init__.pyi
       - name: Run Rust tests with cargo
         run: cargo test
 
@@ -45,6 +67,7 @@ jobs:
     if: github.event_name == 'release'
     needs:
       - prebuild
+      - typos
     name: build distribution (ubuntu-latest)
     runs-on: ubuntu-latest
     permissions:
@@ -70,6 +93,7 @@ jobs:
     if: github.event_name == 'release'
     needs:
       - prebuild
+      - typos
     name: build distribution (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:

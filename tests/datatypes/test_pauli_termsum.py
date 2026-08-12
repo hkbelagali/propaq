@@ -79,6 +79,7 @@ def test_merge_from_file_empty_file_leaves_sum_unchanged(tmp_path):
     assert len(ts) == 1
     assert ts[a] == pytest.approx(5.0)
 
+
 def test_to_sparse_pauli_op_x():
     ts = PauliTermSum.from_sparse_pauli_op(SparsePauliOp("X"))
     assert ts.to_sparse_pauli_op().equiv(SparsePauliOp("X"))

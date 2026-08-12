@@ -1,7 +1,7 @@
-# Example propaq native truncator plugin, implemented in Julia (AOT-compiled
-# via PackageCompiler.jl into a C-ABI shared library; see the plugins README).
+# Example propaq native truncator plugin, implemented in Julia (AOT-compiled via
+# PackageCompiler.jl into a C-ABI shared library; see the plugins README).
 #
-# Joint weight/coefficient score instead of two independent hard cutoffs:
+# Joint weight/coefficient score instead of two independent hard cutoffs,
 # composing WeightTruncator and CoefficientTruncator ANDs two separate
 # thresholds, which can't express a smooth tradeoff between them. This keeps
 # a term if its coefficient magnitude, discounted by an exponential in its
@@ -9,8 +9,7 @@
 #
 #   keep <=> coeff_magnitude * exp(-alpha * weight) > threshold
 #
-# alpha = 0 reduces to a plain coefficient cutoff.
-#
+# Weight and magnitude only, so it declares no dependencies.
 
 const PROPAQ_TRUNCATOR_ABI_VERSION = UInt32(1)
 
@@ -27,8 +26,8 @@ function parse_field(json::AbstractString, key::AbstractString, fallback::Float6
     m === nothing ? fallback : parse(Float64, m.captures[1])
 end
 
-function keep(threshold::Float64, alpha::Float64, term_weight::UInt32, coeff_magnitude::Cdouble)::Bool
-    score = coeff_magnitude * exp(-alpha * Float64(term_weight))
+function keep(threshold::Float64, alpha::Float64, weight::UInt32, coeff_magnitude::Cdouble)::Bool
+    score = coeff_magnitude * exp(-alpha * Float64(weight))
     return score > threshold
 end
 
@@ -53,21 +52,27 @@ Base.@ccallable function propaq_truncator_destroy(ctx::Ptr{Cvoid})::Cvoid
     return nothing
 end
 
-Base.@ccallable function propaq_truncator_keep(ctx::Ptr{Cvoid}, term_weight::UInt32,
-                                                coeff_magnitude::Cdouble, active_modes::UInt32)::Int32
+Base.@ccallable function propaq_truncator_keep(ctx::Ptr{Cvoid}, basis_kind::UInt32,
+                                               words::Ptr{UInt64}, n_words::Csize_t,
+                                               n_units::UInt32, weight::UInt32,
+                                               coeff_magnitude::Cdouble,
+                                               layer_index::UInt32, n_layers::UInt32)::Int32
     c = unsafe_pointer_to_objref(ctx)::Ctx
-    return keep(c.threshold, c.alpha, term_weight, coeff_magnitude) ? Int32(1) : Int32(0)
+    return keep(c.threshold, c.alpha, weight, coeff_magnitude) ? Int32(1) : Int32(0)
 end
 
-Base.@ccallable function propaq_truncator_keep_batch(ctx::Ptr{Cvoid}, term_weights::Ptr{UInt32},
-                                                      coeff_magnitudes::Ptr{Cdouble}, active_modes::Ptr{UInt32},
-                                                      out_keep::Ptr{UInt8}, n::Csize_t)::Int32
+Base.@ccallable function propaq_truncator_keep_batch(ctx::Ptr{Cvoid}, basis_kind::UInt32,
+                                                     words::Ptr{UInt64}, n_words_per_term::Csize_t,
+                                                     n_units::UInt32, weights::Ptr{UInt32},
+                                                     coeff_magnitudes::Ptr{Cdouble},
+                                                     layer_index::UInt32, n_layers::UInt32,
+                                                     out_keep::Ptr{UInt8}, n_terms::Csize_t)::Int32
     c = unsafe_pointer_to_objref(ctx)::Ctx
-    weights = unsafe_wrap(Array, term_weights, n)
-    coeffs = unsafe_wrap(Array, coeff_magnitudes, n)
-    result = unsafe_wrap(Array, out_keep, n)
-    @inbounds for i in 1:n
-        result[i] = keep(c.threshold, c.alpha, weights[i], coeffs[i]) ? UInt8(1) : UInt8(0)
+    w = unsafe_wrap(Array, weights, n_terms)
+    coeffs = unsafe_wrap(Array, coeff_magnitudes, n_terms)
+    result = unsafe_wrap(Array, out_keep, n_terms)
+    @inbounds for i in 1:n_terms
+        result[i] = keep(c.threshold, c.alpha, w[i], coeffs[i]) ? UInt8(1) : UInt8(0)
     end
     return Int32(0)
 end

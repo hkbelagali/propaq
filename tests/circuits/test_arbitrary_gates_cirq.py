@@ -120,7 +120,9 @@ def test_single_gate_matches_simulator(rep_name, name, gate, arity):
     for label in OBSERVABLES:
         want = _cirq_expectation(circuit, qubits, label)
         got = _expectation(rep_name, circuit, label)
-        assert np.isclose(got, want, atol=1e-6), f"{name} ({rep_name}), obs={label}: {got} vs {want}"
+        assert np.isclose(got, want, atol=1e-6), (
+            f"{name} ({rep_name}), obs={label}: {got} vs {want}"
+        )
 
 
 @pytest.mark.parametrize("rep_name", REPS)
@@ -140,7 +142,9 @@ def test_random_circuit_matches_simulator(rep_name, seed):
     for label in OBSERVABLES:
         want = _cirq_expectation(circuit, qubits, label)
         got = _expectation(rep_name, circuit, label)
-        assert np.isclose(got, want, atol=1e-6), f"seed={seed} ({rep_name}), obs={label}: {got} vs {want}"
+        assert np.isclose(got, want, atol=1e-6), (
+            f"seed={seed} ({rep_name}), obs={label}: {got} vs {want}"
+        )
 
 
 @pytest.mark.parametrize("rep_name", REPS)

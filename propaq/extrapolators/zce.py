@@ -6,6 +6,7 @@ noise levels, we sweep over cutoff values in the propagator.
 This could be either a weight cutoff or a coefficient cutoff,
 both of which are individual truncators in the propagator's pipeline.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -30,6 +31,7 @@ from propaq.truncation import CoefficientTruncator, WeightTruncator
 @dataclass
 class ZCEResult:
     """Result of a zero-cutoff extrapolation run, including the fitted parameters and covariance."""
+
     zero_cutoff_value: float
     """Extrapolated expectation value at zero cutoff."""
 
@@ -41,6 +43,7 @@ class ZCEResult:
     """Fitted parameters."""
     fit_covariance: np.ndarray
     """Covariance matrix of the fitted parameters."""
+
 
 class ZeroCutoffExtrapolator(ABC):
     """
@@ -96,15 +99,20 @@ class ZeroCutoffExtrapolator(ABC):
         cutoff (no matching truncator in its pipeline).
         """
         truncators = list(propagator.truncators)
-        idx = next(
-            (i for i, t in enumerate(truncators) if isinstance(t, self._rust_cls())), None
-        )
+        idx = next((i for i, t in enumerate(truncators) if isinstance(t, self._rust_cls())), None)
         if idx is None:
             raise ValueError("Propagator has no truncation policy for this cutoff.")
         truncators[idx] = self._build(cutoff)
         propagator.set_truncation(truncators)
 
-    def run(self, propagator: AbstractPropagator, observable: AbstractTermSum, circuit: MajoranaCircuit | PauliCircuit, initial_state: int = 0, **curve_fit_kwargs) -> ZCEResult:
+    def run(
+        self,
+        propagator: AbstractPropagator,
+        observable: AbstractTermSum,
+        circuit: MajoranaCircuit | PauliCircuit,
+        initial_state: int = 0,
+        **curve_fit_kwargs,
+    ) -> ZCEResult:
         """Sweep cutoff values, fit, and extrapolate to zero cutoff.
 
         Arguments:
@@ -125,7 +133,9 @@ class ZeroCutoffExtrapolator(ABC):
             expectation_values = []
             for cutoff in self.cutoff_values:
                 self._set_cutoff(propagator, cutoff)
-                result = propagator.expectation_value(observable, circuit, initial_state=initial_state)
+                result = propagator.expectation_value(
+                    observable, circuit, initial_state=initial_state
+                )
                 expectation_values.append(result.expectation_value)
         finally:
             # Restore only if a matching truncator is still present (nothing to
@@ -146,6 +156,7 @@ class ZeroCutoffExtrapolator(ABC):
             fit_covariance=pcov,
         )
 
+
 class WeightCutoffExtrapolator(ZeroCutoffExtrapolator):
     """Zero weight-cutoff extrapolation via curve fitting."""
 
@@ -157,6 +168,7 @@ class WeightCutoffExtrapolator(ZeroCutoffExtrapolator):
 
     def _build(self, cutoff: float | int | None) -> WeightTruncator:
         return WeightTruncator(int(cutoff) if cutoff is not None else None)
+
 
 class CoefficientCutoffExtrapolator(ZeroCutoffExtrapolator):
     """Zero coefficient-cutoff extrapolation via curve fitting."""

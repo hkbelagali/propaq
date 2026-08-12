@@ -1,10 +1,11 @@
 [package]
 name = "propaq-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["num-complex"] }
+pyo3 = { version = "0.27", features = ["num-complex"] }
+pyo3-stub-gen = "0.23"
 num-complex = "0.4"
 rayon = "1.10"
 rustc-hash = "2"
@@ -12,3 +13,4 @@ hashbrown = { version = "0.15", default-features = false, features = ["inline-mo
 smallvec = { version = "1", features = ["union"] }
 flate2 = "1"
 libloading = "0.8"
+libc = "0.2"

@@ -1,9 +1,7 @@
-/// Example propaq native noise plugin, implemented in Rust.
+/// Example propaq noise plugin, implemented in Rust.
 ///
-/// Stretched-exponential relaxation: damping_factor = exp(-(gamma * weight)^beta).
-/// beta = 1 reduces exactly to UniformNoiseModel's plain exponential; beta != 1
-/// gives a different decay shape (sub-/super-exponential in weight), which is
-/// not expressible by UniformNoiseModel's single-parameter formula.
+/// Stretched-exponential relaxation, damping_factor = exp(-(gamma * weight)^beta).
+///
 use std::ffi::{c_char, c_void, CStr};
 
 const PROPAQ_NOISE_ABI_VERSION: u32 = 1;
@@ -22,6 +20,10 @@ fn parse_field(config: Option<&str>, key: &str, fallback: f64) -> f64 {
         .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E'))
         .unwrap_or(rest.len());
     rest[..end].parse().unwrap_or(fallback)
+}
+
+fn damping_factor(ctx: &Ctx, weight: u32) -> f64 {
+    (-(ctx.gamma * weight as f64).powf(ctx.beta)).exp()
 }
 
 #[no_mangle]
@@ -50,26 +52,38 @@ pub unsafe extern "C" fn propaq_noise_destroy(ctx: *mut c_void) {
     }
 }
 
-fn damping_factor(ctx: &Ctx, term_weight: u32) -> f64 {
-    (-(ctx.gamma * term_weight as f64).powf(ctx.beta)).exp()
-}
-
 #[no_mangle]
-pub unsafe extern "C" fn propaq_noise_damping_factor(ctx: *mut c_void, term_weight: u32, _active_modes: u32) -> f64 {
-    damping_factor(unsafe { &*(ctx as *const Ctx) }, term_weight)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn propaq_noise_damping_batch(
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn propaq_noise_factor(
     ctx: *mut c_void,
-    term_weights: *const u32,
-    _active_modes: *const u32,
+    _basis_kind: u32,
+    _words: *const u64,
+    _n_words: usize,
+    _n_units: u32,
+    weight: u32,
+    _layer_index: u32,
+    _n_layers: u32,
+) -> f64 {
+    damping_factor(unsafe { &*(ctx as *const Ctx) }, weight)
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn propaq_noise_factor_batch(
+    ctx: *mut c_void,
+    _basis_kind: u32,
+    _words: *const u64,
+    _n_words_per_term: usize,
+    _n_units: u32,
+    weights: *const u32,
+    _layer_index: u32,
+    _n_layers: u32,
     out: *mut f64,
-    n: usize,
+    n_terms: usize,
 ) -> i32 {
     let c = unsafe { &*(ctx as *const Ctx) };
-    let weights = unsafe { std::slice::from_raw_parts(term_weights, n) };
-    let out = unsafe { std::slice::from_raw_parts_mut(out, n) };
+    let weights = unsafe { std::slice::from_raw_parts(weights, n_terms) };
+    let out = unsafe { std::slice::from_raw_parts_mut(out, n_terms) };
     for (o, &w) in out.iter_mut().zip(weights) {
         *o = damping_factor(c, w);
     }

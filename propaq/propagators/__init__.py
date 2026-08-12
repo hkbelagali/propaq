@@ -10,6 +10,9 @@ AbstractPropagator.register(MajoranaPropagator)
 AbstractPropagator.register(PauliPropagator)
 
 __all__ = [
-    "MajoranaPropagator", "PauliPropagator", "AbstractPropagator",
-    "PauliSurrogatePropagator", "MajoranaSurrogatePropagator",
+    "MajoranaPropagator",
+    "PauliPropagator",
+    "AbstractPropagator",
+    "PauliSurrogatePropagator",
+    "MajoranaSurrogatePropagator",
 ]

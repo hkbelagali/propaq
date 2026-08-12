@@ -51,7 +51,6 @@ def test_merge_and_copy_independence():
 
 def test_truncate_removes_terms_safely():
     ts = MajoranaTermSum()
-    # weight-4 monomial: modes 0b11110000 → sites 2,3 both occupied → high weight
     heavy = mon(0b00001111)  # weight >= 1
     light = mon(0b00000011)  # single site, low weight
     ts.add(heavy, 0.01)
@@ -76,10 +75,11 @@ def test_apply_damping_uses_noise_model():
     ts = MajoranaTermSum()
     t = mon(0b00000011)
     ts.add(t, 2.0)
-    noise = UniformNoiseModel(0.0)  # zero damping → coefficients unchanged
+    noise = UniformNoiseModel(0.0)
     ts.apply_damping(noise, active_modes=0)
     _, coeff = list(ts.items())[0]
     assert coeff == pytest.approx(2.0)
+
 
 def test_constructor_with_dict():
     t = mon(0b01)
@@ -88,20 +88,24 @@ def test_constructor_with_dict():
     _, coeff = list(ts.items())[0]
     assert coeff == pytest.approx(2.5)
 
+
 def test_constructor_empty_dict():
     ts = MajoranaTermSum({})
     assert len(ts) == 0
+
 
 def test_constructor_multi_term_dict():
     a, b = mon(0b0001), mon(0b0010)
     ts = MajoranaTermSum({a: 1.0, b: -1.0})
     assert len(ts) == 2
 
+
 def test_setitem_and_getitem():
     ts = MajoranaTermSum()
     t = mon(0b01)
     ts[t] = 3.0
     assert ts[t] == pytest.approx(3.0)
+
 
 def test_setitem_overwrites():
     ts = MajoranaTermSum()
@@ -111,10 +115,12 @@ def test_setitem_overwrites():
     assert ts[t] == pytest.approx(5.0)
     assert len(ts) == 1
 
+
 def test_getitem_missing_returns_zero():
     ts = MajoranaTermSum()
     t = mon(0b01)
     assert ts[t] == pytest.approx(0.0)
+
 
 def test_merge_overlapping_accumulates():
     a = mon(0b0001)
@@ -126,6 +132,7 @@ def test_merge_overlapping_accumulates():
     assert len(ts1) == 1
     assert ts1[a] == pytest.approx(3.0)
 
+
 def test_merge_mixed_overlap_and_new():
     a, b = mon(0b0001), mon(0b0010)
     ts1 = MajoranaTermSum({a: 1.0})
@@ -135,22 +142,24 @@ def test_merge_mixed_overlap_and_new():
     assert ts1[a] == pytest.approx(3.0)
     assert ts1[b] == pytest.approx(3.0)
 
+
 class EvenWeightTruncation:
     """Truncates terms with even Pauli weight."""
+
     def should_truncate(self, weight, abs_coeff):
         return weight % 2 == 0
 
+
 def test_truncate_custom_python_policy():
-    # modes=0b11 → weight 1 (odd) → kept
-    # modes=0b0101_0101 → weight 4 (even) → truncated
-    kept = mon(0b00000011)          # weight 1
-    removed = mon(0b01010101)       # weight 4
+    kept = mon(0b00000011)  # weight 1
+    removed = mon(0b01010101)  # weight 4
     ts = MajoranaTermSum({kept: 1.0, removed: 1.0})
     ts.truncate(EvenWeightTruncation())
     remaining = [m for m, _ in ts.items()]
     assert kept in remaining
     assert removed not in remaining
-    
+
+
 class ConstantDampingNoise:
     def __init__(self, factor):
         self.factor = factor
@@ -158,21 +167,18 @@ class ConstantDampingNoise:
     def damping_factor(self, weight, active_modes):
         return self.factor
 
+
 def test_apply_damping_custom_python_noise():
     t = mon(0b00000011)
     ts = MajoranaTermSum({t: 4.0})
     ts.apply_damping(ConstantDampingNoise(0.25), active_modes=0)
     assert ts[t] == pytest.approx(1.0)  # 4.0 * 0.25
 
+
 def _ref(modes_int: int, n_modes: int) -> MajoranaMonomial:
     """Reference monomial for lookup; equality uses only mode bits."""
     return MajoranaMonomial(modes_int, n_modes)
 
-
-# Single-qubit Jordan-Wigner images
-# X_0  →  γ_0          (mode 0b01,  coeff +1)
-# Y_0  →  γ_1          (mode 0b10,  coeff +1)
-# Z_0  →  γ_0 γ_1      (mode 0b11,  coeff -1)
 
 def test_from_sparse_pauli_op_x():
     ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("X"))
@@ -190,6 +196,7 @@ def test_from_sparse_pauli_op_z():
     ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("Z"))
     assert len(ts) == 1
     assert ts[_ref(0b11, 2)] == pytest.approx(-1.0)
+
 
 def test_from_sparse_pauli_op_xz():
     ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp.from_list([("XZ", 1.0)]))
@@ -244,6 +251,7 @@ def test_from_sparse_pauli_op_linear_combination():
     assert ts[_ref(0b01, 2)] == pytest.approx(0.5)
     assert ts[_ref(0b10, 2)] == pytest.approx(0.5)
 
+
 def test_streamer_round_trip_single_term(tmp_path):
     a = mon(0b0001)
     ts = MajoranaTermSum({a: 3.0})
@@ -297,7 +305,6 @@ def test_merge_from_file_matches_from_file(tmp_path):
 
 def test_merge_from_file_accumulates_into_existing(tmp_path):
     a, b = mon(0b0001), mon(0b0010)
-    # existing sum has 'a' with coeff 1.0; file also has 'a' → should sum to 3.0
     existing = MajoranaTermSum({a: 1.0})
     saved = MajoranaTermSum({a: 2.0, b: 4.0})
     path = str(tmp_path / "ts.gz")
@@ -318,6 +325,7 @@ def test_merge_from_file_empty_file_leaves_sum_unchanged(tmp_path):
     ts.merge_from_file(MajoranaTermStreamer.from_file(empty_path))
     assert len(ts) == 1
     assert ts[a] == pytest.approx(5.0)
+
 
 def test_to_sparse_pauli_op_x():
     ts = MajoranaTermSum.from_sparse_pauli_op(SparsePauliOp("X"))

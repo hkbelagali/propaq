@@ -3,12 +3,11 @@
 ///
 use pyo3::prelude::*;
 
-use propaq_core::truncators::{FlushSchedule, FrequencyTruncator, TermBudget, Truncator, WeightTruncator};
+use propaq_core::truncators::{FrequencyTruncator, TermBudget, Truncator, WeightTruncator};
 
 const DEFAULT_MAX_TERMS: usize = 10_000_000;
-/// Default finer merge cadence
-const DEFAULT_MERGE_MAX_TERMS: usize = 1;
 
+#[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct FrequencyTruncationPolicy {
@@ -19,30 +18,22 @@ pub struct FrequencyTruncationPolicy {
     #[pyo3(get, set)]
     pub weight_cutoff: Option<u32>,
     pub truncation_range: (Option<usize>, Option<usize>),
-    /// Finer lossless merge cadence: when this many terms accumulate in the
-    /// outboxes since the last flush, collapse duplicate Pauli strings into the
-    /// partition maps (no truncation). `None` disables the finer cadence.
-    #[pyo3(get, set)]
-    pub merge_max_terms: Option<usize>,
 }
 
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl FrequencyTruncationPolicy {
     #[new]
-    #[pyo3(signature = (max_frequency=None, weight_cutoff=None, truncation_range=None, merge_max_terms=None))]
+    #[pyo3(signature = (max_frequency=None, weight_cutoff=None, truncation_range=None))]
     pub fn new(
         max_frequency: Option<usize>,
         weight_cutoff: Option<u32>,
         truncation_range: Option<(Option<usize>, Option<usize>)>,
-        merge_max_terms: Option<usize>,
     ) -> Self {
         FrequencyTruncationPolicy {
             max_frequency,
             weight_cutoff,
             truncation_range: truncation_range.unwrap_or((None, Some(DEFAULT_MAX_TERMS))),
-            // Default-on. Assign `policy.merge_max_terms = None` after
-            // construction to disable the finer cadence.
-            merge_max_terms: merge_max_terms.or(Some(DEFAULT_MERGE_MAX_TERMS)),
         }
     }
 
@@ -59,25 +50,27 @@ impl FrequencyTruncationPolicy {
 
     fn __repr__(&self) -> String {
         format!(
-            "FrequencyTruncationPolicy(max_frequency={}, weight_cutoff={}, truncation_range=({}, {}), merge_max_terms={})",
+            "FrequencyTruncationPolicy(max_frequency={}, weight_cutoff={}, truncation_range=({}, {}))",
             self.max_frequency.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.weight_cutoff.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.truncation_range.0.map_or_else(|| "None".to_string(), |v| v.to_string()),
             self.truncation_range.1.map_or_else(|| "None".to_string(), |v| v.to_string()),
-            self.merge_max_terms.map_or_else(|| "None".to_string(), |v| v.to_string()),
         )
     }
 }
 
 impl FrequencyTruncationPolicy {
-    pub fn decompose(&self) -> (FlushSchedule, Vec<Truncator>) {
-        let schedule = FlushSchedule { merge_max_terms: self.merge_max_terms };
+    pub fn decompose(&self) -> Vec<Truncator> {
         let mut ops = Vec::new();
         if let Some(frequency) = self.max_frequency {
-            ops.push(Truncator::Frequency(FrequencyTruncator { frequency: Some(frequency) }));
+            ops.push(Truncator::Frequency(FrequencyTruncator {
+                frequency: Some(frequency),
+            }));
         }
         if let Some(weight) = self.weight_cutoff {
-            ops.push(Truncator::Weight(WeightTruncator { weight: Some(weight) }));
+            ops.push(Truncator::Weight(WeightTruncator {
+                weight: Some(weight),
+            }));
         }
         if self.truncation_range.0.is_some() || self.truncation_range.1.is_some() {
             ops.push(Truncator::TermBudget(TermBudget {
@@ -85,6 +78,6 @@ impl FrequencyTruncationPolicy {
                 max_terms: self.truncation_range.1,
             }));
         }
-        (schedule, ops)
+        ops
     }
 }

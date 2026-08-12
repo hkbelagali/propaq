@@ -2,8 +2,8 @@
 Hybrid Schrodinger-Heisenberg expectation values.
 
 For a circuit C = C1 . C2, <Psi_0|C^dagger O C|Psi_0> splits into a
-Heisenberg half and a Schrodinger half (|Psi> = C2|Psi_0>, as an MPS via quimb). 
-`hybrid_expectation_value` contracts every term of theta against |Psi> 
+Heisenberg half and a Schrodinger half (|Psi> = C2|Psi_0>, as an MPS via quimb).
+`hybrid_expectation_value` contracts every term of theta against |Psi>
 in one native call.
 
 Requires the `quimb` optional dependency (`pip install propaq[hybrid]`).
@@ -50,7 +50,7 @@ def _build_mps(circuit2: QuantumCircuit, initial_state: int):
 
 def _is_mps(obj) -> bool:
     """
-    True if *obj* is already a quimb `MatrixProductState` 
+    True if *obj* is already a quimb `MatrixProductState`
     """
     try:
         import quimb.tensor as qtn
@@ -110,7 +110,7 @@ def hybrid_expectation_value(
             already-built quimb `MatrixProductState` representing `|Psi> =
             C2|Psi_0>` directly
         initial_state: Computational basis reference state as a bitstring
-            integer (bit q = qubit q), matching `AbstractPropagator.expectation_value`'s 
+            integer (bit q = qubit q), matching `AbstractPropagator.expectation_value`'s
             convention. Only used when *circuit2* is a `QuantumCircuit`.
 
     Returns:

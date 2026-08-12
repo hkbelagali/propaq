@@ -49,7 +49,9 @@ class VariationalSurrogateModel:
             binding = dict(zip(self.parameters, values))
 
         return [
-            source.scale * binding[source.parameter] if source.parameter is not None else source.scale
+            source.scale * binding[source.parameter]
+            if source.parameter is not None
+            else source.scale
             for source in self._parameter_sources
         ]
 

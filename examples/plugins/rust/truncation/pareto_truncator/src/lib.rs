@@ -1,4 +1,4 @@
-/// Example propaq native truncator plugin, implemented in Rust.
+/// Example propaq truncator plugin, implemented in Rust.
 ///
 /// Joint weight/coefficient score instead of two independent hard cutoffs:
 /// composing WeightTruncator and CoefficientTruncator ANDs two separate
@@ -8,7 +8,6 @@
 ///
 ///   keep <=> coeff_magnitude * exp(-alpha * weight) > threshold
 ///
-/// alpha = 0 reduces to a plain coefficient cutoff.
 use std::ffi::{c_char, c_void, CStr};
 
 const PROPAQ_TRUNCATOR_ABI_VERSION: u32 = 1;
@@ -27,6 +26,10 @@ fn parse_field(config: Option<&str>, key: &str, fallback: f64) -> f64 {
         .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E'))
         .unwrap_or(rest.len());
     rest[..end].parse().unwrap_or(fallback)
+}
+
+fn keep(ctx: &Ctx, weight: u32, coeff_magnitude: f64) -> bool {
+    coeff_magnitude * (-ctx.alpha * weight as f64).exp() > ctx.threshold
 }
 
 #[no_mangle]
@@ -55,35 +58,42 @@ pub unsafe extern "C" fn propaq_truncator_destroy(ctx: *mut c_void) {
     }
 }
 
-fn keep(ctx: &Ctx, term_weight: u32, coeff_magnitude: f64) -> bool {
-    let score = coeff_magnitude * (-ctx.alpha * term_weight as f64).exp();
-    score > ctx.threshold
-}
-
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn propaq_truncator_keep(
     ctx: *mut c_void,
-    term_weight: u32,
+    _basis_kind: u32,
+    _words: *const u64,
+    _n_words: usize,
+    _n_units: u32,
+    weight: u32,
     coeff_magnitude: f64,
-    _active_modes: u32,
+    _layer_index: u32,
+    _n_layers: u32,
 ) -> i32 {
-    keep(unsafe { &*(ctx as *const Ctx) }, term_weight, coeff_magnitude) as i32
+    keep(unsafe { &*(ctx as *const Ctx) }, weight, coeff_magnitude) as i32
 }
 
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn propaq_truncator_keep_batch(
     ctx: *mut c_void,
-    term_weights: *const u32,
+    _basis_kind: u32,
+    _words: *const u64,
+    _n_words_per_term: usize,
+    _n_units: u32,
+    weights: *const u32,
     coeff_magnitudes: *const f64,
-    _active_modes: *const u32,
+    _layer_index: u32,
+    _n_layers: u32,
     out_keep: *mut u8,
-    n: usize,
+    n_terms: usize,
 ) -> i32 {
     let c = unsafe { &*(ctx as *const Ctx) };
-    let weights = unsafe { std::slice::from_raw_parts(term_weights, n) };
-    let coeffs = unsafe { std::slice::from_raw_parts(coeff_magnitudes, n) };
-    let out = unsafe { std::slice::from_raw_parts_mut(out_keep, n) };
-    for ((o, &w), &m) in out.iter_mut().zip(weights).zip(coeffs) {
+    let weights = unsafe { std::slice::from_raw_parts(weights, n_terms) };
+    let mags = unsafe { std::slice::from_raw_parts(coeff_magnitudes, n_terms) };
+    let out = unsafe { std::slice::from_raw_parts_mut(out_keep, n_terms) };
+    for ((o, &w), &m) in out.iter_mut().zip(weights).zip(mags) {
         *o = keep(c, w, m) as u8;
     }
     0

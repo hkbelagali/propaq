@@ -1,5 +1,4 @@
-"""Loschmidt echo tests using random Cirq gate circuits (concrete propagators).
-"""
+"""Loschmidt echo tests using random Cirq gate circuits (concrete propagators)."""
 
 import numpy as np
 import pytest
@@ -82,8 +81,7 @@ def _propagator(rep_name):
 @pytest.mark.parametrize("seed", range(4))
 def test_loschmidt_propaq_inverse(rep_name, seed):
     """Propagate forward through a random circuit, then backward through its propaq
-    .inverse(); the original observable must be recovered exactly (self-consistent
-    round trip, independent of any physical decomposition correctness)."""
+    .inverse()"""
     circuit = _random_circuit(seed)
     obs_op = _random_observable_op(seed + 1000)
 
@@ -103,9 +101,7 @@ def test_loschmidt_propaq_inverse(rep_name, seed):
 @pytest.mark.parametrize("rep_name", REPS)
 @pytest.mark.parametrize("seed", range(4))
 def test_loschmidt_cirq_inverse(rep_name, seed):
-    """Same as above, but the backward circuit is independently re-decomposed from
-    Cirq's own cirq.inverse(circuit), which also exercises decomposition of
-    inverted gates."""
+    """Same as above."""
     circuit = _random_circuit(seed)
     obs_op = _random_observable_op(seed + 1000)
 
@@ -125,7 +121,7 @@ def test_loschmidt_cirq_inverse(rep_name, seed):
 @pytest.mark.parametrize("rep_name", REPS)
 @pytest.mark.parametrize("seed", range(4))
 def test_loschmidt_expectation_recovers(rep_name, seed):
-    """<0|(U^-1 U)^dagger O (U^-1 U)|0> must equal <0|O|0>."""
+    r"""$\langle 0|(U^{-1} U)^\dagger O (U^{-1} U)|0\rangle$ must equal \langle 0|O|0\rangle$."""
     circuit = _random_circuit(seed)
     full = circuit + cirq.inverse(circuit)
     obs_op = _random_observable_op(seed + 2000)

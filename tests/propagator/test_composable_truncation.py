@@ -4,7 +4,6 @@ import pytest
 
 from propaq import (
     CoefficientTruncator,
-    FlushSchedule,
     FrequencyTruncator,
     MonomialBudget,
     Simplify,
@@ -40,11 +39,13 @@ def _ev(prop, obs, circ):
 class TestNumericalListAPI:
     def test_list_reproduces_legacy_policy(self):
         obs, circ = _obs_and_circuit()
-        legacy = PauliPropagator(
-            truncation=TruncationPolicy(weight_cutoff=2, coeff_cutoff=1e-6)
-        )
+        legacy = PauliPropagator(truncation=TruncationPolicy(weight_cutoff=2, coeff_cutoff=1e-6))
         composed = PauliPropagator(
-            truncation=[WeightTruncator(2), CoefficientTruncator(1e-6), TermBudget(max_terms=10_000_000)]
+            truncation=[
+                WeightTruncator(2),
+                CoefficientTruncator(1e-6),
+                TermBudget(max_terms=10_000_000),
+            ]
         )
         assert _ev(composed, obs, circ) == pytest.approx(_ev(legacy, obs, circ), rel=1e-12)
 
@@ -64,7 +65,6 @@ class TestNumericalListAPI:
         trs = prop.truncators
         assert len(trs) == 2
         assert all(isinstance(t, Truncator) for t in trs)
-        assert isinstance(prop.schedule, FlushSchedule)
 
     def test_rejects_frequency_truncator(self):
         with pytest.raises(ValueError, match="surrogate"):
@@ -99,13 +99,9 @@ class TestCrossPropagator:
         circ = PauliCircuit([PauliRotation(ps(0b0001, 0), 0.3)])
         ops = [WeightTruncator(4), CoefficientTruncator(1e-9), TermBudget(max_terms=5_000_000)]
 
-        # Numerical: honored, runs fine.
         num = PauliPropagator(truncation=ops).expectation_value(obs, circ, initial_state=0)
         assert isinstance(num.expectation_value, float)
 
-        # Surrogate: the same objects are accepted. `CoefficientTruncator`
-        # is decided structurally by `SymbolicCoeff::prune`, no monomial
-        # expansion needed (see `propaq.MD`'s "Truncation" section).
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
         model = PauliSurrogatePropagator(truncation=ops).build(obs, sc, initial_state=0)
         assert isinstance(model.evaluate([0.3]), float)
@@ -126,24 +122,40 @@ class TestCrossPropagator:
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
         angle = [0.3]
 
-        exact_num = PauliPropagator(truncation=None).expectation_value(obs, circ, initial_state=0).expectation_value
-        exact_surr = PauliSurrogatePropagator(truncation=None).build(obs, sc, initial_state=0).evaluate(angle)
+        exact_num = (
+            PauliPropagator(truncation=None)
+            .expectation_value(obs, circ, initial_state=0)
+            .expectation_value
+        )
+        exact_surr = (
+            PauliSurrogatePropagator(truncation=None)
+            .build(obs, sc, initial_state=0)
+            .evaluate(angle)
+        )
         assert exact_num == pytest.approx(exact_surr, rel=1e-9)
 
-        tiny_num = PauliPropagator(
-            truncation=[CoefficientTruncator(1e-15)]
-        ).expectation_value(obs, circ, initial_state=0).expectation_value
-        tiny_surr = PauliSurrogatePropagator(
-            truncation=[CoefficientTruncator(1e-15)]
-        ).build(obs, sc, initial_state=0).evaluate(angle)
+        tiny_num = (
+            PauliPropagator(truncation=[CoefficientTruncator(1e-15)])
+            .expectation_value(obs, circ, initial_state=0)
+            .expectation_value
+        )
+        tiny_surr = (
+            PauliSurrogatePropagator(truncation=[CoefficientTruncator(1e-15)])
+            .build(obs, sc, initial_state=0)
+            .evaluate(angle)
+        )
         assert tiny_num == pytest.approx(exact_num, rel=1e-9)
         assert tiny_surr == pytest.approx(exact_surr, rel=1e-9)
 
-        huge_num = PauliPropagator(
-            truncation=[CoefficientTruncator(1e9)]
-        ).expectation_value(obs, circ, initial_state=0).expectation_value
-        huge_surr = PauliSurrogatePropagator(
-            truncation=[CoefficientTruncator(1e9)]
-        ).build(obs, sc, initial_state=0).evaluate(angle)
+        huge_num = (
+            PauliPropagator(truncation=[CoefficientTruncator(1e9)])
+            .expectation_value(obs, circ, initial_state=0)
+            .expectation_value
+        )
+        huge_surr = (
+            PauliSurrogatePropagator(truncation=[CoefficientTruncator(1e9)])
+            .build(obs, sc, initial_state=0)
+            .evaluate(angle)
+        )
         assert huge_num == pytest.approx(0.0, abs=1e-12)
         assert huge_surr == pytest.approx(0.0, abs=1e-12)

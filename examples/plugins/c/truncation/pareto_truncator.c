@@ -1,6 +1,6 @@
-// Example propaq native truncator plugin, implemented in C.
+// Example propaq truncator plugin, implemented in C.
 //
-// Joint weight/coefficient score instead of two independent hard cutoffs:
+// Joint weight/coefficient score instead of two independent hard cutoffs.
 // composing WeightTruncator and CoefficientTruncator ANDs two separate
 // thresholds, which can't express a smooth tradeoff between them. This keeps
 // a term if its coefficient magnitude, discounted by an exponential in its
@@ -9,6 +9,9 @@
 //   keep <=> coeff_magnitude * exp(-alpha * weight) > threshold
 //
 // alpha = 0 reduces to a plain coefficient cutoff.
+//
+// This only uses weight and magnitude, so doesn't need any dependencies
+//
 
 #include <math.h>
 #include <stdint.h>
@@ -51,18 +54,24 @@ static int32_t keep(const Ctx* ctx, uint32_t term_weight, double coeff_magnitude
     return score > ctx->threshold ? 1 : 0;
 }
 
-int32_t propaq_truncator_keep(void* ctx, uint32_t term_weight, double coeff_magnitude, uint32_t active_modes) {
-    (void)active_modes;
-    return keep((const Ctx*)ctx, term_weight, coeff_magnitude);
+int32_t propaq_truncator_keep(void* ctx, uint32_t basis_kind, const uint64_t* words, size_t n_words,
+                              uint32_t n_units, uint32_t weight, double coeff_magnitude,
+                              uint32_t layer_index, uint32_t n_layers) {
+    (void)basis_kind; (void)words; (void)n_words; (void)n_units;
+    (void)layer_index; (void)n_layers;
+    return keep((const Ctx*)ctx, weight, coeff_magnitude);
 }
 
-int32_t propaq_truncator_keep_batch(void* ctx, const uint32_t* term_weights,
-                                     const double* coeff_magnitudes, const uint32_t* active_modes,
-                                     uint8_t* out_keep, size_t n) {
-    (void)active_modes;
+int32_t propaq_truncator_keep_batch(void* ctx, uint32_t basis_kind, const uint64_t* words,
+                                    size_t n_words_per_term, uint32_t n_units,
+                                    const uint32_t* weights, const double* coeff_magnitudes,
+                                    uint32_t layer_index, uint32_t n_layers, uint8_t* out_keep,
+                                    size_t n_terms) {
+    (void)basis_kind; (void)words; (void)n_words_per_term; (void)n_units;
+    (void)layer_index; (void)n_layers;
     const Ctx* c = (const Ctx*)ctx;
-    for (size_t i = 0; i < n; i++) {
-        out_keep[i] = (uint8_t)keep(c, term_weights[i], coeff_magnitudes[i]);
+    for (size_t i = 0; i < n_terms; i++) {
+        out_keep[i] = (uint8_t)keep(c, weights[i], coeff_magnitudes[i]);
     }
     return 0;
 }

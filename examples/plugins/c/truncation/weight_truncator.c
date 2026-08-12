@@ -1,4 +1,7 @@
-// Example propaq native truncator plugin, implemented in C.
+// Example propaq truncator plugin, implemented in C.
+//
+// Weight alone, so it declares no dependencies
+//
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -33,21 +36,24 @@ void propaq_truncator_destroy(void* ctx) {
     free(ctx);
 }
 
-int32_t propaq_truncator_keep(void* ctx, uint32_t term_weight, double coeff_magnitude, uint32_t active_modes) {
-    (void)coeff_magnitude;
-    (void)active_modes;
-    uint32_t max_weight = ((Ctx*)ctx)->max_weight;
-    return term_weight <= max_weight ? 1 : 0;
+int32_t propaq_truncator_keep(void* ctx, uint32_t basis_kind, const uint64_t* words, size_t n_words,
+                              uint32_t n_units, uint32_t weight, double coeff_magnitude,
+                              uint32_t layer_index, uint32_t n_layers) {
+    (void)basis_kind; (void)words; (void)n_words; (void)n_units;
+    (void)coeff_magnitude; (void)layer_index; (void)n_layers;
+    return weight <= ((Ctx*)ctx)->max_weight ? 1 : 0;
 }
 
-int32_t propaq_truncator_keep_batch(void* ctx, const uint32_t* term_weights,
-                                     const double* coeff_magnitudes, const uint32_t* active_modes,
-                                     uint8_t* out_keep, size_t n) {
-    (void)coeff_magnitudes;
-    (void)active_modes;
+int32_t propaq_truncator_keep_batch(void* ctx, uint32_t basis_kind, const uint64_t* words,
+                                    size_t n_words_per_term, uint32_t n_units,
+                                    const uint32_t* weights, const double* coeff_magnitudes,
+                                    uint32_t layer_index, uint32_t n_layers, uint8_t* out_keep,
+                                    size_t n_terms) {
+    (void)basis_kind; (void)words; (void)n_words_per_term; (void)n_units;
+    (void)coeff_magnitudes; (void)layer_index; (void)n_layers;
     uint32_t max_weight = ((Ctx*)ctx)->max_weight;
-    for (size_t i = 0; i < n; i++) {
-        out_keep[i] = term_weights[i] <= max_weight ? 1 : 0;
+    for (size_t i = 0; i < n_terms; i++) {
+        out_keep[i] = weights[i] <= max_weight ? 1 : 0;
     }
     return 0;
 }

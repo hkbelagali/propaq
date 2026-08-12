@@ -21,5 +21,5 @@ __all__ = [
     "AbstractTerm",
     "AbstractTermSum",
     "PauliTermStreamer",
-    "MajoranaTermStreamer"
+    "MajoranaTermStreamer",
 ]

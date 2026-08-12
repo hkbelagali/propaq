@@ -11,7 +11,6 @@ import pytest
 
 from propaq import (
     CoefficientTruncator,
-    FlushSchedule,
     FrequencyTruncationPolicy,
     FrequencyTruncator,
     Logger,
@@ -39,7 +38,11 @@ def ps(x: int, z: int) -> PauliString:
 
 
 def numerical_ev(obs: PauliTermSum, circ: PauliCircuit, initial_state: int = 0) -> float:
-    return PauliPropagator().expectation_value(obs, circ, initial_state=initial_state).expectation_value
+    return (
+        PauliPropagator()
+        .expectation_value(obs, circ, initial_state=initial_state)
+        .expectation_value
+    )
 
 
 def surrogate_ev(
@@ -54,10 +57,11 @@ def surrogate_ev(
     )
     return model.evaluate(params)
 
+
 class TestNumericalAgreement:
     def test_single_rotation(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})  # Z_0
-        gen = ps(0b0001, 0)                        # X_0
+        gen = ps(0b0001, 0)  # X_0
         angle = 0.3
         circ = PauliCircuit([PauliRotation(gen, angle)])
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
@@ -78,9 +82,9 @@ class TestNumericalAgreement:
     def test_three_rotations(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         gens = [
-            ps(0b0001, 0),        # X_0
-            ps(0b0011, 0),        # X_0 X_1
-            ps(0, 0b0010),        # Z_1
+            ps(0b0001, 0),  # X_0
+            ps(0b0011, 0),  # X_0 X_1
+            ps(0, 0b0010),  # Z_1
         ]
         angles = [0.3, 0.7, 1.1]
         circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
@@ -101,9 +105,6 @@ class TestNumericalAgreement:
         assert surr == pytest.approx(numerical, rel=1e-9)
 
     def test_parameter_reused_three_times(self):
-        """The same param_index behind three separate gates: repeated
-        branches on one parameter must accumulate as a trig power (the
-        parameter-space representation), not diverge as distinct paths."""
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         angle = 0.4
         gens = [ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0)]
@@ -123,7 +124,7 @@ class TestNumericalAgreement:
 
     def test_excited_initial_state(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})  # Z_0
-        gen = ps(0b0001, 0)                        # X_0
+        gen = ps(0b0001, 0)  # X_0
         angle = 0.4
         circ = PauliCircuit([PauliRotation(gen, angle)])
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0])
@@ -133,10 +134,12 @@ class TestNumericalAgreement:
             assert surr == pytest.approx(numerical, rel=1e-9)
 
     def test_multi_qubit_observable(self):
-        obs = PauliTermSum({
-            ps(0, 0b0001): 1.0,   # Z_0
-            ps(0, 0b0010): 0.5,   # Z_1
-        })
+        obs = PauliTermSum(
+            {
+                ps(0, 0b0001): 1.0,  # Z_0
+                ps(0, 0b0010): 0.5,  # Z_1
+            }
+        )
         gen = ps(0b0001, 0)
         angle = 0.6
         circ = PauliCircuit([PauliRotation(gen, angle)])
@@ -145,11 +148,8 @@ class TestNumericalAgreement:
         numerical = numerical_ev(obs, circ)
         assert surr == pytest.approx(numerical, rel=1e-9)
 
-class TestFrequencyTruncation:
-    """`FrequencyTruncator`/`max_frequency` are monomial-level, but decided
-    structurally by `SymbolicCoeff::prune`, no monomial expansion needed.
-    See `propaq.MD`'s "Truncation" section."""
 
+class TestFrequencyTruncation:
     def _circuit_and_obs(self):
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
@@ -194,45 +194,7 @@ class TestFrequencyTruncation:
         assert model.evaluate(angles) == pytest.approx(numerical, rel=1e-9)
 
 
-class TestMergeCadence:
-    """The finer lossless merge cadence must not change results."""
-
-    def _circuit_and_obs(self):
-        obs = PauliTermSum({ps(0, 0b0001): 1.0})
-        gens = [ps(0b0001, 0), ps(0b0011, 0), ps(0, 0b0010)]
-        angles = [0.3, 0.7, 1.1]
-        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
-        sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 1, 2])
-        return obs, sc, circ, angles
-
-    def test_frequent_merges_match_exact_and_merge_disabled(self):
-        obs, sc, circ, angles = self._circuit_and_obs()
-        exact = numerical_ev(obs, circ)
-
-        # Force a merge after essentially every branching gate.
-        eager = FrequencyTruncationPolicy()
-        eager.merge_max_terms = 1
-        m_eager = PauliSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
-
-        # Disable the finer cadence entirely (merge only at truncation flushes).
-        off = FrequencyTruncationPolicy()
-        off.merge_max_terms = None
-        m_off = PauliSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
-
-        assert m_eager.evaluate(angles) == pytest.approx(exact, rel=1e-9)
-        assert m_eager.evaluate(angles) == pytest.approx(m_off.evaluate(angles), rel=1e-12)
-
-    def test_default_policy_has_merge_cadence_on(self):
-        assert FrequencyTruncationPolicy().merge_max_terms is not None
-
-
 class TestParameterReuseDedup:
-    """Targeted coverage for the parameter-space merge/dedup logic: circuits
-    that reuse a small set of parameters across many gates (the UCJ/LUCJ
-    pattern) must merge and evaluate exactly, under every merge cadence,
-    under frequency truncation, and across a save/load round trip.
-    """
-
     def _reused_param_circuit(self):
         """Two parameters, each behind two gates, interleaved so a naive
         gate-indexed scheme would keep every branch distinct."""
@@ -250,29 +212,7 @@ class TestParameterReuseDedup:
         numerical = numerical_ev(obs, circ)
         assert surr == pytest.approx(numerical, rel=1e-9)
 
-    def test_merge_cadence_matches_with_shared_parameters(self):
-        """Forcing a merge after every gate (which triggers `post_merge` on
-        the DAG's `Add` accumulation) must not change the result relative to
-        deferring every merge to the final truncation flush."""
-        obs, sc, circ, params = self._reused_param_circuit()
-        exact = numerical_ev(obs, circ)
-
-        eager = FrequencyTruncationPolicy()
-        eager.merge_max_terms = 1
-        m_eager = PauliSurrogatePropagator(truncation=eager).build(obs, sc, initial_state=0)
-
-        off = FrequencyTruncationPolicy()
-        off.merge_max_terms = None
-        m_off = PauliSurrogatePropagator(truncation=off).build(obs, sc, initial_state=0)
-
-        assert m_eager.evaluate(params) == pytest.approx(exact, rel=1e-9)
-        assert m_eager.evaluate(params) == pytest.approx(m_off.evaluate(params), rel=1e-12)
-
     def test_frequency_truncation_monotonic_with_shared_parameters(self):
-        """`max_frequency` caps total trig *power*, not gate count; with a
-        parameter reused across gates that cap must still be exact once it
-        reaches the number of rotations, and error must shrink monotonically
-        below that."""
         obs, sc, circ, params = self._reused_param_circuit()
         n_rots = 4
         numerical = numerical_ev(obs, circ)
@@ -295,8 +235,11 @@ class TestParameterReuseDedup:
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         angle = 0.25
         gens = [
-            ps(0b0001, 0), ps(0b0010, 0), ps(0b0011, 0),
-            ps(0, 0b0010), ps(0b0100, 0b0001),
+            ps(0b0001, 0),
+            ps(0b0010, 0),
+            ps(0b0011, 0),
+            ps(0, 0b0010),
+            ps(0b0100, 0b0001),
         ]
         circ = PauliCircuit([PauliRotation(g, angle) for g in gens])
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0] * len(gens))
@@ -325,16 +268,16 @@ class TestComposableTruncation:
 
     def test_coefficient_truncator_tiny_threshold_is_exact(self):
         obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[CoefficientTruncator(1e-15)]
-        ).build(obs, sc, initial_state=0)
+        model = PauliSurrogatePropagator(truncation=[CoefficientTruncator(1e-15)]).build(
+            obs, sc, initial_state=0
+        )
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
     def test_coefficient_truncator_huge_threshold_prunes_everything(self):
         obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[CoefficientTruncator(1e9)]
-        ).build(obs, sc, initial_state=0)
+        model = PauliSurrogatePropagator(truncation=[CoefficientTruncator(1e9)]).build(
+            obs, sc, initial_state=0
+        )
         # |scalar| < 1e9 for every real monomial, so all get pruned at the flush.
         assert model.evaluate(angles) == pytest.approx(0.0, abs=1e-12)
 
@@ -360,23 +303,17 @@ class TestComposableTruncation:
         ).build(obs, sc, initial_state=0)
         assert m_list.n_terms == m_legacy.n_terms
 
-    def test_explicit_schedule_plus_operators(self):
+    def test_composed_weight_and_term_budget(self):
         obs, sc, circ, angles = self._circ()
-        sched = FlushSchedule(merge_max_terms=500_000)
         model = PauliSurrogatePropagator(
-            schedule=sched, truncation=[WeightTruncator(4), TermBudget(max_terms=1_000_000)]
+            truncation=[WeightTruncator(4), TermBudget(max_terms=1_000_000)]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
-    def test_schedule_and_truncators_getters(self):
-        prop = PauliSurrogatePropagator(
-            truncation=[TermBudget(max_terms=10), WeightTruncator(2)]
-        )
+    def test_truncators_getter_and_setter(self):
+        prop = PauliSurrogatePropagator(truncation=[TermBudget(max_terms=10), WeightTruncator(2)])
         trs = prop.truncators
         assert len(trs) == 2
-        assert isinstance(prop.schedule, FlushSchedule)
-        assert prop.schedule.merge_max_terms is not None  # default-on cadence
-        # set_truncation preserves the schedule and replaces operators
         prop.set_truncation([WeightTruncator(5)])
         assert len(prop.truncators) == 1
 
@@ -399,35 +336,31 @@ class TestComposableTruncation:
         obs, sc, circ, angles = self._circ()
         model = PauliSurrogatePropagator(
             truncation=[
-                FrequencyTruncator(None), CoefficientTruncator(None), WeightTruncator(None),
+                FrequencyTruncator(None),
+                CoefficientTruncator(None),
+                WeightTruncator(None),
                 MonomialBudget(None, None),
             ]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
-    def test_explicit_schedule_plus_monomial_budget(self):
-        """`MonomialBudget` composed with another operator (mirrors
-        `test_explicit_schedule_plus_operators`, but with a monomial-count
-        budget instead of a term-count one) must not change the exact
-        result for a circuit this small."""
+    def test_composed_weight_and_monomial_budget(self):
         obs, sc, circ, angles = self._circ()
-        sched = FlushSchedule(merge_max_terms=500_000)
         model = PauliSurrogatePropagator(
-            schedule=sched,
             truncation=[WeightTruncator(4), MonomialBudget(max_monomials=1_000_000)],
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
     def test_monomial_budget_triggers_mid_propagation_flush(self, tmp_path):
-        """A small `max_monomials` on a circuit with heavy parameter reuse
-        (enough monomial growth to cross the budget before the final flush)
-        must actually fire a `"monomial_threshold"`-triggered flush during
-        propagation, not just the unconditional flush at the very end."""
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         params = [0.3, 0.6, 0.9]
         gens = [
-            ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0),
-            ps(0b1000, 0), ps(0b0001, 0b0010), ps(0b0010, 0b0100),
+            ps(0b0001, 0),
+            ps(0b0010, 0),
+            ps(0b0100, 0),
+            ps(0b1000, 0),
+            ps(0b0001, 0b0010),
+            ps(0b0010, 0b0100),
         ]
         angles = [params[i % 3] for i in range(len(gens))]
         circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
@@ -452,14 +385,9 @@ class TestComposableTruncation:
             f"expected a monomial_threshold-triggered flush, got triggers={triggers}"
         )
 
+
 class TestLoschmidtEcho:
     def test_echo_recovers_initial(self):
-        """U†U should be identity: surrogate evaluated at [θ, -θ] reproduces initial EV.
-
-        The surrogate stores no angle signs; the inverse rotation is represented by
-        supplying a negated angle at evaluate time (params[backward_idx] = -angle),
-        which correctly gives cos(-θ) = cos(θ) and sin(-θ) = -sin(θ).
-        """
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         gen = ps(0b0001, 0)
         angle = 0.9
@@ -468,15 +396,15 @@ class TestLoschmidtEcho:
 
         combined_rots = forward.rotations + backward.rotations
         combined_circ = PauliCircuit(combined_rots)
-        # Forward gate → param 0, backward gate → param 1
+        # Forward gate -> param 0, backward gate -> param 1
         sc = SurrogatePauliCircuit.from_pauli_circuit(combined_circ, param_indices=[0, 1])
-        # Supply -angle for the backward gate so the surrogate reproduces exp(+iθX)
+        # Supply -angle for the backward gate so the surrogate reproduces exp(+i*theta*X)
         surr = surrogate_ev(obs, sc, [angle, -angle], initial_state=0)
-        # ⟨0|Z|0⟩ = 1.0 after U†U
+        # <0|Z|0> = 1.0 after U^dag U
         assert surr == pytest.approx(1.0, abs=1e-9)
 
     def test_echo_matches_numerical(self):
-        """Surrogate U†U matches the numerical propagator at the same angles."""
+        """Surrogate U^dag U matches the numerical propagator at the same angles."""
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         gen = ps(0b0001, 0)
         angle = 0.7
@@ -488,6 +416,7 @@ class TestLoschmidtEcho:
         surr = surrogate_ev(obs, sc, [angle, -angle])
         numerical = numerical_ev(obs, combined_circ)
         assert surr == pytest.approx(numerical, rel=1e-9)
+
 
 class TestSaveLoad:
     def test_round_trip_single_rotation(self):
@@ -511,12 +440,6 @@ class TestSaveLoad:
             os.unlink(path)
 
     def test_round_trip_many_terms_multi_shard(self):
-        """Many surviving terms exercise the multi-shard save/load path.
-
-        A sum of distinct all-Z strings under an empty circuit keeps every term
-        (each overlaps |0..0>), so n_terms is large enough to span several
-        parallel shards rather than the single-shard small-model cases above.
-        """
         obs = PauliTermSum({ps(0, z): 1.0 + 0.1 * z for z in range(1, 16)})
         circ = PauliCircuit([])
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[])
@@ -566,9 +489,6 @@ class TestSaveLoad:
             os.unlink(path)
 
     def test_round_trip_with_shared_parameter(self):
-        """Save/load must preserve the parameter-space factor runs (and their
-        dedup state) exactly for a circuit with a parameter reused across
-        several gates."""
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         angle = 0.45
         gens = [ps(0b0001, 0), ps(0b0010, 0), ps(0b0100, 0)]
@@ -613,7 +533,8 @@ class TestNTermsFiltering:
             truncation=FrequencyTruncationPolicy(weight_cutoff=1)
         ).build(obs, sc, initial_state=0)
         assert model_cut.n_terms <= model_full.n_terms
-        
+
+
 class TestCircuitConstruction:
     def test_from_generators_and_param_indices(self):
         gens = [ps(0b0001, 0), ps(0, 0b0001)]
@@ -640,6 +561,7 @@ class TestCircuitConstruction:
         r = repr(model)
         assert "PauliSurrogateModel" in r
         assert "n_terms" in r
+
 
 class TestNumericAngleRotations:
     def test_all_numeric_rotations_matches_numerical(self):
@@ -670,11 +592,13 @@ class TestNumericAngleRotations:
         angle = 0.5
         numeric_angle = 0.9
         gens = [ps(0b0001, 0), ps(0b0010, 0), ps(0, 0b0011)]
-        circ = PauliCircuit([
-            PauliRotation(gens[0], angle),
-            PauliRotation(gens[1], angle),
-            PauliRotation(gens[2], numeric_angle),
-        ])
+        circ = PauliCircuit(
+            [
+                PauliRotation(gens[0], angle),
+                PauliRotation(gens[1], angle),
+                PauliRotation(gens[2], numeric_angle),
+            ]
+        )
         # Two symbolic gates share param_index=0; the third is numeric.
         sc = SurrogatePauliCircuit.from_pauli_circuit(circ, param_indices=[0, 0, None])
         assert sc.n_params == 1

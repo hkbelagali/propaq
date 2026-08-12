@@ -24,7 +24,7 @@ def _expectation(op, norb, nelec, n_modes, obs_pauli, use_propagator: bool) -> f
     if use_propagator:
         mc = MajoranaCircuit.from_ffsim_uccsd(op, n_modes)
         obs = MajoranaTermSum.from_sparse_pauli_op(obs_pauli)
-        prop = MajoranaPropagator(schedule=None, n_threads=1, progress_bar=False)
+        prop = MajoranaPropagator(n_threads=1)
         return prop.expectation_value(obs, mc, initial_state=_hf_int(norb, nelec)).expectation_value
     vec_out = ffsim.apply_unitary(hf_vec, op, norb=norb, nelec=nelec)
     qvec = ffsim.qiskit.ffsim_vec_to_qiskit_vec(vec_out, norb, nelec)

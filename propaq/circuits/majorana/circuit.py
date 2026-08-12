@@ -97,6 +97,7 @@ class MajoranaCircuit:
         Returns:
             A MajoranaCircuit initialized with the given Qiskit circuit.
         """
+
         def _mark_intermediate(rots: list[MajoranaRotation]) -> list[MajoranaRotation]:
             for i, rot in enumerate(rots):
                 rot.is_intermediate = i < len(rots) - 1
@@ -265,7 +266,9 @@ class MajoranaCircuit:
         rot_a = rot_b = None
         if orbital_rotation is not None:
             rot_a, rot_b = (
-                orbital_rotation if isinstance(orbital_rotation, tuple) else (orbital_rotation, orbital_rotation)
+                orbital_rotation
+                if isinstance(orbital_rotation, tuple)
+                else (orbital_rotation, orbital_rotation)
             )
 
         terms: list[tuple[MajoranaMonomial, float]] = []
@@ -311,7 +314,9 @@ class MajoranaCircuit:
         if op.final_orbital_rotation is not None:
             for offset in (0, norb):
                 terms.extend(
-                    orbital_rotation_generators(op.final_orbital_rotation, n_modes, mode_offset=offset)
+                    orbital_rotation_generators(
+                        op.final_orbital_rotation, n_modes, mode_offset=offset
+                    )
                 )
 
         generators = [gen for gen, _ in terms]
@@ -324,7 +329,7 @@ class MajoranaCircuit:
         Construct a MajoranaCircuit from an ffsim restricted UCCSD operator, as a
         single first-order Trotter step of its generator T - T^dagger.
 
-        NOTE: This is an approximation, not the exact UCCSD operator. 
+        NOTE: This is an approximation, not the exact UCCSD operator.
 
         Arguments:
             op: The UCCSDOpRestricted (or UCCSDOpRestrictedReal) to convert.
@@ -339,7 +344,9 @@ class MajoranaCircuit:
             norb = op.t1.shape[0] + op.t1.shape[1]
             for offset in (0, norb):
                 terms.extend(
-                    orbital_rotation_generators(op.final_orbital_rotation, n_modes, mode_offset=offset)
+                    orbital_rotation_generators(
+                        op.final_orbital_rotation, n_modes, mode_offset=offset
+                    )
                 )
 
         generators = [gen for gen, _ in terms]

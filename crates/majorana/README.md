@@ -1,0 +1,2 @@
+## propaq-majorana
+This crate implements the Majorana algebra and thin wrappers for the generic propagation engine. **This crate is not intended for direct use by end users.** It is a dependency of the `propaq` software, and is best utilized through the Python interface.
