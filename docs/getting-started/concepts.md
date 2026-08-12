@@ -17,7 +17,7 @@ A state-vector, or density matrix simulator evolves \( \rho_0 = |\Psi_0\rangle \
 \]
 
 i.e. we evolve the observable \(\mathcal{O}\) backward through the circuit, 
-and compute the overlap with the intial state (usually a bitstring, or a Fock state in the fermionic case). This is the Heisenberg picture, and it is the basis of propaq's approach.
+and compute the overlap with the initial state (usually a bitstring, or a Fock state in the fermionic case). This is the Heisenberg picture, and it is the basis of propaq's approach.
 
 Unlike the Schrödinger picture where we require exponential space just to materialize the state vector, in the Heisenberg picture we only need to keep track of the observable, which is often sparse in the Pauli or Majorana basis, both of which are known to have compact bit representations due to their symplectic structure. The challenge is that non-Clifford gates cause the observable to branch into multiple terms during the backpropagation, so the number of terms grows exponentially, as one would expect from the classical simulation of a quantum circuit. Truncation and noise are the two mechanisms that propaq provides to manage this growth, and they are discussed in the [truncation guide](../guides/truncation.md) and the [noise guide](../guides/noise.md).
 ## Terms, term sums and branching
