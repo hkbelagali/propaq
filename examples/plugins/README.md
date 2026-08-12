@@ -66,10 +66,10 @@ syntax and semantics.
 | Noise | `thermal_decay_noise` | `0` | `exp(-(gamma * weight)^beta)` (stretched exponential; `beta=1` = plain exponential) | `gamma`, `beta` | `c/noise/thermal_decay_noise.c` | `rust/noise/thermal_decay_noise/` | `julia/noise/thermal_decay_noise.jl` |
 | Noise | `drifting_noise` | `0` | `exp(-damping * weight * (1 + drift_rate * call_index))` | `damping`, `drift_rate` | `c/noise/drifting_noise.c` | `rust/noise/drifting_noise/` | `julia/noise/drifting_noise.jl` |
 | Noise | `depth_dependent_noise` | `LAYER` | `exp(-damping * weight * (1 + rate * layer_index / n_layers))` | `damping`, `rate` | `c/noise/depth_dependent_noise.c` | `rust/noise/depth_dependent_noise/` | `julia/noise/depth_dependent_noise.jl` |
-| Noise | `qubit_local_noise` | `KEY` | `exp(-damping * \|support(term) & mask\|)` (only the masked units are noisy) | `damping`, `mask` | `c/noise/qubit_local_noise.c` | `rust/noise/qubit_local_noise/` | — |
+| Noise | `qubit_local_noise` | `KEY` | `exp(-damping * \|support(term) & mask\|)` (only the masked units are noisy) | `damping`, `mask` | `c/noise/qubit_local_noise.c` | `rust/noise/qubit_local_noise/` | - |
 | Truncator | `pareto_truncator` | `0` | keep iff `coeff_magnitude * exp(-alpha * weight) > threshold` (joint score) | `threshold`, `alpha` | `c/truncation/pareto_truncator.c` | `rust/truncation/pareto_truncator/` | `julia/truncation/pareto_truncator.jl` |
 | Truncator | `stochastic_truncator` | `KEY` | keep with probability `min(1, coeff_magnitude / threshold)` (importance sampling) | `threshold`, `seed` | `c/truncation/stochastic_truncator.c` | `rust/truncation/stochastic_truncator/` | `julia/truncation/stochastic_truncator.jl` |
-| Truncator | `support_truncator` | `KEY` | keep iff `coeff_magnitude * exp(-alpha * \|support(term) \\ mask\|) > threshold` | `threshold`, `alpha`, `mask` | `c/truncation/support_truncator.c` | `rust/truncation/support_truncator/` | — |
+| Truncator | `support_truncator` | `KEY` | keep iff `coeff_magnitude * exp(-alpha * \|support(term) \\ mask\|) > threshold` | `threshold`, `alpha`, `mask` | `c/truncation/support_truncator.c` | `rust/truncation/support_truncator/` | - |
 
 `mask` is an unsigned integer over unit indices, bit `q` selecting
 qubit/site `q`, and addresses the first 64 units.
