@@ -13,12 +13,13 @@ Pre-built wheels are published for Linux x86-64, macOS and Windows, for CPython
 
 ## Optional extras
 
-The core install pulls in `numpy`, `scipy`, `qiskit`, `ffsim` and `tqdm`.
+The core install pulls in `numpy`, `scipy`, `qiskit` and `tqdm`.
 Everything else is opt-in:
 
 | Extra | Install | Enables |
 | --- | --- | --- |
 | `cirq` | `pip install "propaq[cirq]"` | Building circuits from Cirq, and [`register_cirq_gate`][propaq.circuits.register_cirq_gate] |
+| `ffsim` | `pip install "propaq[ffsim]"` | The `from_ffsim_*` circuit constructors and [`MajoranaTermSum.from_ffsim`][propaq.datatypes.MajoranaTermSum.from_ffsim] |
 | `openfermion` | `pip install "propaq[openfermion]"` | Converting OpenFermion fermionic operators into propaq observables |
 | `hybrid` | `pip install "propaq[hybrid]"` | [`propaq.hybrid`][propaq.hybrid] - hybrid Schrödinger–Heisenberg expectation values against a `quimb` MPS |
 | `dev` | `pip install "propaq[dev]"` | `pytest`, `ruff`, `mypy`, `coverage`, `maturin` |
@@ -27,9 +28,8 @@ Everything else is opt-in:
 Extras compose, so:
 
 ```bash
-pip install "propaq[cirq,openfermion,hybrid]"
+pip install "propaq[cirq,ffsim,openfermion,hybrid]"
 ```
-
 ## From source
 
 Building from source requires a [Rust toolchain](https://rustup.rs); the

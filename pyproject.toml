@@ -34,7 +34,6 @@ classifiers = [
 dependencies = [
     "numpy>=1.24",
     "qiskit~=2.4.1",
-    "ffsim~=0.0.80",
     "scipy>=1.10",
     "tqdm",
 ]
@@ -63,6 +62,9 @@ docs = [
 ]
 cirq = [
     "cirq~=1.5.0",
+]
+ffsim = [
+    "ffsim~=0.0.80",
 ]
 openfermion = [
     "openfermion>=1.6",

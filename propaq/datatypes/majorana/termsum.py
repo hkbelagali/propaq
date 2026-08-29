@@ -421,6 +421,8 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         (e.g. MolecularHamiltonian, MolecularHamiltonianSpinless,
         DiagonalCoulombHamiltonian, DoubleFactorizedHamiltonian).
 
+        Requires the optional `ffsim` extra: pip install propaq[ffsim].
+
         Arguments:
             obj: The ffsim object to convert. Must be Hermitian.
             n_modes: The total number of Majorana modes in the system. Defaults
@@ -430,7 +432,12 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
         Returns:
             The corresponding MajoranaTermSum.
         """
-        import ffsim
+        try:
+            import ffsim
+        except ImportError as exc:
+            raise ImportError(
+                "ffsim support requires the optional 'ffsim' extra: pip install propaq[ffsim]"
+            ) from exc
 
         fermion_op = ffsim.fermion_operator(obj)
         norb = getattr(obj, "norb", None)
