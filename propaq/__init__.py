@@ -4,6 +4,9 @@ Fast Heisenberg-picture propagation for quantum circuit simulation.
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import metadata as _metadata
+from importlib.metadata import version 
+
+__version__ = version("propaq")
 
 try:
     _readme = _metadata("propaq").json.get("description")
