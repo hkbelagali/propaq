@@ -77,9 +77,9 @@ Then look at the closing [`EnginePhasesEvent`][propaq.log_parser.EnginePhasesEve
 
 - `scan_s` / `absorb_s` / `claims_s` - the split between emitting branches,
   absorbing the routing exchange, and the pair rule's rescue round.
-- `scan_occupancy` / `absorb_occupancy` - the fraction of the worker pool
-  actually working rather than waiting at a barrier. **A low occupancy points at
-  load imbalance, not at slow work**.
+- `scan_occupancy` / `absorb_occupancy` / `claims_occupancy` - the fraction of workers 
+  that were busy in each phase. If this is low, certain workers are waiting on others to finish
+  often.
 - `overflow_share` - the fraction of rows whose keys spilled past the store's
   inline capacity, each costing an extra lookup per read.
 - `emitted_share` / `declined_share` - how many of the branches the scan visited
