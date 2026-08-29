@@ -68,6 +68,8 @@ pub struct PhaseStats {
     pub scan_busy_seconds: f64,
     /// Per-worker seconds summed over the absorb phase.
     pub absorb_busy_seconds: f64,
+    /// Per-worker seconds summed over the pair rule's rescue round.
+    pub claims_busy_seconds: f64,
     /// Live terms at the end of the run.
     pub terms: usize,
     /// Inline position capacity the store settled on.
@@ -108,6 +110,8 @@ pub struct PartitionedTermSum<C: CoeffRepr, P: Pos, const W: usize> {
     absorb_busy_nanos: std::sync::atomic::AtomicU64,
     /// Wall seconds for claims
     claims_seconds: f64,
+    /// Summed per-worker time inside the pair rule's rescue round
+    claims_busy_nanos: std::sync::atomic::AtomicU64,
     n_units: usize,
 }
 
@@ -130,6 +134,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
             scan_busy_nanos: std::sync::atomic::AtomicU64::new(0),
             absorb_busy_nanos: std::sync::atomic::AtomicU64::new(0),
             claims_seconds: 0.0,
+            claims_busy_nanos: std::sync::atomic::AtomicU64::new(0),
             n_units,
         }
     }
@@ -162,6 +167,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
             scan_busy_nanos: std::sync::atomic::AtomicU64::new(0),
             absorb_busy_nanos: std::sync::atomic::AtomicU64::new(0),
             claims_seconds: 0.0,
+            claims_busy_nanos: std::sync::atomic::AtomicU64::new(0),
             n_units,
         }
     }
@@ -302,7 +308,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
                 &mut self.partitions,
                 &rescues,
                 s,
-                &self.absorb_busy_nanos,
+                &self.claims_busy_nanos,
                 None,
             )?;
             self.claims_seconds += t_claims.elapsed().as_secs_f64();
@@ -587,7 +593,8 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
     /// Everything the kernel already counted, gathered for the run's log.
     pub fn phase_stats(&self, inline_positions: usize) -> PhaseStats {
         let (scan_seconds, absorb_seconds) = self.phase_seconds();
-        let (scan_busy_seconds, absorb_busy_seconds) = self.phase_busy_seconds();
+        let (scan_busy_seconds, absorb_busy_seconds, claims_busy_seconds) =
+            self.phase_busy_seconds();
         let (emitted, exchange_hits) = self.exchange_counts();
         let (visited, declined) = self.scan_counts();
         PhaseStats {
@@ -597,6 +604,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
             claims_seconds: self.claims_seconds(),
             scan_busy_seconds,
             absorb_busy_seconds,
+            claims_busy_seconds,
             terms: self.len(),
             inline_positions,
             overflow_rows: self.overflow_rows(),
@@ -612,12 +620,16 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
         self.claims_seconds
     }
 
-    /// Summed per-worker seconds inside the scan and absorb phases.
-    pub fn phase_busy_seconds(&self) -> (f64, f64) {
+    /// Summed per-worker seconds inside the scan, absorb, and claims phases.
+    pub fn phase_busy_seconds(&self) -> (f64, f64, f64) {
         let load = |a: &std::sync::atomic::AtomicU64| {
             a.load(std::sync::atomic::Ordering::Relaxed) as f64 * 1e-9
         };
-        (load(&self.scan_busy_nanos), load(&self.absorb_busy_nanos))
+        (
+            load(&self.scan_busy_nanos),
+            load(&self.absorb_busy_nanos),
+            load(&self.claims_busy_nanos),
+        )
     }
 
     /// Turns Clifford deferral on or off.

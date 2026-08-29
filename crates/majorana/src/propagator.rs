@@ -75,13 +75,14 @@ fn write_phase_event(log: &mut impl Write, p: &propaq_core::partitioned_termsum:
     let share = |part: u64, whole: u64| part as f64 / whole.max(1) as f64;
     let _ = writeln!(
         log,
-        r#"{{"event":"engine_phases","partitions":{},"scan_s":{:.6e},"absorb_s":{:.6e},"claims_s":{:.6e},"scan_occupancy":{:.4},"absorb_occupancy":{:.4},"terms":{},"inline_positions":{},"overflow_rows":{},"overflow_share":{:.4},"visited":{},"emitted":{},"declined":{},"emitted_share":{:.4},"declined_share":{:.4},"exchange_hits":{},"exchange_hit_share":{:.4}}}"#,
+        r#"{{"event":"engine_phases","partitions":{},"scan_s":{:.6e},"absorb_s":{:.6e},"claims_s":{:.6e},"scan_occupancy":{:.4},"absorb_occupancy":{:.4},"claims_occupancy":{:.4},"terms":{},"inline_positions":{},"overflow_rows":{},"overflow_share":{:.4},"visited":{},"emitted":{},"declined":{},"emitted_share":{:.4},"declined_share":{:.4},"exchange_hits":{},"exchange_hit_share":{:.4}}}"#,
         p.partitions,
         p.scan_seconds,
         p.absorb_seconds,
         p.claims_seconds,
         occupancy(p.scan_busy_seconds, p.scan_seconds),
         occupancy(p.absorb_busy_seconds, p.absorb_seconds),
+        occupancy(p.claims_busy_seconds, p.claims_seconds),
         p.terms,
         p.inline_positions,
         p.overflow_rows,
