@@ -150,6 +150,12 @@ class EnginePhasesEvent:
     """Fraction of the pool busy during the scan phase, in [0, 1]."""
     absorb_occupancy: float
     """Fraction of the pool busy during the absorb phase, in [0, 1]."""
+    claims_occupancy: float
+    """Fraction of the pool busy during the pair rule's rescue round, in [0, 1].
+
+    Zero when no gate in the run triggered a rescue round (`claims_s` is then
+    also zero).
+    """
     terms: int
     """Live terms at the end of the run."""
     inline_positions: int
