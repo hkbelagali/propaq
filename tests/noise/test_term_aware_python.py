@@ -130,14 +130,55 @@ def test_a_key_aware_model_matching_a_weight_model_agrees_with_it():
         assert got[key] == pytest.approx(value, rel=1e-12)
 
 
-def test_gate_noise_model_forwards_a_wrapped_key_aware_object():
+def test_subclassing_gate_noise_model_directly():
+    """A `GateNoiseModel` subclass defines its hooks directly, with a plain
+    `__init__`."""
+
+    class DirectKeyAwareNoise(GateNoiseModel):
+        def __init__(self, unit: int, damping: float):
+            self.unit = unit
+            self.damping = damping
+            self.calls: list[tuple[int, ...]] = []
+
+        def damping_factor_term(self, basis_kind, words, n_units, weight):
+            self.calls.append((basis_kind, tuple(words), n_units, weight))
+            return math.exp(-self.damping) if touches(list(words), self.unit) else 1.0
+
     obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b1000): 1.0})
     circuit = PauliCircuit([PauliRotation(ps(0, 0b0001), 0.4)])
-    inner = QubitLocalNoise(unit=0, damping=0.5)
-    evolved = coefficients(PauliPropagator(noise=GateNoiseModel(inner)).propagate(obs, circuit))
-    assert inner.calls, "the wrapper must not hide the hook"
+    model = DirectKeyAwareNoise(unit=0, damping=0.5)
+    evolved = coefficients(PauliPropagator(noise=model).propagate(obs, circuit))
+    assert model.calls, "the subclass's own hook must be called"
     assert abs(evolved[(0, 0b0001)]) == pytest.approx(math.exp(-0.5), rel=1e-12)
     assert abs(evolved[(0, 0b1000)]) == pytest.approx(1.0, rel=1e-12)
+
+
+def test_subclassing_gate_noise_model_directly_weight_only():
+    class DirectWeightOnlyNoise(GateNoiseModel):
+        def __init__(self, damping: float):
+            self.damping = damping
+            self.weights_seen: list[int] = []
+
+        def damping_factor(self, term_weight, active_modes):
+            self.weights_seen.append(term_weight)
+            return math.exp(-self.damping * term_weight)
+
+    obs = PauliTermSum({ps(0, 0b0001): 1.0, ps(0, 0b1000): 1.0})
+    circuit = PauliCircuit([PauliRotation(ps(0, 0b0001), 0.4)])
+    model = DirectWeightOnlyNoise(damping=0.25)
+    evolved = coefficients(PauliPropagator(noise=model).propagate(obs, circuit))
+    assert model.weights_seen == list(range(N + 1))
+    for coeff in evolved.values():
+        assert abs(coeff) == pytest.approx(math.exp(-0.25), rel=1e-12)
+
+
+def test_gate_noise_model_with_no_override_errors_clearly():
+    with pytest.raises(NotImplementedError, match="must be overridden by a subclass"):
+        PauliPropagator(noise=GateNoiseModel()).expectation_value(
+            PauliTermSum({ps(0, 0b0001): 1.0}),
+            PauliCircuit([PauliRotation(ps(0, 0b0001), 0.4)]),
+            initial_state=0,
+        )
 
 
 def test_a_key_aware_model_sees_post_clifford_keys():

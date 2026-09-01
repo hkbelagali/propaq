@@ -1,30 +1,26 @@
+import pytest
+
 from propaq.noise.gate import GateNoiseModel
 
 
-class MockNoise:
-    def __init__(self):
-        self.applied = False
-        self.last_active = None
-
-    def apply_noise(self, term_sum):
-        self.applied = True
+class DirectNoise(GateNoiseModel):
+    def __init__(self, factor: float):
+        self.factor = factor
 
     def damping_factor(self, term_weight, active_modes):
-        self.last_active = active_modes
-        return 0.123
+        return self.factor
 
 
-def test_apply_noise_delegates():
-    inner = MockNoise()
-    model = GateNoiseModel(inner)
-    ts = object()
-    model.apply_noise(ts)
-    assert inner.applied
+def test_subclass_damping_factor_is_used_directly():
+    model = DirectNoise(0.123)
+    assert model.damping_factor(5, active_modes=5) == 0.123
 
 
-def test_damping_factor_delegates():
-    inner = MockNoise()
-    model = GateNoiseModel(inner)
-    val = model.damping_factor(5, active_modes=5)
-    assert val == 0.123
-    assert inner.last_active == 5
+def test_subclass_constructor_args_are_not_mistaken_for_base_state():
+    model = DirectNoise(0.5)
+    assert model.factor == 0.5
+
+
+def test_unoverridden_damping_factor_errors_clearly():
+    with pytest.raises(NotImplementedError, match="must be overridden by a subclass"):
+        GateNoiseModel().damping_factor(1, 1)

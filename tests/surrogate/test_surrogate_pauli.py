@@ -2,7 +2,6 @@
 Correctness tests for the surrogate Pauli propagator.
 """
 
-import json
 import math
 import os
 import tempfile
@@ -13,8 +12,6 @@ from propaq import (
     CoefficientTruncator,
     FrequencyTruncationPolicy,
     FrequencyTruncator,
-    Logger,
-    MonomialBudget,
     PauliPropagator,
     PauliString,
     PauliSurrogateModel,
@@ -305,13 +302,13 @@ class TestComposableTruncation:
 
     def test_composed_weight_and_term_budget(self):
         obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[WeightTruncator(4), TermBudget(max_terms=1_000_000)]
-        ).build(obs, sc, initial_state=0)
+        model = PauliSurrogatePropagator(truncation=[WeightTruncator(4), TermBudget()]).build(
+            obs, sc, initial_state=0
+        )
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
 
     def test_truncators_getter_and_setter(self):
-        prop = PauliSurrogatePropagator(truncation=[TermBudget(max_terms=10), WeightTruncator(2)])
+        prop = PauliSurrogatePropagator(truncation=[TermBudget(10), WeightTruncator(2)])
         trs = prop.truncators
         assert len(trs) == 2
         prop.set_truncation([WeightTruncator(5)])
@@ -328,17 +325,8 @@ class TestComposableTruncation:
             CoefficientTruncator(None),
             WeightTruncator(None),
             TermBudget(),
-            MonomialBudget(),
         ]:
             assert isinstance(op, Truncator)
-
-    def test_budgets_reject_positional_arguments(self):
-        # A floor/ceiling pair of the same type transposes silently, so both
-        # budgets are keyword-only.
-        with pytest.raises(TypeError):
-            TermBudget(None, 1)
-        with pytest.raises(TypeError):
-            MonomialBudget(None, 1)
 
     def test_none_valued_truncators_are_noop_exact(self):
         obs, sc, circ, angles = self._circ()
@@ -347,51 +335,10 @@ class TestComposableTruncation:
                 FrequencyTruncator(None),
                 CoefficientTruncator(None),
                 WeightTruncator(None),
-                MonomialBudget(min_monomials=None, max_monomials=None),
+                TermBudget(None),
             ]
         ).build(obs, sc, initial_state=0)
         assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
-
-    def test_composed_weight_and_monomial_budget(self):
-        obs, sc, circ, angles = self._circ()
-        model = PauliSurrogatePropagator(
-            truncation=[WeightTruncator(4), MonomialBudget(max_monomials=1_000_000)],
-        ).build(obs, sc, initial_state=0)
-        assert model.evaluate(angles) == pytest.approx(numerical_ev(obs, circ), rel=1e-9)
-
-    def test_monomial_budget_triggers_mid_propagation_flush(self, tmp_path):
-        obs = PauliTermSum({ps(0, 0b0001): 1.0})
-        params = [0.3, 0.6, 0.9]
-        gens = [
-            ps(0b0001, 0),
-            ps(0b0010, 0),
-            ps(0b0100, 0),
-            ps(0b1000, 0),
-            ps(0b0001, 0b0010),
-            ps(0b0010, 0b0100),
-        ]
-        angles = [params[i % 3] for i in range(len(gens))]
-        circ = PauliCircuit([PauliRotation(g, a) for g, a in zip(gens, angles)])
-        sc = SurrogatePauliCircuit.from_pauli_circuit(
-            circ, param_indices=[i % 3 for i in range(len(gens))]
-        )
-
-        log_file = tmp_path / "monomial_budget.jsonl"
-        PauliSurrogatePropagator(
-            truncation=[MonomialBudget(max_monomials=2)],
-            logger=Logger(str(log_file), log_every=1),
-        ).build(obs, sc, initial_state=0)
-
-        events = []
-        with open(log_file) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    events.append(json.loads(line))
-        triggers = {e.get("trigger") for e in events if e.get("event") == "surrogate_flush"}
-        assert "monomial_threshold" in triggers, (
-            f"expected a monomial_threshold-triggered flush, got triggers={triggers}"
-        )
 
 
 class TestLoschmidtEcho:

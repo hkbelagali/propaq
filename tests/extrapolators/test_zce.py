@@ -30,7 +30,7 @@ def test_truncation_getter_default_none():
 def test_truncation_setter_roundtrip():
     prop = MajoranaPropagator()
     prop.set_truncation(trunc(weight_cutoff=4))
-    assert WeightCutoffExtrapolator(lambda w, a, b: a, [])._get_cutoff(prop) == 4
+    assert prop.truncators[0].weight == 4
 
 
 def test_truncation_setter_restore_none():
@@ -146,7 +146,7 @@ def test_zce_coeff_restores_original_truncation():
     extrapolator = CoefficientCutoffExtrapolator(lambda eps, a, b: a + b * eps, [0.002, 0.004])
     extrapolator.run(prop, obs, circuit)
 
-    assert extrapolator._get_cutoff(prop) == pytest.approx(0.001)
+    assert prop.truncators[0].coefficient == pytest.approx(0.001)
 
 
 def test_zce_weight_restores_original_truncation():
@@ -157,7 +157,7 @@ def test_zce_weight_restores_original_truncation():
     extrapolator = WeightCutoffExtrapolator(lambda w, a, b: a + b / (w + 1), [3, 4, 5])
     extrapolator.run(prop, obs, circuit)
 
-    assert extrapolator._get_cutoff(prop) == 6
+    assert prop.truncators[0].weight == 6
 
 
 def test_zce_coeff_restores_when_original_truncation_is_none():
