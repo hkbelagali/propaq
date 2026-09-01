@@ -48,18 +48,21 @@ fn write_gate_log(
             .map_or_else(|| "null".to_string(), |v| v.to_string());
         let _ = writeln!(
             log,
-            r#"{{"event":"gate","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"map_terms":{},"outbox_terms":0,"avg_ms_per_gate":{:.3e}}}"#,
+            r#"{{"event":"gate","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"terms":{},"ms_per_gate":{:.3e}}}"#,
             g.gate_idx, g.layer_idx, qki, g.terms_after, g.elapsed_ms
         );
         let _ = writeln!(
             log,
-            r#"{{"event":"truncation","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"trigger":"emit","truncation_model":"emit_gate","terms_before":{},"terms_after":{},"terms_discarded":{},"discarded_coeff_l1":0.0e0,"discarded_coeff_max":0.0e0,"weight_cutoff":{},"coeff_cutoff":{:.6e},"elapsed_ms":{:.3e}}}"#,
+            r#"{{"event":"truncation","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"trigger":"emit","truncation_model":"emit_gate","terms_before":{},"terms_after":{},"terms_gained":{},"terms_discarded":{},"discarded_coeff_l1":{:.6e},"discarded_coeff_max":{:.6e},"weight_cutoff":{},"coeff_cutoff":{:.6e},"elapsed_ms":{:.3e}}}"#,
             g.gate_idx,
             g.layer_idx,
             qki,
             g.terms_before,
             g.terms_after,
+            g.terms_gained,
             g.declined,
+            g.discarded_coeff_l1,
+            g.discarded_coeff_max,
             wc,
             cc,
             g.elapsed_ms

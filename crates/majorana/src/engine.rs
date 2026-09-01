@@ -163,25 +163,31 @@ where
         }
         for gate in layer {
             let gen: BasisString<W> = to_basis_string(&gate.generator);
-            let (before, declined_before, t0) = if log_gates {
+            let (before, declined_before, l1_before, t0) = if log_gates {
                 (
                     op.len(),
                     op.scan_counts().1,
+                    op.discard_stats().0,
                     Some(std::time::Instant::now()),
                 )
             } else {
-                (0, 0, None)
+                (0, 0, 0.0, None)
             };
-            op.apply_rotation::<MajoranaAlgebra>(&gen, &gate.angle, &cutoff)
+            let gained = op
+                .apply_rotation::<MajoranaAlgebra>(&gen, &gate.angle, &cutoff)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             if let Some(t0) = t0 {
+                let (l1_after, discarded_coeff_max) = op.discard_stats();
                 gate_records.push(GateRecord {
                     gate_idx,
                     layer_idx,
                     qiskit_gate_idx: gate.qiskit_gate_idx,
                     terms_before: before,
                     terms_after: op.len(),
+                    terms_gained: gained,
                     declined: op.scan_counts().1 - declined_before,
+                    discarded_coeff_l1: l1_after - l1_before,
+                    discarded_coeff_max,
                     elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
                 });
             }
@@ -248,7 +254,11 @@ pub struct GateRecord {
     pub qiskit_gate_idx: Option<usize>,
     pub terms_before: usize,
     pub terms_after: usize,
+    /// New live-term keys created by branching this gate
+    pub terms_gained: usize,
     pub declined: u64,
+    pub discarded_coeff_l1: f64,
+    pub discarded_coeff_max: f64,
     pub elapsed_ms: f64,
 }
 
