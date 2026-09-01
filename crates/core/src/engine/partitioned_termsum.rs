@@ -220,6 +220,14 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
             .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
     }
 
+    /// `(cumulative discarded |coeff| sum
+    pub fn discard_stats(&self) -> (f64, f64) {
+        self.partitions
+            .iter()
+            .map(|p| p.discard_stats())
+            .fold((0.0, 0.0), |a, b| (a.0 + b.0, a.1.max(b.1)))
+    }
+
     /// Bytes of resident key storage across every partition.
     pub fn key_bytes(&self) -> usize {
         self.partitions.iter().map(|p| p.key_bytes()).sum()

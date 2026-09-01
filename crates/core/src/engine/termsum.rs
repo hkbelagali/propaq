@@ -200,6 +200,13 @@ pub struct TermSum<C: CoeffRepr, P: Pos, const W: usize> {
     hits: u64,
     visited: u64,
     declined: u64,
+    /// Sum of |coeff| over every held-back branch never claimed by a partner,
+    /// cumulative across the whole run.
+    discarded_coeff_l1: f64,
+    /// Largest |coeff| among branches discarded by the most recent
+    /// `drain_claims` call (i.e. this gate). Reset at the top of each call,
+    /// not cumulative.
+    discarded_coeff_max: f64,
     n_units: usize,
 }
 
@@ -221,6 +228,8 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
             hits: 0,
             visited: 0,
             declined: 0,
+            discarded_coeff_l1: 0.0,
+            discarded_coeff_max: 0.0,
             n_units,
         }
     }
@@ -250,6 +259,8 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
             hits: 0,
             visited: 0,
             declined: 0,
+            discarded_coeff_l1: 0.0,
+            discarded_coeff_max: 0.0,
             n_units,
         }
     }
@@ -575,6 +586,23 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
         outbox: &mut [Vec<Routed<C, W>>],
     ) {
         let claims = std::mem::take(&mut self.claimed_rows);
+        // Every branch held back this gate that no partner claimed is about to
+        // be dropped for good (the next gate's `reset_pending` clears it with
+        // no further trace), so this is the one place a per-gate discard total
+        // can be computed without double-counting a branch that gets rescued.
+        self.discarded_coeff_max = 0.0;
+        if claims.len() != self.pending_rows.len() {
+            let claimed: std::collections::HashSet<u32> = claims.iter().copied().collect();
+            for (&row, val) in self.pending_rows.iter().zip(self.pending_vals.iter()) {
+                if !claimed.contains(&row) {
+                    let mag = val.magnitude();
+                    self.discarded_coeff_l1 += mag;
+                    if mag > self.discarded_coeff_max {
+                        self.discarded_coeff_max = mag;
+                    }
+                }
+            }
+        }
         for &row in claims.iter() {
             let slot = self
                 .pending_slot_of(row as usize)
@@ -755,6 +783,11 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
 
     pub fn scan_counts(&self) -> (u64, u64) {
         (self.visited, self.declined)
+    }
+
+    /// `(cumulative discarded |coeff| sum
+    pub fn discard_stats(&self) -> (f64, f64) {
+        (self.discarded_coeff_l1, self.discarded_coeff_max)
     }
 
     pub fn apply_rotation<A: Basis<W>>(
