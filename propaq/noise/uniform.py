@@ -5,7 +5,13 @@ from propaq.noise.base import NoiseModel
 
 
 class UniformNoiseModel(_RustUniformNoiseModel):
-    """Uniform noise model class"""
+    r"""
+    Exponential damping noise: each term of weight w is scaled by \(\exp(-\gamma w)\),
+    where \(w\) is the term's Pauli weight.
+
+    Arguments:
+        damping: Per-weight damping rate \(\gamma\). Each term is multiplied by \(\exp(-\gamma w)\).
+    """
 
     pass
 

@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from propaq._rust_core import (
-        GateNoiseModel,
-        NativeNoiseModel,
-        PropagationResult,
-        TruncationPolicy,
-        UniformNoiseModel,
-    )
+    from propaq._rust_core import PropagationResult
+    from propaq.datatypes import AbstractTermSum
+    from propaq.noise import GateNoiseModel, NativeNoiseModel, TruncationPolicy, UniformNoiseModel
 
 
 class AbstractPropagator(ABC):
@@ -42,19 +38,52 @@ class AbstractPropagator(ABC):
         """Replace the truncation pipeline."""
 
     @abstractmethod
-    def propagate(self, observable, circuit, filename=None):
+    def propagate(
+        self, observable: AbstractTermSum, circuit: Any, filename: str | None = None
+    ) -> AbstractTermSum:
         """Back-propagate *circuit* through *observable* in the Heisenberg picture.
 
         If *filename* is given, the final term sum is saved to a gzip-compressed
         binary file at that path.
+
+        Arguments:
+            observable: The term sum to back-propagate (a `PauliTermSum` or
+                `MajoranaTermSum`, matching the propagator's representation).
+            circuit: The circuit to propagate through (a `PauliCircuit`/
+                `MajoranaCircuit` for a numerical propagator, or a
+                `SurrogatePauliCircuit`/`SurrogateMajoranaCircuit` for a surrogate
+                propagator).
+            filename: Optional path to save the evolved term sum to, gzip-compressed.
+
+        Returns:
+            The evolved term sum.
         """
 
     @abstractmethod
     def expectation_value(
-        self, observable, circuit, initial_state: int = 0, filename=None
+        self,
+        observable: AbstractTermSum,
+        circuit: Any,
+        initial_state: int = 0,
+        filename: str | None = None,
     ) -> PropagationResult:
         """Compute the expectation value of *observable* after evolving through *circuit*.
 
         If *filename* is given, the final term sum is saved to a gzip-compressed
         binary file at that path.
+
+        Arguments:
+            observable: The term sum whose expectation value is computed (a
+                `PauliTermSum` or `MajoranaTermSum`, matching the propagator's
+                representation).
+            circuit: The circuit to propagate through (a `PauliCircuit`/
+                `MajoranaCircuit` for a numerical propagator, or a
+                `SurrogatePauliCircuit`/`SurrogateMajoranaCircuit` for a surrogate
+                propagator).
+            initial_state: The computational basis state to evaluate the
+                expectation value in, as an integer bitmask.
+            filename: Optional path to save the evolved term sum to, gzip-compressed.
+
+        Returns:
+            The expectation value, plus any diagnostics collected during propagation.
         """

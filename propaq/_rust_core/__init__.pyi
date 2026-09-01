@@ -17,7 +17,6 @@ __all__ = [
     "MajoranaSurrogatePropagator",
     "MajoranaTermStreamer",
     "MajoranaTermSum",
-    "MonomialBudget",
     "NativeNoiseModel",
     "NativeTruncator",
     "PauliPropagator",
@@ -67,13 +66,16 @@ class FrequencyTruncationPolicy:
         Drop Pauli/Majorana terms with weight exceeding this value (None = no limit).
         """
     @property
-    def truncation_range(self) -> tuple[typing.Optional[builtins.int], typing.Optional[builtins.int]]:
+    def min_terms(self) -> typing.Optional[builtins.int]:
         r"""
-        The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.
+        Live-term floor below which truncation is suppressed entirely.
         """
-    @truncation_range.setter
-    def truncation_range(self, value: tuple[typing.Optional[builtins.int], typing.Optional[builtins.int]]) -> None: ...
-    def __new__(cls, max_frequency: typing.Optional[builtins.int] = None, weight_cutoff: typing.Optional[builtins.int] = None, truncation_range: typing.Optional[tuple[typing.Optional[builtins.int], typing.Optional[builtins.int]]] = None) -> FrequencyTruncationPolicy: ...
+    @min_terms.setter
+    def min_terms(self, value: typing.Optional[builtins.int]) -> None:
+        r"""
+        Live-term floor below which truncation is suppressed entirely.
+        """
+    def __new__(cls, max_frequency: typing.Optional[builtins.int] = None, weight_cutoff: typing.Optional[builtins.int] = None, min_terms: typing.Optional[builtins.int] = None) -> FrequencyTruncationPolicy: ...
     def __repr__(self) -> builtins.str: ...
 
 class FrequencyTruncator:
@@ -86,46 +88,22 @@ class FrequencyTruncator:
 
 class GateNoiseModel:
     r"""
-    Noise model that delegates to an inner Python object's damping_factor and apply_noise.
-    
-    Arguments:
-        inner: Python object exposing damping_factor(weight, active_modes) -> float
-               and apply_noise(term_sum) methods.
+    Base class for a custom Python noise model. Subclass it and define
+    `damping_factor` or `damping_factor_term` directly on the subclass.
     """
-    @property
-    def inner(self) -> typing.Any:
+    def __new__(cls, *_args: typing.Any, **_kwargs: typing.Any) -> GateNoiseModel:
         r"""
-        The wrapped Python noise model object.
+        A subclass's own `__init__` constructor arguments are accepted and
+        ignored here (`*args`/`**kwargs`): Python always calls the
+        most-derived `__new__` with the arguments the subclass was
+        constructed with, and `GateNoiseModel` does not define its own
+        `__new__`/`__init__` beyond this, so a subclass needs neither to
+        construct with plain positional/keyword arguments of its own.
         """
-    def __new__(cls, inner: typing.Any) -> GateNoiseModel:
+    def damping_factor(self, _term_weight: builtins.int, _active_modes: builtins.int) -> builtins.float:
         r"""
-        Initialize the gate noise model wrapping a custom Python noise object.
-        
-        Arguments:
-            inner: Python object providing `damping_factor(weight, active_modes) -> float`
-                   and `apply_noise(term_sum)` methods.
-        """
-    def damping_factor(self, term_weight: builtins.int, active_modes: builtins.int) -> builtins.float:
-        r"""
-        Delegate to the wrapped model's `damping_factor` method.
-        """
-    def damping_factor_term(self, basis_kind: builtins.int, words: typing.Sequence[builtins.int], n_units: builtins.int, weight: builtins.int) -> builtins.float:
-        r"""
-        Delegate to the wrapped model's `damping_factor_term` method.
-        
-        Only meaningful for a wrapped object that defines one; propagation
-        unwraps this model and calls the inner object directly, so this exists
-        for symmetry with `damping_factor` rather than as the hot path.
-        
-        Arguments:
-            basis_kind: 0 for Pauli, 1 for Majorana.
-            words: The term's raw basis-string words, two bits per unit.
-            n_units: Qubits (Pauli) or modes (Majorana) of the register.
-            weight: The term's weight.
-        """
-    def apply_noise(self, term_sum: typing.Any) -> None:
-        r"""
-        Delegate to the wrapped model's `apply_noise` method.
+        Placeholder: a subclass must override this (or define
+        `damping_factor_term` instead) with its own damping logic.
         """
 
 @typing.final
@@ -148,8 +126,10 @@ class Logger:
         Events are written as JSON Lines to *filename*. Each gate application
         and truncation step produces one record.
         
+        *filename* is overwritten (truncated), not appended to.
+        
         Arguments:
-            filename: Path to write the JSON Lines event log.
+            filename: Path to write the JSON Lines event log. Overwritten if it already exists.
             log_every: Emit a gate-event record every N gate applications (default 1).
         """
 
@@ -158,8 +138,8 @@ class MajoranaMonomial:
     r"""
     A Majorana monomial, a product of Majorana operators encoded as a mode bitmask.
     
-    Bit 2k is set if $\gamma_{2k}$ (even mode) is active on site k.
-    Bit 2k+1 is set if $\gamma_{2k+1}$ (odd mode) is active on site k.
+    Bit 2k is set if \(\gamma_{2k}\) (even mode) is active on site k.
+    Bit 2k+1 is set if \(\gamma_{2k+1}\) (odd mode) is active on site k.
     
     Arguments:
         modes: Integer bitmask encoding occupied Majorana modes.
@@ -232,10 +212,10 @@ class MajoranaMonomial:
         """
     def trace_with_fock_state(self, fock_state: typing.Any) -> builtins.float:
         r"""
-        Compute $\langle \psi |M| \psi \rangle$ for this Majorana monomial M.
+        Compute \(\langle \psi |M| \psi \rangle\) for this Majorana monomial M.
         
         Returns 0.0 if M has any unpaired modes.
-        For paired modes, returns the product of $(2n_k - 1)$ values for each occupied pair.
+        For paired modes, returns the product of \((2n_k - 1)\) values for each occupied pair.
         
         Arguments:
             fock_state: Computational basis state as a bitstring integer.
@@ -445,18 +425,6 @@ class MajoranaTermSum:
             path: Destination file path.
         """
 
-class MonomialBudget:
-    @property
-    def min_monomials(self) -> typing.Optional[builtins.int]: ...
-    @min_monomials.setter
-    def min_monomials(self, value: typing.Optional[builtins.int]) -> None: ...
-    @property
-    def max_monomials(self) -> typing.Optional[builtins.int]: ...
-    @max_monomials.setter
-    def max_monomials(self, value: typing.Optional[builtins.int]) -> None: ...
-    def __new__(cls, *, min_monomials: typing.Optional[builtins.int] = None, max_monomials: typing.Optional[builtins.int] = None) -> MonomialBudget: ...
-    def __repr__(self) -> builtins.str: ...
-
 class NativeNoiseModel:
     r"""
     Noise model backed by a dynamically loaded native (C/Rust/AOT-Julia)
@@ -662,10 +630,10 @@ class PauliString:
         """
     def trace_with_fock_state(self, fock_state: typing.Any) -> builtins.float:
         r"""
-        Compute $\langle \psi | P | \psi \rangle$ for this Pauli string P.
+        Compute \(\langle \psi | P | \psi \rangle\) for this Pauli string P.
         
         Returns 0.0 if P has any X or Y components (off-diagonal).
-        For Z-only P, returns $(-1)^{\text{popcount}(z \text{ AND } \psi)}$.
+        For Z-only P, returns \((-1)^{\text{popcount}(z \text{ AND } \psi)}\).
         
         Arguments:
             fock_state: Computational basis state as a bitstring integer.
@@ -876,25 +844,13 @@ class Simplify:
 
 class TermBudget:
     r"""
-    Term-count budget: `min_terms` is the count below which lossy operators are
-    suppressed; `max_terms` triggers a truncation pass once the live term count
-    reaches it. Applies to both propagators. Either field `None` disables that
-    bound.
-    
-    The two are keyword-only. They are a floor/ceiling pair of the same type, so
-    a positional call is easy to transpose, and a transposed pair fails silently
-    rather than loudly: `TermBudget(None, 1)` reads like a ceiling of 1 but sets
-    no ceiling at all, and truncation then never fires.
+    Term-count floor, below which truncation is suppressed.
     """
     @property
     def min_terms(self) -> typing.Optional[builtins.int]: ...
     @min_terms.setter
     def min_terms(self, value: typing.Optional[builtins.int]) -> None: ...
-    @property
-    def max_terms(self) -> typing.Optional[builtins.int]: ...
-    @max_terms.setter
-    def max_terms(self, value: typing.Optional[builtins.int]) -> None: ...
-    def __new__(cls, *, min_terms: typing.Optional[builtins.int] = None, max_terms: typing.Optional[builtins.int] = None) -> TermBudget: ...
+    def __new__(cls, min_terms: typing.Optional[builtins.int] = None) -> TermBudget: ...
     def __repr__(self) -> builtins.str: ...
 
 class TruncationPolicy:
@@ -905,9 +861,7 @@ class TruncationPolicy:
         weight_cutoff: Discard terms with Pauli weight strictly greater than this value.
             None disables weight-based truncation.
         coeff_cutoff: Discard terms with |coefficient| strictly less than this value.
-        truncation_range: (min_terms, max_terms) pair. Truncation fires when the term
-            count reaches max_terms and will not reduce it below min_terms.
-            Defaults to (None, $10^7$).
+        min_terms: Live-term floor below which truncation is suppressed.
     """
     @property
     def weight_cutoff(self) -> typing.Optional[builtins.int]: ...
@@ -918,21 +872,17 @@ class TruncationPolicy:
     @coeff_cutoff.setter
     def coeff_cutoff(self, value: builtins.float) -> None: ...
     @property
-    def truncation_range(self) -> tuple[typing.Optional[builtins.int], typing.Optional[builtins.int]]:
-        r"""
-        The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.
-        """
-    @truncation_range.setter
-    def truncation_range(self, value: tuple[typing.Optional[builtins.int], typing.Optional[builtins.int]]) -> None: ...
-    def __new__(cls, weight_cutoff: typing.Optional[builtins.int] = None, coeff_cutoff: builtins.float = 0.0, truncation_range: typing.Optional[tuple[typing.Optional[builtins.int], typing.Optional[builtins.int]]] = None) -> TruncationPolicy:
+    def min_terms(self) -> typing.Optional[builtins.int]: ...
+    @min_terms.setter
+    def min_terms(self, value: typing.Optional[builtins.int]) -> None: ...
+    def __new__(cls, weight_cutoff: typing.Optional[builtins.int] = None, coeff_cutoff: builtins.float = 0.0, min_terms: typing.Optional[builtins.int] = None) -> TruncationPolicy:
         r"""
         Initialize the truncation policy.
         
         Arguments:
             weight_cutoff: Discard terms with Pauli weight strictly greater than this value.
             coeff_cutoff: Discard terms with |coefficient| strictly less than this value.
-            truncation_range: (min_terms, max_terms) pair. Truncation is triggered when the
-                term count reaches max_terms and will not reduce it below min_terms.
+            min_terms: Live-term floor below which truncation is suppressed.
         """
     def should_truncate(self, weight: builtins.int, abs_coeff: builtins.float) -> builtins.bool:
         r"""
@@ -941,10 +891,10 @@ class TruncationPolicy:
 
 class UniformNoiseModel:
     r"""
-    Exponential damping noise: each term of weight w is scaled by $\exp(-\gamma w)$, where $w$ is the term's Pauli weight.
+    Exponential damping noise: each term of weight w is scaled by \(\exp(-\gamma w)\), where \(w\) is the term's Pauli weight.
     
     Arguments:
-        damping: Damping rate $\gamma$.
+        damping: Damping rate \(\gamma\).
     """
     @property
     def damping(self) -> builtins.float: ...
@@ -955,11 +905,11 @@ class UniformNoiseModel:
         Initialize the uniform noise model.
         
         Arguments:
-            damping: Per-weight damping rate $\gamma$. Each term is multiplied by $\exp(-\gamma w)$.
+            damping: Per-weight damping rate \(\gamma\). Each term is multiplied by \(\exp(-\gamma w)\).
         """
     def damping_factor(self, term_weight: builtins.int, active_modes: builtins.int) -> builtins.float:
         r"""
-        Return $\exp(-\gamma w)$: the multiplicative factor applied to a term's coefficient.
+        Return \(\exp(-\gamma w)\): the multiplicative factor applied to a term's coefficient.
         
         Arguments:
             term_weight: Pauli weight of the term.
@@ -991,15 +941,15 @@ class WeightTruncator:
 
 def hybrid_expectation(observable: PauliTermSum, mps_arrays: typing.Sequence[numpy.typing.NDArray[numpy.complex128]]) -> builtins.float:
     r"""
-    Computes $\sum_i c_i \langle\Psi|P_i|\Psi\rangle$ over every term in `observable`,
-    given $|\Psi\rangle$ as a list of MPS site tensors (each rank-3, shape
+    Computes \(\sum_i c_i \langle\Psi|P_i|\Psi\rangle\) over every term in `observable`,
+    given \(|\Psi\rangle\) as a list of MPS site tensors (each rank-3, shape
     `(bond_left, 2, bond_right)`, with dummy size-1 bonds at the open
     boundaries
     
     Arguments:
         observable: A Heisenberg-propagated `PauliTermSum` (e.g. the result
             of `PauliPropagator.propagate(observable, circuit1)`).
-        mps_arrays: $|\Psi\rangle$'s site tensors in left-to-right qubit order,
+        mps_arrays: \(|\Psi\rangle\)'s site tensors in left-to-right qubit order,
             complex128, rank-3, contiguous.
     """
 

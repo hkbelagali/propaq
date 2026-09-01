@@ -2,7 +2,6 @@
 
 from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
 from propaq._rust_core import FrequencyTruncator as _RustFrequencyTruncator
-from propaq._rust_core import MonomialBudget as _RustMonomialBudget
 from propaq._rust_core import NativeTruncator as _RustNativeTruncator
 from propaq._rust_core import Simplify as _RustSimplify
 from propaq._rust_core import TermBudget as _RustTermBudget
@@ -10,54 +9,73 @@ from propaq._rust_core import WeightTruncator as _RustWeightTruncator
 from propaq.truncation.base import Truncator as Truncator
 
 
-class FrequencyTruncator(_RustFrequencyTruncator):
+class _RustBackedMeta(type):
+    """Metaclass making ``isinstance()`` also match the bare Rust instance"""
+
+    def __instancecheck__(cls, instance: object) -> bool:
+        return type.__instancecheck__(cls, instance) or isinstance(instance, cls._rust_base)  # type: ignore[attr-defined]
+
+
+class FrequencyTruncator(_RustFrequencyTruncator, metaclass=_RustBackedMeta):
     """Drop monomials whose frequency (trig-factor count) exceeds ``frequency``. Surrogate-only."""
 
+    _rust_base = _RustFrequencyTruncator
 
-class CoefficientTruncator(_RustCoefficientTruncator):
+
+class CoefficientTruncator(_RustCoefficientTruncator, metaclass=_RustBackedMeta):
     """Drop contributions with coefficient magnitude below ``coefficient``."""
 
-
-class WeightTruncator(_RustWeightTruncator):
-    """Drop terms with operator weight exceeding ``weight``."""
+    _rust_base = _RustCoefficientTruncator
 
 
-class TermBudget(_RustTermBudget):
-    """
-    Term-count budget: ``min_terms`` gates lossy ops. ``max_terms`` triggers truncation.
-    """
+class WeightTruncator(_RustWeightTruncator, metaclass=_RustBackedMeta):
+    """Drop whole Pauli/Majorana terms whose operator weight exceeds ``weight``.
+    Applies to both propagators.
 
-
-class MonomialBudget(_RustMonomialBudget):
-    """Monomial-count budget: ``min_monomials`` gates the lossy ops; ``max_monomials`` triggers
-    a flush. Structurally identical to ``TermBudget``, keyed on monomial count, and keyword-only
-    for the same reason. Surrogate-only.
+    A term with weight ``w`` is exponentially unlikely in ``w`` to contribute to
+    the final state, which is why this is a useful truncation criterion for
+    larger circuits.
     """
 
+    _rust_base = _RustWeightTruncator
 
-class Simplify(_RustSimplify):
+
+class TermBudget(_RustTermBudget, metaclass=_RustBackedMeta):
+    """Live-term floor: below ``min_terms`` terms, all other lossy truncators
+    (``WeightTruncator``/``CoefficientTruncator``/``NativeTruncator``) are
+    suppressed, keeping propagation exact until the operator has had room to
+    grow. ``None`` disables the floor.
+    """
+
+    _rust_base = _RustTermBudget
+
+
+class Simplify(_RustSimplify, metaclass=_RustBackedMeta):
     """Real (lossless) algebraic simplification, surrogate-only.
 
     At every flush, collapses monomials sharing the same canonical
     trig-factor run into one, summing their scalars.
     """
 
+    _rust_base = _RustSimplify
 
-class NativeTruncator(_RustNativeTruncator):
+
+class NativeTruncator(_RustNativeTruncator, metaclass=_RustBackedMeta):
     """Truncation policy backed by a dynamically loaded C, Rust, or
     AOT-compiled Julia shared library
     """
 
+    _rust_base = _RustNativeTruncator
 
-# Register the Rust base classes so both the Python wrappers above (real
-# subclasses) and the bare Rust instances returned by a propagator's
+
+# Register the Rust base classes so both the Python wrappers above
+# and the bare Rust instances returned by a propagator's
 # ``truncators`` getter satisfy ``isinstance(_, Truncator)``.
 for _base in (
     _RustFrequencyTruncator,
     _RustCoefficientTruncator,
     _RustWeightTruncator,
     _RustTermBudget,
-    _RustMonomialBudget,
     _RustSimplify,
     _RustNativeTruncator,
 ):
@@ -69,7 +87,6 @@ __all__ = [
     "CoefficientTruncator",
     "WeightTruncator",
     "TermBudget",
-    "MonomialBudget",
     "Simplify",
     "NativeTruncator",
 ]

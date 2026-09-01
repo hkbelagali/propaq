@@ -1,17 +1,7 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 
 
 class NoiseModel(ABC):
     """
-    Abstract base class for noise models. Specific noise models should inherit from this class and implement the necessary methods.
+    Interface reference for a custom Python noise model.
     """
-
-    @abstractmethod
-    def apply_noise(self, term_sum):
-        """Apply noise to the given term sum based on the active modes."""
-        pass
-
-    @abstractmethod
-    def damping_factor(self, term_weight: float, active_modes: int) -> float:
-        """Calculate the damping factor based on the number of active modes."""
-        pass

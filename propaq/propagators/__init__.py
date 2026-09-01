@@ -1,6 +1,8 @@
 """Core propagators for quantum simulation."""
 
-from ._abstract import AbstractPropagator
+from propaq._rust_core import PropagationResult as PropagationResult
+
+from ._abstract import AbstractPropagator as AbstractPropagator
 from .majorana import MajoranaPropagator as MajoranaPropagator
 from .pauli import PauliPropagator as PauliPropagator
 from .surrogate_majorana import MajoranaSurrogatePropagator as MajoranaSurrogatePropagator
@@ -15,4 +17,5 @@ __all__ = [
     "AbstractPropagator",
     "PauliSurrogatePropagator",
     "MajoranaSurrogatePropagator",
+    "PropagationResult",
 ]
