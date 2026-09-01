@@ -31,8 +31,10 @@ impl Logger {
     /// Events are written as JSON Lines to *filename*. Each gate application
     /// and truncation step produces one record.
     ///
+    /// *filename* is overwritten (truncated), not appended to.
+    ///
     /// Arguments:
-    ///     filename: Path to write the JSON Lines event log.
+    ///     filename: Path to write the JSON Lines event log. Overwritten if it already exists.
     ///     log_every: Emit a gate-event record every N gate applications (default 1).
     #[new]
     #[pyo3(signature = (filename, log_every=1))]
