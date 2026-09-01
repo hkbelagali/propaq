@@ -312,6 +312,17 @@ def test_surrogate_merge_event_qiskit_gate_idx():
     assert any(e.qiskit_gate_idx is not None for e in qk_log.surrogate_merge_events)
 
 
+def test_surrogate_gate_idx_starts_from_zero_like_the_numerical_propagator():
+    obs = PauliTermSum({ps(0, 0b1): 1.0})
+    circuit = surrogate_entangling_circuit()
+    path = logpath()
+    PauliSurrogatePropagator(logger=Logger(path, log_every=1)).build(obs, circuit)
+    log = LogParser(path)
+    n_gates = len(log.gate_events)
+    assert [e.gate_idx for e in log.gate_events] == list(range(n_gates))
+    assert [e.gate_idx for e in log.surrogate_merge_events] == list(range(n_gates))
+
+
 def test_surrogate_propagator_emits_gate_and_engine_phases_events():
     obs = PauliTermSum({ps(0, 0b1): 1.0})
     circuit = surrogate_entangling_circuit()

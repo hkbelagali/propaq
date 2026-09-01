@@ -178,7 +178,6 @@ where
             op.apply_rotation::<A>(&gen, &gate.param, &no_emit_gate)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             let ms_per_gate = t0.elapsed().as_secs_f64() * 1e3;
-            gate_idx += 1;
 
             let (before, mono_before) = (op.len(), monomials);
             let t1 = std::time::Instant::now();
@@ -206,6 +205,7 @@ where
                 coefficient: cfg.coefficient,
                 elapsed_ms: merge_elapsed_ms,
             });
+            gate_idx += 1;
             if let Some(p) = progress {
                 if gate_idx.is_multiple_of(p.every()) {
                     p.tick_surrogate(p.every(), op.len(), monomials);

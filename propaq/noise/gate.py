@@ -10,7 +10,7 @@ class GateNoiseModel(_RustGateNoiseModel):
     Subclass this and define ``damping_factor`` or ``damping_factor_term``
     directly. See
     [`NoiseModel`][propaq.noise.base.NoiseModel] for the two hook methods and
-    the [noise guide](../../guides/noise.md#python-defined-models) for worked
+    the [noise guide](../guides/noise.md#python-defined-models) for worked
     examples of both.
     """
 
