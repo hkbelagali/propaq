@@ -9,9 +9,9 @@ class MajoranaRotation:
 
     The gate parameterization is given by:
 
-    \[
+    ```math
     G = e^{-i \theta M / 2}
-    \]
+    ```
 
     where \(M\) is a Majorana monomial and \(\theta\) is the rotation angle in radians.
     """

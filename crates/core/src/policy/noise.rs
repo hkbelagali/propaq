@@ -14,6 +14,7 @@
 //!
 
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyTuple};
 
 /// Exponential damping noise: each term of weight w is scaled by \(\exp(-\gamma w)\), where \(w\) is the term's Pauli weight.
 ///
@@ -61,87 +62,35 @@ impl UniformNoiseModel {
         Ok(())
     }
 }
-// TODO: Add dephasing noise model.
 
-/// Noise model that delegates to an inner Python object's damping_factor and apply_noise.
-///
-/// Arguments:
-///     inner: Python object exposing damping_factor(weight, active_modes) -> float
-///            and apply_noise(term_sum) methods.
+/// Base class for a custom Python noise model. Subclass it and define
+/// `damping_factor` or `damping_factor_term` directly on the subclass.
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
-pub struct GateNoiseModel {
-    inner: Py<PyAny>,
-}
-
-impl GateNoiseModel {
-    /// The wrapped object.
-    ///
-    /// Noise resolution unwraps the model before deciding its shape: what makes
-    /// a model weight-only or key-aware is the object inside, and this wrapper
-    /// forwards to it either way.
-    pub fn inner(&self, py: Python<'_>) -> Py<PyAny> {
-        self.inner.clone_ref(py)
-    }
-}
+pub struct GateNoiseModel;
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl GateNoiseModel {
-    /// Initialize the gate noise model wrapping a custom Python noise object.
-    ///
-    /// Arguments:
-    ///     inner: Python object providing `damping_factor(weight, active_modes) -> float`
-    ///            and `apply_noise(term_sum)` methods.
+    /// A subclass's own `__init__` constructor arguments are accepted and
+    /// ignored here (`*args`/`**kwargs`)
     #[new]
-    fn new(inner: Py<PyAny>) -> Self {
-        GateNoiseModel { inner }
+    #[pyo3(signature = (*_args, **_kwargs))]
+    fn new(_args: &Bound<'_, PyTuple>, _kwargs: Option<&Bound<'_, PyDict>>) -> Self {
+        GateNoiseModel
     }
 
-    /// The wrapped Python noise model object.
-    #[getter]
-    fn get_inner(&self, py: Python<'_>) -> Py<PyAny> {
-        self.inner.clone_ref(py)
+    // Override this in subclasses
+    fn damping_factor(&self, _term_weight: u32, _active_modes: u32) -> PyResult<f64> {
+        Err(not_overridden("damping_factor"))
     }
 
-    /// Delegate to the wrapped model's `damping_factor` method.
-    fn damping_factor(&self, py: Python<'_>, term_weight: u32, active_modes: u32) -> PyResult<f64> {
-        self.inner
-            .call_method1(py, "damping_factor", (term_weight, active_modes))?
-            .extract(py)
-    }
+    // We don't need to scaffold `damping_factor_term` because its existence
+    // determines if the model is key-aware or not.
+}
 
-    /// Delegate to the wrapped model's `damping_factor_term` method.
-    ///
-    /// Only meaningful for a wrapped object that defines one; propagation
-    /// unwraps this model and calls the inner object directly, so this exists
-    /// for symmetry with `damping_factor` rather than as the hot path.
-    ///
-    /// Arguments:
-    ///     basis_kind: 0 for Pauli, 1 for Majorana.
-    ///     words: The term's raw basis-string words, two bits per unit.
-    ///     n_units: Qubits (Pauli) or modes (Majorana) of the register.
-    ///     weight: The term's weight.
-    fn damping_factor_term(
-        &self,
-        py: Python<'_>,
-        basis_kind: u32,
-        words: Vec<u64>,
-        n_units: usize,
-        weight: u32,
-    ) -> PyResult<f64> {
-        self.inner
-            .call_method1(
-                py,
-                "damping_factor_term",
-                (basis_kind, words, n_units, weight),
-            )?
-            .extract(py)
-    }
-
-    /// Delegate to the wrapped model's `apply_noise` method.
-    fn apply_noise(&self, py: Python<'_>, term_sum: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.inner.call_method1(py, "apply_noise", (term_sum,))?;
-        Ok(())
-    }
+fn not_overridden(method: &str) -> PyErr {
+    pyo3::exceptions::PyNotImplementedError::new_err(format!(
+        "GateNoiseModel.{method} must be overridden by a subclass"
+    ))
 }

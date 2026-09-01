@@ -30,6 +30,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -44,11 +45,21 @@ jobs:
           key: docs-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: docs-cargo-${{ runner.os }}-
 
-      - name: Install propaq and docs dependencies
-        run: pip install -e ".[docs]"
+      - name: Install propaq, docs, and example dependencies
+        run: pip install -e ".[docs,examples]"
 
       - name: Check example notebooks against the current API
         run: python scripts/check_notebooks.py
+
+      - name: Execute example notebooks
+        run: |
+          set -e
+          for nb in examples/usage/*.ipynb; do
+            echo "::group::$nb"
+            jupyter nbconvert --to notebook --execute --stdout \
+              --ExecutePreprocessor.timeout=600 "$nb" > /dev/null
+            echo "::endgroup::"
+          done
 
       - name: Build site
         run: mkdocs build --strict --site-dir _site

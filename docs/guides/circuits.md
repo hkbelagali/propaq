@@ -5,7 +5,8 @@ However, it's much easier to build them in Qiskit (or
 Cirq) and convert them into the representation that matches the basis you want
 to propagate in. For the case of Majorana circuits, where one generally does not want 
 a spin-qubit representation, we also provide functionality to build circuits from
-ffsim and openfermion.
+ffsim and openfermion. Both are optional extras: `pip install "propaq[ffsim]"` and
+`pip install "propaq[openfermion]"`.
 
 !!! note "Pennylane and Catalyst"
 

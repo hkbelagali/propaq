@@ -1,7 +1,7 @@
 """Datatype representing a sum of Pauli terms."""
 
 import math
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeGuard, TypeVar
 
 from qiskit.circuit import Instruction
 from qiskit.quantum_info import SparsePauliOp
@@ -44,12 +44,20 @@ def _cp_terms(phi, i: int, j: int, n_modes: int) -> list[tuple[PauliString, Any]
     ]
 
 
+def is_pauli_term_sum(obj: object) -> "TypeGuard[PauliTermSum[Any]]":
+    """True for a `PauliTermSum`, whether it is the Python wrapper below or a
+    bare Rust instance.
+    """
+    return isinstance(obj, _RustPauliTermSum)
+
+
 class PauliTermSum(_RustPauliTermSum, Generic[T]):
     r"""
     Class representing a sum of Pauli terms:
-    \[
+
+    ```math
     \sum_i c_i P_i
-    \]
+    ```
 
     Backend is implemented in Rust for performance, but this class provides a
     Python interface for constructing and manipulating sums of Pauli terms.
@@ -66,6 +74,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of qubits in the system.
+
+        Returns:
+            The corresponding PauliTermSum.
         """
         i, j = q_indices
         theta = float(instr.params[0])
@@ -86,6 +97,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of qubits in the system.
+
+        Returns:
+            The corresponding PauliTermSum.
         """
         q = q_indices[0]
         angle = float(instr.params[0])
@@ -104,6 +118,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             q: The index of the qubit the gate acts on.
             angle: The rotation angle in radians.
             n_modes: The total number of qubits in the system.
+
+        Returns:
+            The corresponding PauliTermSum.
         """
         term_sum = cls()
         for gen, coeff in _rz_terms(angle, q, n_modes):
@@ -121,6 +138,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of qubits in the system.
+
+        Returns:
+            The corresponding PauliTermSum.
         """
         return cls.from_phase(instr, q_indices, n_modes)
 
@@ -135,6 +155,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of qubits in the system.
+
+        Returns:
+            The corresponding PauliTermSum.
         """
         i, j = q_indices
         phi = float(instr.params[0])
@@ -157,6 +180,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
                 frontend, e.g. propaq.circuits._cirq_gates.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of qubits in the system.
+
+        Returns:
+            The corresponding PauliTermSum.
         """
         i, j = q_indices
         xy_bits = BitMask((1 << i) | (1 << j))
@@ -179,6 +205,9 @@ class PauliTermSum(_RustPauliTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of qubits in the system.
+
+        Returns:
+            The corresponding PauliTermSum.
         """
         i = q_indices[0]
         term_sum = cls()

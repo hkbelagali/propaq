@@ -10,7 +10,7 @@ BitMask = NewType("BitMask", int)
 
 @dataclass(frozen=True, slots=True)
 class AbstractTerm(ABC):
-    """Abstract monomial datatype.  Concrete examples: PauliMonomial, MajoranaMonomial."""
+    """Abstract monomial datatype.  Concrete examples: PauliString, MajoranaMonomial."""
 
     @property
     @abstractmethod

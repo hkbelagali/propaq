@@ -48,18 +48,21 @@ fn write_gate_log(
             .map_or_else(|| "null".to_string(), |v| v.to_string());
         let _ = writeln!(
             log,
-            r#"{{"event":"gate","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"map_terms":{},"outbox_terms":0,"avg_ms_per_gate":{:.3e}}}"#,
+            r#"{{"event":"gate","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"terms":{},"ms_per_gate":{:.3e}}}"#,
             g.gate_idx, g.layer_idx, qki, g.terms_after, g.elapsed_ms
         );
         let _ = writeln!(
             log,
-            r#"{{"event":"truncation","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"trigger":"emit","truncation_model":"emit_gate","terms_before":{},"terms_after":{},"terms_discarded":{},"discarded_coeff_l1":0.0e0,"discarded_coeff_max":0.0e0,"weight_cutoff":{},"coeff_cutoff":{:.6e},"elapsed_ms":{:.3e}}}"#,
+            r#"{{"event":"truncation","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"trigger":"emit","truncation_model":"emit_gate","terms_before":{},"terms_after":{},"terms_gained":{},"terms_discarded":{},"discarded_coeff_l1":{:.6e},"discarded_coeff_max":{:.6e},"weight_cutoff":{},"coeff_cutoff":{:.6e},"elapsed_ms":{:.3e}}}"#,
             g.gate_idx,
             g.layer_idx,
             qki,
             g.terms_before,
             g.terms_after,
+            g.terms_gained,
             g.declined,
+            g.discarded_coeff_l1,
+            g.discarded_coeff_max,
             wc,
             cc,
             g.elapsed_ms
@@ -75,13 +78,14 @@ fn write_phase_event(log: &mut impl Write, p: &propaq_core::partitioned_termsum:
     let share = |part: u64, whole: u64| part as f64 / whole.max(1) as f64;
     let _ = writeln!(
         log,
-        r#"{{"event":"engine_phases","partitions":{},"scan_s":{:.6e},"absorb_s":{:.6e},"claims_s":{:.6e},"scan_occupancy":{:.4},"absorb_occupancy":{:.4},"terms":{},"inline_positions":{},"overflow_rows":{},"overflow_share":{:.4},"visited":{},"emitted":{},"declined":{},"emitted_share":{:.4},"declined_share":{:.4},"exchange_hits":{},"exchange_hit_share":{:.4}}}"#,
+        r#"{{"event":"engine_phases","partitions":{},"scan_s":{:.6e},"absorb_s":{:.6e},"claims_s":{:.6e},"scan_occupancy":{:.4},"absorb_occupancy":{:.4},"claims_occupancy":{:.4},"terms":{},"inline_positions":{},"overflow_rows":{},"overflow_share":{:.4},"visited":{},"emitted":{},"declined":{},"emitted_share":{:.4},"declined_share":{:.4},"exchange_hits":{},"exchange_hit_share":{:.4}}}"#,
         p.partitions,
         p.scan_seconds,
         p.absorb_seconds,
         p.claims_seconds,
         occupancy(p.scan_busy_seconds, p.scan_seconds),
         occupancy(p.absorb_busy_seconds, p.absorb_seconds),
+        occupancy(p.claims_busy_seconds, p.claims_seconds),
         p.terms,
         p.inline_positions,
         p.overflow_rows,

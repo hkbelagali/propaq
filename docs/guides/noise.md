@@ -22,14 +22,16 @@ depolarizing-style model: a term of weight \(w\) is scaled by
 \exp(-\gamma w)
 \]
 
-with \(\gamma\) the `damping` rate. It runs natively, with no Python callback in
-the propagator's inner loop.
+with \(\gamma\) the `damping` rate.
 
 ## Python-defined models
 
-[`GateNoiseModel`][propaq.noise.GateNoiseModel] delegates to an arbitrary Python
-object. Implement the two methods of
-[`NoiseModel`][propaq.noise.base.NoiseModel]:
+Subclass [`GateNoiseModel`][propaq.noise.GateNoiseModel] and define the appropriate method for your model.
+### Weight-only noise
+
+Implement `damping_factor(term_weight, active_modes) -> float` for a model
+whose damping depends only on a term's Pauli/Majorana weight (like
+[`UniformNoiseModel`][propaq.noise.UniformNoiseModel]):
 
 ```python
 import math
@@ -37,7 +39,7 @@ import math
 from propaq.noise import GateNoiseModel
 
 
-class StretchedExponentialNoise:
+class StretchedExponentialNoise(GateNoiseModel):
     def __init__(self, gamma: float, beta: float) -> None:
         self.gamma = gamma
         self.beta = beta
@@ -45,20 +47,40 @@ class StretchedExponentialNoise:
     def damping_factor(self, term_weight: float, active_modes: int) -> float:
         return math.exp(-((self.gamma * term_weight) ** self.beta))
 
-    def apply_noise(self, term_sum):
-        term_sum.apply_damping(self.damping_factor)
 
-
-prop = PauliPropagator(noise=GateNoiseModel(inner=StretchedExponentialNoise(0.01, 0.8)))
+prop = PauliPropagator(noise=StretchedExponentialNoise(0.01, 0.8))
 ```
 
-!!! warning "Python noise is on the hot path"
+We precompute the values for each weight and cache them, so these models 
+are effectively zero overhead.
 
-    `damping_factor` is called from the propagator's inner loop, so every call
-    pays GIL acquisition and Python dispatch. This is fine for prototyping and
-    for models applied at coarse granularity, but it will dominate the runtime
-    of a large propagation. For anything performance-sensitive, write the model
-    as a [native plugin](plugins.md) instead.
+### Key-aware noise
+In general, a noise model will need the actual operator's string representation, 
+not just its weight. For these cases, implement `damping_factor_term(basis_kind, words, n_units, weight) -> float`.
+
+```python
+class BoundaryQubitNoise(GateNoiseModel):
+    """Damp terms acting nontrivially on qubit 0 more than the rest."""
+
+    def __init__(self) -> None:
+        pass
+
+    def damping_factor_term(self, basis_kind, words, n_units, weight):
+        touches_qubit_0 = bool(words[0] & 0b11)
+        gamma = 0.3 if touches_qubit_0 else 0.05
+        return math.exp(-gamma * weight)
+
+
+prop = PauliPropagator(noise=BoundaryQubitNoise())
+```
+
+!!! warning "Key-aware noise is on the hot path"
+
+    `damping_factor_term` is called once per live term at every noise
+    application boundary, with the GIL held, so every call pays GIL
+    acquisition and Python dispatch. We have observed that this can 
+    cost up to 50% added runtime for a circuit.
+    We recommend prototyping your model in Python first, then porting it to a native plugin for production runs.
 
 ## Native plugins
 

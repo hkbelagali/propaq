@@ -41,7 +41,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Set up environment
-        run: pip install -e .[dev,cirq]
+        run: pip install -e .[dev,cirq,ffsim]
       - name: Check formatting with ruff
         run: ruff format --check .
       - name: Lint with ruff
@@ -81,6 +81,7 @@ jobs:
           command: build
           args: --release --out dist --interpreter /opt/python/cp310-cp310/bin/python /opt/python/cp311-cp311/bin/python /opt/python/cp312-cp312/bin/python
           manylinux: auto
+          docker-options: -e RUSTFLAGS=-Ctarget-cpu=x86-64
       - name: Store the distribution packages
         uses: actions/upload-artifact@v4
         with:
@@ -111,6 +112,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          RUSTFLAGS: ${{ matrix.os == 'windows-latest' && '-Ctarget-cpu=x86-64' || '' }}
         with:
           command: build
           args: --release --out dist --interpreter python

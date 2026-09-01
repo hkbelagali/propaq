@@ -12,6 +12,6 @@
         "python -m pip wheel --no-deps --no-build-isolation -w {build_cache_dir} {build_dir}"
     ],
     "install_command": [
-        "in-dir={build_dir} python -m pip install --no-build-isolation -e {build_dir}"
+        "in-dir={build_dir} python -m pip install --no-build-isolation -e {build_dir}[benchmarks]"
     ]
 }

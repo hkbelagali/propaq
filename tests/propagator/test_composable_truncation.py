@@ -5,7 +5,6 @@ import pytest
 from propaq import (
     CoefficientTruncator,
     FrequencyTruncator,
-    MonomialBudget,
     Simplify,
     TermBudget,
     Truncator,
@@ -44,7 +43,7 @@ class TestNumericalListAPI:
             truncation=[
                 WeightTruncator(2),
                 CoefficientTruncator(1e-6),
-                TermBudget(max_terms=10_000_000),
+                TermBudget(),
             ]
         )
         assert _ev(composed, obs, circ) == pytest.approx(_ev(legacy, obs, circ), rel=1e-12)
@@ -70,10 +69,6 @@ class TestNumericalListAPI:
         with pytest.raises(ValueError, match="surrogate"):
             PauliPropagator(truncation=[FrequencyTruncator(5)])
 
-    def test_rejects_monomial_budget(self):
-        with pytest.raises(ValueError, match="surrogate"):
-            PauliPropagator(truncation=[MonomialBudget(max_monomials=100)])
-
     def test_rejects_simplify(self):
         with pytest.raises(ValueError, match="surrogate"):
             PauliPropagator(truncation=[Simplify()])
@@ -97,7 +92,7 @@ class TestCrossPropagator:
 
         obs = PauliTermSum({ps(0, 0b0001): 1.0})
         circ = PauliCircuit([PauliRotation(ps(0b0001, 0), 0.3)])
-        ops = [WeightTruncator(4), CoefficientTruncator(1e-9), TermBudget(max_terms=5_000_000)]
+        ops = [WeightTruncator(4), CoefficientTruncator(1e-9), TermBudget()]
 
         num = PauliPropagator(truncation=ops).expectation_value(obs, circ, initial_state=0)
         assert isinstance(num.expectation_value, float)

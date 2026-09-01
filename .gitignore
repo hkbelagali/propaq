@@ -19,6 +19,11 @@ site/
 docs/examples/usage/
 docs/examples/plugins/
 
+# Artifacts written by running the example notebooks locally
+examples/usage/propagated_terms.gz
+examples/usage/propaq.log
+examples/usage/surrogate_model.pq
+
 # ASV benchmark working directories
 .asv/
 results/

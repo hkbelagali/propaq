@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use propaq_core::basis::Basis;
 use propaq_core::coeff::CoeffRepr;
 use propaq_core::operator_index::Pos;
-use propaq_core::partitioned_termsum::PartitionedTermSum;
+use propaq_core::partitioned_termsum::{PartitionedTermSum, PhaseStats};
 use propaq_core::progress::Progress;
 use propaq_core::strings::BasisString;
 use propaq_core::termsum::EmitCutoff;
@@ -23,7 +23,6 @@ pub fn apply_truncation<A, P, const W: usize>(
     op: &mut PartitionedTermSum<SymbolicCoeff, P, W>,
     cfg: &ResolvedConfig,
     n_units: usize,
-    monomials_before: u128,
 ) -> u128
 where
     A: Basis<W>,
@@ -31,8 +30,7 @@ where
 {
     let total_before = op.len();
 
-    let apply_lossy = total_before >= cfg.min_terms.unwrap_or(0)
-        && monomials_before >= cfg.min_monomials.unwrap_or(0);
+    let apply_lossy = total_before >= cfg.min_terms.unwrap_or(0);
 
     if cfg.simplify {
         let n_shards = (rayon::current_num_threads() * SHARD_OVERSUBSCRIPTION).max(1);
@@ -101,18 +99,35 @@ where
 }
 
 /// One truncation pass, recorded for the verbose log.
-pub struct FlushRecord {
+pub struct MergeRecord {
     pub gate_idx: usize,
     pub layer_idx: usize,
+    pub qiskit_gate_idx: Option<usize>,
     pub trigger: &'static str,
     pub terms_before: usize,
     pub terms_after: usize,
     pub monomials_before: u128,
     pub monomials_after: u128,
+    pub frequency: Option<usize>,
+    pub weight: Option<u32>,
+    pub coefficient: Option<f64>,
+    pub elapsed_ms: f64,
+}
+
+/// One gate application, recorded for the verbose log.
+pub struct GateRecord {
+    pub gate_idx: usize,
+    pub layer_idx: usize,
+    pub qiskit_gate_idx: Option<usize>,
+    pub terms: usize,
+    pub monomials: u128,
+    pub ms_per_gate: f64,
 }
 
 /// One gate, already converted out of Python.
 pub struct Gate<T> {
+    /// Position of the originating qiskit instruction, when there was one.
+    pub qiskit_gate_idx: Option<usize>,
     pub generator: T,
     pub param: GateParam,
 }
@@ -130,7 +145,12 @@ pub fn build<A, P, T, const W: usize>(
     initial_state: &[u64],
     n_params: usize,
     progress: Option<&Progress>,
-) -> PyResult<(SurrogateModel, Vec<FlushRecord>)>
+) -> PyResult<(
+    SurrogateModel,
+    Vec<GateRecord>,
+    Vec<MergeRecord>,
+    PhaseStats,
+)>
 where
     A: Basis<W>,
     P: Pos,
@@ -148,55 +168,50 @@ where
     let no_emit_gate = EmitCutoff::none();
     let mut monomials = op.sum_coeffs(|c| c.monomial_count());
 
-    let mut flushes: Vec<FlushRecord> = Vec::new();
+    let mut gates_log: Vec<GateRecord> = Vec::new();
+    let mut merges: Vec<MergeRecord> = Vec::new();
     let mut gate_idx = 0usize;
     for (layer_idx, layer) in layers.iter().enumerate() {
         for gate in layer {
             let gen = to_basis(&gate.generator);
+            let t0 = std::time::Instant::now();
             op.apply_rotation::<A>(&gen, &gate.param, &no_emit_gate)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            gate_idx += 1;
+            let ms_per_gate = t0.elapsed().as_secs_f64() * 1e3;
 
-            let terms_trigger = cfg.max_terms.is_some_and(|max| op.len() >= max);
-            let monomials_trigger = !terms_trigger
-                && cfg
-                    .max_monomials
-                    .is_some_and(|max| op.sum_coeffs(|c| c.monomial_count()) >= max);
-            if terms_trigger || monomials_trigger {
-                let trigger = if terms_trigger {
-                    "threshold"
-                } else {
-                    "monomial_threshold"
-                };
-                let (before, mono_before) = (op.len(), monomials);
-                monomials = apply_truncation::<A, P, W>(&mut op, cfg, n_units, monomials);
-                flushes.push(FlushRecord {
-                    gate_idx,
-                    layer_idx,
-                    trigger,
-                    terms_before: before,
-                    terms_after: op.len(),
-                    monomials_before: mono_before,
-                    monomials_after: monomials,
-                });
-            }
+            let (before, mono_before) = (op.len(), monomials);
+            let t1 = std::time::Instant::now();
+            monomials = apply_truncation::<A, P, W>(&mut op, cfg, n_units);
+            let merge_elapsed_ms = t1.elapsed().as_secs_f64() * 1e3;
+            gates_log.push(GateRecord {
+                gate_idx,
+                layer_idx,
+                qiskit_gate_idx: gate.qiskit_gate_idx,
+                terms: op.len(),
+                monomials,
+                ms_per_gate,
+            });
+            merges.push(MergeRecord {
+                gate_idx,
+                layer_idx,
+                qiskit_gate_idx: gate.qiskit_gate_idx,
+                trigger: "emit",
+                terms_before: before,
+                terms_after: op.len(),
+                monomials_before: mono_before,
+                monomials_after: monomials,
+                frequency: cfg.frequency,
+                weight: cfg.weight,
+                coefficient: cfg.coefficient,
+                elapsed_ms: merge_elapsed_ms,
+            });
+            gate_idx += 1;
             if let Some(p) = progress {
                 if gate_idx.is_multiple_of(p.every()) {
                     p.tick_surrogate(p.every(), op.len(), monomials);
                 }
             }
         }
-        let (before, mono_before) = (op.len(), monomials);
-        monomials = apply_truncation::<A, P, W>(&mut op, cfg, n_units, monomials);
-        flushes.push(FlushRecord {
-            gate_idx,
-            layer_idx,
-            trigger: "final",
-            terms_before: before,
-            terms_after: op.len(),
-            monomials_before: mono_before,
-            monomials_after: monomials,
-        });
     }
 
     // Gates left over when the circuit does not divide by the tick interval,
@@ -208,8 +223,14 @@ where
         }
     }
 
+    let phases = op.phase_stats(inline_positions);
     let (tape, raw) = compile::<A, P, W>(&mut op, n_units, initial_state);
-    Ok((SurrogateModel::new(raw, tape, n_params), flushes))
+    Ok((
+        SurrogateModel::new(raw, tape, n_params),
+        gates_log,
+        merges,
+        phases,
+    ))
 }
 
 /// Reads a circuit's layers into gates, in application order.
@@ -225,7 +246,16 @@ where
             let rot = rot_obj.bind(py);
             let generator: T = rot.getattr("generator")?.extract().map_err(Into::into)?;
             let param = <SymbolicCoeff as CoeffRepr>::extract_gate_param(rot)?;
-            gates.push(Gate { generator, param });
+            let qiskit_gate_idx = rot
+                .getattr("qiskit_gate_idx")
+                .ok()
+                .and_then(|v| v.extract::<Option<usize>>().ok())
+                .flatten();
+            gates.push(Gate {
+                qiskit_gate_idx,
+                generator,
+                param,
+            });
         }
         out.push(gates);
     }

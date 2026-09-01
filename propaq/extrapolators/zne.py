@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.optimize import curve_fit
@@ -11,6 +12,9 @@ from propaq.circuits.pauli.circuit import PauliCircuit
 from propaq.datatypes._abstract import AbstractTermSum
 from propaq.noise import UniformNoiseModel
 from propaq.propagators._abstract import AbstractPropagator
+
+if TYPE_CHECKING:
+    from propaq.noise import GateNoiseModel, NativeNoiseModel
 
 
 @dataclass
@@ -46,6 +50,15 @@ class ZeroNoiseExtrapolator:
         self.fitting_fn = fitting_fn
         self.noise_values = list(noise_values)
 
+    def build_noise(self, value: float) -> UniformNoiseModel | GateNoiseModel | NativeNoiseModel:
+        """Build a fresh noise model carrying the given sweep value.
+
+        Defaults to `UniformNoiseModel(value)`. Override to sweep a different
+        single-parameter noise model, e.g. one parameter of a custom
+        `GateNoiseModel` subclass with the rest held fixed.
+        """
+        return UniformNoiseModel(value)
+
     def run(
         self,
         propagator: AbstractPropagator,
@@ -70,7 +83,7 @@ class ZeroNoiseExtrapolator:
         try:
             expectation_values = []
             for val in self.noise_values:
-                propagator.set_noise(UniformNoiseModel(val))
+                propagator.set_noise(self.build_noise(val))
                 result = propagator.expectation_value(
                     observable, circuit, initial_state=initial_state
                 )

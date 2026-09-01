@@ -15,10 +15,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from propaq._rust_core import MajoranaTermSum as _RustMajoranaTermSum
-from propaq._rust_core import PauliTermSum as _RustPauliTermSum
 from propaq._rust_core import hybrid_expectation
 from propaq.datatypes import MajoranaTermSum, PauliTermSum
+from propaq.datatypes.majorana.termsum import is_majorana_term_sum
+from propaq.datatypes.pauli.termsum import is_pauli_term_sum
 
 if TYPE_CHECKING:
     from qiskit import QuantumCircuit
@@ -64,9 +64,9 @@ def _to_pauli_term_sum(term_sum: AbstractTermSum) -> PauliTermSum:
     Converts *term_sum* to an equivalent `PauliTermSum` if it's a Majorana
     term sum, passing Pauli term sums through unchanged.
     """
-    if isinstance(term_sum, _RustPauliTermSum):
+    if is_pauli_term_sum(term_sum):
         return term_sum
-    if not isinstance(term_sum, _RustMajoranaTermSum):
+    if not is_majorana_term_sum(term_sum):
         raise TypeError(f"Unsupported term sum type: {type(term_sum)!r}")
     wrapped: MajoranaTermSum = MajoranaTermSum(dtype=term_sum.dtype)
     wrapped.merge(term_sum)

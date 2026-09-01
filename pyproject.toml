@@ -34,7 +34,6 @@ classifiers = [
 dependencies = [
     "numpy>=1.24",
     "qiskit~=2.4.1",
-    "ffsim~=0.0.80",
     "scipy>=1.10",
     "tqdm",
 ]
@@ -52,6 +51,7 @@ dev = [
     "mypy~=1.14.1",
     "maturin>=1.7,<2",
     "coverage~=7.14.0",
+    "pre-commit~=4.0",
 ]
 docs = [
     "mkdocs>=1.6",
@@ -60,15 +60,32 @@ docs = [
     "mkdocs-jupyter>=0.25",
     "mkdocs-autorefs>=1.2",
     "pymdown-extensions>=10.9",
+    "ipywidgets>=8.1",
+]
+
+examples = [
+    "propaq[cirq,ffsim,hybrid]",
+    "matplotlib>=3.7",
+    "qiskit-nature>=0.7",
+    "jupyter>=1.0",
+    "ipywidgets>=8.1",
 ]
 cirq = [
     "cirq~=1.5.0",
+]
+ffsim = [
+    "ffsim~=0.0.80",
 ]
 openfermion = [
     "openfermion>=1.6",
 ]
 hybrid = [
-    "quimb",
+    # 0.15.0 breaks RZZ parsing
+    "quimb>=1.6,<1.15",
+]
+benchmarks = [
+    "propaq[ffsim]",
+    "pyscf>=2.6",
 ]
 
 [tool.maturin]

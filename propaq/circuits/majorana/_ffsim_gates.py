@@ -15,6 +15,8 @@ def orbital_rotation_generators(
     """
     (generator, angle) pairs for an orbital rotation on one spin sector.
 
+    Requires the optional `ffsim` extra: pip install propaq[ffsim].
+
     Arguments:
         mat: The unitary orbital rotation matrix for this spin sector.
         n_modes: The total number of Majorana modes in the system.
@@ -25,7 +27,12 @@ def orbital_rotation_generators(
     Returns:
         Ordered (generator, angle) pairs, to be applied in sequence.
     """
-    import ffsim
+    try:
+        import ffsim
+    except ImportError as exc:
+        raise ImportError(
+            "ffsim support requires the optional 'ffsim' extra: pip install propaq[ffsim]"
+        ) from exc
 
     givens_rotations, phase_shifts = ffsim.linalg.givens_decomposition(mat, tol=tol)
     terms: list[tuple[MajoranaMonomial, float]] = []

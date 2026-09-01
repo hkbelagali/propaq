@@ -11,6 +11,5 @@ See the [logging and profiling guide](../guides/logging.md).
         - LogParser
         - GateEvent
         - TruncationEvent
-        - SurrogateFlushEvent
-        - SurrogateFlushDeferredEvent
+        - SurrogateMergeEvent
         - EnginePhasesEvent

@@ -90,4 +90,5 @@ def test_engine_phases_event_summarizes_the_run(tmp_path):
     assert ev.visited >= ev.emitted >= ev.exchange_hits
     assert 0.0 <= ev.scan_occupancy <= 1.0
     assert 0.0 <= ev.absorb_occupancy <= 1.0
+    assert 0.0 <= ev.claims_occupancy <= 1.0
     assert ev.overflow_rows == 0

@@ -62,6 +62,9 @@ class VariationalSurrogateModel:
         Arguments:
             values: Either a mapping from Parameter to its value, or a plain
                 sequence of values aligned with `self.parameters`.
+
+        Returns:
+            The expectation value for the given parameter assignment.
         """
         return self._model.evaluate(self._bind(values))
 
@@ -75,5 +78,8 @@ class VariationalSurrogateModel:
         Arguments:
             values_batch: A sequence of assignments, each accepted in either
                 form `evaluate` takes.
+
+        Returns:
+            The expectation value for each assignment, in the same order.
         """
         return self._model.evaluate_batch([self._bind(values) for values in values_batch])

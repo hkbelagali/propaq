@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [0.1.4] - 2026-09-01
+
+### Added 
+- Pre-commit hooks for `ruff`, `mypy` and `cargo` formatting. 
+- Added `examples` extra for installing required dependencies for running the example notebooks.
+- Added more documentation for logging semantics. 
+- Overridden `isinstance()` on the public truncation wrapper classes to match Rust instances.
+
+### Changed 
+- Moved `ffsim` from a required runtime dependency to an extra for Windows compatibility. 
+- Updated wheels to use appropriate Rust flags for each platform. 
+- `GateNoiseModel` can now be subclassed directly, defining the appropriate methods.
+- Extrapolators now allow for custom noise models and truncators to be swept instead of the hardcoded ones.
+- Added `terms_gained` to logging to track the number of branches created at each gate.
+- Updated CI to execute notebooks prior to building the documentation.
+- Renamed `map_terms` to `terms` in `GateEvent`.
+- Renamed `avg_ms_per_gate` to `ms_per_gate` in `GateEvent`.
+- Renamed `SurrogateFlushEvent` to `SurrogateMergeEvent` and updated the corresponding fields in `LogParser`.
+- Changed `truncation_range` to `min_terms` in `TruncationPolicy` and `FrequencyTruncationPolicy`.
+
+### Fixed 
+- A bug in occupancy reporting for the hot loop.
+- Stale logging events in all propagators.
+- Pin `quimb` to `<1.15` in the `hybrid` extra to avoid breaking QASM parsing.
+- Surrogate propagator `GateEvent`/`SurrogateMergeEvent.gate_idx` now starts from 0, matching the numerical propagators and the documented convention.
+
+### Removed
+- Removed references to `_rust_core` outside the source code.
+- Removed `TermBudget.max_terms` as it was only used in the previous propagation architecture. 
+- Removed `MonomialBudget` as it was only used in the previous propagation architecture.
+- Removed `GateEvent.outbox_terms` as it was always hardcoded to `0` and not meaningful.
+
 ## [0.1.3] - 2026-08-12
 
 ### Added 

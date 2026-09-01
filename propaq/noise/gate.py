@@ -5,9 +5,14 @@ from propaq.noise.base import NoiseModel
 
 
 class GateNoiseModel(_RustGateNoiseModel):
-    """Python noise model class"""
+    """A custom Python noise model.
 
-    pass
+    Subclass this and define ``damping_factor`` or ``damping_factor_term``
+    directly. See
+    [`NoiseModel`][propaq.noise.base.NoiseModel] for the two hook methods and
+    the [noise guide](../guides/noise.md#python-defined-models) for worked
+    examples of both.
+    """
 
 
 NoiseModel.register(GateNoiseModel)

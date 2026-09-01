@@ -38,7 +38,46 @@ argument is the noise value and the rest are fit parameters. Extra keyword
 arguments to `run` (such as `p0=`) are forwarded to `curve_fit`.
 
 The propagator's existing noise model is replaced for the duration of the sweep
-and **restored afterwards**, including if the sweep raises.
+and restored afterwards, including if the sweep raises.
+
+A user can also sweep a custom noise model by subclassing
+[`ZeroNoiseExtrapolator`][propaq.extrapolators.ZeroNoiseExtrapolator] and overriding
+[`build_noise`][propaq.extrapolators.ZeroNoiseExtrapolator.build_noise], which
+builds the model instance for a given sweep value (default:
+`UniformNoiseModel(value)`):
+
+```python
+import math
+
+from propaq.noise import GateNoiseModel
+
+
+class DephasingNoise(GateNoiseModel):
+    """Per-qubit dephasing noise"""
+
+    _X_MASK = 0x5555555555555555  # the low bit of every interleaved (x, z) pair
+
+    def __init__(self, gamma: float) -> None:
+        self.gamma = gamma
+
+    def damping_factor_term(self, basis_kind, words, n_units, weight):
+        x_count = sum(bin(w & self._X_MASK).count("1") for w in words)
+        return math.exp(-self.gamma * x_count)
+
+
+class DephasingExtrapolator(ZeroNoiseExtrapolator):
+    def build_noise(self, value):
+        return DephasingNoise(gamma=value)
+
+
+zne_dephasing = DephasingExtrapolator(
+    fitting_fn=linear,
+    noise_values=[0.01, 0.02, 0.03, 0.04, 0.05],
+)
+result = zne_dephasing.run(PauliPropagator(), observable, circuit, initial_state=0)
+```
+
+Note that only one parameter can be swept at a time, so if the model depends on multiple parameters, the others must be fixed.
 
 The result is a [`ZNEResult`][propaq.extrapolators.ZNEResult], which carries the
 extrapolated value along with the raw sweep, the fitted parameters and their
@@ -72,13 +111,39 @@ zce = CoefficientCutoffExtrapolator(
 result = zce.run(prop, observable, circuit, initial_state=0)
 print("zero-cutoff estimate:", result.zero_cutoff_value)
 ```
-A user can also specify custom truncators to sweep by subclassing
-[`ZeroCutoffExtrapolator`][propaq.extrapolators.ZeroCutoffExtrapolator] and implementing its three
-abstract methods: [`_rust_cls`][propaq.extrapolators.ZeroCutoffExtrapolator._rust_cls] (the Rust
-truncator class to sweep), [`_read`][propaq.extrapolators.ZeroCutoffExtrapolator._read] (pull the
-cutoff out of a matching truncator) and
-[`_build`][propaq.extrapolators.ZeroCutoffExtrapolator._build] (construct one carrying a given
-cutoff).
+A user can also specify a custom truncator to sweep by subclassing
+[`ZeroCutoffExtrapolator`][propaq.extrapolators.ZeroCutoffExtrapolator] and implementing its two
+abstract methods: [`truncator_cls`][propaq.extrapolators.ZeroCutoffExtrapolator.truncator_cls] (the
+truncator class to match against, used to locate the target truncator in the propagator's
+pipeline) and [`build_truncator`][propaq.extrapolators.ZeroCutoffExtrapolator.build_truncator]
+(construct a fresh truncator carrying a given cutoff), mirroring
+[`build_noise`][propaq.extrapolators.ZeroNoiseExtrapolator.build_noise] on the noise side:
+
+```python
+from propaq.extrapolators import ZeroCutoffExtrapolator
+from propaq.truncation import WeightTruncator
+
+
+class LightConeWeightCutoffExtrapolator(ZeroCutoffExtrapolator):
+    """Light-cone-like truncation, where we only keep terms with weight <= 2 * depth + 1"""
+
+    def truncator_cls(self):
+        return WeightTruncator
+
+    def build_truncator(self, depth):
+        return WeightTruncator(2 * int(depth) + 1 if depth is not None else None)
+
+
+extrapolator = LightConeWeightCutoffExtrapolator(
+    fitting_fn=linear,
+    cutoff_values=[1, 2, 3, 4],
+)
+result = extrapolator.run(
+    PauliPropagator(truncation=WeightTruncator(weight=16)), observable, circuit, initial_state=0
+)
+```
+Note the extra method [`truncator_cls`][propaq.extrapolators.ZeroCutoffExtrapolator.truncator_cls]. Since we have a composable truncation pipeline,
+we need to identify which truncator to sweep. This allows one to hold other truncators fixed while sweeping a single one.
 
 The result is a [`ZCEResult`][propaq.extrapolators.ZCEResult], with the same
 fields as `ZNEResult` but keyed on `cutoff_values` / `zero_cutoff_value`.
