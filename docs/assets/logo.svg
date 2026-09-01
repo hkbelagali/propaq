@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="propaq logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="5 8 50 48" width="50" height="48" role="img" aria-label="propaq logo">
   <!-- Propagating operator: a source term branching into a cone of daughter terms.
 
        The violet is explicit rather than `currentColor`: Material renders the logo
