@@ -2950,7 +2950,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-1">
@@ -3064,7 +3064,7 @@ observable = SparsePauliOp.from_list([
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-2">
@@ -3110,7 +3110,7 @@ mts = MajoranaTermSum.from_sparse_pauli_op(observable)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
@@ -3129,7 +3129,7 @@ mts = MajoranaTermSum.from_sparse_pauli_op(observable)</div>
 <span class="n">truncation_policy</span> <span class="o">=</span> <span class="n">TruncationPolicy</span><span class="p">(</span>
     <span class="n">weight_cutoff</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="c1"># Max weight of terms to keep</span>
     <span class="n">coeff_cutoff</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="c1"># Min coefficient magnitude to keep</span>
-    <span class="n">truncation_range</span><span class="o">=</span><span class="p">(</span><span class="mi">100_000</span><span class="p">,</span> <span class="mi">1_000_000</span><span class="p">)</span> <span class="c1"># Only truncate if the number of terms is in this range, or exceeds the upper bound</span>
+    <span class="n">min_terms</span><span class="o">=</span><span class="mi">100_000</span> <span class="c1"># Suppress weight/coefficient truncation below this many live terms</span>
 <span class="p">)</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">propaq.propagators</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaPropagator</span> 
@@ -3147,7 +3147,7 @@ noise = UniformNoiseModel(damping=0.001) # Uniform depolarizing noise with dampi
 truncation_policy = TruncationPolicy(
     weight_cutoff=10, # Max weight of terms to keep
     coeff_cutoff=1e-5, # Min coefficient magnitude to keep
-    truncation_range=(100_000, 1_000_000) # Only truncate if the number of terms is in this range, or exceeds the upper bound
+    min_terms=100_000 # Suppress weight/coefficient truncation below this many live terms
 )
 
 from propaq.propagators import MajoranaPropagator 
@@ -3174,13 +3174,13 @@ prop = MajoranaPropagator(
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=2984a112">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2984a112">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
@@ -3198,6 +3198,25 @@ prop = MajoranaPropagator(
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-4">result = prop.expectation_value(mts, mc, initial_state=0)
 print("Expectation value:", result.expectation_value)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
+<pre>Propagating:   0%|          | 0/25 [00:00&lt;?, ?gate/s]</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
+<pre>Expectation value: 0.0
+</pre>
 </div>
 </div>
 </div>
@@ -3231,7 +3250,7 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
@@ -3258,7 +3277,7 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-6">
@@ -3285,7 +3304,7 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
@@ -3322,7 +3341,7 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
@@ -3348,9 +3367,8 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Propagating through gates: 100%|██████████| 21/21 [00:00&lt;00:00, 1829.22it/s, terms=54]
-</pre>
+<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
+<pre>Propagating:   0%|          | 0/25 [00:00&lt;?, ?gate/s]</pre>
 </div>
 </div>
 </div>
@@ -3373,7 +3391,7 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-9">
@@ -3411,7 +3429,7 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-10">
@@ -3436,13 +3454,13 @@ print("Expectation value:", result.expectation_value)</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[11]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>[GateEvent(gate_idx=0, layer_idx=0, map_terms=4, outbox_terms=0, avg_ms_per_gate=None, qiskit_gate_idx=9, monomials=None),
- GateEvent(gate_idx=5, layer_idx=2, map_terms=4, outbox_terms=8, avg_ms_per_gate=0.6943862, qiskit_gate_idx=7, monomials=None),
- GateEvent(gate_idx=10, layer_idx=3, map_terms=4, outbox_terms=11, avg_ms_per_gate=0.5610962, qiskit_gate_idx=5, monomials=None),
- GateEvent(gate_idx=15, layer_idx=5, map_terms=4, outbox_terms=14, avg_ms_per_gate=0.4637394, qiskit_gate_idx=1, monomials=None),
- GateEvent(gate_idx=20, layer_idx=5, map_terms=4, outbox_terms=50, avg_ms_per_gate=0.4247318, qiskit_gate_idx=0, monomials=None)]</pre>
+<pre>[GateEvent(gate_idx=0, layer_idx=0, terms=5, ms_per_gate=1.336, qiskit_gate_idx=9, monomials=None),
+ GateEvent(gate_idx=5, layer_idx=1, terms=14, ms_per_gate=1.272, qiskit_gate_idx=8, monomials=None),
+ GateEvent(gate_idx=10, layer_idx=2, terms=52, ms_per_gate=1.123, qiskit_gate_idx=7, monomials=None),
+ GateEvent(gate_idx=15, layer_idx=3, terms=60, ms_per_gate=0.7797, qiskit_gate_idx=5, monomials=None),
+ GateEvent(gate_idx=20, layer_idx=4, terms=61, ms_per_gate=1.213, qiskit_gate_idx=2, monomials=None)]</pre>
 </div>
 </div>
 </div>
@@ -3465,7 +3483,7 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-11">
@@ -3490,9 +3508,13 @@ print("Expectation value:", result.expectation_value)</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[11]:</div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>[]</pre>
+<pre>[TruncationEvent(gate_idx=0, layer_idx=0, trigger='emit', terms_before=4, terms_after=5, terms_gained=1, terms_discarded=0, discarded_coeff_l1=0.0, discarded_coeff_max=0.0, weight_cutoff=10, coeff_cutoff=1e-05, elapsed_ms=1.336, qiskit_gate_idx=9),
+ TruncationEvent(gate_idx=5, layer_idx=1, trigger='emit', terms_before=9, terms_after=14, terms_gained=5, terms_discarded=0, discarded_coeff_l1=0.0, discarded_coeff_max=0.0, weight_cutoff=10, coeff_cutoff=1e-05, elapsed_ms=1.272, qiskit_gate_idx=8),
+ TruncationEvent(gate_idx=10, layer_idx=2, trigger='emit', terms_before=36, terms_after=52, terms_gained=16, terms_discarded=0, discarded_coeff_l1=0.0, discarded_coeff_max=0.0, weight_cutoff=10, coeff_cutoff=1e-05, elapsed_ms=1.123, qiskit_gate_idx=7),
+ TruncationEvent(gate_idx=15, layer_idx=3, trigger='emit', terms_before=60, terms_after=60, terms_gained=0, terms_discarded=0, discarded_coeff_l1=0.0, discarded_coeff_max=0.0, weight_cutoff=10, coeff_cutoff=1e-05, elapsed_ms=0.7797, qiskit_gate_idx=5),
+ TruncationEvent(gate_idx=20, layer_idx=4, trigger='emit', terms_before=60, terms_after=61, terms_gained=1, terms_discarded=0, discarded_coeff_l1=0.0, discarded_coeff_max=0.0, weight_cutoff=10, coeff_cutoff=1e-05, elapsed_ms=1.213, qiskit_gate_idx=2)]</pre>
 </div>
 </div>
 </div>
@@ -3515,7 +3537,7 @@ print("Expectation value:", result.expectation_value)</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-12">
@@ -3550,24 +3572,23 @@ properties</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>['gate_events',
  'truncation_events',
- 'surrogate_flush_events',
- 'surrogate_flush_deferred_events',
  'surrogate_merge_events',
+ 'engine_phases_events',
  'gate_indices',
- 'map_terms',
- 'outbox_terms',
+ 'terms',
  'monomials',
  'terms_before',
  'terms_after',
+ 'terms_gained',
  'terms_discarded',
  'discarded_coeff_l1',
  'discarded_coeff_max',
  'qiskit_gate_indices',
- 'avg_ms_per_gate',
+ 'ms_per_gate',
  'elapsed_ms',
  'monomials_before',
  'monomials_after',
@@ -3605,7 +3626,7 @@ properties</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-13">
@@ -3618,9 +3639,9 @@ properties</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="err">!</span><span class="n">pip</span> <span class="n">install</span> <span class="n">propaq</span><span class="p">[</span><span class="n">cirq</span><span class="p">]</span>
+<div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="err">!</span><span class="n">pip</span> <span class="n">install</span> <span class="n">propaq</span><span class="p">[</span><span class="n">cirq</span><span class="p">]</span> <span class="o">--</span><span class="n">quiet</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-13">!pip install propaq[cirq]</div>
+<div class="clipboard-copy-txt" id="cell-13">!pip install propaq[cirq] --quiet</div>
 </div>
 </div>
 </div>
@@ -3643,7 +3664,7 @@ properties</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-14">
@@ -3735,21 +3756,14 @@ print("Expectation value:", cirq_result.expectation_value)</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Propagating through gates: 100%|██████████| 28/28 [00:00&lt;00:00, 1968.53it/s, terms=1890]</pre>
+<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
+<pre>Propagating:   0%|          | 0/24 [00:00&lt;?, ?gate/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
-<pre>Expectation value: -9.921987957160651e-17
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>
+<pre>Expectation value: 0.0
 </pre>
 </div>
 </div>

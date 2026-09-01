@@ -826,10 +826,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#budgets" class="md-nav__link">
+  <a href="#budget" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Budgets
+        Budget
       
     </span>
   </a>
@@ -2213,10 +2213,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#budgets" class="md-nav__link">
+  <a href="#budget" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Budgets
+        Budget
       
     </span>
   </a>
@@ -2293,14 +2293,13 @@ mechanisms hold that in check:</p>
 <ul>
 <li><strong>Merging</strong> - distinct branches that arrive at the same basis operator have
   their coefficients summed.</li>
-<li><strong>Truncation</strong> - terms judged not to matter are discarded. </li>
+<li><strong>Truncation</strong> - terms judged not to matter are discarded.</li>
 </ul>
-<p>Truncation runs at a <strong>flush</strong>, a point at which the live term store is
-deduplicated and the truncator pipeline is applied. Flushes happen periodically,
-whenever a budget's threshold is reached, and always at the end of the circuit.</p>
+<p>The truncator pipeline is applied after every gate, unless the live term count is 
+below a floor set by the user. </p>
 <h2 id="the-truncator-pipeline">The truncator pipeline<a class="headerlink" href="#the-truncator-pipeline" title="Permanent link">&para;</a></h2>
-<p>A propagator takes a list of truncators, all of which are applied at each
-flush:</p>
+<p>A propagator takes a list of truncators, all of which are applied after each
+gate:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.propagators</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliPropagator</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.truncation</span><span class="w"> </span><span class="kn">import</span> <span class="n">CoefficientTruncator</span><span class="p">,</span> <span class="n">TermBudget</span><span class="p">,</span> <span class="n">WeightTruncator</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
@@ -2308,7 +2307,7 @@ flush:</p>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">truncation</span><span class="o">=</span><span class="p">[</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        <span class="n">WeightTruncator</span><span class="p">(</span><span class="n">weight</span><span class="o">=</span><span class="mi">12</span><span class="p">),</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="n">CoefficientTruncator</span><span class="p">(</span><span class="n">coefficient</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">),</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">TermBudget</span><span class="p">(</span><span class="n">max_terms</span><span class="o">=</span><span class="mi">5_000_000</span><span class="p">,</span> <span class="n">min_terms</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">),</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">TermBudget</span><span class="p">(</span><span class="n">min_terms</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">),</span>
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="p">]</span>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
 </span></code></pre></div>
@@ -2337,17 +2336,12 @@ property, and replaceable with <code>set_truncation</code>.</p>
 </tr>
 <tr>
 <td><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TermBudget&lt;/span&gt;" href="../../reference/truncation/#propaq.truncation.TermBudget"><code>TermBudget</code></a></td>
-<td>nothing directly - triggers a truncation pass at <code>max_terms</code></td>
+<td>nothing directly - suppresses the other truncators below <code>min_terms</code></td>
 <td>both</td>
 </tr>
 <tr>
 <td><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;FrequencyTruncator&lt;/span&gt;" href="../../reference/truncation/#propaq.truncation.FrequencyTruncator"><code>FrequencyTruncator</code></a></td>
 <td>monomials whose trig-factor count exceeds <code>frequency</code></td>
-<td>surrogate only</td>
-</tr>
-<tr>
-<td><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MonomialBudget&lt;/span&gt;" href="../../reference/truncation/#propaq.truncation.MonomialBudget"><code>MonomialBudget</code></a></td>
-<td>nothing directly - triggers a flush at <code>max_monomials</code></td>
 <td>surrogate only</td>
 </tr>
 <tr>
@@ -2358,7 +2352,7 @@ property, and replaceable with <code>set_truncation</code>.</p>
 <tr>
 <td><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;NativeTruncator&lt;/span&gt;" href="../../reference/truncation/#propaq.truncation.NativeTruncator"><code>NativeTruncator</code></a></td>
 <td>whatever your plugin decides</td>
-<td>both</td>
+<td>numerical only</td>
 </tr>
 </tbody>
 </table>
@@ -2375,28 +2369,18 @@ work for a small error.</p>
 <p>Drops contributions whose magnitude has fallen below the cutoff. Pairs naturally
 with a noise model, which drives coefficients down as depth increases, and so
 lets this truncator do progressively more work deeper into the circuit.</p>
-<h3 id="budgets">Budgets<a class="headerlink" href="#budgets" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">TermBudget</span><span class="p">(</span><span class="n">min_terms</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">,</span> <span class="n">max_terms</span><span class="o">=</span><span class="mi">5_000_000</span><span class="p">)</span>
+<h3 id="budget">Budget<a class="headerlink" href="#budget" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">TermBudget</span><span class="p">(</span><span class="n">min_terms</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">)</span>
 </span></code></pre></div>
-<p>A budget does not discard anything by itself. <code>max_terms</code> is a trigger, and when
-the live term count reaches it, a truncation pass fires. <code>min_terms</code> is a
-<strong>floor</strong>: below that count, the lossy truncators in the pipeline are suppressed,
-so a small term sum is not eroded by cutoffs that were meant for a large one.
-Either field may be <code>None</code> to disable that bound.</p>
-<div class="admonition note">
-<p class="admonition-title">Budget arguments are keyword-only</p>
-<p>Both <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TermBudget&lt;/span&gt;" href="../../reference/truncation/#propaq.truncation.TermBudget"><code>TermBudget</code></a> and
-<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MonomialBudget&lt;/span&gt;" href="../../reference/truncation/#propaq.truncation.MonomialBudget"><code>MonomialBudget</code></a> take their floor first
-and their ceiling second, and both reject positional arguments. The pair is
-easy to transpose, and a transposed pair used to fail <em>silently</em> - the
-budget simply never fired - so a positional call now raises <code>TypeError</code>.</p>
-</div>
+<p>A budget does not discard anything by itself. <code>min_terms</code> defines a floor 
+for the live term count. Below this floor, the other truncators are suppressed, 
+so that we don't truncate too aggressively when it's unnecessary.</p>
 <h2 id="choosing-a-pipeline">Choosing a pipeline<a class="headerlink" href="#choosing-a-pipeline" title="Permanent link">&para;</a></h2>
 <p>A reasonable starting point for a numerical run:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">truncation</span> <span class="o">=</span> <span class="p">[</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">WeightTruncator</span><span class="p">(</span><span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">CoefficientTruncator</span><span class="p">(</span><span class="n">coefficient</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">),</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">TermBudget</span><span class="p">(</span><span class="n">max_terms</span><span class="o">=</span><span class="mi">10_000_000</span><span class="p">),</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">TermBudget</span><span class="p">(</span><span class="n">min_terms</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">),</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="p">]</span>
 </span></code></pre></div>
 <p>Truncations are heuristic, and the right cutoffs must be tailored to your problem. The following strategies help:</p>
@@ -2404,7 +2388,7 @@ budget simply never fired - so a positional call now raises <code>TypeError</cod
 <li>Enable a <a href="../logging/"><code>Logger</code></a> and look at <code>terms_before</code>/<code>terms_after</code> and
    <code>discarded_coeff_l1</code> for each truncation event. A large discarded <span class="arithmatex">\(L^1\)</span>
     norm indicates that the truncation is generally aggressive, however note that 
-    the <span class="arithmatex">\(L^!\)</span> norm is often a pessimistic estimate of the actual error in the expectation value.</li>
+    the <span class="arithmatex">\(L^1\)</span> norm is often a pessimistic estimate of the actual error in the expectation value.</li>
 <li>If you need to <em>quantify</em> the truncation error rather than just bound it,
    sweep the cutoff and extrapolate to zero. See
    <a href="../extrapolation/">extrapolation</a>.</li>
@@ -2414,7 +2398,7 @@ budget simply never fired - so a positional call now raises <code>TypeError</cod
 <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TruncationPolicy&lt;/span&gt;" href="../../reference/noise/#propaq.noise.TruncationPolicy"><code>TruncationPolicy</code></a> object:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.noise</span><span class="w"> </span><span class="kn">import</span> <span class="n">TruncationPolicy</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">TruncationPolicy</span><span class="p">(</span><span class="n">weight_cutoff</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">coeff_cutoff</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">truncation_range</span><span class="o">=</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="mi">10_000_000</span><span class="p">))</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">TruncationPolicy</span><span class="p">(</span><span class="n">weight_cutoff</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">coeff_cutoff</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">min_terms</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">)</span>
 </span></code></pre></div>
 <p>This is still accepted, and is decomposed internally into the equivalent
 truncator list. New code should use the pipeline form, which composes and is

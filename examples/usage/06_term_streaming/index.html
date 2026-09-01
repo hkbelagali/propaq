@@ -2922,15 +2922,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="term-streaming">Term streaming<a class="anchor-link" href="#term-streaming">¶</a></h1><p>A propagated <code>PauliTermSum</code>/<code>MajoranaTermSum</code> can grow very large before truncation
-catches up, and even after truncation, a term sum from a real workload can be too
-big to comfortably hold several copies of in memory at once. propaq's gzip term
-streamer is built for that: <code>save</code>/<code>from_file</code> round-trip a term sum through a
-compressed binary file, and <code>PauliTermStreamer</code> reads one back lazily, one term at a
-time, instead of materializing the whole file into memory first. This notebook
-propagates a moderately large observable, saves it, and compares the eager
-(<code>from_file</code>) and streaming (<code>PauliTermStreamer</code> + <code>merge_from_file</code>) ways of
-reading it back.</p>
+<h1 id="term-streaming">Term streaming<a class="anchor-link" href="#term-streaming">¶</a></h1><p>For large systems, the number of terms in the symbolic history can grow very large. It might become impractical to store all of them in memory at once for post-processing and analysis. In this case, we can stream the terms from disk, which greatly reduces the memory footprint at any given point in time.</p>
 </div>
 </div>
 </div>
@@ -2952,10 +2944,7 @@ reading it back.</p>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>A toy circuit is enough here: term streaming is a data-plumbing feature, not a
-physics one, so we'll build a wider, deeper random circuit than the very first
-notebook's to get a term sum with enough terms to make saving and streaming it
-meaningful.</p>
+<p>We'll use a toy system to demonstrate the streaming functionality.</p>
 </div>
 </div>
 </div>
@@ -2965,7 +2954,7 @@ meaningful.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-1">
@@ -3057,11 +3046,7 @@ observable = SparsePauliOp.from_list([("X" + "I" * (n_qubits - 1), 1.0)])</div>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="propagating-and-writing-to-disk-in-one-step">Propagating and writing to disk in one step<a class="anchor-link" href="#propagating-and-writing-to-disk-in-one-step">¶</a></h2><p><code>PauliPropagator.propagate</code> returns the fully propagated <code>PauliTermSum</code> directly
-(unlike <code>expectation_value</code>, which only returns the scalar result and per-gate
-<code>n_terms</code>). It also accepts an optional <code>filename</code>, which writes the propagated
-observable straight to a gzip-compressed file as part of propagation, so there's no
-separate save step needed if you already know you want it on disk.</p>
+<h2 id="propagating-and-writing-to-disk-in-one-step">Propagating and writing to disk in one step<a class="anchor-link" href="#propagating-and-writing-to-disk-in-one-step">¶</a></h2><p>We'll use <code>PauliPropagator</code> and specify a file name to save to disk.</p>
 </div>
 </div>
 </div>
@@ -3071,7 +3056,7 @@ separate save step needed if you already know you want it on disk.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-2">
@@ -3119,22 +3104,15 @@ print("norm_squared:   ", propagated.norm_squared())</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre></pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>Propagating through gates: 100%|██████████| 281/281 [00:00&lt;00:00, 614.28it/s, terms=65535]
-</pre>
+<div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
+<pre>Propagating:   0%|          | 0/281 [00:00&lt;?, ?gate/s]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
-<pre>Number of terms: 65535
-norm_squared:    0.9999999999999991
+<pre>Number of terms: 32752
+norm_squared:    0.9999999999999999
 </pre>
 </div>
 </div>
@@ -3160,7 +3138,7 @@ norm_squared:    0.9999999999999991
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p><code>PauliTermSum.from_file</code> loads the whole file into a fresh <code>PauliTermSum</code> in one
-call: simple, and fine as long as the result comfortably fits in memory.</p>
+call.</p>
 </div>
 </div>
 </div>
@@ -3170,7 +3148,7 @@ call: simple, and fine as long as the result comfortably fits in memory.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-3">
@@ -3205,8 +3183,8 @@ print("Exactly matches the original:", dict(reloaded.items()) == dict(propagated
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
-<pre>Number of terms: 65535
-norm_squared:    1.0000000000000013
+<pre>Number of terms: 32752
+norm_squared:    1.000000000000007
 Exactly matches the original: True
 </pre>
 </div>
@@ -3233,10 +3211,7 @@ Exactly matches the original: True
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p><code>PauliTermStreamer.from_file</code> opens the same file but yields one <code>(term, coefficient)</code>
-pair at a time as you iterate, without ever holding the full contents in memory.
-That's useful just to peek at a large file's contents, and it's also what
-<code>merge_from_file</code> uses internally to fold a streamed file directly into an existing
-<code>PauliTermSum</code> one term at a time, with no intermediate full-file allocation at all.</p>
+pair at a time as you iterate.</p>
 </div>
 </div>
 </div>
@@ -3246,7 +3221,7 @@ That's useful just to peek at a large file's contents, and it's also what
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
@@ -3259,7 +3234,7 @@ That's useful just to peek at a large file's contents, and it's also what
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">propaq._rust_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliTermStreamer</span>
+<div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.datatypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliTermStreamer</span>
 
 <span class="n">streamer</span> <span class="o">=</span> <span class="n">PauliTermStreamer</span><span class="o">.</span><span class="n">from_file</span><span class="p">(</span><span class="s2">"propagated_terms.gz"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"First 5 terms in the file:"</span><span class="p">)</span>
@@ -3268,7 +3243,7 @@ That's useful just to peek at a large file's contents, and it's also what
         <span class="k">break</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  weight=</span><span class="si">{</span><span class="n">term</span><span class="o">.</span><span class="n">weight</span><span class="si">:</span><span class="s2">&lt;2d</span><span class="si">}</span><span class="s2"> coeff=</span><span class="si">{</span><span class="n">coeff</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">from propaq._rust_core import PauliTermStreamer
+<div class="clipboard-copy-txt" id="cell-4">from propaq.datatypes import PauliTermStreamer
 
 streamer = PauliTermStreamer.from_file("propagated_terms.gz")
 print("First 5 terms in the file:")
@@ -3288,14 +3263,25 @@ for i, (term, coeff) in enumerate(streamer):
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
 <pre>First 5 terms in the file:
-  weight=8  coeff=2.369962251292547e-05
-  weight=7  coeff=-0.0007067802853712364
-  weight=5  coeff=-0.0017317286259556002
-  weight=5  coeff=7.07054764506067e-05
-  weight=7  coeff=-0.00012106000104901261
+  weight=8  coeff=2.3699622512925507e-05
+  weight=6  coeff=0.0007565433568017365
+  weight=7  coeff=-0.0007067802853712357
+  weight=4  coeff=-0.0002886329864650659
+  weight=5  coeff=7.070547645060666e-05
 </pre>
 </div>
 </div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2f105b84">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>You can also merge a streamed file directly into an existing <code>PauliTermSum</code> with <code>merge_from_file</code>, which will lazily merge the two term sums.</p>
 </div>
 </div>
 </div>
@@ -3305,7 +3291,7 @@ for i, (term, coeff) in enumerate(streamer):
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
@@ -3342,8 +3328,8 @@ print("Exactly matches the original:", dict(streamed_accumulator.items()) == dic
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
-<pre>Number of terms: 65535
-norm_squared:    1.0000000000000013
+<pre>Number of terms: 32752
+norm_squared:    1.000000000000007
 Exactly matches the original: True
 </pre>
 </div>

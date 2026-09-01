@@ -3521,7 +3521,7 @@ converters, and the registry for overriding a gate's decomposition.</p>
               <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-function&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;pauli_rotation_generator&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli_rotation_generator&lt;/code&gt;)" href="#propaq.circuits.pauli_rotation_generator">pauli_rotation_generator</a></code></td>
               <td>
                 <div class="doc-md-description">
-                  <p>(generator, unit coefficient) for an n-qubit Pauli label (e.g. "XIZ"), for use in a</p>
+                  <p>Build the (generator, unit coefficient) pair for an n-qubit Pauli label, for</p>
                 </div>
               </td>
             </tr>
@@ -3807,12 +3807,7 @@ gates that can be applied in parallel.</p>
   </span>
 
 <a href="#propaq.circuits.PauliCircuit.from_generators_and_angles" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">from_generators_and_angles</span><span class="p">(</span><span class="n">generators</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span><span class="p">],</span> <span class="n">angles</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">])</span>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">from_generators_and_angles</span><span class="p">(</span><span class="n">generators</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span><span class="p">],</span> <span class="n">angles</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="float">float</span></span><span class="p">])</span>
 </span></code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3836,12 +3831,7 @@ gates that can be applied in parallel.</p>
                 <code>generators</code>
             </td>
             <td>
-                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a>]</code>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -4710,6 +4700,7 @@ order (<code>sorted(circuit.all_qubits())</code>), not by any coordinate value.<
 
         <p>Construct a MajoranaCircuit from an ffsim orbital rotation
 (ffsim.apply_orbital_rotation).</p>
+<p>Requires the optional <code>ffsim</code> dependency: <code>pip install propaq[ffsim]</code>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -4823,6 +4814,7 @@ spinful system).</p>
 
         <p>Construct a MajoranaCircuit from an ffsim diagonal Coulomb evolution
 (ffsim.apply_diag_coulomb_evolution).</p>
+<p>Requires the optional <code>ffsim</code> dependency: <code>pip install propaq[ffsim]</code>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -5520,12 +5512,7 @@ the rotation's own numeric angle from <code>circuit</code> instead.</p>
   </span>
 
 <a href="#propaq.circuits.SurrogatePauliCircuit.from_generators_and_param_indices" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">from_generators_and_param_indices</span><span class="p">(</span><span class="n">generators</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span><span class="p">],</span> <span class="n">param_indices</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SurrogatePauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.surrogate_circuit.SurrogatePauliCircuit&lt;/code&gt;)" href="#propaq.circuits.SurrogatePauliCircuit">SurrogatePauliCircuit</a></span>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">from_generators_and_param_indices</span><span class="p">(</span><span class="n">generators</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span><span class="p">],</span> <span class="n">param_indices</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SurrogatePauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.surrogate_circuit.SurrogatePauliCircuit&lt;/code&gt;)" href="#propaq.circuits.SurrogatePauliCircuit">SurrogatePauliCircuit</a></span>
 </span></code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5550,12 +5537,7 @@ the rotation's own numeric angle from <code>circuit</code> instead.</p>
                 <code>generators</code>
             </td>
             <td>
-                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a>]</code>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -5580,6 +5562,29 @@ the rotation's own numeric angle from <code>circuit</code> instead.</p>
             </td>
             <td>
                 <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SurrogatePauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.surrogate_circuit.SurrogatePauliCircuit&lt;/code&gt;)" href="#propaq.circuits.SurrogatePauliCircuit">SurrogatePauliCircuit</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A SurrogatePauliCircuit with one gate per layer.</p>
+              </div>
             </td>
           </tr>
       </tbody>
@@ -6134,6 +6139,29 @@ the rotation's own numeric angle from <code>circuit</code> instead.</p>
     </table>
 
 
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SurrogateMajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.surrogate_circuit.SurrogateMajoranaCircuit&lt;/code&gt;)" href="#propaq.circuits.SurrogateMajoranaCircuit">SurrogateMajoranaCircuit</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A SurrogateMajoranaCircuit with the same layer structure.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
     </div>
 
 </div>
@@ -6215,6 +6243,29 @@ the rotation's own numeric angle from <code>circuit</code> instead.</p>
             </td>
             <td>
                 <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;SurrogateMajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.surrogate_circuit.SurrogateMajoranaCircuit&lt;/code&gt;)" href="#propaq.circuits.SurrogateMajoranaCircuit">SurrogateMajoranaCircuit</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A SurrogateMajoranaCircuit with one gate per layer.</p>
+              </div>
             </td>
           </tr>
       </tbody>
@@ -6488,12 +6539,7 @@ order (<code>sorted(circuit.all_qubits())</code>), not by any coordinate value.<
 
 
 <a href="#propaq.circuits.PauliRotation" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">PauliRotation</span><span class="p">(</span><span class="n">generator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span><span class="p">,</span> <span class="n">angle</span><span class="p">:</span> <span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n">is_intermediate</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">qiskit_gate_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">PauliRotation</span><span class="p">(</span><span class="n">generator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span><span class="p">,</span> <span class="n">angle</span><span class="p">:</span> <span class="n"><span title="float">float</span></span><span class="p">,</span> <span class="n">is_intermediate</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">qiskit_gate_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
 </span></code></pre></div>
 
     <div class="doc doc-contents ">
@@ -6541,12 +6587,7 @@ would suggest).</p>
       &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
   &lt;/span&gt; (&lt;code&gt;propaq.circuits.PauliRotation.generator&lt;/code&gt;)" href="#propaq.circuits.PauliRotation.generator">generator</a></code></td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -6629,12 +6670,7 @@ would suggest).</p>
   </span>
 
 <a href="#propaq.circuits.PauliRotation.generator" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">generator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span> <span class="o">=</span> <span class="n"><span title="propaq.circuits.pauli.rotation.PauliRotation(generator)">generator</span></span>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">generator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span> <span class="o">=</span> <span class="n"><span title="propaq.circuits.pauli.rotation.PauliRotation(generator)">generator</span></span>
 </span></code></pre></div>
 
     <div class="doc doc-contents ">
@@ -6970,12 +7006,7 @@ truncation policies during propagation.</p>
 
 
 <a href="#propaq.circuits.SurrogateRotation" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">SurrogateRotation</span><span class="p">(</span><span class="n">generator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span><span class="p">,</span> <span class="n">param_index</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">angle</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">is_intermediate</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">qiskit_gate_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">SurrogateRotation</span><span class="p">(</span><span class="n">generator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></span><span class="p">,</span> <span class="n">param_index</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">angle</span><span class="p">:</span> <span class="n"><span title="float">float</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">is_intermediate</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">qiskit_gate_idx</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
 </span></code></pre></div>
 
     <div class="doc doc-contents ">
@@ -7006,12 +7037,7 @@ given.</p>
           <tr class="doc-section-item">
             <td><code><span title="propaq.circuits.SurrogateRotation.generator">generator</span></code></td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt; (&lt;code&gt;propaq.datatypes.pauli.pauli.PauliString&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.PauliString">PauliString</a></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -7329,6 +7355,72 @@ case in <code>propaq.circuits._gates.gate_terms</code>), built via helpers such 
 recursive sub-instruction handling relies on the same contract.</p>
 
 
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>name</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The Qiskit instruction name to override (e.g. <code>"cp"</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>terms_fn</code>
+            </td>
+            <td>
+                  <code><span title="propaq.circuits._registry.QiskitTermsFn">QiskitTermsFn</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The generator-based decomposition function, called as
+<code>terms_fn(instr, q_indices, width, rep)</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>validate</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to check <code>terms_fn</code>'s output against propaq's built-in
+dispatch (<code>GateValidationError</code> on mismatch) the first time this gate
+is dispatched, to catch a malformed decomposition early.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
     </div>
 
 </div>
@@ -7357,6 +7449,73 @@ such as <code>propaq.circuits.pauli_rotation_generator</code>. It must be correc
 <code>width</code>/<code>q_indices</code> rather than hardcoding absolute qubit positions.</p>
 
 
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>gate_type</code>
+            </td>
+            <td>
+                  <code><span title="type">type</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The exact Cirq gate type to override (matched by <code>type(op.gate)</code>,
+not isinstance/subclass).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>terms_fn</code>
+            </td>
+            <td>
+                  <code><span title="propaq.circuits._registry.CirqTermsFn">CirqTermsFn</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The generator-based decomposition function, called as
+<code>terms_fn(op, q_indices, width, rep)</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>validate</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to check <code>terms_fn</code>'s output against propaq's built-in
+dispatch (<code>GateValidationError</code> on mismatch) the first time this gate
+is dispatched, to catch a malformed decomposition early.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
     </div>
 
 </div>
@@ -7374,10 +7533,100 @@ such as <code>propaq.circuits.pauli_rotation_generator</code>. It must be correc
 
     <div class="doc doc-contents ">
 
-        <p>(generator, unit coefficient) for an n-qubit Pauli label (e.g. "XIZ"), for use in a
-custom <code>terms_fn</code> passed to <code>register_qiskit_gate</code>/<code>register_cirq_gate</code>. Works for both
-the Pauli and Majorana representations, <code>rep</code> should be the <code>rep</code> argument <code>terms_fn</code>
-itself was called with.</p>
+        <p>Build the (generator, unit coefficient) pair for an n-qubit Pauli label, for
+use in a custom <code>terms_fn</code> passed to <code>register_qiskit_gate</code>/<code>register_cirq_gate</code>.
+Works for both the Pauli and Majorana representations.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>rep</code>
+            </td>
+            <td>
+                  <code><span title="propaq.circuits._gates._Rep">_Rep</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The representation to build the generator in; should be the <code>rep</code>
+argument <code>terms_fn</code> itself was called with.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>label</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>An n-qubit Pauli label, e.g. <code>"XIZ"</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A <code>(generator, unit_coefficient)</code> pair, where <code>generator</code> is a term in</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>rep.termsum_cls</code> and <code>unit_coefficient</code> is its coefficient for a unit</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="typing.Any">Any</span>, <span title="float">float</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>rotation angle.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
     </div>

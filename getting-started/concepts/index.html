@@ -2251,14 +2251,14 @@ and compute the overlap with the initial state (usually a bitstring, or a Fock s
 \Theta = \sum_i c_i B_i \qquad c_i \in \mathbb{R}
 \]</div>
 <ul>
-<li>In the Pauli basis, the terms are Pauli strings: <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.PauliString"><code>PauliString</code></a>, collected into a <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliTermSum&lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.PauliTermSum"><code>PauliTermSum</code></a>.</li>
+<li>In the Pauli basis, the terms are Pauli strings: <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliString&lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.PauliString"><code>PauliString</code></a>, collected into a <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliTermSum&lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.PauliTermSum"><code>PauliTermSum</code></a>.</li>
 <li>In the Majorana basis, the terms are Majorana monomials: <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaMonomial&lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.MajoranaMonomial"><code>MajoranaMonomial</code></a>, collected into a <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaTermSum&lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.MajoranaTermSum"><code>MajoranaTermSum</code></a>.</li>
 </ul>
+<div class="admonition note">
+<p class="admonition-title">Other bases?</p>
+<p>Heisenberg propagation can be carried out in any basis with the right algebraic structure. For example, in a Weyl-Heisenberg qudit basis, the terms could be <code>WeylString</code>, collected into a <code>WeylTermSum</code>. 
+See <a href="../../examples/usage/11_custom_basis_qudit_weyl/">this notebook</a> for an example of a custom basis.</p>
+</div>
 <p>Applying a gate rewrites every term. A Clifford gate maps one basis operator to
 exactly one basis operator, so the term count is unchanged. A non-Clifford gate 
 will, in general, induce branching: </p>

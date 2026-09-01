@@ -3286,6 +3286,29 @@ sequence of values aligned with <code>self.parameters</code>.</p>
     </table>
 
 
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The expectation value for the given parameter assignment.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
     </div>
 
 </div>
@@ -3339,6 +3362,29 @@ form <code>evaluate</code> takes.</p>
     </table>
 
 
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="list">list</span>[<span title="float">float</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The expectation value for each assignment, in the same order.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
     </div>
 
 </div>
@@ -3375,6 +3421,42 @@ form <code>evaluate</code> takes.</p>
 <p>If <code>parameter</code> is not None, the slot's value at evaluate time is
 <code>scale * value_of(parameter)</code>. If <code>parameter</code> is None, the slot is a fixed
 constant equal to <code>scale</code>, independent of any Qiskit Parameter.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="propaq.models.ParamSource.parameter">parameter</span></code></td>
+            <td>
+                  <code><span title="qiskit.circuit.Parameter">Parameter</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The Qiskit Parameter this slot tracks, or None for a fixed constant.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="propaq.models.ParamSource.scale">scale</span></code></td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The affine coefficient applied to <code>parameter</code>'s value (or the constant itself).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
 

@@ -621,10 +621,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#thread-count-and-blas" class="md-nav__link">
+  <a href="#thread-count-blas-and-cpu-pinning" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Thread count and BLAS
+        Thread count, BLAS, and CPU Pinning
       
     </span>
   </a>
@@ -2173,10 +2173,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#thread-count-and-blas" class="md-nav__link">
+  <a href="#thread-count-blas-and-cpu-pinning" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Thread count and BLAS
+        Thread count, BLAS, and CPU Pinning
       
     </span>
   </a>
@@ -2214,10 +2214,10 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>propaq
 </span></code></pre></div>
 <p>Pre-built wheels are published for Linux x86-64, macOS and Windows, for CPython
-3.10, 3.11 and 3.12. Installing from a wheel needs no Rust toolchain.</p>
+3.10, 3.11 and 3.12. A Rust toolchain is not required for this install.</p>
 <h2 id="optional-extras">Optional extras<a class="headerlink" href="#optional-extras" title="Permanent link">&para;</a></h2>
-<p>The core install pulls in <code>numpy</code>, <code>scipy</code>, <code>qiskit</code>, <code>ffsim</code> and <code>tqdm</code>.
-Everything else is opt-in:</p>
+<p>The core install pulls in <code>numpy</code>, <code>scipy</code>, <code>qiskit</code> and <code>tqdm</code>. A number of optional extras are available 
+for framework integration and certain features.</p>
 <table>
 <thead>
 <tr>
@@ -2233,6 +2233,16 @@ Everything else is opt-in:</p>
 <td>Building circuits from Cirq, and <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-function&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;register_cirq_gate&lt;/span&gt;" href="../../reference/circuits/#propaq.circuits.register_cirq_gate"><code>register_cirq_gate</code></a></td>
 </tr>
 <tr>
+<td><code>ffsim</code></td>
+<td><code>pip install "propaq[ffsim]"</code></td>
+<td>The <code>from_ffsim_*</code> circuit constructors and <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;from_ffsim&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-classmethod&quot;&gt;&lt;code&gt;classmethod&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.MajoranaTermSum.from_ffsim"><code>MajoranaTermSum.from_ffsim</code></a></td>
+</tr>
+<tr>
 <td><code>openfermion</code></td>
 <td><code>pip install "propaq[openfermion]"</code></td>
 <td>Converting OpenFermion fermionic operators into propaq observables</td>
@@ -2241,6 +2251,11 @@ Everything else is opt-in:</p>
 <td><code>hybrid</code></td>
 <td><code>pip install "propaq[hybrid]"</code></td>
 <td><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-module&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-module-name&quot;&gt;hybrid&lt;/span&gt;" href="../../reference/hybrid/#propaq.hybrid"><code>propaq.hybrid</code></a> - hybrid Schrödinger–Heisenberg expectation values against a <code>quimb</code> MPS</td>
+</tr>
+<tr>
+<td><code>examples</code></td>
+<td><code>pip install "propaq[examples]"</code></td>
+<td>Everything needed to run the <a href="../../examples/">example notebooks</a>: <code>cirq</code>, <code>ffsim</code>, <code>hybrid</code>, plus <code>matplotlib</code>, <code>qiskit-nature</code>, <code>jupyter</code>, <code>ipywidgets</code></td>
 </tr>
 <tr>
 <td><code>dev</code></td>
@@ -2254,15 +2269,14 @@ Everything else is opt-in:</p>
 </tr>
 </tbody>
 </table>
-<p>Extras compose, so:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;propaq[cirq,openfermion,hybrid]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"propaq[cirq,ffsim,openfermion,hybrid]"</span>
 </span></code></pre></div>
 <h2 id="from-source">From source<a class="headerlink" href="#from-source" title="Permanent link">&para;</a></h2>
-<p>Building from source requires a <a href="https://rustup.rs">Rust toolchain</a>; the
+<p>Building from source requires a <a href="https://rustup.rs">Rust toolchain</a>. The
 extension module is compiled by <a href="https://www.maturin.rs">maturin</a>.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/hkbelagali/propaq
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>propaq
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev]"</span>
 </span></code></pre></div>
 <p>To rebuild the Rust backend after changing Rust sources:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="development-build" name="__tabbed_1" type="radio" /><input id="optimised-build" name="__tabbed_1" type="radio" /><input id="wheel" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="development-build">Development build</label><label for="optimised-build">Optimised build</label><label for="wheel">Wheel</label></div>
@@ -2283,31 +2297,28 @@ extension module is compiled by <a href="https://www.maturin.rs">maturin</a>.</p
 </div>
 </div>
 <div class="admonition warning">
-<p class="admonition-title">Use <code>--release</code> for anything you intend to time</p>
+<p class="admonition-title">Performance-critical builds</p>
 <p>A debug build of the Rust core is roughly an order of magnitude slower than
-a release build. Performance benchmarks and production runs should always use <code>--release</code>. </p>
+a release build. Performance benchmarks and production runs should always use <code>--release</code>. 
+Additionally, building from source will compile the Rust backend for your current CPU architecture.
+In HPC environments, this necessitates building on the target machine directly, as the package 
+will not run on a different CPU architecture than the one it was built for.</p>
 </div>
 <h2 id="verifying-the-install">Verifying the install<a class="headerlink" href="#verifying-the-install" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">propaq</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.propagators</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliPropagator</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">PauliPropagator</span><span class="p">())</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">propaq</span><span class="o">.</span><span class="n">__version__</span><span class="p">)</span>
 </span></code></pre></div>
-<h2 id="thread-count-and-blas">Thread count and BLAS<a class="headerlink" href="#thread-count-and-blas" title="Permanent link">&para;</a></h2>
-<p>propaq's propagators are multi-threaded and, by default, <strong>pin each worker
-thread to its own CPU</strong>. This is to maintain good cache performance. </p>
-<p>Pinning interacts badly with threaded BLAS. A pinned propaq worker
-cannot step around a spinning OpenBLAS thread, and importing <code>qiskit</code> starts one
-spinner per core. If you run propaq in the same process as heavy NumPy/Qiskit
-linear algebra, either set</p>
+<h2 id="thread-count-blas-and-cpu-pinning">Thread count, BLAS, and CPU Pinning<a class="headerlink" href="#thread-count-blas-and-cpu-pinning" title="Permanent link">&para;</a></h2>
+<p>We have observed that the default OpenBLAS thread count can 
+cause performance regressions in some environments. If you observe that 
+the propagation engine is running slower than expected, try pinning OpenBLAS to a single thread: </p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OPENBLAS_NUM_THREADS&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;1&quot;</span>  <span class="c1"># before numpy is imported</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"OPENBLAS_NUM_THREADS"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"1"</span>  <span class="c1"># before numpy is imported</span>
 </span></code></pre></div>
-<p>or disable pinning per propagator:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">PauliPropagator</span><span class="p">(</span><span class="n">pin_threads</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-</span></code></pre></div>
-<p>Setting <code>OPENBLAS_NUM_THREADS=1</code> is the better fix. See
-<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliPropagator&lt;/span&gt;" href="../../reference/propagators/#propaq.propagators.PauliPropagator"><code>PauliPropagator</code></a> for the details.</p>
+<p>Additionally, the Rust backend pins each thread to a single CPU core by default. This is to 
+maintain good cache locality and avoid performance loss due to thread migration. If you wish to disable this 
+behavior, disable <code>pin_threads</code> in <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliPropagator&lt;/span&gt;" href="../../reference/propagators/#propaq.propagators.PauliPropagator"><code>PauliPropagator</code></a> or <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaPropagator&lt;/span&gt;" href="../../reference/propagators/#propaq.propagators.MajoranaPropagator"><code>MajoranaPropagator</code></a>.</p>
 
 
 

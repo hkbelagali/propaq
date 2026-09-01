@@ -180,6 +180,10 @@
   border-bottom: 1px solid var(--pq-border);
 }
 
+[dir="ltr"] .md-header__title {
+  margin-left: 0.05rem;
+}
+
 .md-tabs {
   border-bottom: 1px solid var(--pq-border);
 }
@@ -287,6 +291,10 @@
   line-height: 1.1;
   letter-spacing: -0.03em;
   color: var(--md-default-fg-color);
+}
+
+.md-typeset .pq-hero-title .headerlink {
+  display: none;
 }
 
 .md-typeset .pq-hero-tagline {

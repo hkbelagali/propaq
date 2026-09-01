@@ -2031,10 +2031,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#usage" class="md-nav__link">
+  <a href="#general-usage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Usage
+        General Usage
       
     </span>
   </a>
@@ -2078,10 +2078,11 @@
 
 
 <h1 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h1>
-<p>Every page in this section is a Jupyter notebook from the
-<a href="https://github.com/hkbelagali/propaq/tree/main/examples"><code>examples/</code></a> directory
-of the repository, rendered here with its committed outputs.</p>
-<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
+<h2 id="general-usage">General Usage<a class="headerlink" href="#general-usage" title="Permanent link">&para;</a></h2>
+<p>The examples in this section are rendered notebooks. To see the interactive versions, check out these
+<a href="https://github.com/hkbelagali/propaq/tree/main/examples"><code>examples/</code></a>!</p>
+<p>Run <code>pip install "propaq[examples]"</code> to get everything the notebooks need (<code>cirq</code>,
+<code>ffsim</code>, <code>hybrid</code>, <code>matplotlib</code>, <code>qiskit-nature</code>, <code>jupyter</code>, <code>ipywidgets</code>), then run them locally.</p>
 <p>Start at the top, the notebooks build on each other!</p>
 <div class="grid cards">
 <ul>
@@ -2094,8 +2095,7 @@ read off an expectation value.</p>
 <li>
 <p><strong><a href="usage/02_pauli_vs_majorana/">2. Pauli vs Majorana propagation</a></strong></p>
 <hr />
-<p>The same unitary cluster Jastrow (UCJ) ansatz for <span class="arithmatex">\(\text{H}_2\)</span> propagated in both
-bases, compared directly.</p>
+<p>The same unitary cluster Jastrow (UCJ) ansatz for <span class="arithmatex">\(\text{H}_2\)</span> propagated in the Pauli and Majorana bases.</p>
 </li>
 <li>
 <p><strong><a href="usage/03_truncation_pipelines/">3. Truncation pipelines</a></strong></p>

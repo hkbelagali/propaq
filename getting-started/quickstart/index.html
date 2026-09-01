@@ -2209,7 +2209,7 @@
 
 
 <h1 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h1>
-<p>This page walks through one complete propagation: a Qiskit circuit, a Pauli
+<p>This page walks through one complete propagation, involving a Qiskit circuit, a Pauli
 observable, a truncation pipeline, and an expectation value.</p>
 <h2 id="1-build-a-circuit">1. Build a circuit<a class="headerlink" href="#1-build-a-circuit" title="Permanent link">&para;</a></h2>
 <p>propaq consumes Qiskit (and optionally Cirq) circuits. Convert one into the
@@ -2251,54 +2251,93 @@ representation matching the basis you want to propagate in:</p>
 use often is being decomposed into many native rotations, register a fast path
 for it. See <a href="../../guides/circuits/">Circuits and gates</a>.</p>
 <h2 id="2-choose-an-observable">2. Choose an observable<a class="headerlink" href="#2-choose-an-observable" title="Permanent link">&para;</a></h2>
-<p>An observable is a <em>term sum</em>: a weighted sum of Pauli strings or Majorana
+<p>An observable is a <em>term sum</em>, i.e. a weighted sum of Pauli strings or Majorana
 monomials. The easiest way in is from a Qiskit <code>SparsePauliOp</code>:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="majorana_1" name="__tabbed_2" type="radio" /><input id="pauli_1" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="majorana_1">Majorana</label><label for="pauli_1">Pauli</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qiskit.quantum_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparsePauliOp</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.datatypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaTermSum</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">observable</span> <span class="o">=</span> <span class="n">SparsePauliOp</span><span class="o">.</span><span class="n">from_list</span><span class="p">([</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="p">(</span><span class="s2">&quot;XIII&quot;</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="p">(</span><span class="s2">&quot;IXII&quot;</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="p">(</span><span class="s2">&quot;IIXI&quot;</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="p">(</span><span class="s2">&quot;IIIX&quot;</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="p">(</span><span class="s2">"XIII"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="p">(</span><span class="s2">"IXII"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="p">(</span><span class="s2">"IIXI"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="p">(</span><span class="s2">"IIIX"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
 </span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">])</span>
 </span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
 </span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="n">mts</span> <span class="o">=</span> <span class="n">MajoranaTermSum</span><span class="o">.</span><span class="n">from_sparse_pauli_op</span><span class="p">(</span><span class="n">observable</span><span class="p">)</span>
 </span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">qiskit.quantum_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparsePauliOp</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.datatypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliTermSum</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">observable</span> <span class="o">=</span> <span class="n">SparsePauliOp</span><span class="o">.</span><span class="n">from_list</span><span class="p">([</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="p">(</span><span class="s2">"XIII"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="p">(</span><span class="s2">"IXII"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="p">(</span><span class="s2">"IIXI"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="p">(</span><span class="s2">"IIIX"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">])</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">pts</span> <span class="o">=</span> <span class="n">PauliTermSum</span><span class="o">.</span><span class="n">from_sparse_pauli_op</span><span class="p">(</span><span class="n">observable</span><span class="p">)</span>
+</span></code></pre></div>
+</div>
+</div>
+</div>
 <h2 id="3-pick-a-truncation-pipeline">3. Pick a truncation pipeline<a class="headerlink" href="#3-pick-a-truncation-pipeline" title="Permanent link">&para;</a></h2>
 <p>A propagator takes a <strong>list of truncators</strong> that run together
- after each gate, or according to a <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;TermBudget&lt;/span&gt;" href="../../reference/truncation/#propaq.truncation.TermBudget"><code>TermBudget</code></a> if specified.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.truncation</span><span class="w"> </span><span class="kn">import</span> <span class="n">WeightTruncator</span><span class="p">,</span> <span class="n">CoefficientTruncator</span><span class="p">,</span> <span class="n">TermBudget</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">truncation</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">WeightTruncator</span><span class="p">(</span><span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>            <span class="c1"># drop terms of operator weight &gt; 10</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">CoefficientTruncator</span><span class="p">(</span><span class="n">coefficient</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">),</span>  <span class="c1"># drop |coeff| &lt; 1e-5</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">TermBudget</span><span class="p">(</span><span class="n">max_terms</span><span class="o">=</span><span class="mi">10_000_000</span><span class="p">),</span>      <span class="c1"># fire truncation at 10M live terms</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="p">]</span>
+ after each gate.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.truncation</span><span class="w"> </span><span class="kn">import</span> <span class="n">WeightTruncator</span><span class="p">,</span> <span class="n">CoefficientTruncator</span><span class="p">,</span> <span class="n">TermBudget</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">truncation</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">WeightTruncator</span><span class="p">(</span><span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>            <span class="c1"># drop terms of Pauli weight &gt; 10</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">CoefficientTruncator</span><span class="p">(</span><span class="n">coefficient</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">),</span>  <span class="c1"># drop |coeff| &lt; 1e-5</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">TermBudget</span><span class="p">(</span><span class="n">min_terms</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">),</span>       <span class="c1"># suppress the above below 1M live terms</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="p">]</span>
 </span></code></pre></div>
-<div class="admonition note">
-<p class="admonition-title"><code>TermBudget</code> arguments are keyword-only.</p>
-</div>
 <p>The <a href="../../guides/truncation/">truncation guide</a> explains what each truncator
 costs and when it fires.</p>
 <h2 id="4-propagate">4. Propagate<a class="headerlink" href="#4-propagate" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.noise</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniformNoiseModel</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.propagators</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaPropagator</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">prop</span> <span class="o">=</span> <span class="n">MajoranaPropagator</span><span class="p">(</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">noise</span><span class="o">=</span><span class="n">UniformNoiseModel</span><span class="p">(</span><span class="n">damping</span><span class="o">=</span><span class="mf">0.001</span><span class="p">),</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">truncation</span><span class="o">=</span><span class="n">truncation</span><span class="p">,</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="p">)</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">result</span> <span class="o">=</span> <span class="n">prop</span><span class="o">.</span><span class="n">expectation_value</span><span class="p">(</span><span class="n">mts</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;expectation value:&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">expectation_value</span><span class="p">)</span>
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;terms at each gate:&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">n_terms</span><span class="p">)</span>      <span class="c1"># per-gate trace, not a total</span>
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;final term count: &quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">n_terms</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;below cutoff:     &quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">terms_below_cutoff</span><span class="p">)</span>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:2"><input checked="checked" id="majorana_2" name="__tabbed_3" type="radio" /><input id="pauli_2" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="majorana_2">Majorana</label><label for="pauli_2">Pauli</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.noise</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniformNoiseModel</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.propagators</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaPropagator</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">prop</span> <span class="o">=</span> <span class="n">MajoranaPropagator</span><span class="p">(</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">noise</span><span class="o">=</span><span class="n">UniformNoiseModel</span><span class="p">(</span><span class="n">damping</span><span class="o">=</span><span class="mf">0.001</span><span class="p">),</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">truncation</span><span class="o">=</span><span class="n">truncation</span><span class="p">,</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="p">)</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="n">result</span> <span class="o">=</span> <span class="n">prop</span><span class="o">.</span><span class="n">expectation_value</span><span class="p">(</span><span class="n">mts</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"expectation value:"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">expectation_value</span><span class="p">)</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"terms at each gate:"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">n_terms</span><span class="p">)</span>      <span class="c1"># per-gate trace, not a total</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"final term count: "</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">n_terms</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"below cutoff:     "</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">terms_below_cutoff</span><span class="p">)</span>
 </span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.noise</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniformNoiseModel</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.propagators</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliPropagator</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">prop</span> <span class="o">=</span> <span class="n">PauliPropagator</span><span class="p">(</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">noise</span><span class="o">=</span><span class="n">UniformNoiseModel</span><span class="p">(</span><span class="n">damping</span><span class="o">=</span><span class="mf">0.001</span><span class="p">),</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">truncation</span><span class="o">=</span><span class="n">truncation</span><span class="p">,</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="p">)</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="n">result</span> <span class="o">=</span> <span class="n">prop</span><span class="o">.</span><span class="n">expectation_value</span><span class="p">(</span><span class="n">pts</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">initial_state</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"expectation value:"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">expectation_value</span><span class="p">)</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"terms at each gate:"</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">n_terms</span><span class="p">)</span>      <span class="c1"># per-gate trace, not a total</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"final term count: "</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">n_terms</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="nb">print</span><span class="p">(</span><span class="s2">"below cutoff:     "</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">terms_below_cutoff</span><span class="p">)</span>
+</span></code></pre></div>
+</div>
+</div>
+</div>
 <div class="admonition note">
-<p class="admonition-title"><code>n_terms</code> is a trace, not a number</p>
+<p class="admonition-title"><code>n_terms</code> is a list, not a number</p>
 <p><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PropagationResult&lt;/span&gt;" href="../../reference/runtime/#propaq._rust_core.PropagationResult"><code>PropagationResult.n_terms</code></a> is a
 <code>list[int]</code>. It represents the live term count after each gate, so you can see where
 branching took off. Use <code>n_terms[-1]</code> for the final count.</p>
@@ -2319,9 +2358,9 @@ against the computational-basis state given by <code>initial_state</code>, repre
   &lt;span class=&quot;doc doc-labels&quot;&gt;
       &lt;small class=&quot;doc doc-label doc-label-method descriptor&quot;&gt;&lt;code&gt;method descriptor&lt;/code&gt;&lt;/small&gt;
   &lt;/span&gt;" href="../../reference/propagators/#propaq.propagators.MajoranaPropagator.propagate"><code>propagate</code></a>, which returns
-the evolved <code>MajoranaTermSum</code>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">theta</span> <span class="o">=</span> <span class="n">prop</span><span class="o">.</span><span class="n">propagate</span><span class="p">(</span><span class="n">mts</span><span class="p">,</span> <span class="n">circuit</span><span class="p">)</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">theta</span><span class="o">.</span><span class="n">norm_squared</span><span class="p">())</span>
+the evolved <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaTermSum&lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.MajoranaTermSum"><code>MajoranaTermSum</code></a>/<a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliTermSum&lt;/span&gt;" href="../../reference/datatypes/#propaq.datatypes.PauliTermSum"><code>PauliTermSum</code></a>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">theta</span> <span class="o">=</span> <span class="n">prop</span><span class="o">.</span><span class="n">propagate</span><span class="p">(</span><span class="n">mts</span><span class="p">,</span> <span class="n">circuit</span><span class="p">)</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">theta</span><span class="o">.</span><span class="n">norm_squared</span><span class="p">())</span>
 </span></code></pre></div>
 <p>Both methods accept <code>filename=</code>, which writes the final terms to a
 gzip-compressed binary file you can reload lazily later. See

@@ -2922,13 +2922,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="surrogate-model-persistence">Surrogate model persistence<a class="anchor-link" href="#surrogate-model-persistence">¶</a></h1><p>Compiling a surrogate model is the expensive one-time step; the previous notebook
-showed that evaluating it afterwards is a cheap classical calculation. This notebook
-covers the other half of that lifecycle: saving a compiled model to disk with
-<code>save</code>/<code>load</code> so it doesn't need to be rebuilt in a later session, the <code>n_terms</code>/
-<code>n_monomials</code> diagnostics for gauging how much computation a compiled model actually
-represents, and <code>evaluate_batch</code> for evaluating many parameter assignments at once
-instead of looping over <code>evaluate</code>.</p>
+<h1 id="surrogate-model-persistence">Surrogate model persistence<a class="anchor-link" href="#surrogate-model-persistence">¶</a></h1><p>We showed how to compile the surrogate models in the previous notebook. This notebook covers how to save and load compiled models to disk, as well as some diagnostics and tools for parameter sweeps.</p>
 </div>
 </div>
 </div>
@@ -3103,10 +3097,7 @@ variational_model = VariationalSurrogateModel(
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p><code>save</code>/<code>load</code> round-trip a model through a gzip-compressed binary file. Loading
-skips propagation entirely: the compiled model is ready to <code>evaluate</code> immediately,
-so a later session (or a different machine) doesn't need the original circuit or
-observable at all, only the file.</p>
+<p><code>save</code>/<code>load</code> round-trip a model through a gzip-compressed binary file. A loaded model can be used for parameter evaluations immediately.</p>
 </div>
 </div>
 </div>
@@ -3129,7 +3120,7 @@ observable at all, only the file.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">propaq._rust_core</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliSurrogateModel</span>
+<div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">propaq</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliSurrogateModel</span>
 
 <span class="n">model</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">"surrogate_model.pq"</span><span class="p">)</span>
 <span class="n">loaded_model</span> <span class="o">=</span> <span class="n">PauliSurrogateModel</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">"surrogate_model.pq"</span><span class="p">)</span>
@@ -3141,7 +3132,7 @@ observable at all, only the file.</p>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"Loaded model evaluate:   "</span><span class="p">,</span> <span class="n">loaded_model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">params</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"Match:"</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">params</span><span class="p">)</span> <span class="o">==</span> <span class="n">loaded_model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">params</span><span class="p">))</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">from propaq._rust_core import PauliSurrogateModel
+<div class="clipboard-copy-txt" id="cell-3">from propaq import PauliSurrogateModel
 
 model.save("surrogate_model.pq")
 loaded_model = PauliSurrogateModel.load("surrogate_model.pq")
@@ -3163,8 +3154,8 @@ print("Match:", model.evaluate(params) == loaded_model.evaluate(params))</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
-<pre>Original model evaluate:  -0.8858230090358632
-Loaded model evaluate:    -0.8858230090358632
+<pre>Original model evaluate:  -0.885823009035863
+Loaded model evaluate:    -0.885823009035863
 Match: True
 </pre>
 </div>
@@ -3190,12 +3181,8 @@ Match: True
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p><code>n_terms</code> is the number of compiled terms surviving in the model (zero-overlap terms
-with the initial state are excluded, since they can never contribute to any
-expectation value). <code>n_monomials</code> is a different, usually much larger number: the
-total pre-dedup monomial-instance count across every surviving term's coefficient.
-A model can look small by <code>n_terms</code> alone while still representing an enormous
-amount of underlying symbolic computation, which is what <code>n_monomials</code> actually tracks.</p>
+<p><code>n_terms</code> refers to the number of terms left after structurally pruning strings with zero contribution to the expectation value. <code>n_monomials</code> refers to the number of trig factors in the symbolic history of the terms.
+Note that <code>n_monomials</code> is often orders of magnitude larger than <code>n_terms</code>. It's a good proxy to understand how much computation a compiled model represents.</p>
 </div>
 </div>
 </div>
@@ -3238,7 +3225,7 @@ print("n_monomials:", model.n_monomials)</div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
 <pre>n_params:    10
 n_terms:     3
-n_monomials: 159
+n_monomials: 85
 </pre>
 </div>
 </div>
@@ -3265,7 +3252,7 @@ n_monomials: 159
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p><code>evaluate_batch</code> evaluates many parameter assignments in one call, parallelized
 across the assignments, instead of calling <code>evaluate</code> in a Python loop. This is the
-natural fit for anything that needs the cost function at many points at once --
+natural fit for anything that needs the cost function at many points at once, such as
 scanning a parameter, an ensemble of optimizer restarts, or (as here) just a batch
 of random parameter sets.</p>
 </div>
@@ -3332,8 +3319,8 @@ print("Largest discrepancy:", max(abs(a - b) for a, b in zip(looped, batched)))<
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output nb-cell" data-mime-type="text/plain" tabindex="0">
-<pre>Looped evaluate:  20.15 ms for 500 parameter sets
-evaluate_batch:   0.95 ms for 500 parameter sets
+<pre>Looped evaluate:  24.46 ms for 500 parameter sets
+evaluate_batch:   3.42 ms for 500 parameter sets
 Results match (within floating-point tolerance): True
 Largest discrepancy: 2.220446049250313e-16
 </pre>
