@@ -60,6 +60,15 @@ docs = [
     "mkdocs-jupyter>=0.25",
     "mkdocs-autorefs>=1.2",
     "pymdown-extensions>=10.9",
+    "ipywidgets>=8.1",
+]
+
+examples = [
+    "propaq[cirq,ffsim,hybrid]",
+    "matplotlib>=3.7",
+    "qiskit-nature>=0.7",
+    "jupyter>=1.0",
+    "ipywidgets>=8.1",
 ]
 cirq = [
     "cirq~=1.5.0",
@@ -71,7 +80,8 @@ openfermion = [
     "openfermion>=1.6",
 ]
 hybrid = [
-    "quimb",
+    # 0.15.0 breaks RZZ parsing
+    "quimb>=1.6,<1.15",
 ]
 
 [tool.maturin]
