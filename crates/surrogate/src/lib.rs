@@ -31,6 +31,5 @@ pub use truncation::FrequencyTruncationPolicy;
 pub use model::{MajoranaSurrogateModel, PauliSurrogateModel, SurrogateModel};
 pub use propagator::{MajoranaSurrogatePropagator, PauliSurrogatePropagator};
 pub use propaq_core::truncators::{
-    CoefficientTruncator, FrequencyTruncator, MonomialBudget, Simplify, TermBudget, Truncator,
-    WeightTruncator,
+    CoefficientTruncator, FrequencyTruncator, Simplify, TermBudget, Truncator, WeightTruncator,
 };
