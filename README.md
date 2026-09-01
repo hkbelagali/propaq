@@ -29,12 +29,30 @@ pip install propaq
 
 Requires Python 3.10+ and a pre-built wheel for your platform (Linux x86-64, macOS, Windows).
 
+The core install pulls in only `numpy`, `scipy`, `qiskit` and `tqdm`. Framework
+integrations are opt-in extras:
+
+```bash
+pip install "propaq[cirq,ffsim,openfermion,hybrid]"
+```
+
+| Extra | Enables |
+| --- | --- |
+| `cirq` | Building circuits from Cirq, and `register_cirq_gate` |
+| `ffsim` | The `from_ffsim_*` circuit constructors and `MajoranaTermSum.from_ffsim` |
+| `openfermion` | Converting OpenFermion fermionic operators into propaq observables |
+| `hybrid` | `propaq.hybrid`: hybrid Schrodinger-Heisenberg expectation values against a `quimb` MPS |
+
 For development, clone the repo and install with: 
 ```bash
 pip install -e .[dev]   
 ```
 which will install the Rust toolchain and build the Rust backend from source via `maturin`. You can also build the Rust backend manually with 
-`maturin develop` or `maturin build` and then install the resulting wheel with `pip install dist/propaq-*.whl`.
+`maturin develop` or `maturin build` and then install the resulting wheel with `pip install target/wheels/propaq-*.whl`. 
+We also recommend installing pre-commit hooks via 
+```bash
+pre-commit install
+```
 
 ## Quick start
 
@@ -67,7 +85,7 @@ mts = MajoranaTermSum.from_sparse_pauli_op(observable)
 # Build propagator with noise and truncation
 prop = MajoranaPropagator(
     noise=UniformNoiseModel(damping=0.001),
-    truncation=TruncationPolicy(weight_cutoff=10, coeff_cutoff=1e-5, truncation_range=(None, 10_000_000)),
+    truncation=TruncationPolicy(weight_cutoff=10, coeff_cutoff=1e-5),
 )
 
 # Back-propagate and evaluate
