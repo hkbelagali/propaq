@@ -12,15 +12,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
 
 import numpy as np
 from scipy.optimize import curve_fit
 
-# The propagator's ``truncators`` getter returns bare Rust instances, so match
-# against the Rust base classes (the Python wrappers subclass them).
-from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
-from propaq._rust_core import WeightTruncator as _RustWeightTruncator
 from propaq.circuits.majorana.circuit import MajoranaCircuit
 from propaq.circuits.pauli.circuit import PauliCircuit
 from propaq.datatypes import AbstractTermSum
@@ -62,31 +57,15 @@ class ZeroCutoffExtrapolator(ABC):
         self.cutoff_values = list(cutoff_values)
 
     @abstractmethod
-    def _rust_cls(self) -> type[object]:
-        """The Rust truncator base class this extrapolator sweeps."""
+    def truncator_cls(self) -> type[object]:
+        """The truncator class this extrapolator sweeps, used to find its slot
+        in the propagator's truncation pipeline."""
         ...
 
     @abstractmethod
-    def _read(self, truncator: object) -> float | int | None:
-        """Read the cutoff value out of a matching truncator."""
-        ...
-
-    @abstractmethod
-    def _build(self, cutoff: float | int | None) -> object:
+    def build_truncator(self, cutoff: float | int | None) -> object:
         """Build a fresh truncator carrying the given cutoff (None = no cutoff)."""
         ...
-
-    def _find(self, propagator: AbstractPropagator) -> object | None:
-        """The first matching truncator in the pipeline, or None."""
-        for t in propagator.truncators:
-            if isinstance(t, self._rust_cls()):
-                return t
-        return None
-
-    def _get_cutoff(self, propagator: AbstractPropagator) -> float | int | None:
-        """The current cutoff value, or None if no matching truncator is present."""
-        t = self._find(propagator)
-        return self._read(t) if t is not None else None
 
     def _set_cutoff(self, propagator: AbstractPropagator, cutoff: float | int | None) -> None:
         """Replace the matching truncator's cutoff value in place.
@@ -95,10 +74,12 @@ class ZeroCutoffExtrapolator(ABC):
         cutoff (no matching truncator in its pipeline).
         """
         truncators = list(propagator.truncators)
-        idx = next((i for i, t in enumerate(truncators) if isinstance(t, self._rust_cls())), None)
+        idx = next(
+            (i for i, t in enumerate(truncators) if isinstance(t, self.truncator_cls())), None
+        )
         if idx is None:
             raise ValueError("Propagator has no truncation policy for this cutoff.")
-        truncators[idx] = self._build(cutoff)
+        truncators[idx] = self.build_truncator(cutoff)
         propagator.set_truncation(truncators)
 
     def run(
@@ -121,9 +102,9 @@ class ZeroCutoffExtrapolator(ABC):
         Returns:
             A ZCEResult containing the extrapolated zero-cutoff value and fit details.
         """
-        # Save the scalar cutoff, not a truncator reference,  _set_cutoff rebuilds
-        # the pipeline, so a reference would go stale.
-        original_cutoff = self._get_cutoff(propagator)
+        # Truncators are immutable value objects, so the whole pipeline can be
+        # snapshotted up front and restored wholesale afterwards
+        original_truncators = list(propagator.truncators)
 
         try:
             expectation_values = []
@@ -134,10 +115,7 @@ class ZeroCutoffExtrapolator(ABC):
                 )
                 expectation_values.append(result.expectation_value)
         finally:
-            # Restore only if a matching truncator is still present (nothing to
-            # restore into otherwise, e.g. the first _set_cutoff already raised).
-            if self._find(propagator) is not None:
-                self._set_cutoff(propagator, original_cutoff)
+            propagator.set_truncation(original_truncators)
 
         popt, pcov = curve_fit(
             self.fitting_fn, self.cutoff_values, expectation_values, **curve_fit_kwargs
@@ -156,24 +134,22 @@ class ZeroCutoffExtrapolator(ABC):
 class WeightCutoffExtrapolator(ZeroCutoffExtrapolator):
     """Zero weight-cutoff extrapolation via curve fitting."""
 
-    def _rust_cls(self) -> type[object]:
-        return _RustWeightTruncator
+    def truncator_cls(self) -> type[object]:
+        """The truncator class this extrapolator sweeps: `WeightTruncator`."""
+        return WeightTruncator
 
-    def _read(self, truncator: object) -> int | None:
-        return cast(int | None, getattr(truncator, "weight"))
-
-    def _build(self, cutoff: float | int | None) -> WeightTruncator:
+    def build_truncator(self, cutoff: float | int | None) -> WeightTruncator:
+        """Build a fresh `WeightTruncator` carrying the given weight cutoff."""
         return WeightTruncator(int(cutoff) if cutoff is not None else None)
 
 
 class CoefficientCutoffExtrapolator(ZeroCutoffExtrapolator):
     """Zero coefficient-cutoff extrapolation via curve fitting."""
 
-    def _rust_cls(self) -> type[object]:
-        return _RustCoefficientTruncator
+    def truncator_cls(self) -> type[object]:
+        """The truncator class this extrapolator sweeps: `CoefficientTruncator`."""
+        return CoefficientTruncator
 
-    def _read(self, truncator: object) -> float | None:
-        return cast(float | None, getattr(truncator, "coefficient"))
-
-    def _build(self, cutoff: float | int | None) -> CoefficientTruncator:
+    def build_truncator(self, cutoff: float | int | None) -> CoefficientTruncator:
+        """Build a fresh `CoefficientTruncator` carrying the given coefficient cutoff."""
         return CoefficientTruncator(float(cutoff) if cutoff is not None else None)
