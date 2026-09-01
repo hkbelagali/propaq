@@ -118,6 +118,9 @@ class SurrogatePauliCircuit:
         Arguments:
             generators: Pauli strings for each gate.
             param_indices: Symbolic parameter index for each gate.
+
+        Returns:
+            A SurrogatePauliCircuit with one gate per layer.
         """
         if len(generators) != len(param_indices):
             raise ValueError("generators and param_indices must have equal length")

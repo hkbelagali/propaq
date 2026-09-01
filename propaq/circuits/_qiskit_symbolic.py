@@ -16,6 +16,10 @@ class ParamSource:
     If `parameter` is not None, the slot's value at evaluate time is
     `scale * value_of(parameter)`. If `parameter` is None, the slot is a fixed
     constant equal to `scale`, independent of any Qiskit Parameter.
+
+    Attributes:
+        parameter: The Qiskit Parameter this slot tracks, or None for a fixed constant.
+        scale: The affine coefficient applied to `parameter`'s value (or the constant itself).
     """
 
     parameter: "Parameter | None"

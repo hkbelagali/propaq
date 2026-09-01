@@ -71,6 +71,9 @@ class SurrogateMajoranaCircuit:
             param_indices: One entry per rotation in `circuit.rotations` order.
                 An integer assigns that rotation a symbolic index; None keeps
                 the rotation's own numeric angle from `circuit` instead.
+
+        Returns:
+            A SurrogateMajoranaCircuit with the same layer structure.
         """
         rotations = circuit.rotations
         if len(param_indices) != len(rotations):
@@ -111,6 +114,9 @@ class SurrogateMajoranaCircuit:
             generators: Majorana monomials for each gate.
             param_indices: Symbolic parameter index for each gate.
             n_modes: Number of Majorana modes in the system.
+
+        Returns:
+            A SurrogateMajoranaCircuit with one gate per layer.
         """
         if len(generators) != len(param_indices):
             raise ValueError("generators and param_indices must have equal length")

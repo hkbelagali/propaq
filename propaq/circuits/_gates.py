@@ -64,7 +64,20 @@ NON_UNITARY_OPS = frozenset(
 
 @dataclass(frozen=True)
 class _Rep:
-    """Bundles the representation-specific term helpers gate_terms dispatches to."""
+    """Bundles the representation-specific term helpers gate_terms dispatches to.
+
+    Attributes:
+        termsum_cls: The term-sum class (`PauliTermSum` or `MajoranaTermSum`) gates
+            in this representation are built from.
+        rz_terms: Builds the term sum for an RZ/phase gate, called as
+            `rz_terms(angle, qubit, n_modes)`.
+        cp_terms: Builds the term sum for a controlled-phase gate, called as
+            `cp_terms(angle, control, target, n_modes)`.
+        xx_plus_yy_terms: Builds the term sum for an XX+YY gate, called as
+            `xx_plus_yy_terms(angle, q0, q1, n_modes)`.
+        qubits_in_width: Converts a system width (qubit count for Pauli, mode
+            count for Majorana) into the equivalent number of qubits.
+    """
 
     termsum_cls: type[PauliTermSum] | type[MajoranaTermSum]
     rz_terms: Callable[..., list[tuple[Any, Any]]]
@@ -100,10 +113,20 @@ def _unit_pauli_term(
 
 
 def pauli_rotation_generator(rep: _Rep, label: str) -> tuple[Any, float]:
-    """(generator, unit coefficient) for an n-qubit Pauli label (e.g. "XIZ"), for use in a
-    custom `terms_fn` passed to `register_qiskit_gate`/`register_cirq_gate`. Works for both
-    the Pauli and Majorana representations, `rep` should be the `rep` argument `terms_fn`
-    itself was called with.
+    """
+    Build the (generator, unit coefficient) pair for an n-qubit Pauli label, for
+    use in a custom `terms_fn` passed to `register_qiskit_gate`/`register_cirq_gate`.
+    Works for both the Pauli and Majorana representations.
+
+    Arguments:
+        rep: The representation to build the generator in; should be the `rep`
+            argument `terms_fn` itself was called with.
+        label: An n-qubit Pauli label, e.g. `"XIZ"`.
+
+    Returns:
+        A `(generator, unit_coefficient)` pair, where `generator` is a term in
+        `rep.termsum_cls` and `unit_coefficient` is its coefficient for a unit
+        rotation angle.
     """
     return _unit_pauli_term(rep.termsum_cls, label)  # type: ignore[arg-type]
 

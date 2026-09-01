@@ -32,6 +32,14 @@ def register_qiskit_gate(name: str, terms_fn: QiskitTermsFn, *, validate: bool =
     `propaq.circuits.pauli_rotation_generator`. It must be correctly parametric in
     `width`/`q_indices` rather than hardcoding absolute qubit positions - `_decompose`'s
     recursive sub-instruction handling relies on the same contract.
+
+    Arguments:
+        name: The Qiskit instruction name to override (e.g. `"cp"`).
+        terms_fn: The generator-based decomposition function, called as
+            `terms_fn(instr, q_indices, width, rep)`.
+        validate: Whether to check `terms_fn`'s output against propaq's built-in
+            dispatch (`GateValidationError` on mismatch) the first time this gate
+            is dispatched, to catch a malformed decomposition early.
     """
     if name in NATIVE_GATES:
         raise ValueError(
@@ -53,6 +61,15 @@ def register_cirq_gate(gate_type: type, terms_fn: CirqTermsFn, *, validate: bool
     ZZPowGate case in `propaq.circuits._cirq_gates.cirq_gate_terms`), built via helpers
     such as `propaq.circuits.pauli_rotation_generator`. It must be correctly parametric in
     `width`/`q_indices` rather than hardcoding absolute qubit positions.
+
+    Arguments:
+        gate_type: The exact Cirq gate type to override (matched by `type(op.gate)`,
+            not isinstance/subclass).
+        terms_fn: The generator-based decomposition function, called as
+            `terms_fn(op, q_indices, width, rep)`.
+        validate: Whether to check `terms_fn`'s output against propaq's built-in
+            dispatch (`GateValidationError` on mismatch) the first time this gate
+            is dispatched, to catch a malformed decomposition early.
     """
     import cirq
 

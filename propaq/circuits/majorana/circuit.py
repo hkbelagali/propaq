@@ -211,6 +211,8 @@ class MajoranaCircuit:
         Construct a MajoranaCircuit from an ffsim orbital rotation
         (ffsim.apply_orbital_rotation).
 
+        Requires the optional `ffsim` dependency: `pip install propaq[ffsim]`.
+
         Arguments:
             mat: The unitary orbital rotation matrix, or a (mat_alpha, mat_beta)
                 pair for independent per-spin rotations. Use None for a spin
@@ -246,6 +248,8 @@ class MajoranaCircuit:
         """
         Construct a MajoranaCircuit from an ffsim diagonal Coulomb evolution
         (ffsim.apply_diag_coulomb_evolution).
+
+        Requires the optional `ffsim` dependency: `pip install propaq[ffsim]`.
 
         Arguments:
             mat: The diagonal Coulomb matrix, or a (mat_aa, mat_ab, mat_bb)

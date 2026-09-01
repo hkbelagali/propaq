@@ -3,7 +3,7 @@
 import itertools
 import math
 from collections.abc import Sequence
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeGuard, TypeVar
 
 from qiskit.circuit import Instruction
 from qiskit.quantum_info import SparsePauliOp
@@ -195,8 +195,24 @@ def _jw_transform(pauli_str: str, n_qubits: int) -> tuple[int, complex]:
     return modes, fwd_phase
 
 
+def is_majorana_term_sum(obj: object) -> "TypeGuard[MajoranaTermSum[Any]]":
+    """True for a `MajoranaTermSum`, whether it is the Python wrapper below or
+    a bare Rust instance.
+    """
+    return isinstance(obj, _RustMajoranaTermSum)
+
+
 class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
-    """Rust-backed term sum with Qiskit factory class methods."""
+    r"""
+    Class representing a sum of Majorana monomials:
+
+    ```math
+    \sum_i c_i M_i
+    ```
+
+    Backend is implemented in Rust for performance, but this class provides a
+    Python interface for constructing and manipulating sums of Majorana monomials.
+    """
 
     @classmethod
     def from_xx_plus_yy(
@@ -209,6 +225,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
+
+        Returns:
+            The corresponding MajoranaTermSum.
         """
         i, j = q_indices
         theta = float(instr.params[0])
@@ -229,6 +248,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
+
+        Returns:
+            The corresponding MajoranaTermSum.
         """
         q = q_indices[0]
         theta = float(instr.params[0])
@@ -249,6 +271,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             q: The index of the qubit the gate acts on.
             angle: The rotation angle in radians.
             n_modes: The total number of Majorana modes in the system.
+
+        Returns:
+            The corresponding MajoranaTermSum.
         """
         term_sum = cls()
         for gen, coeff in _rz_terms(angle, q, n_modes):
@@ -266,6 +291,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
+
+        Returns:
+            The corresponding MajoranaTermSum.
         """
         return cls.from_phase(instr, q_indices, n_modes)
 
@@ -280,6 +308,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
+
+        Returns:
+            The corresponding MajoranaTermSum.
         """
         i, j = q_indices
         phi = float(instr.params[0])
@@ -302,6 +333,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
                 frontend, e.g. propaq.circuits._cirq_gates.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
+
+        Returns:
+            The corresponding MajoranaTermSum.
         """
         i, j = q_indices
         lo, hi = min(i, j), max(i, j)
@@ -338,6 +372,9 @@ class MajoranaTermSum(_RustMajoranaTermSum, Generic[T]):
             instr: The instruction representing the gate.
             q_indices: The indices of the qubits the gate acts on.
             n_modes: The total number of Majorana modes in the system.
+
+        Returns:
+            The corresponding MajoranaTermSum.
         """
         i = q_indices[0]
         angle = math.pi
