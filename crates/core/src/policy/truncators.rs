@@ -89,71 +89,26 @@ impl WeightTruncator {
     }
 }
 
-/// Term-count budget: `min_terms` is the count below which lossy operators are
-/// suppressed; `max_terms` triggers a truncation pass once the live term count
-/// reaches it. Applies to both propagators. Either field `None` disables that
-/// bound.
-///
-/// The two are keyword-only.
+/// Term-count floor, below which truncation is suppressed.
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
 pub struct TermBudget {
     #[pyo3(get, set)]
     pub min_terms: Option<usize>,
-    #[pyo3(get, set)]
-    pub max_terms: Option<usize>,
 }
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl TermBudget {
     #[new]
-    #[pyo3(signature = (*, min_terms=None, max_terms=None))]
-    pub fn new(min_terms: Option<usize>, max_terms: Option<usize>) -> Self {
-        TermBudget {
-            min_terms,
-            max_terms,
-        }
+    #[pyo3(signature = (min_terms=None))]
+    pub fn new(min_terms: Option<usize>) -> Self {
+        TermBudget { min_terms }
     }
     fn __repr__(&self) -> String {
         let f = |v: Option<usize>| v.map_or_else(|| "None".to_string(), |x| x.to_string());
-        format!(
-            "TermBudget(min_terms={}, max_terms={})",
-            f(self.min_terms),
-            f(self.max_terms)
-        )
-    }
-}
-
-#[pyo3_stub_gen::derive::gen_stub_pyclass]
-#[pyclass(subclass, module = "propaq._rust_core")]
-#[derive(Clone)]
-pub struct MonomialBudget {
-    #[pyo3(get, set)]
-    pub min_monomials: Option<u128>,
-    #[pyo3(get, set)]
-    pub max_monomials: Option<u128>,
-}
-
-#[pyo3_stub_gen::derive::gen_stub_pymethods]
-#[pymethods]
-impl MonomialBudget {
-    #[new]
-    #[pyo3(signature = (*, min_monomials=None, max_monomials=None))]
-    pub fn new(min_monomials: Option<u128>, max_monomials: Option<u128>) -> Self {
-        MonomialBudget {
-            min_monomials,
-            max_monomials,
-        }
-    }
-    fn __repr__(&self) -> String {
-        let f = |v: Option<u128>| v.map_or_else(|| "None".to_string(), |x| x.to_string());
-        format!(
-            "MonomialBudget(min_monomials={}, max_monomials={})",
-            f(self.min_monomials),
-            f(self.max_monomials),
-        )
+        format!("TermBudget(min_terms={})", f(self.min_terms))
     }
 }
 
@@ -184,7 +139,6 @@ pub enum Truncator {
     Coefficient(CoefficientTruncator),
     Weight(WeightTruncator),
     TermBudget(TermBudget),
-    MonomialBudget(MonomialBudget),
     Simplify(Simplify),
     Native(NativeTruncator),
 }
@@ -197,17 +151,13 @@ impl Truncator {
             Truncator::Coefficient(t) => t.clone().into_py_any(py),
             Truncator::Weight(t) => t.clone().into_py_any(py),
             Truncator::TermBudget(t) => t.clone().into_py_any(py),
-            Truncator::MonomialBudget(t) => t.clone().into_py_any(py),
             Truncator::Simplify(t) => t.clone().into_py_any(py),
             Truncator::Native(t) => t.clone().into_py_any(py),
         }
     }
 
     pub fn is_surrogate_only(&self) -> bool {
-        matches!(
-            self,
-            Truncator::Frequency(_) | Truncator::MonomialBudget(_) | Truncator::Simplify(_)
-        )
+        matches!(self, Truncator::Frequency(_) | Truncator::Simplify(_))
     }
 
     pub fn is_numerical_only(&self) -> bool {
@@ -218,7 +168,7 @@ impl Truncator {
 pub fn reject_surrogate_only(truncators: &[Truncator]) -> PyResult<()> {
     if truncators.iter().any(Truncator::is_surrogate_only) {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "FrequencyTruncator/MonomialBudget/Simplify only apply to surrogate propagation; \
+            "FrequencyTruncator/Simplify only apply to surrogate propagation, \
              use WeightTruncator / CoefficientTruncator / TermBudget with the numerical propagator",
         ));
     }
@@ -228,9 +178,7 @@ pub fn reject_surrogate_only(truncators: &[Truncator]) -> PyResult<()> {
 pub fn reject_numerical_only(truncators: &[Truncator]) -> PyResult<()> {
     if truncators.iter().any(Truncator::is_numerical_only) {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "NativeTruncator only applies to numerical propagation (it decides per-term based on a \
-             concrete coefficient magnitude, which the surrogate's symbolic coefficients don't have \
-             during build); use it with PauliPropagator/MajoranaPropagator instead",
+            "NativeTruncator only applies to numerical propagation, use it with PauliPropagator/MajoranaPropagator instead",
         ));
     }
     Ok(())
@@ -242,9 +190,6 @@ pub struct ResolvedConfig {
     pub coefficient: Option<f64>,
     pub weight: Option<u32>,
     pub min_terms: Option<usize>,
-    pub max_terms: Option<usize>,
-    pub min_monomials: Option<u128>,
-    pub max_monomials: Option<u128>,
     pub simplify: bool,
     /// When set, fully replaces the weight/coefficient cutoff comparison
     /// in `kernels::truncate` with the plugin's own per-term decision.
@@ -259,14 +204,7 @@ pub fn resolve_config(truncators: &[Truncator]) -> ResolvedConfig {
             Truncator::Frequency(x) => r.frequency = x.frequency,
             Truncator::Coefficient(x) => r.coefficient = x.coefficient,
             Truncator::Weight(x) => r.weight = x.weight,
-            Truncator::TermBudget(x) => {
-                r.min_terms = x.min_terms;
-                r.max_terms = x.max_terms;
-            }
-            Truncator::MonomialBudget(x) => {
-                r.min_monomials = x.min_monomials;
-                r.max_monomials = x.max_monomials;
-            }
+            Truncator::TermBudget(x) => r.min_terms = x.min_terms,
             Truncator::Simplify(x) => r.simplify = x.enabled,
             Truncator::Native(x) => r.native = Some(x.clone()),
         }
@@ -274,17 +212,13 @@ pub fn resolve_config(truncators: &[Truncator]) -> ResolvedConfig {
     r
 }
 
-const DEFAULT_MAX_TERMS: usize = 10_000_000;
-
 /// Controls when and how terms are discarded during propagation.
 ///
 /// Arguments:
 ///     weight_cutoff: Discard terms with Pauli weight strictly greater than this value.
 ///         None disables weight-based truncation.
 ///     coeff_cutoff: Discard terms with |coefficient| strictly less than this value.
-///     truncation_range: (min_terms, max_terms) pair. Truncation fires when the term
-///         count reaches max_terms and will not reduce it below min_terms.
-///         Defaults to (None, \(10^7\)).
+///     min_terms: Live-term floor below which truncation is suppressed.
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(subclass, module = "propaq._rust_core")]
 #[derive(Clone)]
@@ -293,7 +227,8 @@ pub struct TruncationPolicy {
     pub weight_cutoff: Option<u32>,
     #[pyo3(get, set)]
     pub coeff_cutoff: f64,
-    pub truncation_range: (Option<usize>, Option<usize>),
+    #[pyo3(get, set)]
+    pub min_terms: Option<usize>,
 }
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
@@ -304,31 +239,15 @@ impl TruncationPolicy {
     /// Arguments:
     ///     weight_cutoff: Discard terms with Pauli weight strictly greater than this value.
     ///     coeff_cutoff: Discard terms with |coefficient| strictly less than this value.
-    ///     truncation_range: (min_terms, max_terms) pair. Truncation is triggered when the
-    ///         term count reaches max_terms and will not reduce it below min_terms.
+    ///     min_terms: Live-term floor below which truncation is suppressed.
     #[new]
-    #[pyo3(signature = (weight_cutoff=None, coeff_cutoff=0.0, truncation_range=None))]
-    fn new(
-        weight_cutoff: Option<u32>,
-        coeff_cutoff: f64,
-        truncation_range: Option<(Option<usize>, Option<usize>)>,
-    ) -> Self {
+    #[pyo3(signature = (weight_cutoff=None, coeff_cutoff=0.0, min_terms=None))]
+    fn new(weight_cutoff: Option<u32>, coeff_cutoff: f64, min_terms: Option<usize>) -> Self {
         TruncationPolicy {
             weight_cutoff,
             coeff_cutoff,
-            truncation_range: truncation_range.unwrap_or((None, Some(DEFAULT_MAX_TERMS))),
+            min_terms,
         }
-    }
-
-    /// The (min_terms, max_terms) pair controlling when and how aggressively truncation fires.
-    #[getter]
-    fn truncation_range(&self) -> (Option<usize>, Option<usize>) {
-        self.truncation_range
-    }
-
-    #[setter]
-    fn set_truncation_range(&mut self, value: (Option<usize>, Option<usize>)) {
-        self.truncation_range = value;
     }
 
     /// Return True if a term with *weight* and |coefficient| *abs_coeff* should be discarded.
@@ -342,8 +261,7 @@ impl TruncationPolicy {
     /// truncator list the propagators run internally.
     ///
     /// `weight_cutoff` maps to `WeightTruncator`, a positive `coeff_cutoff`
-    /// maps to `CoefficientTruncator`, and `truncation_range` maps to
-    /// `TermBudget`.
+    /// maps to `CoefficientTruncator`, and `min_terms` maps to `TermBudget`.
     pub fn decompose(&self) -> Vec<crate::truncators::Truncator> {
         use crate::truncators::{CoefficientTruncator, TermBudget, Truncator, WeightTruncator};
         let mut ops = Vec::new();
@@ -357,10 +275,9 @@ impl TruncationPolicy {
                 coefficient: Some(self.coeff_cutoff),
             }));
         }
-        if self.truncation_range.0.is_some() || self.truncation_range.1.is_some() {
+        if self.min_terms.is_some() {
             ops.push(Truncator::TermBudget(TermBudget {
-                min_terms: self.truncation_range.0,
-                max_terms: self.truncation_range.1,
+                min_terms: self.min_terms,
             }));
         }
         ops
@@ -388,7 +305,7 @@ pub fn resolve_truncation(truncation: Option<&Bound<'_, PyAny>>) -> PyResult<Vec
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
         "truncation must be a truncator (FrequencyTruncator/CoefficientTruncator/\
-         WeightTruncator/TermBudget/MonomialBudget/Simplify/NativeTruncator), a list of truncators, a \
+         WeightTruncator/TermBudget/Simplify/NativeTruncator), a list of truncators, a \
          TruncationPolicy, or None",
     ))
 }
