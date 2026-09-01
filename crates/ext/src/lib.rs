@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::{derive::gen_stub_pyfunction, Result as StubResult, StubInfo};
 
 use propaq_core::truncators::{
-    CoefficientTruncator, FrequencyTruncator, MonomialBudget, Simplify, TermBudget, WeightTruncator,
+    CoefficientTruncator, FrequencyTruncator, Simplify, TermBudget, WeightTruncator,
 };
 use propaq_core::{
     GateNoiseModel, Logger, NativeNoiseModel, NativeTruncator, PropagationResult, TruncationPolicy,
@@ -49,7 +49,6 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CoefficientTruncator>()?;
     m.add_class::<WeightTruncator>()?;
     m.add_class::<TermBudget>()?;
-    m.add_class::<MonomialBudget>()?;
     m.add_class::<NativeTruncator>()?;
     m.add_class::<Simplify>()?;
     m.add_class::<PauliSurrogateModel>()?;
