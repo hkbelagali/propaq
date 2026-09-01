@@ -16,7 +16,7 @@ use pyo3::prelude::*;
 
 use crate::basis::BasisKind;
 use crate::native_noise::NativeNoiseModel;
-use crate::noise::{GateNoiseModel, UniformNoiseModel};
+use crate::noise::UniformNoiseModel;
 use crate::term_kernel::{LayerContext, NoiseKernel, TermView};
 
 /// The method a Python model defines to opt into per-term, key-aware damping.
@@ -113,23 +113,16 @@ pub fn resolve_noise(
         return Ok(Some(ResolvedNoise::WeightTable(table)));
     }
 
-    // Unwrap the wrapper into a parsed noise model.
-    let target = match model.extract::<PyRef<GateNoiseModel>>() {
-        Ok(gate) => match gate.inner(model.py()) {
-            Some(inner) => inner.into_bound(model.py()),
-            None => model.clone(),
-        },
-        Err(_) => model.clone(),
-    };
-
-    if target.hasattr(PYTHON_TERM_HOOK)? {
-        return Ok(Some(ResolvedNoise::PythonTerm(target.unbind())));
+    // A GateNoiseModel subclass (or any other custom Python noise object)
+    // defines its damping hooks directly on itself.
+    if model.hasattr(PYTHON_TERM_HOOK)? {
+        return Ok(Some(ResolvedNoise::PythonTerm(model.clone().unbind())));
     }
 
     let mut table = Vec::with_capacity(max_weight + 1);
     for w in 0..=max_weight {
         table.push(
-            target
+            model
                 .call_method1("damping_factor", (w as u32, 0u32))?
                 .extract()?,
         );
