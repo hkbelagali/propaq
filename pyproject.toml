@@ -83,6 +83,10 @@ hybrid = [
     # 0.15.0 breaks RZZ parsing
     "quimb>=1.6,<1.15",
 ]
+benchmarks = [
+    "propaq[ffsim]",
+    "pyscf>=2.6",
+]
 
 [tool.maturin]
 python-source = "."
