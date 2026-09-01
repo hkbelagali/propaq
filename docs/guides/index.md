@@ -16,8 +16,7 @@ you have read [Core concepts](../getting-started/concepts.md).
 
     ---
 
-    The truncator pipeline: weight, coefficient, frequency, term and monomial
-    budgets, and how flushes are triggered.
+    The truncator pipeline: weight, coefficient, frequency truncators, and how flushes are triggered.
 
 -   __[Noise models](noise.md)__
 

@@ -52,7 +52,7 @@ prop = MajoranaPropagator(
     truncation=[
         WeightTruncator(weight=10),
         CoefficientTruncator(coefficient=1e-5),
-        TermBudget(max_terms=10_000_000),
+        TermBudget(min_terms=1_000_000),
     ],
 )
 
@@ -73,8 +73,8 @@ print(result.expectation_value)
     ---
 
     Back-propagate an observable through a circuit in the Heisenberg picture,
-    in either the Pauli or the Majorana basis. The propagator is generic over 
-    the algebra, so other bases can be implemented as well!
+    in either the Pauli or the Majorana basis. Implement custom bases by subclassing 
+    propaq's Python abstract classes.
 
 -   __Composable truncation__
 
@@ -142,10 +142,10 @@ print(result.expectation_value)
 </div>
 
 Requires Python 3.10 or newer. Pre-built wheels are published for Linux x86-64,
-macOS and Windows. See [Installation](getting-started/installation.md) for the
-full matrix and optional dependencies.
+macOS and Windows. See [Installation](getting-started/installation.md) for more 
+information.
 
-## Citation
+## References
 
 propaq implements the algorithms described in:
 

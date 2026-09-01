@@ -66,8 +66,8 @@ accumulator = PauliTermSum()
 accumulator.merge_from_file(PauliTermStreamer.from_file("propagated_terms.gz"))
 ```
 
-This allows users to partition an observable into multiple separate propagation runs,
-and consolidate the results afterwards. 
+This enables distributed propagation runs, where different nodes write their own term sums
+to disk, and the results are merged later on a single node for post-processing and analysis.
 
 ## Worked examples
 

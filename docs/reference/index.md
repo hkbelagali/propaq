@@ -1,12 +1,6 @@
 # API reference
 
-Generated from the source. Every public module is documented here; the
-[guides](../guides/index.md) explain how the pieces fit together.
-
-Most of propaq's public names are also re-exported from the top-level `propaq`
-namespace, so `from propaq import PauliPropagator` and
-`from propaq.propagators import PauliPropagator` are equivalent.
-
+API reference for propaq, including the public modules, classes, and methods.
 <div class="grid cards" markdown>
 
 -   __[`propaq.datatypes`](datatypes.md)__
@@ -27,8 +21,7 @@ namespace, so `from propaq import PauliPropagator` and
 
     ---
 
-    The numerical and surrogate propagators - the entry point for every
-    simulation.
+    The numerical and surrogate propagators
 
 -   __[`propaq.noise`](noise.md)__
 

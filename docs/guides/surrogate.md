@@ -63,7 +63,7 @@ see the difference.
 
 [`VariationalSurrogateModel`][propaq.models.VariationalSurrogateModel] wraps a
 compiled model together with the circuit's parameter mapping, so you can
-evaluate it in terms of the **Qiskit** parameters directly. That makes it usable
+evaluate it in terms of the Qiskit parameters directly. That makes it usable
 as a cost function without any manual index bookkeeping:
 
 ```python
@@ -92,41 +92,30 @@ circuit is a `dict(zip(...))`.
 ## Truncation in the surrogate
 
 Surrogate builds accept the same truncator pipeline as numerical propagators,
-plus three surrogate-only truncators:
+plus two surrogate-only truncators:
 
 | Truncator | Effect |
 | --- | --- |
 | [`FrequencyTruncator`][propaq.truncation.FrequencyTruncator] | drops paths that have branched more than `frequency` times |
-| [`MonomialBudget`][propaq.truncation.MonomialBudget] | triggers a flush once the live monomial count reaches `max_monomials` |
 | [`Simplify`][propaq.truncation.Simplify] | lossless: collapses monomials sharing a canonical path into one |
 
 ```python
-from propaq.truncation import CoefficientTruncator, FrequencyTruncator, MonomialBudget, Simplify
+from propaq.truncation import CoefficientTruncator, FrequencyTruncator, Simplify
 
 prop = PauliSurrogatePropagator(
     truncation=[
         Simplify(),
         FrequencyTruncator(frequency=6),
         CoefficientTruncator(coefficient=1e-8),
-        MonomialBudget(max_monomials=50_000_000),
     ]
 )
 ```
 
-The two axes to watch are **terms** and **monomials**. A surrogate model's cost
-is dominated by the monomial count - the size of the symbolic coefficient
-expressions - which can grow much faster than the term count. `FrequencyTruncator` is the surrogate's
-analogue of weight truncation.
-
-!!! note "Budget arguments are keyword-only"
-
-    As with [`TermBudget`](truncation.md#budgets),
-    [`MonomialBudget`][propaq.truncation.MonomialBudget] takes `min_monomials`
-    first and `max_monomials` second, and rejects positional arguments.
+The two axes to watch are terms and monomials (symbolic coefficients). Frequency truncator removes terms that have branched too many times.
 
 ## Persistence
 
-Compiling is the expensive step, evaluating is not. Save the model and reuse it:
+Compiling is the expensive step, whereas evaluating is comparatively cheap. Save the model and reuse it:
 
 ```python
 model.save("ansatz.surrogate")

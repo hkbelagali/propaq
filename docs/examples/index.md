@@ -1,10 +1,11 @@
 # Examples
 
-Every page in this section is a Jupyter notebook from the
-[`examples/`](https://github.com/hkbelagali/propaq/tree/main/examples) directory
-of the repository, rendered here with its committed outputs.
+## General Usage
+The examples in this section are rendered notebooks. To see the interactive versions, check out these
+[`examples/`](https://github.com/hkbelagali/propaq/tree/main/examples)!
 
-## Usage
+Run `pip install "propaq[examples]"` to get everything the notebooks need (`cirq`,
+`ffsim`, `hybrid`, `matplotlib`, `qiskit-nature`, `jupyter`, `ipywidgets`), then run them locally.
 
 Start at the top, the notebooks build on each other!
 
@@ -21,8 +22,7 @@ Start at the top, the notebooks build on each other!
 
     ---
 
-    The same unitary cluster Jastrow (UCJ) ansatz for $\text{H}_2$ propagated in both
-    bases, compared directly.
+    The same unitary cluster Jastrow (UCJ) ansatz for $\text{H}_2$ propagated in the Pauli and Majorana bases.
 
 -   __[3. Truncation pipelines](usage/03_truncation_pipelines.ipynb)__
 

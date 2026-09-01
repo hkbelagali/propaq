@@ -1,6 +1,6 @@
 # Quickstart
 
-This page walks through one complete propagation: a Qiskit circuit, a Pauli
+This page walks through one complete propagation, involving a Qiskit circuit, a Pauli
 observable, a truncation pipeline, and an expectation value.
 
 ## 1. Build a circuit
@@ -47,63 +47,92 @@ for it. See [Circuits and gates](../guides/circuits.md).
 
 ## 2. Choose an observable
 
-An observable is a *term sum*: a weighted sum of Pauli strings or Majorana
+An observable is a *term sum*, i.e. a weighted sum of Pauli strings or Majorana
 monomials. The easiest way in is from a Qiskit `SparsePauliOp`:
 
-```python
-from qiskit.quantum_info import SparsePauliOp
-from propaq.datatypes import MajoranaTermSum
+=== "Majorana"
+    ```python
+    from qiskit.quantum_info import SparsePauliOp
+    from propaq.datatypes import MajoranaTermSum
 
-observable = SparsePauliOp.from_list([
-    ("XIII", 1.0),
-    ("IXII", 1.0),
-    ("IIXI", 1.0),
-    ("IIIX", 1.0),
-])
+    observable = SparsePauliOp.from_list([
+        ("XIII", 1.0),
+        ("IXII", 1.0),
+        ("IIXI", 1.0),
+        ("IIIX", 1.0),
+    ])
 
-mts = MajoranaTermSum.from_sparse_pauli_op(observable)
-```
+    mts = MajoranaTermSum.from_sparse_pauli_op(observable)
+    ```
 
+=== "Pauli"
+    ```python
+    from qiskit.quantum_info import SparsePauliOp
+    from propaq.datatypes import PauliTermSum
+
+    observable = SparsePauliOp.from_list([
+        ("XIII", 1.0),
+        ("IXII", 1.0),
+        ("IIXI", 1.0),
+        ("IIIX", 1.0),
+    ])
+    pts = PauliTermSum.from_sparse_pauli_op(observable)
+    ```
 ## 3. Pick a truncation pipeline
  A propagator takes a **list of truncators** that run together
- after each gate, or according to a [`TermBudget`][propaq.truncation.TermBudget] if specified.
+ after each gate.
 
 ```python
 from propaq.truncation import WeightTruncator, CoefficientTruncator, TermBudget
 
 truncation = [
-    WeightTruncator(weight=10),            # drop terms of operator weight > 10
+    WeightTruncator(weight=10),            # drop terms of Pauli weight > 10
     CoefficientTruncator(coefficient=1e-5),  # drop |coeff| < 1e-5
-    TermBudget(max_terms=10_000_000),      # fire truncation at 10M live terms
+    TermBudget(min_terms=1_000_000),       # suppress the above below 1M live terms
 ]
 ```
-
-!!! note "`TermBudget` arguments are keyword-only."
-
 
 The [truncation guide](../guides/truncation.md) explains what each truncator
 costs and when it fires.
 
 ## 4. Propagate
 
-```python
-from propaq.noise import UniformNoiseModel
-from propaq.propagators import MajoranaPropagator
+=== "Majorana"
+    ```python
+    from propaq.noise import UniformNoiseModel
+    from propaq.propagators import MajoranaPropagator
 
-prop = MajoranaPropagator(
-    noise=UniformNoiseModel(damping=0.001),
-    truncation=truncation,
-)
+    prop = MajoranaPropagator(
+        noise=UniformNoiseModel(damping=0.001),
+        truncation=truncation,
+    )
 
-result = prop.expectation_value(mts, circuit, initial_state=0)
+    result = prop.expectation_value(mts, circuit, initial_state=0)
 
-print("expectation value:", result.expectation_value)
-print("terms at each gate:", result.n_terms)      # per-gate trace, not a total
-print("final term count: ", result.n_terms[-1])
-print("below cutoff:     ", result.terms_below_cutoff)
-```
+    print("expectation value:", result.expectation_value)
+    print("terms at each gate:", result.n_terms)      # per-gate trace, not a total
+    print("final term count: ", result.n_terms[-1])
+    print("below cutoff:     ", result.terms_below_cutoff)
+    ```
 
-!!! note "`n_terms` is a trace, not a number"
+=== "Pauli" 
+    ```python
+    from propaq.noise import UniformNoiseModel
+    from propaq.propagators import PauliPropagator
+
+    prop = PauliPropagator(
+        noise=UniformNoiseModel(damping=0.001),
+        truncation=truncation,
+    )
+
+    result = prop.expectation_value(pts, circuit, initial_state=0)
+
+    print("expectation value:", result.expectation_value)
+    print("terms at each gate:", result.n_terms)      # per-gate trace, not a total
+    print("final term count: ", result.n_terms[-1])
+    print("below cutoff:     ", result.terms_below_cutoff)
+    ```
+!!! note "`n_terms` is a list, not a number"
 
     [`PropagationResult.n_terms`][propaq._rust_core.PropagationResult] is a
     `list[int]`. It represents the live term count after each gate, so you can see where
@@ -116,7 +145,7 @@ against the computational-basis state given by `initial_state`, represented as a
 
 If you want the propagated operator itself rather than a number, use
 [`propagate`][propaq.propagators.MajoranaPropagator.propagate], which returns
-the evolved `MajoranaTermSum`:
+the evolved [`MajoranaTermSum`][propaq.datatypes.MajoranaTermSum]/[`PauliTermSum`][propaq.datatypes.PauliTermSum]:
 
 ```python
 theta = prop.propagate(mts, circuit)

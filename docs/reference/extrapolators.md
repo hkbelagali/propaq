@@ -24,9 +24,8 @@ See the [extrapolation guide](../guides/extrapolation.md).
         - fitting_fn
         - cutoff_values
         - run
-        - _rust_cls
-        - _read
-        - _build
+        - truncator_cls
+        - build_truncator
 
 ::: propaq.extrapolators.WeightCutoffExtrapolator
     options:

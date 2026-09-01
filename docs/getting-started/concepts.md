@@ -31,6 +31,10 @@ Unlike the Schrödinger picture where we require exponential space just to mater
 - In the Pauli basis, the terms are Pauli strings: [`PauliString`][propaq.datatypes.PauliString], collected into a [`PauliTermSum`][propaq.datatypes.PauliTermSum].
 - In the Majorana basis, the terms are Majorana monomials: [`MajoranaMonomial`][propaq.datatypes.MajoranaMonomial], collected into a [`MajoranaTermSum`][propaq.datatypes.MajoranaTermSum].
 
+!!! note "Other bases?"
+
+    Heisenberg propagation can be carried out in any basis with the right algebraic structure. For example, in a Weyl-Heisenberg qudit basis, the terms could be `WeylString`, collected into a `WeylTermSum`. 
+    See [this notebook](../examples/usage/11_custom_basis_qudit_weyl.ipynb) for an example of a custom basis.
 Applying a gate rewrites every term. A Clifford gate maps one basis operator to
 exactly one basis operator, so the term count is unchanged. A non-Clifford gate 
 will, in general, induce branching: 
