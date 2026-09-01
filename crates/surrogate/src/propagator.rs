@@ -90,10 +90,13 @@ use propaq_majorana::termsum::MajoranaTermSum;
 use propaq_pauli::string::PauliBasis;
 use propaq_pauli::termsum::PauliTermSum;
 
-/// Replays the build's collected truncation passes into the verbose log.
-fn write_flush_log(
+/// Replays the build's collected gate and merge records into the verbose log.
+fn write_merge_log(
     log_filename: Option<&str>,
-    flushes: &[crate::engine::FlushRecord],
+    log_every: usize,
+    gates: &[crate::engine::GateRecord],
+    merges: &[crate::engine::MergeRecord],
+    phases: &propaq_core::partitioned_termsum::PhaseStats,
 ) -> PyResult<()> {
     let Some(filename) = log_filename else {
         return Ok(());
@@ -106,24 +109,81 @@ fn write_flush_log(
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
     let mut log = BufWriter::new(f);
     let log = &mut log;
-    for f in flushes {
-        let discarded = f.terms_before - f.terms_after;
-        let mono_discarded = f.monomials_before.saturating_sub(f.monomials_after);
+    let every = log_every.max(1);
+    for g in gates.iter().filter(|g| g.gate_idx % every == 0) {
+        let qki = g
+            .qiskit_gate_idx
+            .map_or_else(|| "null".to_string(), |v| v.to_string());
         let _ = writeln!(
             log,
-            r#"{{"event":"surrogate_flush","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":null,"trigger":"{}","terms_before":{},"terms_after":{},"terms_discarded":{},"monomials_before":{},"monomials_after":{},"monomials_discarded":{},"frequency":null,"weight":null,"coefficient":null,"elapsed_ms":0.0e0}}"#,
-            f.gate_idx,
-            f.layer_idx,
-            f.trigger,
-            f.terms_before,
-            f.terms_after,
-            discarded,
-            f.monomials_before,
-            f.monomials_after,
-            mono_discarded,
+            r#"{{"event":"gate","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"terms":{},"monomials":{},"ms_per_gate":{:.3e}}}"#,
+            g.gate_idx, g.layer_idx, qki, g.terms, g.monomials, g.ms_per_gate
         );
     }
+    for m in merges.iter().filter(|m| m.gate_idx % every == 0) {
+        let discarded = m.terms_before.saturating_sub(m.terms_after);
+        let mono_discarded = m.monomials_before.saturating_sub(m.monomials_after);
+        let qki = m
+            .qiskit_gate_idx
+            .map_or_else(|| "null".to_string(), |v| v.to_string());
+        let freq = m
+            .frequency
+            .map_or_else(|| "null".to_string(), |v| v.to_string());
+        let weight = m
+            .weight
+            .map_or_else(|| "null".to_string(), |v| v.to_string());
+        let coeff = m
+            .coefficient
+            .map_or_else(|| "null".to_string(), |v| format!("{v:.6e}"));
+        let _ = writeln!(
+            log,
+            r#"{{"event":"surrogate_merge","gate_idx":{},"layer_idx":{},"qiskit_gate_idx":{},"trigger":"{}","terms_before":{},"terms_after":{},"terms_discarded":{},"monomials_before":{},"monomials_after":{},"monomials_discarded":{},"frequency":{},"weight":{},"coefficient":{},"elapsed_ms":{:.3e}}}"#,
+            m.gate_idx,
+            m.layer_idx,
+            qki,
+            m.trigger,
+            m.terms_before,
+            m.terms_after,
+            discarded,
+            m.monomials_before,
+            m.monomials_after,
+            mono_discarded,
+            freq,
+            weight,
+            coeff,
+            m.elapsed_ms,
+        );
+    }
+    write_phase_event(log, phases);
     Ok(())
+}
+
+/// One closing record with the run's phase split and kernel counters.
+fn write_phase_event(log: &mut impl Write, p: &propaq_core::partitioned_termsum::PhaseStats) {
+    let occupancy = |busy: f64, wall: f64| busy / (wall.max(1e-12) * p.partitions as f64);
+    let share = |part: u64, whole: u64| part as f64 / whole.max(1) as f64;
+    let _ = writeln!(
+        log,
+        r#"{{"event":"engine_phases","partitions":{},"scan_s":{:.6e},"absorb_s":{:.6e},"claims_s":{:.6e},"scan_occupancy":{:.4},"absorb_occupancy":{:.4},"claims_occupancy":{:.4},"terms":{},"inline_positions":{},"overflow_rows":{},"overflow_share":{:.4},"visited":{},"emitted":{},"declined":{},"emitted_share":{:.4},"declined_share":{:.4},"exchange_hits":{},"exchange_hit_share":{:.4}}}"#,
+        p.partitions,
+        p.scan_seconds,
+        p.absorb_seconds,
+        p.claims_seconds,
+        occupancy(p.scan_busy_seconds, p.scan_seconds),
+        occupancy(p.absorb_busy_seconds, p.absorb_seconds),
+        occupancy(p.claims_busy_seconds, p.claims_seconds),
+        p.terms,
+        p.inline_positions,
+        p.overflow_rows,
+        p.overflow_rows as f64 / p.terms.max(1) as f64,
+        p.visited,
+        p.emitted,
+        p.declined,
+        share(p.emitted, p.visited),
+        share(p.declined, p.visited),
+        p.exchange_hits,
+        share(p.exchange_hits, p.emitted),
+    );
 }
 
 use propaq_majorana::algebra::to_basis_string as to_basis_string_majorana;
@@ -268,8 +328,14 @@ impl PauliSurrogatePropagator {
         if let Some(p) = progress.as_ref() {
             p.close();
         }
-        let (model, flushes) = model?;
-        write_flush_log(self.inner.log_filename.as_deref(), &flushes)?;
+        let (model, gates, merges, phases) = model?;
+        write_merge_log(
+            self.inner.log_filename.as_deref(),
+            self.inner.log_every,
+            &gates,
+            &merges,
+            &phases,
+        )?;
         Ok(PauliSurrogateModel { inner: model })
     }
 
@@ -377,8 +443,14 @@ impl MajoranaSurrogatePropagator {
         if let Some(p) = progress.as_ref() {
             p.close();
         }
-        let (model, flushes) = model?;
-        write_flush_log(self.inner.log_filename.as_deref(), &flushes)?;
+        let (model, gates, merges, phases) = model?;
+        write_merge_log(
+            self.inner.log_filename.as_deref(),
+            self.inner.log_every,
+            &gates,
+            &merges,
+            &phases,
+        )?;
         Ok(MajoranaSurrogateModel { inner: model })
     }
 
