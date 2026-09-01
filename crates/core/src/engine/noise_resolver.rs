@@ -115,7 +115,10 @@ pub fn resolve_noise(
 
     // Unwrap the wrapper into a parsed noise model.
     let target = match model.extract::<PyRef<GateNoiseModel>>() {
-        Ok(gate) => gate.inner(model.py()).into_bound(model.py()),
+        Ok(gate) => match gate.inner(model.py()) {
+            Some(inner) => inner.into_bound(model.py()),
+            None => model.clone(),
+        },
         Err(_) => model.clone(),
     };
 
