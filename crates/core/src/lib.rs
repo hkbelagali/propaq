@@ -70,6 +70,6 @@ pub use results::PropagationResult;
 pub use term_kernel::{NoiseKernel, TermView, TruncationKernel};
 pub use truncators::{
     reject_numerical_only, reject_surrogate_only, resolve_config, resolve_truncation,
-    CoefficientTruncator, FrequencyTruncator, MonomialBudget, ResolvedConfig, Simplify, TermBudget,
+    CoefficientTruncator, FrequencyTruncator, ResolvedConfig, Simplify, TermBudget,
     TruncationPolicy, Truncator, WeightTruncator,
 };
