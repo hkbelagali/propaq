@@ -8,7 +8,8 @@ if TYPE_CHECKING:
 
     from propaq._rust_core import PropagationResult
     from propaq.datatypes import AbstractTermSum
-    from propaq.noise import GateNoiseModel, NativeNoiseModel, TruncationPolicy, UniformNoiseModel
+    from propaq.noise import GateNoiseModel, NativeNoiseModel, UniformNoiseModel
+    from propaq.truncation import TruncationPolicy
 
 
 class AbstractPropagator(ABC):

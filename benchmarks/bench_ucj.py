@@ -73,7 +73,7 @@ class MajoranaUCJBench:
 
         from propaq.circuits import MajoranaCircuit
         from propaq.datatypes import MajoranaTermSum
-        from propaq.noise import TruncationPolicy
+        from propaq.truncation import TruncationPolicy
 
         self.ucj_op, compiled = _build_lucj_circuit(natoms)
         n_qubits = compiled.num_qubits
@@ -105,7 +105,7 @@ class PauliUCJBench:
 
         from propaq.circuits import PauliCircuit
         from propaq.datatypes import PauliTermSum
-        from propaq.noise import TruncationPolicy
+        from propaq.truncation import TruncationPolicy
 
         self.ucj_op, compiled = _build_lucj_circuit(natoms)
         n_qubits = compiled.num_qubits

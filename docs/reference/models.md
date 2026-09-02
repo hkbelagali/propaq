@@ -12,4 +12,3 @@ See the [surrogate guide](../guides/surrogate.md).
         - PauliSurrogateModel
         - MajoranaSurrogateModel
         - VariationalSurrogateModel
-        - ParamSource

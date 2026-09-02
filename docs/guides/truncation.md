@@ -98,10 +98,10 @@ Truncations are heuristic, and the right cutoffs must be tailored to your proble
 ## Legacy `TruncationPolicy`
 
 Older code configures truncation with a single
-[`TruncationPolicy`][propaq.noise.TruncationPolicy] object:
+[`TruncationPolicy`][propaq.truncation.TruncationPolicy] object:
 
 ```python
-from propaq.noise import TruncationPolicy
+from propaq.truncation import TruncationPolicy
 
 TruncationPolicy(weight_cutoff=10, coeff_cutoff=1e-5, min_terms=1_000_000)
 ```

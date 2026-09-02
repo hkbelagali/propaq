@@ -64,8 +64,9 @@ from qiskit.quantum_info import SparsePauliOp
 
 from propaq.circuits import MajoranaCircuit
 from propaq.datatypes import MajoranaTermSum
-from propaq.noise import UniformNoiseModel, TruncationPolicy
+from propaq.noise import UniformNoiseModel
 from propaq.propagators import MajoranaPropagator
+from propaq.truncation import TruncationPolicy
 
 # Build a random 4-qubit circuit
 qc = QuantumCircuit(4)

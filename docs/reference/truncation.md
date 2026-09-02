@@ -15,3 +15,5 @@ See the [truncation guide](../guides/truncation.md).
         - Simplify
         - NativeTruncator
         - Truncator
+        - TruncationPolicy
+        - FrequencyTruncationPolicy

@@ -1,6 +1,6 @@
 # `propaq.noise`
 
-Noise models, plus the legacy combined truncation policies.
+Noise models.
 
 See the [noise guide](../guides/noise.md).
 
@@ -10,8 +10,6 @@ See the [noise guide](../guides/noise.md).
         - UniformNoiseModel
         - GateNoiseModel
         - NativeNoiseModel
-        - TruncationPolicy
-        - FrequencyTruncationPolicy
 
 ## Base class
 

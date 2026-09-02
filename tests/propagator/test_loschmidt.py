@@ -7,8 +7,8 @@ import numpy as np
 from propaq.circuits import MajoranaCircuit
 from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
-from propaq.noise import TruncationPolicy
 from propaq.propagators.majorana import MajoranaPropagator
+from propaq.truncation import TruncationPolicy
 
 
 def test_loschmidt_echo():
