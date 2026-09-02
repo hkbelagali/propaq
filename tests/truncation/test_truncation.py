@@ -1,4 +1,4 @@
-from propaq.noise.truncation import TruncationPolicy
+from propaq.truncation import TruncationPolicy
 
 
 def test_should_truncate_logic():

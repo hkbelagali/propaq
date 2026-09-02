@@ -1,10 +1,12 @@
 """Composable truncation operators shared by the numerical and surrogate propagators."""
 
 from propaq._rust_core import CoefficientTruncator as _RustCoefficientTruncator
+from propaq._rust_core import FrequencyTruncationPolicy as FrequencyTruncationPolicy
 from propaq._rust_core import FrequencyTruncator as _RustFrequencyTruncator
 from propaq._rust_core import NativeTruncator as _RustNativeTruncator
 from propaq._rust_core import Simplify as _RustSimplify
 from propaq._rust_core import TermBudget as _RustTermBudget
+from propaq._rust_core import TruncationPolicy as TruncationPolicy
 from propaq._rust_core import WeightTruncator as _RustWeightTruncator
 from propaq.truncation.base import Truncator as Truncator
 
@@ -89,4 +91,6 @@ __all__ = [
     "TermBudget",
     "Simplify",
     "NativeTruncator",
+    "TruncationPolicy",
+    "FrequencyTruncationPolicy",
 ]

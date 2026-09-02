@@ -7,8 +7,9 @@ import pytest
 from propaq.circuits import MajoranaCircuit
 from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
-from propaq.noise import TruncationPolicy, UniformNoiseModel
+from propaq.noise import UniformNoiseModel
 from propaq.propagators.majorana import MajoranaPropagator
+from propaq.truncation import TruncationPolicy
 
 N = 8  # n_modes for all tests
 

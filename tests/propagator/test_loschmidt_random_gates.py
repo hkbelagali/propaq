@@ -23,9 +23,9 @@ from qiskit.quantum_info import SparsePauliOp, Statevector
 
 from propaq.circuits import MajoranaCircuit, PauliCircuit
 from propaq.datatypes import MajoranaTermSum, PauliTermSum
-from propaq.noise import TruncationPolicy
 from propaq.propagators.majorana import MajoranaPropagator
 from propaq.propagators.pauli import PauliPropagator
+from propaq.truncation import TruncationPolicy
 
 N_QUBITS = 3
 N_GATES = 6

@@ -22,3 +22,4 @@ See the [circuits and gates guide](../guides/circuits.md).
         - GateRep
         - GateDecompositionWarning
         - GateValidationError
+        - ParamSource

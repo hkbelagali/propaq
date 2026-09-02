@@ -32,8 +32,8 @@ def test_random_circuit_propagation():
 
     from propaq.circuits import MajoranaCircuit
     from propaq.datatypes import MajoranaTermSum
-    from propaq.noise import TruncationPolicy
     from propaq.propagators import MajoranaPropagator
+    from propaq.truncation import TruncationPolicy
 
     mc = MajoranaCircuit.from_qiskit(qc, n_modes=8)
     truncator = TruncationPolicy(weight_cutoff=10000, coeff_cutoff=0)

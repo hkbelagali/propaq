@@ -13,9 +13,10 @@ from qiskit.quantum_info import DensityMatrix, Kraus, SparsePauliOp, Statevector
 
 from propaq.circuits import MajoranaCircuit, PauliCircuit
 from propaq.datatypes import MajoranaTermSum, PauliTermSum
-from propaq.noise import TruncationPolicy, UniformNoiseModel
+from propaq.noise import UniformNoiseModel
 from propaq.propagators.majorana import MajoranaPropagator
 from propaq.propagators.pauli import PauliPropagator
+from propaq.truncation import TruncationPolicy
 
 N_QUBITS = 4
 N_MODES = 2 * N_QUBITS

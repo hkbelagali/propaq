@@ -14,8 +14,8 @@ from qiskit.quantum_info import SparsePauliOp, Statevector
 
 from propaq.circuits import PauliCircuit
 from propaq.datatypes import PauliTermSum
-from propaq.noise import TruncationPolicy
 from propaq.propagators.pauli import PauliPropagator
+from propaq.truncation import TruncationPolicy
 
 GATES = [
     (

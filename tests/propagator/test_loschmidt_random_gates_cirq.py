@@ -9,9 +9,9 @@ from qiskit.quantum_info import SparsePauliOp, Statevector  # noqa: E402
 
 from propaq.circuits import MajoranaCircuit, PauliCircuit  # noqa: E402
 from propaq.datatypes import MajoranaTermSum, PauliTermSum  # noqa: E402
-from propaq.noise import TruncationPolicy  # noqa: E402
 from propaq.propagators.majorana import MajoranaPropagator  # noqa: E402
 from propaq.propagators.pauli import PauliPropagator  # noqa: E402
+from propaq.truncation import TruncationPolicy  # noqa: E402
 
 N_QUBITS = 3
 N_GATES = 6

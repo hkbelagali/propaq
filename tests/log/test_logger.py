@@ -9,8 +9,8 @@ from propaq import Logger, MajoranaMonomial, MajoranaTermSum
 from propaq.circuits import MajoranaCircuit
 from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.log_parser import LogParser
-from propaq.noise import TruncationPolicy
 from propaq.propagators.majorana import MajoranaPropagator
+from propaq.truncation import TruncationPolicy
 
 N = 4  # n_modes for a 2-qubit circuit
 

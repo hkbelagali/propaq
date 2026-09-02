@@ -21,6 +21,7 @@ from .circuits import GateRep as GateRep
 from .circuits import GateValidationError as GateValidationError
 from .circuits import MajoranaCircuit as MajoranaCircuit
 from .circuits import MajoranaRotation as MajoranaRotation
+from .circuits import ParamSource as ParamSource
 from .circuits import PauliCircuit as PauliCircuit
 from .circuits import PauliRotation as PauliRotation
 from .circuits import SurrogateMajoranaCircuit as SurrogateMajoranaCircuit
@@ -51,14 +52,11 @@ from .log_parser import LogParser as LogParser
 from .log_parser import SurrogateMergeEvent as SurrogateMergeEvent
 from .log_parser import TruncationEvent as TruncationEvent
 from .models import MajoranaSurrogateModel as MajoranaSurrogateModel
-from .models import ParamSource as ParamSource
 from .models import PauliSurrogateModel as PauliSurrogateModel
 from .models import VariationalSurrogateModel as VariationalSurrogateModel
-from .noise import FrequencyTruncationPolicy as FrequencyTruncationPolicy
 from .noise import GateNoiseModel as GateNoiseModel
 from .noise import NativeNoiseModel as NativeNoiseModel
 from .noise import NoiseModel as NoiseModel
-from .noise import TruncationPolicy as TruncationPolicy
 from .noise import UniformNoiseModel as UniformNoiseModel
 from .propagators import AbstractPropagator as AbstractPropagator
 from .propagators import MajoranaPropagator as MajoranaPropagator
@@ -67,9 +65,11 @@ from .propagators import PauliPropagator as PauliPropagator
 from .propagators import PauliSurrogatePropagator as PauliSurrogatePropagator
 from .propagators import PropagationResult as PropagationResult
 from .truncation import CoefficientTruncator as CoefficientTruncator
+from .truncation import FrequencyTruncationPolicy as FrequencyTruncationPolicy
 from .truncation import FrequencyTruncator as FrequencyTruncator
 from .truncation import NativeTruncator as NativeTruncator
 from .truncation import Simplify as Simplify
 from .truncation import TermBudget as TermBudget
+from .truncation import TruncationPolicy as TruncationPolicy
 from .truncation import Truncator as Truncator
 from .truncation import WeightTruncator as WeightTruncator
