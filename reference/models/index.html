@@ -2085,17 +2085,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#propaq.models.ParamSource" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ParamSource
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2479,17 +2468,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#propaq.models.ParamSource" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;ParamSource
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2578,19 +2556,6 @@ parameters.</p>
             <td>
               <div class="doc-md-description">
                 <p>Wraps a compiled <code>PauliSurrogateModel</code>/<code>MajoranaSurrogateModel</code> together with</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ParamSource&lt;/span&gt;
-
-
-  &lt;span class=&quot;doc doc-labels&quot;&gt;
-      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.models.ParamSource&lt;/code&gt;)" href="#propaq.models.ParamSource">ParamSource</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Describes how one propaq surrogate parameter slot is evaluated.</p>
               </div>
             </td>
           </tr>
@@ -3122,7 +3087,7 @@ parameters.</p>
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
       &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.circuits._qiskit_symbolic.ParamSource&lt;/code&gt;)" href="#propaq.models.ParamSource">ParamSource</a></span><span class="p">],</span> <span class="n">qiskit_parameters</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="qiskit.circuit.Parameter">Parameter</span></span><span class="p">,</span> <span class="o">...</span><span class="p">])</span>
+  &lt;/span&gt; (&lt;code&gt;propaq.circuits._qiskit_symbolic.ParamSource&lt;/code&gt;)" href="../circuits/#propaq.circuits.ParamSource">ParamSource</a></span><span class="p">],</span> <span class="n">qiskit_parameters</span><span class="p">:</span> <span class="n"><span title="tuple">tuple</span></span><span class="p">[</span><span class="n"><span title="qiskit.circuit.Parameter">Parameter</span></span><span class="p">,</span> <span class="o">...</span><span class="p">])</span>
 </span></code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3388,99 +3353,6 @@ form <code>evaluate</code> takes.</p>
     </div>
 
 </div>
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="propaq.models.ParamSource" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">ParamSource</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
-  </span>
-
-<a href="#propaq.models.ParamSource" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">ParamSource</span><span class="p">(</span><span class="n">parameter</span><span class="p">:</span> <span class="n"><span title="qiskit.circuit.Parameter">Parameter</span></span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n"><span title="float">float</span></span><span class="p">)</span>
-</span></code></pre></div>
-
-    <div class="doc doc-contents ">
-
-
-
-        <p>Describes how one propaq surrogate parameter slot is evaluated.</p>
-<p>If <code>parameter</code> is not None, the slot's value at evaluate time is
-<code>scale * value_of(parameter)</code>. If <code>parameter</code> is None, the slot is a fixed
-constant equal to <code>scale</code>, independent of any Qiskit Parameter.</p>
-
-
-<p><span class="doc-section-title">Attributes:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td><code><span title="propaq.models.ParamSource.parameter">parameter</span></code></td>
-            <td>
-                  <code><span title="qiskit.circuit.Parameter">Parameter</span> | None</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The Qiskit Parameter this slot tracks, or None for a fixed constant.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><span title="propaq.models.ParamSource.scale">scale</span></code></td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The affine coefficient applied to <code>parameter</code>'s value (or the constant itself).</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
 
 
 

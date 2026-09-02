@@ -3249,7 +3249,8 @@ print(f"Hamiltonian has {len(hamiltonian)} Pauli terms.")</div>
 <div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">propaq.datatypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaMonomial</span><span class="p">,</span> <span class="n">MajoranaTermSum</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">propaq.propagators</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaPropagator</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">propaq.circuits</span><span class="w"> </span><span class="kn">import</span> <span class="n">MajoranaCircuit</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">propaq.noise</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniformNoiseModel</span><span class="p">,</span> <span class="n">TruncationPolicy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">propaq.noise</span><span class="w"> </span><span class="kn">import</span> <span class="n">UniformNoiseModel</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">propaq.truncation</span><span class="w"> </span><span class="kn">import</span> <span class="n">TruncationPolicy</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">propaq.extrapolators</span><span class="w"> </span><span class="kn">import</span> <span class="n">ZeroNoiseExtrapolator</span>
 
 <span class="n">obs_ham</span> <span class="o">=</span> <span class="n">MajoranaTermSum</span><span class="o">.</span><span class="n">from_sparse_pauli_op</span><span class="p">(</span><span class="n">hamiltonian</span><span class="p">)</span>
@@ -3265,7 +3266,8 @@ print(f"Hamiltonian has {len(hamiltonian)} Pauli terms.")</div>
 <div class="clipboard-copy-txt" id="cell-3">from propaq.datatypes import MajoranaMonomial, MajoranaTermSum
 from propaq.propagators import MajoranaPropagator
 from propaq.circuits import MajoranaCircuit
-from propaq.noise import UniformNoiseModel, TruncationPolicy
+from propaq.noise import UniformNoiseModel
+from propaq.truncation import TruncationPolicy
 from propaq.extrapolators import ZeroNoiseExtrapolator
 
 obs_ham = MajoranaTermSum.from_sparse_pauli_op(hamiltonian)

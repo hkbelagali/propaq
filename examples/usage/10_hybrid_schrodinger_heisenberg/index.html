@@ -3021,7 +3021,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="kn">from</span><span class="w"> </span><span class="nn">propaq.circuits</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliCircuit</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">propaq.datatypes</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliTermSum</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">propaq.hybrid</span><span class="w"> </span><span class="kn">import</span> <span class="n">hybrid_expectation_value</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">propaq.noise</span><span class="w"> </span><span class="kn">import</span> <span class="n">TruncationPolicy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">propaq.truncation</span><span class="w"> </span><span class="kn">import</span> <span class="n">TruncationPolicy</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">propaq.propagators.pauli</span><span class="w"> </span><span class="kn">import</span> <span class="n">PauliPropagator</span>
 
 <span class="n">N_QUBITS</span> <span class="o">=</span> <span class="mi">16</span>
@@ -3058,7 +3058,7 @@ from qiskit.quantum_info import SparsePauliOp, Statevector
 from propaq.circuits import PauliCircuit
 from propaq.datatypes import PauliTermSum
 from propaq.hybrid import hybrid_expectation_value
-from propaq.noise import TruncationPolicy
+from propaq.truncation import TruncationPolicy
 from propaq.propagators.pauli import PauliPropagator
 
 N_QUBITS = 16
