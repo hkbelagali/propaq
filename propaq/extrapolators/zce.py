@@ -12,15 +12,18 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypeVar
 
 import numpy as np
 from scipy.optimize import curve_fit
 
-from propaq.circuits.majorana.circuit import MajoranaCircuit
-from propaq.circuits.pauli.circuit import PauliCircuit
 from propaq.datatypes import AbstractTermSum
-from propaq.propagators import AbstractPropagator
+from propaq.datatypes.abstract import AbstractTerm, FockState
+from propaq.propagators import AbstractPropagator, CircuitLike
 from propaq.truncation import CoefficientTruncator, WeightTruncator
+
+TermT = TypeVar("TermT", bound=AbstractTerm)
+RotationT = TypeVar("RotationT")
 
 
 @dataclass
@@ -84,16 +87,18 @@ class ZeroCutoffExtrapolator(ABC):
 
     def run(
         self,
-        propagator: AbstractPropagator,
-        observable: AbstractTermSum,
-        circuit: MajoranaCircuit | PauliCircuit,
-        initial_state: int = 0,
+        propagator: AbstractPropagator[TermT, RotationT],
+        observable: AbstractTermSum[TermT],
+        circuit: CircuitLike[RotationT],
+        initial_state: FockState = 0,
         **curve_fit_kwargs,
     ) -> ZCEResult:
         """Sweep cutoff values, fit, and extrapolate to zero cutoff.
 
+        Works with any `AbstractPropagator`
+
         Arguments:
-            propagator: A MajoranaPropagator or PauliPropagator instance.
+            propagator: The propagator to sweep a cutoff on.
             observable: The observable to measure.
             circuit: The circuit to propagate.
             initial_state: Initial state index (default 0).

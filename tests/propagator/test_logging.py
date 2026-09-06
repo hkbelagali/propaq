@@ -13,7 +13,7 @@ from propaq.circuits.pauli.rotation import PauliRotation
 from propaq.circuits.pauli.surrogate_circuit import SurrogatePauliCircuit
 from propaq.circuits.pauli.surrogate_rotation import SurrogateRotation
 from propaq.datatypes import PauliString, PauliTermSum
-from propaq.datatypes._abstract import BitMask
+from propaq.datatypes.abstract import BitMask
 from propaq.log_parser import GateEvent, SurrogateMergeEvent
 from propaq.propagators.pauli import PauliPropagator
 from propaq.propagators.surrogate_pauli import PauliSurrogatePropagator

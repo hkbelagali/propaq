@@ -25,7 +25,7 @@ from propaq import (
 from propaq.circuits.pauli import PauliCircuit
 from propaq.circuits.pauli.rotation import PauliRotation
 from propaq.circuits.pauli.surrogate_rotation import SurrogateRotation
-from propaq.datatypes._abstract import BitMask
+from propaq.datatypes.abstract import BitMask
 
 N = 4  # n_qubits for all tests
 

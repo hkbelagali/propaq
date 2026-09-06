@@ -13,7 +13,7 @@ import pytest
 from propaq.circuits import PauliCircuit
 from propaq.circuits.pauli.rotation import PauliRotation
 from propaq.datatypes import PauliString, PauliTermSum
-from propaq.datatypes._abstract import BitMask
+from propaq.datatypes.abstract import BitMask
 from propaq.noise import UniformNoiseModel
 from propaq.noise.native import NativeNoiseModel
 from propaq.propagators.pauli import PauliPropagator

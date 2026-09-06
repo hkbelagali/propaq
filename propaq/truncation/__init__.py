@@ -8,6 +8,8 @@ from propaq._rust_core import Simplify as _RustSimplify
 from propaq._rust_core import TermBudget as _RustTermBudget
 from propaq._rust_core import TruncationPolicy as TruncationPolicy
 from propaq._rust_core import WeightTruncator as _RustWeightTruncator
+from propaq.truncation._apply import ResolvedTruncation as ResolvedTruncation
+from propaq.truncation._apply import resolve_truncation as resolve_truncation
 from propaq.truncation.base import Truncator as Truncator
 
 
@@ -93,4 +95,6 @@ __all__ = [
     "NativeTruncator",
     "TruncationPolicy",
     "FrequencyTruncationPolicy",
+    "resolve_truncation",
+    "ResolvedTruncation",
 ]

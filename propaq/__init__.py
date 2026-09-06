@@ -16,6 +16,8 @@ if isinstance(_readme, str) and _readme:
 
 
 from ._rust_core import Logger as Logger
+from .circuits import AbstractCircuit as AbstractCircuit
+from .circuits import AbstractRotation as AbstractRotation
 from .circuits import GateDecompositionWarning as GateDecompositionWarning
 from .circuits import GateRep as GateRep
 from .circuits import GateValidationError as GateValidationError
@@ -33,6 +35,7 @@ from .circuits import register_cirq_gate as register_cirq_gate
 from .circuits import register_qiskit_gate as register_qiskit_gate
 from .datatypes import AbstractTerm as AbstractTerm
 from .datatypes import AbstractTermSum as AbstractTermSum
+from .datatypes import DictTermSum as DictTermSum
 from .datatypes import MajoranaMonomial as MajoranaMonomial
 from .datatypes import MajoranaTermStreamer as MajoranaTermStreamer
 from .datatypes import MajoranaTermSum as MajoranaTermSum
@@ -59,6 +62,7 @@ from .noise import NativeNoiseModel as NativeNoiseModel
 from .noise import NoiseModel as NoiseModel
 from .noise import UniformNoiseModel as UniformNoiseModel
 from .propagators import AbstractPropagator as AbstractPropagator
+from .propagators import CircuitLike as CircuitLike
 from .propagators import MajoranaPropagator as MajoranaPropagator
 from .propagators import MajoranaSurrogatePropagator as MajoranaSurrogatePropagator
 from .propagators import PauliPropagator as PauliPropagator
@@ -68,8 +72,10 @@ from .truncation import CoefficientTruncator as CoefficientTruncator
 from .truncation import FrequencyTruncationPolicy as FrequencyTruncationPolicy
 from .truncation import FrequencyTruncator as FrequencyTruncator
 from .truncation import NativeTruncator as NativeTruncator
+from .truncation import ResolvedTruncation as ResolvedTruncation
 from .truncation import Simplify as Simplify
 from .truncation import TermBudget as TermBudget
 from .truncation import TruncationPolicy as TruncationPolicy
 from .truncation import Truncator as Truncator
 from .truncation import WeightTruncator as WeightTruncator
+from .truncation import resolve_truncation as resolve_truncation
