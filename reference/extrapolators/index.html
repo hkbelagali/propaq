@@ -3213,7 +3213,12 @@ single-parameter noise model, e.g. one parameter of a custom
 
 
 <a href="#propaq.extrapolators.ZeroNoiseExtrapolator.run" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">(</span><span class="n">propagator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators._abstract.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></span><span class="p">,</span> <span class="n">observable</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes._abstract.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></span><span class="p">,</span> <span class="n">circuit</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.circuit.MajoranaCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.MajoranaCircuit">MajoranaCircuit</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.circuit.PauliCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.PauliCircuit">PauliCircuit</a></span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">curve_fit_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ZNEResult&lt;/span&gt;
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">(</span><span class="n">propagator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.abstract.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zne.TermT">TermT</span></span><span class="p">,</span> <span class="n"><span title="propaq.extrapolators.zne.RotationT">RotationT</span></span><span class="p">],</span> <span class="n">observable</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.abstract.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zne.TermT">TermT</span></span><span class="p">],</span> <span class="n">circuit</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;CircuitLike&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.abstract.CircuitLike&lt;/code&gt;)" href="../propagators/#propaq.propagators.CircuitLike">CircuitLike</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zne.RotationT">RotationT</span></span><span class="p">],</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="propaq.datatypes.abstract.FockState">FockState</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">curve_fit_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ZNEResult&lt;/span&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -3224,6 +3229,7 @@ single-parameter noise model, e.g. one parameter of a custom
     <div class="doc doc-contents ">
 
         <p>Sweep noise levels, fit, and extrapolate to zero noise.</p>
+<p>Works with any <code>AbstractPropagator</code></p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -3242,11 +3248,11 @@ single-parameter noise model, e.g. one parameter of a custom
                 <code>propagator</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators._abstract.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.abstract.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a>[<span title="propaq.extrapolators.zne.TermT">TermT</span>, <span title="propaq.extrapolators.zne.RotationT">RotationT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A MajoranaPropagator or PauliPropagator instance.</p>
+                <p>The propagator to sweep noise on.</p>
               </div>
             </td>
             <td>
@@ -3258,7 +3264,7 @@ single-parameter noise model, e.g. one parameter of a custom
                 <code>observable</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes._abstract.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.abstract.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a>[<span title="propaq.extrapolators.zne.TermT">TermT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -3274,7 +3280,12 @@ single-parameter noise model, e.g. one parameter of a custom
                 <code>circuit</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.circuit.MajoranaCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.MajoranaCircuit">MajoranaCircuit</a> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.circuit.PauliCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.PauliCircuit">PauliCircuit</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;CircuitLike&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.abstract.CircuitLike&lt;/code&gt;)" href="../propagators/#propaq.propagators.CircuitLike">CircuitLike</a>[<span title="propaq.extrapolators.zne.RotationT">RotationT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -3290,7 +3301,7 @@ single-parameter noise model, e.g. one parameter of a custom
                 <code>initial_state</code>
             </td>
             <td>
-                  <code><span title="int">int</span></code>
+                  <code><span title="propaq.datatypes.abstract.FockState">FockState</span></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -3824,7 +3835,12 @@ single-parameter noise model, e.g. one parameter of a custom
 
 
 <a href="#propaq.extrapolators.ZeroCutoffExtrapolator.run" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">(</span><span class="n">propagator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></span><span class="p">,</span> <span class="n">observable</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></span><span class="p">,</span> <span class="n">circuit</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.circuit.MajoranaCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.MajoranaCircuit">MajoranaCircuit</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.circuit.PauliCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.PauliCircuit">PauliCircuit</a></span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">curve_fit_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ZCEResult&lt;/span&gt;
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">(</span><span class="n">propagator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.TermT">TermT</span></span><span class="p">,</span> <span class="n"><span title="propaq.extrapolators.zce.RotationT">RotationT</span></span><span class="p">],</span> <span class="n">observable</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.TermT">TermT</span></span><span class="p">],</span> <span class="n">circuit</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;CircuitLike&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.CircuitLike&lt;/code&gt;)" href="../propagators/#propaq.propagators.CircuitLike">CircuitLike</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.RotationT">RotationT</span></span><span class="p">],</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="propaq.datatypes.abstract.FockState">FockState</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">curve_fit_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ZCEResult&lt;/span&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -3835,6 +3851,7 @@ single-parameter noise model, e.g. one parameter of a custom
     <div class="doc doc-contents ">
 
         <p>Sweep cutoff values, fit, and extrapolate to zero cutoff.</p>
+<p>Works with any <code>AbstractPropagator</code></p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -3853,11 +3870,11 @@ single-parameter noise model, e.g. one parameter of a custom
                 <code>propagator</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a>[<span title="propaq.extrapolators.zce.TermT">TermT</span>, <span title="propaq.extrapolators.zce.RotationT">RotationT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A MajoranaPropagator or PauliPropagator instance.</p>
+                <p>The propagator to sweep a cutoff on.</p>
               </div>
             </td>
             <td>
@@ -3869,7 +3886,7 @@ single-parameter noise model, e.g. one parameter of a custom
                 <code>observable</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a>[<span title="propaq.extrapolators.zce.TermT">TermT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -3885,7 +3902,12 @@ single-parameter noise model, e.g. one parameter of a custom
                 <code>circuit</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.circuit.MajoranaCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.MajoranaCircuit">MajoranaCircuit</a> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.circuit.PauliCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.PauliCircuit">PauliCircuit</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;CircuitLike&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.CircuitLike&lt;/code&gt;)" href="../propagators/#propaq.propagators.CircuitLike">CircuitLike</a>[<span title="propaq.extrapolators.zce.RotationT">RotationT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -3901,7 +3923,7 @@ single-parameter noise model, e.g. one parameter of a custom
                 <code>initial_state</code>
             </td>
             <td>
-                  <code><span title="int">int</span></code>
+                  <code><span title="propaq.datatypes.abstract.FockState">FockState</span></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -4205,7 +4227,12 @@ in the propagator's truncation pipeline.</p>
 
 
 <a href="#propaq.extrapolators.WeightCutoffExtrapolator.run" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">(</span><span class="n">propagator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></span><span class="p">,</span> <span class="n">observable</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></span><span class="p">,</span> <span class="n">circuit</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.circuit.MajoranaCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.MajoranaCircuit">MajoranaCircuit</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.circuit.PauliCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.PauliCircuit">PauliCircuit</a></span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">curve_fit_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ZCEResult&lt;/span&gt;
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">(</span><span class="n">propagator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.TermT">TermT</span></span><span class="p">,</span> <span class="n"><span title="propaq.extrapolators.zce.RotationT">RotationT</span></span><span class="p">],</span> <span class="n">observable</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.TermT">TermT</span></span><span class="p">],</span> <span class="n">circuit</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;CircuitLike&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.CircuitLike&lt;/code&gt;)" href="../propagators/#propaq.propagators.CircuitLike">CircuitLike</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.RotationT">RotationT</span></span><span class="p">],</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="propaq.datatypes.abstract.FockState">FockState</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">curve_fit_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ZCEResult&lt;/span&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -4216,6 +4243,7 @@ in the propagator's truncation pipeline.</p>
     <div class="doc doc-contents ">
 
         <p>Sweep cutoff values, fit, and extrapolate to zero cutoff.</p>
+<p>Works with any <code>AbstractPropagator</code></p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -4234,11 +4262,11 @@ in the propagator's truncation pipeline.</p>
                 <code>propagator</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a>[<span title="propaq.extrapolators.zce.TermT">TermT</span>, <span title="propaq.extrapolators.zce.RotationT">RotationT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A MajoranaPropagator or PauliPropagator instance.</p>
+                <p>The propagator to sweep a cutoff on.</p>
               </div>
             </td>
             <td>
@@ -4250,7 +4278,7 @@ in the propagator's truncation pipeline.</p>
                 <code>observable</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a>[<span title="propaq.extrapolators.zce.TermT">TermT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -4266,7 +4294,12 @@ in the propagator's truncation pipeline.</p>
                 <code>circuit</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.circuit.MajoranaCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.MajoranaCircuit">MajoranaCircuit</a> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.circuit.PauliCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.PauliCircuit">PauliCircuit</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;CircuitLike&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.CircuitLike&lt;/code&gt;)" href="../propagators/#propaq.propagators.CircuitLike">CircuitLike</a>[<span title="propaq.extrapolators.zce.RotationT">RotationT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -4282,7 +4315,7 @@ in the propagator's truncation pipeline.</p>
                 <code>initial_state</code>
             </td>
             <td>
-                  <code><span title="int">int</span></code>
+                  <code><span title="propaq.datatypes.abstract.FockState">FockState</span></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -4577,7 +4610,12 @@ in the propagator's truncation pipeline.</p>
 
 
 <a href="#propaq.extrapolators.CoefficientCutoffExtrapolator.run" class="headerlink" title="Permanent link">&para;</a></h4>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">(</span><span class="n">propagator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></span><span class="p">,</span> <span class="n">observable</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></span><span class="p">,</span> <span class="n">circuit</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.circuit.MajoranaCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.MajoranaCircuit">MajoranaCircuit</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.circuit.PauliCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.PauliCircuit">PauliCircuit</a></span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">curve_fit_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ZCEResult&lt;/span&gt;
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">(</span><span class="n">propagator</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.TermT">TermT</span></span><span class="p">,</span> <span class="n"><span title="propaq.extrapolators.zce.RotationT">RotationT</span></span><span class="p">],</span> <span class="n">observable</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.TermT">TermT</span></span><span class="p">],</span> <span class="n">circuit</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;CircuitLike&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.CircuitLike&lt;/code&gt;)" href="../propagators/#propaq.propagators.CircuitLike">CircuitLike</a></span><span class="p">[</span><span class="n"><span title="propaq.extrapolators.zce.RotationT">RotationT</span></span><span class="p">],</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="propaq.datatypes.abstract.FockState">FockState</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">curve_fit_kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ZCEResult&lt;/span&gt;
 
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
@@ -4588,6 +4626,7 @@ in the propagator's truncation pipeline.</p>
     <div class="doc doc-contents ">
 
         <p>Sweep cutoff values, fit, and extrapolate to zero cutoff.</p>
+<p>Works with any <code>AbstractPropagator</code></p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -4606,11 +4645,11 @@ in the propagator's truncation pipeline.</p>
                 <code>propagator</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractPropagator&lt;/span&gt; (&lt;code&gt;propaq.propagators.AbstractPropagator&lt;/code&gt;)" href="../propagators/#propaq.propagators.AbstractPropagator">AbstractPropagator</a>[<span title="propaq.extrapolators.zce.TermT">TermT</span>, <span title="propaq.extrapolators.zce.RotationT">RotationT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A MajoranaPropagator or PauliPropagator instance.</p>
+                <p>The propagator to sweep a cutoff on.</p>
               </div>
             </td>
             <td>
@@ -4622,7 +4661,7 @@ in the propagator's truncation pipeline.</p>
                 <code>observable</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;AbstractTermSum&lt;/span&gt; (&lt;code&gt;propaq.datatypes.AbstractTermSum&lt;/code&gt;)" href="../datatypes/#propaq.datatypes.AbstractTermSum">AbstractTermSum</a>[<span title="propaq.extrapolators.zce.TermT">TermT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -4638,7 +4677,12 @@ in the propagator's truncation pipeline.</p>
                 <code>circuit</code>
             </td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MajoranaCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.majorana.circuit.MajoranaCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.MajoranaCircuit">MajoranaCircuit</a> | <a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PauliCircuit&lt;/span&gt; (&lt;code&gt;propaq.circuits.pauli.circuit.PauliCircuit&lt;/code&gt;)" href="../circuits/#propaq.circuits.PauliCircuit">PauliCircuit</a></code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;CircuitLike&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.CircuitLike&lt;/code&gt;)" href="../propagators/#propaq.propagators.CircuitLike">CircuitLike</a>[<span title="propaq.extrapolators.zce.RotationT">RotationT</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -4654,7 +4698,7 @@ in the propagator's truncation pipeline.</p>
                 <code>initial_state</code>
             </td>
             <td>
-                  <code><span title="int">int</span></code>
+                  <code><span title="propaq.datatypes.abstract.FockState">FockState</span></code>
             </td>
             <td>
               <div class="doc-md-description">
