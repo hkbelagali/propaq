@@ -22,6 +22,22 @@ pub struct PropagationResult {
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl PropagationResult {
+    #[new]
+    #[pyo3(signature = (expectation_value, n_terms, sparse_key_bytes=0, terms_below_cutoff=0))]
+    fn new(
+        expectation_value: f64,
+        n_terms: Vec<usize>,
+        sparse_key_bytes: usize,
+        terms_below_cutoff: usize,
+    ) -> Self {
+        PropagationResult {
+            n_terms,
+            expectation_value,
+            sparse_key_bytes,
+            terms_below_cutoff,
+        }
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "PropagationResult(expectation_value={}, n_terms=[{} entries], \
