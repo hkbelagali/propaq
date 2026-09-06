@@ -10,7 +10,7 @@ from qiskit.quantum_info import SparsePauliOp
 
 from propaq._rust_core import MajoranaTermSum as _RustMajoranaTermSum
 
-from .._abstract import BitMask
+from ..abstract import BitMask
 from .majorana import MajoranaMonomial
 
 T = TypeVar("T")

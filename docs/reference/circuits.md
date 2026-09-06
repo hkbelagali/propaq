@@ -16,6 +16,8 @@ See the [circuits and gates guide](../guides/circuits.md).
         - MajoranaRotation
         - SurrogateRotation
         - SurrogateMajoranaRotation
+        - AbstractRotation
+        - AbstractCircuit
         - register_qiskit_gate
         - register_cirq_gate
         - pauli_rotation_generator

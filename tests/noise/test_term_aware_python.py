@@ -6,7 +6,7 @@ from propaq.circuits import MajoranaCircuit, PauliCircuit
 from propaq.circuits.majorana.rotation import MajoranaRotation
 from propaq.circuits.pauli.rotation import PauliRotation
 from propaq.datatypes import MajoranaMonomial, MajoranaTermSum, PauliString, PauliTermSum
-from propaq.datatypes._abstract import BitMask
+from propaq.datatypes.abstract import BitMask
 from propaq.noise import GateNoiseModel, UniformNoiseModel
 from propaq.propagators.majorana import MajoranaPropagator
 from propaq.propagators.pauli import PauliPropagator

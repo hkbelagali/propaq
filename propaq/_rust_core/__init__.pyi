@@ -94,17 +94,9 @@ class GateNoiseModel:
     def __new__(cls, *_args: typing.Any, **_kwargs: typing.Any) -> GateNoiseModel:
         r"""
         A subclass's own `__init__` constructor arguments are accepted and
-        ignored here (`*args`/`**kwargs`): Python always calls the
-        most-derived `__new__` with the arguments the subclass was
-        constructed with, and `GateNoiseModel` does not define its own
-        `__new__`/`__init__` beyond this, so a subclass needs neither to
-        construct with plain positional/keyword arguments of its own.
+        ignored here (`*args`/`**kwargs`)
         """
-    def damping_factor(self, _term_weight: builtins.int, _active_modes: builtins.int) -> builtins.float:
-        r"""
-        Placeholder: a subclass must override this (or define
-        `damping_factor_term` instead) with its own damping logic.
-        """
+    def damping_factor(self, _term_weight: builtins.int, _active_modes: builtins.int) -> builtins.float: ...
 
 @typing.final
 class Logger:
@@ -832,6 +824,7 @@ class PropagationResult:
         r"""
         Live terms whose magnitude is below the coefficient cutoff.
         """
+    def __new__(cls, expectation_value: builtins.float, n_terms: typing.Sequence[builtins.int], sparse_key_bytes: builtins.int = 0, terms_below_cutoff: builtins.int = 0) -> PropagationResult: ...
     def __repr__(self) -> builtins.str: ...
 
 class Simplify:

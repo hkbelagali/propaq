@@ -18,3 +18,4 @@ the file format and streamers.
         - MajoranaTermStreamer
         - AbstractTerm
         - AbstractTermSum
+        - DictTermSum

@@ -2,19 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
 from scipy.optimize import curve_fit
 
-from propaq.circuits.majorana.circuit import MajoranaCircuit
-from propaq.circuits.pauli.circuit import PauliCircuit
-from propaq.datatypes._abstract import AbstractTermSum
+from propaq.datatypes.abstract import AbstractTerm, AbstractTermSum, FockState
 from propaq.noise import UniformNoiseModel
-from propaq.propagators._abstract import AbstractPropagator
+from propaq.propagators.abstract import AbstractPropagator, CircuitLike
 
 if TYPE_CHECKING:
     from propaq.noise import GateNoiseModel, NativeNoiseModel
+
+TermT = TypeVar("TermT", bound=AbstractTerm)
+RotationT = TypeVar("RotationT")
 
 
 @dataclass
@@ -61,16 +62,18 @@ class ZeroNoiseExtrapolator:
 
     def run(
         self,
-        propagator: AbstractPropagator,
-        observable: AbstractTermSum,
-        circuit: MajoranaCircuit | PauliCircuit,
-        initial_state: int = 0,
+        propagator: AbstractPropagator[TermT, RotationT],
+        observable: AbstractTermSum[TermT],
+        circuit: CircuitLike[RotationT],
+        initial_state: FockState = 0,
         **curve_fit_kwargs,
     ) -> ZNEResult:
         """Sweep noise levels, fit, and extrapolate to zero noise.
 
+        Works with any `AbstractPropagator`
+
         Arguments:
-            propagator: A MajoranaPropagator or PauliPropagator instance.
+            propagator: The propagator to sweep noise on.
             observable: The observable to measure.
             circuit: The circuit to propagate.
             initial_state: Initial state index (default 0).

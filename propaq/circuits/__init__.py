@@ -7,6 +7,8 @@ from ._gates import pauli_rotation_generator as pauli_rotation_generator
 from ._qiskit_symbolic import ParamSource as ParamSource
 from ._registry import register_cirq_gate as register_cirq_gate
 from ._registry import register_qiskit_gate as register_qiskit_gate
+from .abstract import AbstractCircuit as AbstractCircuit
+from .abstract import AbstractRotation as AbstractRotation
 from .majorana.circuit import MajoranaCircuit as MajoranaCircuit
 from .majorana.rotation import MajoranaRotation as MajoranaRotation
 from .majorana.surrogate_circuit import SurrogateMajoranaCircuit as SurrogateMajoranaCircuit
@@ -17,6 +19,8 @@ from .pauli.surrogate_circuit import SurrogatePauliCircuit as SurrogatePauliCirc
 from .pauli.surrogate_rotation import SurrogateRotation as SurrogateRotation
 
 __all__ = [
+    "AbstractCircuit",
+    "AbstractRotation",
     "GateDecompositionWarning",
     "GateValidationError",
     "GateRep",

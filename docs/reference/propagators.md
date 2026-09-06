@@ -15,3 +15,4 @@ See the [quickstart](../getting-started/quickstart.md) and the
         - PauliSurrogatePropagator
         - MajoranaSurrogatePropagator
         - AbstractPropagator
+        - CircuitLike

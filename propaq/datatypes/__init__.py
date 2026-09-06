@@ -4,7 +4,8 @@ from .._rust_core import MajoranaTermStreamer as MajoranaTermStreamer
 from .._rust_core import MajoranaTermSum as _RustMajoranaTermSum
 from .._rust_core import PauliTermStreamer as PauliTermStreamer
 from .._rust_core import PauliTermSum as _RustPauliTermSum
-from ._abstract import AbstractTerm, AbstractTermSum
+from .abstract import AbstractTerm, AbstractTermSum
+from .dict_termsum import DictTermSum as DictTermSum
 from .majorana.majorana import MajoranaMonomial as MajoranaMonomial
 from .majorana.termsum import MajoranaTermSum as MajoranaTermSum
 from .pauli.pauli import PauliString as PauliString
@@ -20,6 +21,7 @@ __all__ = [
     "MajoranaTermSum",
     "AbstractTerm",
     "AbstractTermSum",
+    "DictTermSum",
     "PauliTermStreamer",
     "MajoranaTermStreamer",
 ]

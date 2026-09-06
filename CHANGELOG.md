@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Change abstract propagator from boilerplate to a functional interface.
+- `DictTermSum`, a reusable dict-backed `AbstractTermSum` for a Python-defined
+  basis, with real coeff term I/O
+- `AbstractTerm` gained `n_units`, `trace_with_fock_state`,
+  and concrete `dagger`/`words`/`from_bytes` defaults.
+- `AbstractRotation` and a minimal `AbstractCircuit`, in `propaq.circuits`.
+  `PauliRotation`/`MajoranaRotation` are now `AbstractRotation` subclasses.
+- `resolve_truncation`/`ResolvedTruncation` in `propaq.truncation`, the
+  Python facing interpreter for truncators.
+- `PropagationResult` (Rust) can now be constructed directly from Python.
+
+### Changed
+- The qudit Weyl–Heisenberg custom-basis notebook now uses the new 
+  abstract interface.
+
 ## [0.1.4] - 2026-09-01
 
 ### Added 

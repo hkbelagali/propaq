@@ -17,3 +17,5 @@ See the [truncation guide](../guides/truncation.md).
         - Truncator
         - TruncationPolicy
         - FrequencyTruncationPolicy
+        - resolve_truncation
+        - ResolvedTruncation
