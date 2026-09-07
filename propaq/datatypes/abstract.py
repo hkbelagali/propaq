@@ -16,7 +16,7 @@ BitMask = NewType("BitMask", int)
 _T = TypeVar("_T", bound="AbstractTerm")
 
 # A computational basis state
-FockState: TypeAlias = "int | Sequence[int]"
+DiagState: TypeAlias = "int | Sequence[int]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,11 +61,11 @@ class AbstractTerm(ABC):
         pass
 
     @abstractmethod
-    def trace_with_fock_state(self, fock_state: FockState) -> complex:
+    def trace_with_diag_state(self, diag_state: DiagState) -> complex:
         r"""Diagonal expectation \(\langle f | T | f \rangle\) against a computational basis state.
 
         Arguments:
-            fock_state: The reference state. Both `PauliString` and
+            diag_state: The reference state. Both `PauliString` and
                 `MajoranaMonomial` accept an integer bitmask.
         """
         pass

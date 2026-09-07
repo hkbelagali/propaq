@@ -178,7 +178,7 @@ impl<const W: usize> Basis<W> for MajoranaAlgebra {
         jw_weight(string, n_units)
     }
 
-    fn trace(string: &BasisString<W>, n_units: usize, fock: &[u64]) -> f64 {
+    fn trace(string: &BasisString<W>, n_units: usize, diag_state: &[u64]) -> f64 {
         let mut paired = 0i32;
         let mut product = 1i32;
         for k in 0..n_units {
@@ -187,7 +187,7 @@ impl<const W: usize> Basis<W> for MajoranaAlgebra {
                 return 0.0;
             }
             if low {
-                let n_k = (fock.get(k / 64).copied().unwrap_or(0) >> (k % 64)) & 1;
+                let n_k = (diag_state.get(k / 64).copied().unwrap_or(0) >> (k % 64)) & 1;
                 product *= 2 * n_k as i32 - 1;
                 paired += 1;
             }

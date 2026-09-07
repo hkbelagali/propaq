@@ -29,8 +29,8 @@ impl Basis<W> for TestAlgebra {
     fn weight(mono: &BasisString<W>, _n_units: usize) -> u32 {
         mono.count() as u32
     }
-    fn trace(mono: &BasisString<W>, _n_units: usize, fock: &[u64]) -> f64 {
-        let f = fock.first().copied().unwrap_or(0);
+    fn trace(mono: &BasisString<W>, _n_units: usize, diag_state: &[u64]) -> f64 {
+        let f = diag_state.first().copied().unwrap_or(0);
         if mono.words()[0] & f == 0 {
             1.0
         } else {

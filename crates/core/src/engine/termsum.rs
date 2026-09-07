@@ -825,9 +825,11 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
     }
 
     /// Expectation value against a computational basis state.
-    pub fn expectation<A: Basis<W>>(&self, fock: &[u64]) -> f64 {
+    pub fn expectation<A: Basis<W>>(&self, diag_state: &[u64]) -> f64 {
         (0..self.store.len())
-            .map(|i| self.coeffs[i].to_f64() * A::trace(&self.store.row(i), self.n_units, fock))
+            .map(|i| {
+                self.coeffs[i].to_f64() * A::trace(&self.store.row(i), self.n_units, diag_state)
+            })
             .sum()
     }
 

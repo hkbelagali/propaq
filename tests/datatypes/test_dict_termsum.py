@@ -43,7 +43,7 @@ class ToyTerm(AbstractTerm):
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ToyTerm) and self.bits == other.bits
 
-    def trace_with_fock_state(self, fock_state) -> complex:
+    def trace_with_diag_state(self, diag_state) -> complex:
         return 1.0 + 0j
 
 

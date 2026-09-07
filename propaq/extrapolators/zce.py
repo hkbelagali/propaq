@@ -18,7 +18,7 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 from propaq.datatypes import AbstractTermSum
-from propaq.datatypes.abstract import AbstractTerm, FockState
+from propaq.datatypes.abstract import AbstractTerm, DiagState
 from propaq.propagators import AbstractPropagator, CircuitLike
 from propaq.truncation import CoefficientTruncator, WeightTruncator
 
@@ -90,7 +90,7 @@ class ZeroCutoffExtrapolator(ABC):
         propagator: AbstractPropagator[TermT, RotationT],
         observable: AbstractTermSum[TermT],
         circuit: CircuitLike[RotationT],
-        initial_state: FockState = 0,
+        initial_state: DiagState = 0,
         **curve_fit_kwargs,
     ) -> ZCEResult:
         """Sweep cutoff values, fit, and extrapolate to zero cutoff.

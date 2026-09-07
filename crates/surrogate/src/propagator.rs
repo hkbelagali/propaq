@@ -192,7 +192,7 @@ use propaq_pauli::algebra::to_basis_string as to_basis_string_pauli;
 /// Width dispatch for a surrogate build, one arm per basis-string storage width.
 macro_rules! surrogate_build {
     ($algebra:ty, $to_basis:ident, $obs:expr, $layers:expr, $n_units:expr,
-     $partitions:expr, $cfg:expr, $fock:expr, $n_params:expr, $progress:expr) => {{
+     $partitions:expr, $cfg:expr, $diag_state:expr, $n_params:expr, $progress:expr) => {{
         let n = $n_units;
         let inline = crate::engine::INITIAL_INLINE_POSITIONS.min(2 * n.max(1));
         macro_rules! arm {
@@ -205,7 +205,7 @@ macro_rules! surrogate_build {
                     $partitions,
                     inline,
                     $cfg,
-                    $fock,
+                    $diag_state,
                     $n_params,
                     $progress,
                 )

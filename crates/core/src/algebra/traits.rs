@@ -13,8 +13,8 @@ pub trait AbstractTerm: Clone + PartialEq + Eq + Hash + Send + Sync + 'static {
     fn weight(&self) -> u32;
     fn commutes_with(&self, other: &Self) -> bool;
     fn matmul_internal(&self, other: &Self) -> (Complex64, Self);
-    /// `fock_state` represents a single bitstring/Slater determinant
-    fn trace_with_fock_state(&self, fock_state: &Bitset) -> f64;
+    /// `diag_state` represents a single bitstring/Slater determinant
+    fn trace_with_diag_state(&self, diag_state: &Bitset) -> f64;
     fn to_bytes_vec(&self) -> Vec<u8>;
     fn partition_key(&self) -> u64;
     /// Whether this term preserves particle number.

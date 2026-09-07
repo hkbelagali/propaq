@@ -24,7 +24,7 @@ fn mon_bits(bits: Vec<u64>, n_modes: usize) -> MajoranaMonomial {
     }
 }
 
-fn fock(bits: u64) -> Bitset {
+fn diag_state(bits: u64) -> Bitset {
     Bitset::from_le_bytes(&bits.to_le_bytes())
 }
 
@@ -105,36 +105,36 @@ fn weight_multi_word_mode() {
 }
 
 #[test]
-fn trace_identity_any_fock() {
+fn trace_identity_any_diag_state() {
     let m = mon(0, 8);
-    assert_eq!(m.trace_fock_state_impl(&fock(0)), 1.0);
-    assert_eq!(m.trace_fock_state_impl(&fock(0b1111)), 1.0);
+    assert_eq!(m.trace_diag_state_impl(&diag_state(0)), 1.0);
+    assert_eq!(m.trace_diag_state_impl(&diag_state(0b1111)), 1.0);
 }
 
 #[test]
 fn trace_unpaired_mode_is_zero() {
     let m = mon(0b01, 8);
-    assert_eq!(m.trace_fock_state_impl(&fock(0)), 0.0);
-    assert_eq!(m.trace_fock_state_impl(&fock(1)), 0.0);
+    assert_eq!(m.trace_diag_state_impl(&diag_state(0)), 0.0);
+    assert_eq!(m.trace_diag_state_impl(&diag_state(1)), 0.0);
 }
 
 #[test]
-fn trace_site0_empty_fock() {
-    assert_eq!(mon(0b11, 8).trace_fock_state_impl(&fock(0)), -1.0);
+fn trace_site0_empty_diag_state() {
+    assert_eq!(mon(0b11, 8).trace_diag_state_impl(&diag_state(0)), -1.0);
 }
 
 #[test]
-fn trace_site0_occupied_fock() {
-    assert_eq!(mon(0b11, 8).trace_fock_state_impl(&fock(1)), 1.0);
+fn trace_site0_occupied_diag_state() {
+    assert_eq!(mon(0b11, 8).trace_diag_state_impl(&diag_state(1)), 1.0);
 }
 
 #[test]
 fn trace_two_sites_all_combinations() {
     let m = mon(0b1111, 8);
-    assert_eq!(m.trace_fock_state_impl(&fock(0b00)), -1.0);
-    assert_eq!(m.trace_fock_state_impl(&fock(0b01)), 1.0);
-    assert_eq!(m.trace_fock_state_impl(&fock(0b10)), 1.0);
-    assert_eq!(m.trace_fock_state_impl(&fock(0b11)), -1.0);
+    assert_eq!(m.trace_diag_state_impl(&diag_state(0b00)), -1.0);
+    assert_eq!(m.trace_diag_state_impl(&diag_state(0b01)), 1.0);
+    assert_eq!(m.trace_diag_state_impl(&diag_state(0b10)), 1.0);
+    assert_eq!(m.trace_diag_state_impl(&diag_state(0b11)), -1.0);
 }
 
 fn assert_weight_and_p_correct(result: &MajoranaMonomial) {
@@ -364,12 +364,12 @@ fn assert_majorana_basis_matches(a: &MajoranaMonomial, b: &MajoranaMonomial, str
         ctx()
     );
 
-    for fock_bits in 0u64..16 {
-        let fock_words = [fock_bits];
+    for diag_bits in 0u64..16 {
+        let diag_words = [diag_bits];
         assert_eq!(
-            MajoranaBasis::trace(a_planes, a.n_modes, &fock_words),
-            a.trace_fock_state_impl(&fock(fock_bits)),
-            "trace mismatch for {} fock={fock_bits}",
+            MajoranaBasis::trace(a_planes, a.n_modes, &diag_words),
+            a.trace_diag_state_impl(&diag_state(diag_bits)),
+            "trace mismatch for {} diag_state={diag_bits}",
             ctx(),
         );
     }

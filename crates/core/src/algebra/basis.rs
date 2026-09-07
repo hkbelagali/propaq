@@ -74,6 +74,6 @@ pub trait Basis<const W: usize>: Send + Sync + 'static {
     fn weight(mono: &BasisString<W>, n_units: usize) -> u32;
 
     /// The term's diagonal expectation against a computational basis state,
-    /// with `fock` holding one bit per unit.
-    fn trace(mono: &BasisString<W>, n_units: usize, fock: &[u64]) -> f64;
+    /// with `diag_state` holding one bit per unit.
+    fn trace(mono: &BasisString<W>, n_units: usize, diag_state: &[u64]) -> f64;
 }

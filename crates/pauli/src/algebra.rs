@@ -101,7 +101,7 @@ impl<const W: usize> Basis<W> for PauliAlgebra {
     }
 
     #[inline]
-    fn trace(string: &BasisString<W>, _n_units: usize, fock: &[u64]) -> f64 {
+    fn trace(string: &BasisString<W>, _n_units: usize, diag_state: &[u64]) -> f64 {
         // Any X or Y component makes the term off-diagonal.
         for &w in string.words() {
             if w & X_MASK != 0 {
@@ -112,7 +112,7 @@ impl<const W: usize> Basis<W> for PauliAlgebra {
         let mut parity = 0u32;
         for pos in string.positions() {
             let unit = pos / 2;
-            parity ^= (fock.get(unit / 64).copied().unwrap_or(0) >> (unit % 64)) as u32 & 1;
+            parity ^= (diag_state.get(unit / 64).copied().unwrap_or(0) >> (unit % 64)) as u32 & 1;
         }
         if parity == 0 {
             1.0

@@ -199,34 +199,34 @@ def test_identity_times_right():
     assert result == m
 
 
-def test_trace_identity_any_fock():
-    assert I.trace_with_fock_state(0) == pytest.approx(1.0)
-    assert I.trace_with_fock_state(0b1111) == pytest.approx(1.0)
+def test_trace_identity_any_diag_state():
+    assert I.trace_with_diag_state(0) == pytest.approx(1.0)
+    assert I.trace_with_diag_state(0b1111) == pytest.approx(1.0)
 
 
 def test_trace_unpaired_is_zero():
     m = MajoranaMonomial(0b01, n_modes=8)
-    assert m.trace_with_fock_state(0) == pytest.approx(0.0)
-    assert m.trace_with_fock_state(1) == pytest.approx(0.0)
+    assert m.trace_with_diag_state(0) == pytest.approx(0.0)
+    assert m.trace_with_diag_state(1) == pytest.approx(0.0)
 
 
-def test_trace_site0_empty_fock():
+def test_trace_site0_empty_diag_state():
     m = MajoranaMonomial(0b11, n_modes=8)
-    assert m.trace_with_fock_state(0) == pytest.approx(-1.0)
+    assert m.trace_with_diag_state(0) == pytest.approx(-1.0)
 
 
-def test_trace_site0_occupied_fock():
+def test_trace_site0_occupied_diag_state():
     m = MajoranaMonomial(0b11, n_modes=8)
-    assert m.trace_with_fock_state(1) == pytest.approx(1.0)
+    assert m.trace_with_diag_state(1) == pytest.approx(1.0)
 
 
-def test_trace_two_sites_all_fock_states():
+def test_trace_two_sites_all_diag_states():
     m = MajoranaMonomial(0b1111, n_modes=8)
     # phase=-1, products:
-    assert m.trace_with_fock_state(0b00) == pytest.approx(-1.0)
-    assert m.trace_with_fock_state(0b01) == pytest.approx(1.0)
-    assert m.trace_with_fock_state(0b10) == pytest.approx(1.0)
-    assert m.trace_with_fock_state(0b11) == pytest.approx(-1.0)
+    assert m.trace_with_diag_state(0b00) == pytest.approx(-1.0)
+    assert m.trace_with_diag_state(0b01) == pytest.approx(1.0)
+    assert m.trace_with_diag_state(0b10) == pytest.approx(1.0)
+    assert m.trace_with_diag_state(0b11) == pytest.approx(-1.0)
 
 
 def test_large_n_modes_length():
