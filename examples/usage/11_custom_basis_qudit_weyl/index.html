@@ -3266,7 +3266,7 @@ Both ask for:</p>
 </tr>
 <tr>
 <td>Diagonal expectation against a basis state</td>
-<td><code>trace_with_fock_state</code></td>
+<td><code>trace_with_diag_state</code></td>
 <td>$\pm 1$ when $X$-free</td>
 <td>$\omega^{\,b\cdot f}$ when $X$-free</td>
 </tr>
@@ -3440,14 +3440,14 @@ with propaq's Pauli phase convention: $\tau = i$, so $W(1,1) = i\,XZ = Y$.</p>
     <span class="k">def</span><span class="w"> </span><span class="nf">commutes_with</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">:</span> <span class="s2">"WeylString"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">symplectic</span><span class="p">(</span><span class="n">other</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">trace_with_fock_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fock_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">complex</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">trace_with_diag_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">diag_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">complex</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">"""$\\langle f | W | f \\rangle$: zero unless the term is $X$-free.</span>
 <span class="sd">        """</span>
         <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">a</span><span class="p">):</span>
             <span class="k">return</span> <span class="mi">0</span><span class="n">j</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fock_state</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
-            <span class="n">fock_state</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">((</span><span class="n">fock_state</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="o">**</span><span class="n">k</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">d</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_units</span><span class="p">))</span>
-        <span class="k">return</span> <span class="n">omega_pow</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="nb">sum</span><span class="p">(</span><span class="n">bi</span> <span class="o">*</span> <span class="n">fi</span> <span class="k">for</span> <span class="n">bi</span><span class="p">,</span> <span class="n">fi</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">b</span><span class="p">,</span> <span class="n">fock_state</span><span class="p">)))</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">diag_state</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="n">diag_state</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">((</span><span class="n">diag_state</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="o">**</span><span class="n">k</span><span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">d</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_units</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">omega_pow</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="nb">sum</span><span class="p">(</span><span class="n">bi</span> <span class="o">*</span> <span class="n">fi</span> <span class="k">for</span> <span class="n">bi</span><span class="p">,</span> <span class="n">fi</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">b</span><span class="p">,</span> <span class="n">diag_state</span><span class="p">)))</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">to_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
         <span class="k">return</span> <span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">a</span><span class="p">)</span> <span class="o">+</span> <span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">b</span><span class="p">)</span> <span class="o">+</span> <span class="nb">bytes</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">])</span>
@@ -3531,14 +3531,14 @@ class WeylString(AbstractTerm):
     def commutes_with(self, other: "WeylString") -&gt; bool:
         return self.symplectic(other) == 0
 
-    def trace_with_fock_state(self, fock_state: int | tuple[int, ...]) -&gt; complex:
+    def trace_with_diag_state(self, diag_state: int | tuple[int, ...]) -&gt; complex:
         """$\\langle f | W | f \\rangle$: zero unless the term is $X$-free.
         """
         if any(self.a):
             return 0j
-        if isinstance(fock_state, int):
-            fock_state = tuple((fock_state // self.d**k) % self.d for k in range(self.n_units))
-        return omega_pow(self.d, sum(bi * fi for bi, fi in zip(self.b, fock_state)))
+        if isinstance(diag_state, int):
+            diag_state = tuple((diag_state // self.d**k) % self.d for k in range(self.n_units))
+        return omega_pow(self.d, sum(bi * fi for bi, fi in zip(self.b, diag_state)))
 
     def to_bytes(self) -&gt; bytes:
         return bytes(self.a) + bytes(self.b) + bytes([self.d])
@@ -4422,13 +4422,13 @@ print(f"Max deviation {worst:.3e}")</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">dense_reference</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">fock</span><span class="p">):</span>
+<div class="highlight-ipynb hl-python nb-cell"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">dense_reference</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">circuit</span><span class="p">,</span> <span class="n">observable</span><span class="p">,</span> <span class="n">diag_state</span><span class="p">):</span>
     <span class="n">U</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">d</span><span class="o">**</span><span class="n">n</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">complex</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">rot</span> <span class="ow">in</span> <span class="n">circuit</span><span class="p">:</span>
         <span class="n">U</span> <span class="o">=</span> <span class="n">rot</span><span class="o">.</span><span class="n">dense_unitary</span><span class="p">()</span> <span class="o">@</span> <span class="n">U</span>
     <span class="n">O</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">c</span> <span class="o">*</span> <span class="n">dense</span><span class="p">(</span><span class="n">k</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">observable</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
     <span class="n">psi</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">d</span><span class="o">**</span><span class="n">n</span><span class="p">,</span> <span class="nb">complex</span><span class="p">)</span>
-    <span class="n">psi</span><span class="p">[</span><span class="nb">sum</span><span class="p">(</span><span class="n">f</span> <span class="o">*</span> <span class="n">d</span><span class="o">**</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">fock</span><span class="p">))]</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">psi</span><span class="p">[</span><span class="nb">sum</span><span class="p">(</span><span class="n">f</span> <span class="o">*</span> <span class="n">d</span><span class="o">**</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">diag_state</span><span class="p">))]</span> <span class="o">=</span> <span class="mf">1.0</span>
     <span class="k">return</span> <span class="n">psi</span><span class="o">.</span><span class="n">conj</span><span class="p">()</span> <span class="o">@</span> <span class="p">(</span><span class="n">U</span><span class="o">.</span><span class="n">conj</span><span class="p">()</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">O</span> <span class="o">@</span> <span class="n">U</span><span class="p">)</span> <span class="o">@</span> <span class="n">psi</span>
 
 
@@ -4445,13 +4445,13 @@ print(f"Max deviation {worst:.3e}")</div>
         <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">abs</span><span class="p">(</span><span class="n">got</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">want</span><span class="p">)</span><span class="si">:</span><span class="s2">&gt;10.2e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">n_terms</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">&gt;8</span><span class="si">}</span><span class="s2">"</span>
     <span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-11">def dense_reference(n, d, circuit, observable, fock):
+<div class="clipboard-copy-txt" id="cell-11">def dense_reference(n, d, circuit, observable, diag_state):
     U = np.eye(d**n, dtype=complex)
     for rot in circuit:
         U = rot.dense_unitary() @ U
     O = sum(c * dense(k) for k, c in observable.items())
     psi = np.zeros(d**n, complex)
-    psi[sum(f * d**k for k, f in enumerate(fock))] = 1.0
+    psi[sum(f * d**k for k, f in enumerate(diag_state))] = 1.0
     return psi.conj() @ (U.conj().T @ O @ U) @ psi
 
 

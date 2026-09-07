@@ -5796,14 +5796,14 @@ gzip-compressed.</p>
 
   &lt;span class=&quot;doc doc-labels&quot;&gt;
       &lt;small class=&quot;doc doc-label doc-label-module-attribute&quot;&gt;&lt;code&gt;module-attribute&lt;/code&gt;&lt;/small&gt;
-  &lt;/span&gt; (&lt;code&gt;propaq.propagators.abstract.CircuitLike&lt;/code&gt;)" href="#propaq.propagators.CircuitLike">CircuitLike</a></span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="propaq.datatypes.abstract.FockState">FockState</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">filename</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PropagationResult&lt;/span&gt; (&lt;code&gt;propaq._rust_core.PropagationResult&lt;/code&gt;)" href="../runtime/#propaq._rust_core.PropagationResult">PropagationResult</a></span>
+  &lt;/span&gt; (&lt;code&gt;propaq.propagators.abstract.CircuitLike&lt;/code&gt;)" href="#propaq.propagators.CircuitLike">CircuitLike</a></span><span class="p">,</span> <span class="n">initial_state</span><span class="p">:</span> <span class="n"><span title="propaq.datatypes.abstract.DiagState">DiagState</span></span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">filename</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-class&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PropagationResult&lt;/span&gt; (&lt;code&gt;propaq._rust_core.PropagationResult&lt;/code&gt;)" href="../runtime/#propaq._rust_core.PropagationResult">PropagationResult</a></span>
 </span></code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>Compute the expectation value of <em>observable</em> after evolving through <em>circuit</em>.</p>
 <p>Evaluates <span class="arithmatex">\(\langle f | U^\dagger O U | f \rangle\)</span> by summing each
-evolved term's <code>AbstractTerm.trace_with_fock_state</code> against
+evolved term's <code>AbstractTerm.trace_with_diag_state</code> against
 <em>initial_state</em>.</p>
 
 
@@ -5860,12 +5860,12 @@ evolved term's <code>AbstractTerm.trace_with_fock_state</code> against
                 <code>initial_state</code>
             </td>
             <td>
-                  <code><span title="propaq.datatypes.abstract.FockState">FockState</span></code>
+                  <code><span title="propaq.datatypes.abstract.DiagState">DiagState</span></code>
             </td>
             <td>
               <div class="doc-md-description">
                 <p>The reference state, passed through unchanged to
-<code>AbstractTerm.trace_with_fock_state</code>. Both <code>PauliString</code> and
+<code>AbstractTerm.trace_with_diag_state</code>. Both <code>PauliString</code> and
 <code>MajoranaMonomial</code> read it as an integer bitmask.</p>
               </div>
             </td>
