@@ -32,8 +32,8 @@ impl Basis<W> for TestAlgebra {
     fn weight(mono: &BasisString<W>, _n_units: usize) -> u32 {
         mono.count() as u32
     }
-    fn trace(mono: &BasisString<W>, _n_units: usize, fock: &[u64]) -> f64 {
-        let f = fock.first().copied().unwrap_or(0);
+    fn trace(mono: &BasisString<W>, _n_units: usize, diag_state: &[u64]) -> f64 {
+        let f = diag_state.first().copied().unwrap_or(0);
         if mono.words()[0] & f == 0 {
             1.0
         } else {
@@ -271,7 +271,7 @@ fn a_term_lives_only_in_the_partition_that_owns_its_key() {
 
 #[test]
 fn expectation_agrees_across_partition_counts() {
-    let fock = [0b101u64];
+    let diag_state = [0b101u64];
     let mut baseline = None;
     for &s in &[1usize, 2, 5, 8] {
         let mut part = Part::new(8, s);
@@ -286,7 +286,7 @@ fn expectation_agrees_across_partition_counts() {
             part.apply_rotation::<TestAlgebra>(&mono(&[a, b]), &0.3, &EmitCutoff::none())
                 .unwrap();
         }
-        let got = part.expectation::<TestAlgebra>(&fock);
+        let got = part.expectation::<TestAlgebra>(&diag_state);
         match baseline {
             None => baseline = Some(got),
             Some(want) => assert!(

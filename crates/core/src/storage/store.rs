@@ -83,8 +83,8 @@ pub trait TermBasis: Send + Sync + 'static {
     /// The term's weight.
     fn weight(term: [&[u64]; 2], n_units: usize) -> u32;
 
-    /// The term's expectation value trace against a computational basis state `fock`.
-    fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64;
+    /// The term's expectation value trace against a computational basis state `diag_state`.
+    fn trace(term: [&[u64]; 2], n_units: usize, diag_state: &[u64]) -> f64;
 
     /// Hash of `term`'s key, for the merge
     /// hash table. Must agree with `key_eq`.
@@ -118,8 +118,13 @@ pub trait TermBasis: Send + Sync + 'static {
     }
 
     /// The trace of a term given as a sparse row.
-    fn trace_sparse(row: &[Position], plane_span: usize, n_units: usize, fock: &[u64]) -> f64 {
-        with_decoded(row, plane_span, |t| Self::trace(t, n_units, fock))
+    fn trace_sparse(
+        row: &[Position],
+        plane_span: usize,
+        n_units: usize,
+        diag_state: &[u64],
+    ) -> f64 {
+        with_decoded(row, plane_span, |t| Self::trace(t, n_units, diag_state))
     }
 
     /// Hash of a sparse row's key. Must agree with `key_eq_sparse`.

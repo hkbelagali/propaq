@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, TypeVar
 import numpy as np
 from scipy.optimize import curve_fit
 
-from propaq.datatypes.abstract import AbstractTerm, AbstractTermSum, FockState
+from propaq.datatypes.abstract import AbstractTerm, AbstractTermSum, DiagState
 from propaq.noise import UniformNoiseModel
 from propaq.propagators.abstract import AbstractPropagator, CircuitLike
 
@@ -65,7 +65,7 @@ class ZeroNoiseExtrapolator:
         propagator: AbstractPropagator[TermT, RotationT],
         observable: AbstractTermSum[TermT],
         circuit: CircuitLike[RotationT],
-        initial_state: FockState = 0,
+        initial_state: DiagState = 0,
         **curve_fit_kwargs,
     ) -> ZNEResult:
         """Sweep noise levels, fit, and extrapolate to zero noise.

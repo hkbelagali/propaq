@@ -11,7 +11,7 @@ fn pauli(x: u64, z: u64, n: usize) -> PauliString {
     }
 }
 
-fn fock(bits: u64) -> Bitset {
+fn diag_state(bits: u64) -> Bitset {
     Bitset::from_le_bytes(&bits.to_le_bytes())
 }
 
@@ -82,31 +82,37 @@ fn matmul_x_times_z_gives_y_with_phase() {
 
 #[test]
 fn trace_identity_is_one() {
-    assert_eq!(pauli(0, 0, 4).trace_fock_state_impl(&fock(0)), 1.0);
+    assert_eq!(pauli(0, 0, 4).trace_diag_state_impl(&diag_state(0)), 1.0);
 }
 
 #[test]
 fn trace_x_is_zero() {
-    assert_eq!(pauli(0b01, 0, 4).trace_fock_state_impl(&fock(0)), 0.0);
+    assert_eq!(pauli(0b01, 0, 4).trace_diag_state_impl(&diag_state(0)), 0.0);
 }
 
 #[test]
 fn trace_z0_empty_state() {
-    assert_eq!(pauli(0, 0b01, 4).trace_fock_state_impl(&fock(0b00)), 1.0);
+    assert_eq!(
+        pauli(0, 0b01, 4).trace_diag_state_impl(&diag_state(0b00)),
+        1.0
+    );
 }
 
 #[test]
 fn trace_z0_occupied_state() {
-    assert_eq!(pauli(0, 0b01, 4).trace_fock_state_impl(&fock(0b01)), -1.0);
+    assert_eq!(
+        pauli(0, 0b01, 4).trace_diag_state_impl(&diag_state(0b01)),
+        -1.0
+    );
 }
 
 #[test]
 fn trace_zz_all_combinations() {
     let zz = pauli(0, 0b11, 4);
-    assert_eq!(zz.trace_fock_state_impl(&fock(0b00)), 1.0);
-    assert_eq!(zz.trace_fock_state_impl(&fock(0b01)), -1.0);
-    assert_eq!(zz.trace_fock_state_impl(&fock(0b10)), -1.0);
-    assert_eq!(zz.trace_fock_state_impl(&fock(0b11)), 1.0);
+    assert_eq!(zz.trace_diag_state_impl(&diag_state(0b00)), 1.0);
+    assert_eq!(zz.trace_diag_state_impl(&diag_state(0b01)), -1.0);
+    assert_eq!(zz.trace_diag_state_impl(&diag_state(0b10)), -1.0);
+    assert_eq!(zz.trace_diag_state_impl(&diag_state(0b11)), 1.0);
 }
 
 fn planes_of(p: &PauliString, stride: usize) -> (Vec<u64>, Vec<u64>) {
@@ -160,12 +166,12 @@ fn assert_basis_matches(a: &PauliString, b: &PauliString) {
         ctx()
     );
 
-    for fock_bits in 0u64..16 {
-        let fock_words = [fock_bits];
+    for diag_bits in 0u64..16 {
+        let diag_words = [diag_bits];
         assert_eq!(
-            PauliBasis::trace(a_planes, a.n_qubits, &fock_words),
-            a.trace_fock_state_impl(&fock(fock_bits)),
-            "trace mismatch for {} fock={fock_bits}",
+            PauliBasis::trace(a_planes, a.n_qubits, &diag_words),
+            a.trace_diag_state_impl(&diag_state(diag_bits)),
+            "trace mismatch for {} diag_state={diag_bits}",
             ctx(),
         );
     }

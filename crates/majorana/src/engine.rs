@@ -79,7 +79,7 @@ fn run_at_width<C, const W: usize, P>(
     cutoff: &EmitCutoff,
     noise: Option<&ResolvedNoise>,
     collect_counts: bool,
-    fock: Option<&[u64]>,
+    diag_state: Option<&[u64]>,
     want_terms: bool,
     log_gates: bool,
     progress: Option<&Progress>,
@@ -221,7 +221,7 @@ where
             })
             .collect::<Vec<_>>()
     });
-    let expectation_value = fock.map_or(0.0, |f| op.expectation::<MajoranaAlgebra>(f));
+    let expectation_value = diag_state.map_or(0.0, |f| op.expectation::<MajoranaAlgebra>(f));
     let terms_below_cutoff = cutoff.min_coeff.map_or(0, |c| op.terms_below(c));
     Ok(RunOutput {
         gates: gate_records,
@@ -304,7 +304,7 @@ pub fn run<C: CoeffRepr>(
     py: Python<'_>,
     observable: &[(MajoranaMonomial, f64)],
     circuit: &Bound<'_, PyAny>,
-    fock: Option<&[u64]>,
+    diag_state: Option<&[u64]>,
     n_modes: usize,
     cfg: &ResolvedConfig,
     pool: &rayon::ThreadPool,
@@ -342,7 +342,7 @@ pub fn run<C: CoeffRepr>(
                 &cutoff,
                 noise.as_ref(),
                 collect_counts,
-                fock,
+                diag_state,
                 want_terms,
                 log_gates,
                 progress.as_ref(),

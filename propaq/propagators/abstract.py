@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, ClassVar, Generic, Protocol, TypeAlias, TypeVar
 
 from propaq._rust_core import PropagationResult
-from propaq.datatypes.abstract import AbstractTerm, AbstractTermSum, FockState
+from propaq.datatypes.abstract import AbstractTerm, AbstractTermSum, DiagState
 from propaq.datatypes.term_io import save_terms as _save_terms_to_file
 from propaq.truncation._apply import ResolvedTruncation, resolve_truncation
 
@@ -312,20 +312,20 @@ class AbstractPropagator(ABC, Generic[TermT, RotationT]):
         self,
         observable: AbstractTermSum[TermT],
         circuit: CircuitLike,
-        initial_state: FockState = 0,
+        initial_state: DiagState = 0,
         filename: str | None = None,
     ) -> PropagationResult:
         r"""Compute the expectation value of *observable* after evolving through *circuit*.
 
         Evaluates \(\langle f | U^\dagger O U | f \rangle\) by summing each
-        evolved term's `AbstractTerm.trace_with_fock_state` against
+        evolved term's `AbstractTerm.trace_with_diag_state` against
         *initial_state*.
 
         Arguments:
             observable: The term sum whose expectation value is computed.
             circuit: The circuit to propagate through.
             initial_state: The reference state, passed through unchanged to
-                `AbstractTerm.trace_with_fock_state`. Both `PauliString` and
+                `AbstractTerm.trace_with_diag_state`. Both `PauliString` and
                 `MajoranaMonomial` read it as an integer bitmask.
             filename: Optional path to save the evolved term sum to,
                 gzip-compressed.
@@ -346,7 +346,7 @@ class AbstractPropagator(ABC, Generic[TermT, RotationT]):
 
         value = sum(
             (
-                coeff * complex(term.trace_with_fock_state(initial_state))
+                coeff * complex(term.trace_with_diag_state(initial_state))
                 for term, coeff in terms.items()
             ),
             0j,

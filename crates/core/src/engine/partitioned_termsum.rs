@@ -651,7 +651,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
     }
 
     /// Expectation value against a computational basis state.
-    pub fn expectation<A: Basis<W>>(&self, fock: &[u64]) -> f64 {
+    pub fn expectation<A: Basis<W>>(&self, diag_state: &[u64]) -> f64 {
         if !self.frame.is_identity() {
             let frame = &self.frame;
             let n_units = self.n_units;
@@ -662,7 +662,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
                     p.iter()
                         .map(|(key, c)| {
                             let (image, sign) = frame.conjugate::<A>(&key);
-                            c.to_f64() * sign * A::trace(&image, n_units, fock)
+                            c.to_f64() * sign * A::trace(&image, n_units, diag_state)
                         })
                         .sum::<f64>()
                 })
@@ -670,7 +670,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> PartitionedTermSum<C, P, W> {
         }
         self.partitions
             .par_iter()
-            .map(|p| p.expectation::<A>(fock))
+            .map(|p| p.expectation::<A>(diag_state))
             .sum()
     }
 }

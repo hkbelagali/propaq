@@ -84,11 +84,11 @@ impl PauliString {
         (phase, result)
     }
 
-    fn trace_fock_state_impl(&self, fock_state: &Bitset) -> f64 {
+    fn trace_diag_state_impl(&self, diag_state: &Bitset) -> f64 {
         if !self.x.is_zero() {
             return 0.0;
         }
-        let parity = (&self.z & fock_state).count_ones();
+        let parity = (&self.z & diag_state).count_ones();
         if parity.is_multiple_of(2) {
             1.0
         } else {
@@ -172,12 +172,12 @@ impl PauliString {
     /// For Z-only P, returns \((-1)^{\text{popcount}(z \text{ AND } \psi)}\).
     ///
     /// Arguments:
-    ///     fock_state: Computational basis state as a bitstring integer.
+    ///     diag_state: Computational basis state as a bitstring integer.
     /// Returns:
-    ///     Expectation value of the Pauli string in the given Fock state.
-    fn trace_with_fock_state(&self, fock_state: &Bound<'_, PyAny>) -> PyResult<f64> {
-        let bs = pyint_to_bitset(fock_state, self.n_qubits)?;
-        Ok(self.trace_fock_state_impl(&bs))
+    ///     Expectation value of the Pauli string in the given basis state.
+    fn trace_with_diag_state(&self, diag_state: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let bs = pyint_to_bitset(diag_state, self.n_qubits)?;
+        Ok(self.trace_diag_state_impl(&bs))
     }
 
     /// Serialize the monomial as little-endian X bytes concatenated with Z bytes.
@@ -222,8 +222,8 @@ impl AbstractTerm for PauliString {
     fn matmul_internal(&self, other: &Self) -> (Complex64, Self) {
         self.matmul_impl(other)
     }
-    fn trace_with_fock_state(&self, fock_state: &Bitset) -> f64 {
-        self.trace_fock_state_impl(fock_state)
+    fn trace_with_diag_state(&self, diag_state: &Bitset) -> f64 {
+        self.trace_diag_state_impl(diag_state)
     }
     fn to_bytes_vec(&self) -> Vec<u8> {
         let n_bytes = self.n_qubits.div_ceil(8);
@@ -373,7 +373,7 @@ impl TermBasis for PauliBasis {
             .sum()
     }
 
-    fn trace(term: [&[u64]; 2], _n_units: usize, fock: &[u64]) -> f64 {
+    fn trace(term: [&[u64]; 2], _n_units: usize, diag_state: &[u64]) -> f64 {
         if term[0].iter().any(|&w| w != 0) {
             return 0.0;
         }
@@ -381,7 +381,7 @@ impl TermBasis for PauliBasis {
             .iter()
             .enumerate()
             .map(|(i, &w)| {
-                let f = fock.get(i).copied().unwrap_or(0);
+                let f = diag_state.get(i).copied().unwrap_or(0);
                 (w & f).count_ones()
             })
             .sum();
@@ -424,7 +424,12 @@ impl TermBasis for PauliBasis {
         out[1][..zw.len()].copy_from_slice(zw);
     }
 
-    fn trace_sparse(row: &[Position], plane_span: usize, _n_units: usize, fock: &[u64]) -> f64 {
+    fn trace_sparse(
+        row: &[Position],
+        plane_span: usize,
+        _n_units: usize,
+        diag_state: &[u64],
+    ) -> f64 {
         let (x, z) = split_planes(row, plane_span);
         if !x.is_empty() {
             return 0.0;
@@ -433,7 +438,7 @@ impl TermBasis for PauliBasis {
             .iter()
             .filter(|&&p| {
                 let q = p as usize - plane_span;
-                (fock.get(q >> 6).copied().unwrap_or(0) >> (q & 63)) & 1 == 1
+                (diag_state.get(q >> 6).copied().unwrap_or(0) >> (q & 63)) & 1 == 1
             })
             .count();
         if parity.is_multiple_of(2) {

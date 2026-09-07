@@ -202,7 +202,7 @@ class MajoranaMonomial:
         
         The phase factor accounts for the anticommutation relations of Majorana operators.
         """
-    def trace_with_fock_state(self, fock_state: typing.Any) -> builtins.float:
+    def trace_with_diag_state(self, diag_state: typing.Any) -> builtins.float:
         r"""
         Compute \(\langle \psi |M| \psi \rangle\) for this Majorana monomial M.
         
@@ -210,9 +210,9 @@ class MajoranaMonomial:
         For paired modes, returns the product of \((2n_k - 1)\) values for each occupied pair.
         
         Arguments:
-            fock_state: Computational basis state as a bitstring integer.
+            diag_state: Computational basis state as a bitstring integer.
         Returns:
-            Expectation value of the Majorana monomial in the given Fock state.
+            Expectation value of the Majorana monomial in the given basis state.
         """
     def to_bytes(self) -> bytes:
         r"""
@@ -620,7 +620,7 @@ class PauliString:
         The phase factor is in {1, i, -1, -i}. Phase and monomial are returned
         separately so that equal monomials (modulo phase) hash identically.
         """
-    def trace_with_fock_state(self, fock_state: typing.Any) -> builtins.float:
+    def trace_with_diag_state(self, diag_state: typing.Any) -> builtins.float:
         r"""
         Compute \(\langle \psi | P | \psi \rangle\) for this Pauli string P.
         
@@ -628,9 +628,9 @@ class PauliString:
         For Z-only P, returns \((-1)^{\text{popcount}(z \text{ AND } \psi)}\).
         
         Arguments:
-            fock_state: Computational basis state as a bitstring integer.
+            diag_state: Computational basis state as a bitstring integer.
         Returns:
-            Expectation value of the Pauli string in the given Fock state.
+            Expectation value of the Pauli string in the given basis state.
         """
     def to_bytes(self) -> bytes:
         r"""

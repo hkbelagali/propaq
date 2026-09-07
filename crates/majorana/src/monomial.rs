@@ -50,7 +50,7 @@ impl MajoranaMonomial {
             .is_multiple_of(2)
     }
 
-    fn trace_fock_state_impl(&self, fock_state: &Bitset) -> f64 {
+    fn trace_diag_state_impl(&self, diag_state: &Bitset) -> f64 {
         let n_fermionic = self.n_modes / 2;
         let mut p = 0i32;
         let mut product = 1i32;
@@ -63,7 +63,7 @@ impl MajoranaMonomial {
                 return 0.0;
             }
             if low == 1 {
-                let n_k = fock_state.bit(k) as i32;
+                let n_k = diag_state.bit(k) as i32;
                 product *= 2 * n_k - 1;
                 p += 1;
             }
@@ -294,12 +294,12 @@ impl MajoranaMonomial {
     /// For paired modes, returns the product of \((2n_k - 1)\) values for each occupied pair.
     ///
     /// Arguments:
-    ///     fock_state: Computational basis state as a bitstring integer.
+    ///     diag_state: Computational basis state as a bitstring integer.
     /// Returns:
-    ///     Expectation value of the Majorana monomial in the given Fock state.
-    pub fn trace_with_fock_state(&self, fock_state: &Bound<'_, PyAny>) -> PyResult<f64> {
-        let bs = pyint_to_bitset(fock_state, self.n_modes)?;
-        Ok(self.trace_fock_state_impl(&bs))
+    ///     Expectation value of the Majorana monomial in the given basis state.
+    pub fn trace_with_diag_state(&self, diag_state: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let bs = pyint_to_bitset(diag_state, self.n_modes)?;
+        Ok(self.trace_diag_state_impl(&bs))
     }
 
     /// Serialize the mode bitmask as a little-endian byte string.
@@ -331,8 +331,8 @@ impl AbstractTerm for MajoranaMonomial {
     fn matmul_internal(&self, other: &Self) -> (Complex64, Self) {
         MajoranaMonomial::matmul_internal(self, other)
     }
-    fn trace_with_fock_state(&self, fock_state: &Bitset) -> f64 {
-        self.trace_fock_state_impl(fock_state)
+    fn trace_with_diag_state(&self, diag_state: &Bitset) -> f64 {
+        self.trace_diag_state_impl(diag_state)
     }
     fn to_bytes_vec(&self) -> Vec<u8> {
         let byte_length = self.n_modes.div_ceil(8);
@@ -437,7 +437,7 @@ impl TermBasis for MajoranaBasis {
         MajoranaMonomial::weight_from_parts(&single, &occupied, &p, &qubit_mask)
     }
 
-    fn trace(term: [&[u64]; 2], n_units: usize, fock: &[u64]) -> f64 {
+    fn trace(term: [&[u64]; 2], n_units: usize, diag_state: &[u64]) -> f64 {
         let modes = Bitset::from_slice(term[0]);
         let m = MajoranaMonomial {
             modes,
@@ -446,8 +446,8 @@ impl TermBasis for MajoranaBasis {
             weight: 0,
             p: Bitset::zero(),
         };
-        let fock_bs = Bitset::from_slice(fock);
-        m.trace_fock_state_impl(&fock_bs)
+        let diag_bs = Bitset::from_slice(diag_state);
+        m.trace_diag_state_impl(&diag_bs)
     }
 
     fn key_hash(term: [&[u64]; 2]) -> u64 {
@@ -520,7 +520,12 @@ impl TermBasis for MajoranaBasis {
 
     /// A Majorana monomial is diagonal only where every occupied site carries
     /// both of its modes, so the trace walks the mode positions in pairs.
-    fn trace_sparse(row: &[Position], plane_span: usize, n_units: usize, fock: &[u64]) -> f64 {
+    fn trace_sparse(
+        row: &[Position],
+        plane_span: usize,
+        n_units: usize,
+        diag_state: &[u64],
+    ) -> f64 {
         let n_fermionic = n_units / 2;
         let (modes, _) = split_planes(row, plane_span);
         let limit = (2 * n_fermionic) as Position;
@@ -534,7 +539,7 @@ impl TermBasis for MajoranaBasis {
                 return 0.0;
             }
             let k = (m / 2) as usize;
-            let n_k = ((fock.get(k >> 6).copied().unwrap_or(0) >> (k & 63)) & 1) as i32;
+            let n_k = ((diag_state.get(k >> 6).copied().unwrap_or(0) >> (k & 63)) & 1) as i32;
             product *= 2 * n_k - 1;
             occupied_pairs += 1;
             i += 2;

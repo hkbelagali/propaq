@@ -51,7 +51,7 @@ impl Basis<W> for TestPauli {
     fn weight(mono: &BasisString<W>, _n_units: usize) -> u32 {
         mono.support() as u32
     }
-    fn trace(_mono: &BasisString<W>, _n_units: usize, _fock: &[u64]) -> f64 {
+    fn trace(_mono: &BasisString<W>, _n_units: usize, _diag_state: &[u64]) -> f64 {
         0.0
     }
 }

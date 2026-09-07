@@ -22,7 +22,7 @@ def empty_circuit() -> MajoranaCircuit:
     return MajoranaCircuit([], N)
 
 
-def test_expectation_value_vacuum_fock():
+def test_expectation_value_vacuum_diag_state():
     # modes=0b11 (site 0 number operator): trace(vacuum) = -1.0
     obs = MajoranaTermSum({mon(0b11): 1.0})
     prop = MajoranaPropagator()
@@ -30,7 +30,7 @@ def test_expectation_value_vacuum_fock():
     assert val == pytest.approx(-1.0)
 
 
-def test_expectation_value_occupied_fock():
+def test_expectation_value_occupied_diag_state():
     # modes=0b11 (site 0): trace(site-0-occupied) = 1.0
     obs = MajoranaTermSum({mon(0b11): 1.0})
     prop = MajoranaPropagator()
@@ -38,7 +38,7 @@ def test_expectation_value_occupied_fock():
     assert val == pytest.approx(1.0)
 
 
-def test_expectation_value_site1_fock():
+def test_expectation_value_site1_diag_state():
     # modes=0b1100 (site 1): trace = -1 when site 1 empty, +1 when occupied
     obs = MajoranaTermSum({mon(0b1100): 1.0})
     prop = MajoranaPropagator()
