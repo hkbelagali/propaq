@@ -114,6 +114,15 @@ mkdocs serve
 If you use propaq in your research, please cite:
 
 ```bibtex
+@misc{Propaq,
+      title={Propaq: A Python package for Heisenberg Propagation}, 
+      author={Hrishikesh Belagali and Ryan LaRose},
+      year={2026},
+      eprint={2609.07730},
+      archivePrefix={arXiv},
+      primaryClass={quant-ph},
+      url={https://arxiv.org/abs/2609.07730}, 
+}
 ```
 
 ## License
