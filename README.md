@@ -3,6 +3,7 @@
 [![CI](https://github.com/hkbelagali/propaq/actions/workflows/workflow.yml/badge.svg)](https://github.com/hkbelagali/propaq/actions/workflows/workflow.yml)
 [![PyPI](https://img.shields.io/pypi/v/propaq)](https://pypi.org/project/propaq/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![arXiv](https://img.shields.io/badge/arXiv-2609.07730-b31b1b.svg)](https://arxiv.org/abs/2609.07730)
 
 Fast Heisenberg-picture propagation for quantum circuit simulation, with a parallel Rust backend!
 
