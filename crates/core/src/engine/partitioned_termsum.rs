@@ -4,7 +4,7 @@
 //! workers, and routes them to the appropriate worker after each
 //! rotation.
 //!
-//! While Propaq had this idea before, this current version was adopted from monoprop [1].
+//! While Propaq had a similar partitioning idea before [2], this current version was adopted from monoprop [1].
 //!
 //! [1]: https://github.com/Algorithmiq/monoprop
 //!
@@ -23,6 +23,10 @@
 //! WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
+//! 
+//! [2] https://github.com/hkbelagali/propaq/commit/36e8a779d3ad6e85f6cb46eef6e1abd62ae76661
+//! 
+
 
 use rayon::prelude::*;
 

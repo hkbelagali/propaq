@@ -6,7 +6,12 @@ propaq/crates/core/src/storage/operator_index.rs
 propaq/crates/core/src/storage/inverted_index.rs
 propaq/crates/core/src/storage/sparse.rs
 propaq/crates/core/src/algebra/strings.rs
+propaq/crates/core/src/algebra/basis.rs
 propaq/crates/core/src/engine/partitioned_termsum.rs
+propaq/crates/core/src/engine/termsum.rs
+propaq/crates/core/src/engine/affinity.rs
+propaq/crates/majorana/src/algebra.rs
+propaq/crates/pauli/src/algebra.rs
 
 which has the following NOTICE:
 
