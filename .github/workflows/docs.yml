@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      RUSTFLAGS: -Ctarget-cpu=x86-64
 
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +44,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: docs-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: docs-cargo-${{ runner.os }}-
+          key: docs-cargo-v2-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: docs-cargo-v2-${{ runner.os }}-
 
       - name: Install propaq, docs, and example dependencies
         run: pip install -e ".[docs,examples]"

@@ -22,6 +22,8 @@ propaq implements the algorithms described in:
 
 >  A. Miller et al., "Simulation of Fermionic circuits using Majorana Propagation," Dec. 16, 2025, arXiv: arXiv:2503.18939. doi: 10.48550/arXiv.2503.18939.
 
+Propaq adopts several low-level design elements critical for performance from [monoprop](https://github.com/Algorithmiq/monoprop) ([Citation](https://github.com/Algorithmiq/monoprop/blob/main/CITATION.cff) and A. Miller et al., In preparation). These include BasisString, OperatorIndex, InvertedIndex, partitioning, thread assignment, and pinning, and are marked in relevant source files.
+
 ## Installation
 
 ```bash
