@@ -2,7 +2,7 @@
 //! Trait for a basis-specific algebra, i.e. Pauli or Majorana.
 //! The trait is defined over `BasisString<W>` bitset whose width
 //! `W` is a compile-time constant.
-//! 
+//!
 //! The Basis<W> trait was adopted from monoprop [1].
 //!
 //! [1]: https://github.com/Algorithmiq/monoprop

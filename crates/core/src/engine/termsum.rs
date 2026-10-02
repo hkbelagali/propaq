@@ -22,9 +22,9 @@
 //! WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
-//! 
+//!
 //! [2] https://github.com/hkbelagali/propaq/commit/36e8a779d3ad6e85f6cb46eef6e1abd62ae76661
-//! 
+//!
 
 use std::sync::Arc;
 

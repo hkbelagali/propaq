@@ -3,8 +3,8 @@
 //! This allows the partition to live in L3 cache for the
 //! entire duration of the propagation rather than being
 //! shuttled around between cores by rayon's scheduler.
-//! 
-//! The idea to pin partitions to particular threads 
+//!
+//! The idea to pin partitions to particular threads
 //! was adopted from monoprop [1].
 //!
 //! [1]: https://github.com/Algorithmiq/monoprop

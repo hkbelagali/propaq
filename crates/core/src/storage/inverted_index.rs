@@ -5,7 +5,7 @@
 //!
 //! [1]: https://github.com/Algorithmiq/monoprop
 //!
-//! Based on https://github.com/Algorithmiq/monoprop/blob/main/cpp/monoprop/detail/operator/InvertedIndex.h [2].
+//! Based on <https://github.com/Algorithmiq/monoprop/blob/main/cpp/monoprop/detail/operator/InvertedIndex.h> [2].
 //!
 //! Copyright and license from [1-2]:
 //!
