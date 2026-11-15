@@ -1,0 +1,13 @@
+[package]
+name = "propaq-traced"
+version = "0.1.1"
+edition = "2021"
+description = "Generated Rust for the Pauli, Majorana and Z4 bases written with propaq.tracer."
+
+[dependencies]
+propaq-core = { path = "../core" }
+num-complex = "0.4"
+
+[dev-dependencies]
+propaq-pauli = { path = "../pauli" }
+propaq-majorana = { path = "../majorana" }

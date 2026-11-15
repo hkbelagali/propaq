@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "propaq"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "propaq-core",
  "propaq-hybrid",
@@ -816,6 +816,16 @@ dependencies = [
  "pyo3-stub-gen",
  "rayon",
  "rustc-hash 2.1.2",
+]
+
+[[package]]
+name = "propaq-traced"
+version = "0.1.1"
+dependencies = [
+ "num-complex",
+ "propaq-core",
+ "propaq-majorana",
+ "propaq-pauli",
 ]
 
 [[package]]

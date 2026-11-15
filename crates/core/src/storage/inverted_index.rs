@@ -23,6 +23,7 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
+use crate::fold::LinearFold;
 use crate::operator_index::{OperatorIndex, Pos, TermIndex};
 
 /// A column is promoted to dense once at least this fraction of rows touch it.
@@ -158,6 +159,76 @@ impl InvertedIndex {
                         out[(r as usize) >> 6] ^= 1u64 << (r & 63);
                     }
                 }
+            }
+        }
+    }
+
+    /// Evaluates a linear fold for every row at once.
+    ///
+    /// For M = 2, `lo` holds chi (one bit per row) and `hi` is empty.
+    /// For M = 4, `lo` and `hi` are the low and high bit planes of chi.
+    /// A bit-sliced counter adds each column with its weight, so one pass
+    /// over a column costs a few word operations per 64 rows.
+    /// Returns false when the modulus is not supported. The caller then
+    /// falls back to a per-row scan.
+    pub fn eval_fold<const W: usize>(
+        &self,
+        fold: &LinearFold<W>,
+        lo: &mut Vec<u64>,
+        hi: &mut Vec<u64>,
+    ) -> bool {
+        match fold.modulus {
+            2 => {
+                self.combine(fold.masks[0].positions(), lo);
+                if fold.use_parity {
+                    self.apply_row_parity(lo);
+                }
+                hi.clear();
+                true
+            }
+            4 => {
+                if fold.use_parity {
+                    return false;
+                }
+                let words = self.words();
+                lo.clear();
+                lo.resize(words, 0);
+                hi.clear();
+                hi.resize(words, 0);
+                let mut scratch: Vec<u64> = Vec::new();
+                for (k, mask) in fold.masks.iter().enumerate() {
+                    let weight = k as u32 + 1;
+                    for pos in mask.positions() {
+                        let col: &[u64] = match &self.columns[pos] {
+                            Column::Dense(v) => v,
+                            Column::Sparse(rows) => {
+                                scratch.clear();
+                                scratch.resize(words, 0);
+                                for &r in rows.iter() {
+                                    scratch[(r as usize) >> 6] |= 1u64 << (r & 63);
+                                }
+                                &scratch
+                            }
+                        };
+                        Self::add_weighted(lo, hi, col, weight);
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Adds `weight * x` to the mod-4 counter held in the planes `(lo, hi)`.
+    #[inline]
+    fn add_weighted(lo: &mut [u64], hi: &mut [u64], col: &[u64], weight: u32) {
+        for ((l, h), &x) in lo.iter_mut().zip(hi.iter_mut()).zip(col.iter()) {
+            if weight & 1 == 1 {
+                *h ^= *l & x;
+                *l ^= x;
+            }
+            if weight & 2 == 2 {
+                *h ^= x;
             }
         }
     }

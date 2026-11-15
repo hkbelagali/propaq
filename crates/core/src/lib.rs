@@ -14,6 +14,10 @@ pub mod basis;
 pub mod bitset;
 #[path = "algebra/coeff.rs"]
 pub mod coeff;
+#[path = "algebra/fold.rs"]
+pub mod fold;
+#[path = "interface/basis_module.rs"]
+pub mod basis_module;
 #[path = "interface/helpers.rs"]
 pub mod helpers;
 #[path = "storage/inverted_index.rs"]
@@ -32,10 +36,14 @@ pub mod noise_resolver;
 pub mod operator_index;
 #[path = "engine/partitioned_termsum.rs"]
 pub mod partitioned_termsum;
+#[path = "interface/raw_basis.rs"]
+pub mod raw_basis;
 #[path = "interface/progress.rs"]
 pub mod progress;
 #[path = "interface/results.rs"]
 pub mod results;
+#[path = "engine/run.rs"]
+pub mod run;
 #[path = "engine/run_config.rs"]
 pub mod run_config;
 #[path = "storage/sparse.rs"]

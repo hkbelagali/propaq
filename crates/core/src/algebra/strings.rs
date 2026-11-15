@@ -109,8 +109,8 @@ impl<const W: usize> BasisString<W> {
     #[inline]
     pub fn count(&self) -> usize {
         let mut n = 0u32;
-        for i in 0..W {
-            n += self.words[i].count_ones();
+        for w in &self.words {
+            n += w.count_ones();
         }
         n as usize
     }
@@ -139,8 +139,7 @@ impl<const W: usize> BasisString<W> {
     #[inline]
     pub fn support(&self) -> usize {
         let mut n = 0u32;
-        for i in 0..W {
-            let w = self.words[i];
+        for &w in &self.words {
             // Fold each unit's two bits onto its even bit, then count those.
             n += ((w | (w >> 1)) & Self::EVEN_MASK).count_ones();
         }

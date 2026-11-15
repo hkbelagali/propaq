@@ -107,6 +107,20 @@ pub trait CoeffRepr: Clone + Send + Sync + Default + 'static {
         None
     }
 
+    /// The rotation angle as a real number, when the parameter is one.
+    /// Bases with `BRANCHES > 2` read it to build their branch table.
+    #[inline]
+    fn real_angle(_param: &Self::GateParam) -> Option<f64> {
+        None
+    }
+
+    /// `self * z`. Only complex representations support it. The m-branch
+    /// emission (`BRANCHES > 2`) needs it.
+    #[inline]
+    fn scaled_complex(&self, _z: Complex64) -> Self {
+        unimplemented!("this coefficient type cannot hold complex values")
+    }
+
     /// Extract the gate parameter from a Python rotation object.
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<Self::GateParam>;
 }
@@ -174,6 +188,11 @@ impl CoeffRepr for f64 {
 
     fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
         obj.getattr("angle")?.extract()
+    }
+
+    #[inline]
+    fn real_angle(angle: &f64) -> Option<f64> {
+        Some(*angle)
     }
 
     #[inline]
@@ -305,5 +324,74 @@ impl CoeffRepr for f32 {
     #[inline]
     fn clifford_branch_sign(angle: &f64, phase: Complex64) -> Option<f64> {
         Some(angle.sin() * (-phase.im))
+    }
+}
+
+/// Complex coefficient, for bases with complex phases or more than two branches.
+/// For a +-1 basis it rotates exactly like `f64`, with a complex value.
+impl CoeffRepr for Complex64 {
+    type GateParam = f64;
+
+    #[inline]
+    fn from_real(c: f64) -> Self {
+        Complex64::new(c, 0.0)
+    }
+
+    #[inline]
+    fn add_assign(&mut self, other: Self) {
+        *self += other;
+    }
+
+    #[inline]
+    fn apply_rotation(&mut self, angle: &f64, phase: Complex64) -> Self {
+        let (sin_t, cos_t) = angle.sin_cos();
+        let sin_branch = *self * (sin_t * -phase.im);
+        *self *= cos_t;
+        sin_branch
+    }
+
+    #[inline]
+    fn rotation_factors(param: &f64) -> Option<(f64, f64)> {
+        Some(param.sin_cos())
+    }
+
+    #[inline]
+    fn sin_branch_magnitude(&self, sin: f64) -> f64 {
+        self.norm() * sin.abs()
+    }
+
+    #[inline]
+    fn scale_real(&mut self, factor: f64) {
+        *self *= factor;
+    }
+
+    fn extract_gate_param(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
+        obj.getattr("angle")?.extract()
+    }
+
+    #[inline]
+    fn passes_coeff_cutoff(&self, cutoff: f64) -> bool {
+        self.norm() >= cutoff
+    }
+
+    #[inline]
+    fn magnitude(&self) -> f64 {
+        self.norm()
+    }
+
+    /// The real part. The imaginary part is dropped.
+    #[inline]
+    fn to_f64(&self) -> f64 {
+        self.re
+    }
+
+    #[inline]
+    fn real_angle(angle: &f64) -> Option<f64> {
+        Some(*angle)
+    }
+
+    #[inline]
+    fn scaled_complex(&self, z: Complex64) -> Self {
+        *self * z
     }
 }

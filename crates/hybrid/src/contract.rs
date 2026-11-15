@@ -83,7 +83,7 @@ pub fn window_expectation(mps: &Mps, env: &Environments, sites: &[(usize, PauliO
 
     let mut current = env.l[s_min].clone();
     let mut idx = 0;
-    for k in s_min..=s_max {
+    for (k, tensor) in mps.tensors.iter().enumerate().take(s_max + 1).skip(s_min) {
         let op = if idx < sites.len() && sites[idx].0 == k {
             let m = sites[idx].1.matrix();
             idx += 1;
@@ -91,8 +91,8 @@ pub fn window_expectation(mps: &Mps, env: &Environments, sites: &[(usize, PauliO
         } else {
             None
         };
-        let bond_in = mps.tensors[k].chi_l;
-        current = apply_transfer(&current, bond_in, &mps.tensors[k], op.as_ref());
+        let bond_in = tensor.chi_l;
+        current = apply_transfer(&current, bond_in, tensor, op.as_ref());
     }
 
     let r = &env.r[s_max + 1];

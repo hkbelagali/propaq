@@ -211,6 +211,8 @@ pub struct TermSum<C: CoeffRepr, P: Pos, const W: usize> {
     /// Transposed view of the term sum.
     inverted: InvertedIndex,
     scan_bitmap: Vec<u64>,
+    /// High bit plane of the character for M = 4 folds.
+    scan_hi: Vec<u64>,
     scan_rows: Vec<usize>,
     pending_slot: Vec<u32>,
     pending_rows: Vec<u32>,
@@ -240,6 +242,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
             coeffs: Vec::new(),
             inverted: InvertedIndex::new(BasisString::<W>::num_bits()),
             scan_bitmap: Vec::new(),
+            scan_hi: Vec::new(),
             scan_rows: Vec::new(),
             pending_slot: Vec::new(),
             pending_rows: Vec::new(),
@@ -271,6 +274,7 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
             coeffs: Vec::new(),
             inverted: InvertedIndex::new(BasisString::<W>::num_bits()),
             scan_bitmap: Vec::new(),
+            scan_hi: Vec::new(),
             scan_rows: Vec::new(),
             pending_slot: Vec::new(),
             pending_rows: Vec::new(),
@@ -573,31 +577,111 @@ impl<C: CoeffRepr, P: Pos, const W: usize> TermSum<C, P, W> {
 
         self.inverted.sync_to(&self.store);
         let mut bitmap = std::mem::take(&mut self.scan_bitmap);
-        self.inverted
-            .combine(A::fold_generator(ctx).positions(), &mut bitmap);
-
-        if A::fold_needs_odd_correction(ctx) {
-            self.inverted.apply_row_parity(&mut bitmap);
-        }
+        let mut hi = std::mem::take(&mut self.scan_hi);
+        let evaluated = match A::linear_fold(ctx) {
+            Some(fold) => self.inverted.eval_fold(&fold, &mut bitmap, &mut hi),
+            None => false,
+        };
 
         let mut rows = std::mem::take(&mut self.scan_rows);
         rows.clear();
-        for_each_set_bit(&bitmap, |r| rows.push(r));
-        for &i in rows.iter() {
-            self.emit_from_row::<A>(
-                i,
-                ctx,
-                param,
-                cutoff,
-                n_partitions,
-                outbox,
-                precheck,
-                factors,
-            );
+        if !evaluated {
+            // No linear fold: ask the basis row by row.
+            for r in 0..self.store.len() {
+                if A::character(ctx, &self.store.row(r)) != 0 {
+                    rows.push(r);
+                }
+            }
+        } else if hi.is_empty() {
+            for_each_set_bit(&bitmap, |r| rows.push(r));
+        } else {
+            for (w, (&l, &h)) in bitmap.iter().zip(hi.iter()).enumerate() {
+                let mut bits = l | h;
+                while bits != 0 {
+                    let b = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    rows.push(w * 64 + b);
+                }
+            }
+        }
+
+        if A::BRANCHES > 2 {
+            let theta = C::real_angle(param).expect("an m-branch rotation needs a real angle");
+            let table = A::branch_table(ctx, theta);
+            debug_assert_eq!(table.len(), A::CHAR_MODULUS as usize * A::BRANCHES);
+            for &i in rows.iter() {
+                let chi = if evaluated {
+                    let (w, b) = (i >> 6, i & 63);
+                    let lo_bit = (bitmap[w] >> b) & 1;
+                    let hi_bit = hi.get(w).map_or(0, |h| (h >> b) & 1);
+                    (lo_bit | (hi_bit << 1)) as usize
+                } else {
+                    A::character(ctx, &self.store.row(i)) as usize
+                };
+                self.emit_branches_from_row::<A>(i, chi, ctx, cutoff, n_partitions, outbox, &table);
+            }
+        } else {
+            for &i in rows.iter() {
+                self.emit_from_row::<A>(
+                    i,
+                    ctx,
+                    param,
+                    cutoff,
+                    n_partitions,
+                    outbox,
+                    precheck,
+                    factors,
+                );
+            }
         }
 
         self.scan_bitmap = bitmap;
+        self.scan_hi = hi;
         self.scan_rows = rows;
+    }
+
+    /// m-branch emission for one row (`A::BRANCHES > 2`).
+    ///
+    /// The row keeps `table[chi][0]`. Branch k goes out with the coefficient
+    /// `c * table[chi][k] * phase_k`. A branch that the cutoff rejects is
+    /// dropped. There is no partner claim for m-branch bases.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_branches_from_row<A: Basis<W>>(
+        &mut self,
+        i: usize,
+        chi: usize,
+        ctx: &A::GenContext,
+        cutoff: &EmitCutoff,
+        n_partitions: usize,
+        outbox: &mut [Vec<Routed<C, W>>],
+        table: &[Complex64],
+    ) {
+        self.visited += 1;
+        let mono = self.store.row(i);
+        let source = self.coeffs[i].clone();
+        let row = &table[chi * A::BRANCHES..(chi + 1) * A::BRANCHES];
+        self.coeffs[i] = source.scaled_complex(row[0]);
+        for (k, &factor) in row.iter().enumerate().skip(1) {
+            if factor.norm_sqr() == 0.0 {
+                continue;
+            }
+            let (child, phase) = A::branch(ctx, &mono, k);
+            let coeff = source.scaled_complex(factor * phase);
+            if !cutoff.admits_key::<A, W>(&child, self.n_units) {
+                continue;
+            }
+            if !cutoff.admits_child::<A, C, W>(&child, &coeff, self.n_units) {
+                self.declined += 1;
+                continue;
+            }
+            let hash = OperatorIndex::<P, W>::hash_of(&child);
+            self.emitted += 1;
+            outbox[partition_from_hash(hash, n_partitions)].push(Routed {
+                key: child,
+                hash,
+                coeff,
+            });
+        }
     }
 
     /// Drain the claimed branches into `outbox`.

@@ -25,6 +25,7 @@
 
 use num_complex::Complex64;
 
+use crate::fold::LinearFold;
 use crate::strings::BasisString;
 
 /// Which algebra a basis string belongs to.
@@ -33,6 +34,8 @@ use crate::strings::BasisString;
 pub enum BasisKind {
     Pauli = 0,
     Majorana = 1,
+    /// A basis defined with the tracer (propaq.tracer). See docs/architecture/tracer.md.
+    Custom = 2,
 }
 
 impl BasisKind {
@@ -95,4 +98,47 @@ pub trait Basis<const W: usize>: Send + Sync + 'static {
     /// The term's diagonal expectation against a computational basis state,
     /// with `diag_state` holding one bit per unit.
     fn trace(mono: &BasisString<W>, n_units: usize, diag_state: &[u64]) -> f64;
+
+    // ---- Generalized interface (tracer refactor, docs/architecture/tracer.md) ----
+    // Every item below has a default that reproduces the +-1 class, so the
+    // existing Pauli and Majorana implementations compile unchanged.
+
+    /// Number of branches one rotation can produce from a term, counting the
+    /// term itself. The +-1 class has 2 (cos part kept, sin part emitted).
+    const BRANCHES: usize = 2;
+
+    /// Modulus M of the commutation character: G T = w_M^chi T G, w_M = exp(2 pi i / M).
+    const CHAR_MODULUS: u32 = 2;
+
+    /// Order D of the phase group. Phases are exp(2 pi i e / D).
+    const PHASE_ORDER: u32 = 4;
+
+    /// Commutation character chi(g, t) in Z_M. Zero means the term is unchanged.
+    #[inline]
+    fn character(ctx: &Self::GenContext, mono: &BasisString<W>) -> u32 {
+        u32::from(Self::anticommutes(ctx, mono))
+    }
+
+    /// The character as a linear form in the bits of the term, if it is one.
+    /// The engine then evaluates it from bit columns for all terms at once.
+    #[inline]
+    fn linear_fold(ctx: &Self::GenContext) -> Option<LinearFold<W>> {
+        Some(LinearFold::z2(*Self::fold_generator(ctx), Self::fold_needs_odd_correction(ctx)))
+    }
+
+    /// Branch k (1 <= k < BRANCHES) of `mono`: the new key and its phase.
+    /// For the +-1 class, branch 1 is the product G * mono.
+    #[inline]
+    fn branch(ctx: &Self::GenContext, mono: &BasisString<W>, k: usize) -> (BasisString<W>, Complex64) {
+        debug_assert_eq!(k, 1, "the +-1 class has one emitted branch");
+        Self::product(ctx, mono)
+    }
+
+    /// Per-gate coefficient table for BRANCHES > 2, row-major [chi][k] with
+    /// CHAR_MODULUS rows and BRANCHES columns, for rotation angle `theta`.
+    /// The +-1 class does not use it (the engine keeps its cos/sin path).
+    #[inline]
+    fn branch_table(_ctx: &Self::GenContext, _theta: f64) -> Vec<Complex64> {
+        Vec::new()
+    }
 }

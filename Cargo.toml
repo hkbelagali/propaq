@@ -6,6 +6,7 @@ members = [
     "crates/surrogate",
     "crates/hybrid",
     "crates/ext",
+    "crates/traced",
 ]
 resolver = "2"
 
