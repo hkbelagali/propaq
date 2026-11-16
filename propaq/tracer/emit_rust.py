@@ -483,6 +483,15 @@ class _Emitter:
         out.append("    #[inline]\n    fn weight(mono: &BasisString<W>, n_units: usize) -> u32 {")
         out += ["        " + ln for ln in lines]
         out.append(f"        {outs[0]}.max(0) as u32\n    }}\n")
+        # per-term noise and truncation programs
+        for pname, const, ret in (("noise_key", "HAS_NOISE_KEY", "i64"), ("keep", "HAS_KEEP", "i64")):
+            if pname not in ir.programs:
+                continue
+            lines, outs = self.late_body(pname, ["*mono.words()"])
+            out.append(f"    const {const}: bool = true;")
+            out.append("    #[inline]\n    fn "+pname+"(mono: &BasisString<W>, n_units: usize) -> "+ret+" {")
+            out += ["        " + ln for ln in lines]
+            out.append(f"        {outs[0]}\n    }}\n")
         # trace
         lines, outs = self.late_body("trace", ["*mono.words()", "diag"])
         out.append("    fn trace(mono: &BasisString<W>, n_units: usize, diag_state: &[u64]) -> f64 {")
@@ -490,7 +499,19 @@ class _Emitter:
         out += ["        " + ln for ln in lines]
         out.append(f"        if {outs[0]} == 0 {{\n            0.0\n        }} else {{\n            TRACE_RE[{outs[1]}.rem_euclid({D}i64) as usize]\n        }}\n    }}")
         out.append("}\n")
+        if "local" in m:
+            out.append(self.local_table_code(m["local"]))
         return "\n".join(out)
+
+    def local_table_code(self, local):
+        """The hybrid table: one `local_dim x local_dim` matrix for each unit label."""
+        pairs = ", ".join(f"Complex64::new({_flt(re)}, {_flt(im)})" for re, im in local["table"])
+        return (
+            "/// Physical dimension of one unit, for the hybrid contraction.\n"
+            f"pub const LOCAL_DIM: usize = {local['dim']};\n"
+            "/// Unit matrices by label, row-major: `[label][row][column]`. Label 0 is the identity.\n"
+            f"pub static LOCAL_TABLE: [Complex64; {len(local['table'])}] = [{pairs}];\n"
+        )
 
 
 def emit_rust(ir: BasisIR, type_name=None) -> str:

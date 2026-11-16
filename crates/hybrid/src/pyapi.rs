@@ -3,14 +3,16 @@
 //! and exposes the one hybrid expectation-value entry point
 //!
 use num_complex::Complex64;
-use numpy::PyReadonlyArray3;
+use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 
 use propaq_pauli::PauliTermSum;
 
-use crate::contract::hybrid_expectation_sum;
+use crate::contract::{
+    check_dims, hybrid_expectation_sum, hybrid_expectation_sum_raw, LocalTable,
+};
 use crate::mps::{build_environments, norm_squared, Mps, MpsTensor};
 
 fn mps_from_numpy(arrays: &[PyReadonlyArray3<'_, Complex64>]) -> PyResult<Mps> {
@@ -55,9 +57,11 @@ pub fn hybrid_expectation(
             observable.n_units()
         )));
     }
+    let table = LocalTable::pauli();
+    check_dims(&mps, &table).map_err(PyValueError::new_err)?;
     let env = build_environments(&mps);
     let terms = observable.as_f64();
-    let sum = hybrid_expectation_sum(&mps, &env, &terms);
+    let sum = hybrid_expectation_sum(&mps, &env, &table, &terms);
     let norm2 = norm_squared(&env);
     let result = sum / norm2;
     debug_assert!(
@@ -66,4 +70,73 @@ pub fn hybrid_expectation(
          (observable must be Hermitian and |Psi> a valid state)"
     );
     Ok(result.re)
+}
+
+/// Computes \(\langle\Psi|\Theta|\Psi\rangle / \langle\Psi|\Psi\rangle\) for
+/// an observable of any basis, given as raw words, and returns the complex
+/// value. The basis supplies one matrix for each unit label (`local_table`).
+///
+/// Arguments:
+///     words: Term keys, `uint64` array of shape `(n_terms, stride)`. Unit `u`
+///         owns the bits `u * bits_per_unit` to `(u + 1) * bits_per_unit - 1`.
+///     coeffs: Complex coefficients, one per term.
+///     bits_per_unit: Bits of one unit label. Divides 64 and is at most 8.
+///     local_dim: Physical dimension of one unit.
+///     local_table: Flat complex array of shape `(2 ** bits_per_unit * local_dim ** 2,)`;
+///         matrix `[label][sigma * local_dim + sigma_p]`. Label 0 is the identity.
+///     mps_arrays: Site tensors `(bond_left, local_dim, bond_right)`, complex128.
+#[gen_stub_pyfunction(module = "propaq._rust_core")]
+#[pyfunction]
+pub fn hybrid_expectation_raw(
+    words: PyReadonlyArray2<'_, u64>,
+    coeffs: PyReadonlyArray1<'_, Complex64>,
+    bits_per_unit: usize,
+    local_dim: usize,
+    local_table: PyReadonlyArray1<'_, Complex64>,
+    mps_arrays: Vec<PyReadonlyArray3<'_, Complex64>>,
+) -> PyResult<Complex64> {
+    if bits_per_unit == 0 || bits_per_unit > 8 || !64usize.is_multiple_of(bits_per_unit) {
+        return Err(PyValueError::new_err(
+            "bits_per_unit must divide 64 and be at most 8",
+        ));
+    }
+    let words = words.as_array();
+    let (n_terms, stride) = words.dim();
+    let coeffs = coeffs.as_array();
+    if coeffs.len() != n_terms {
+        return Err(PyValueError::new_err(format!(
+            "{} coefficients for {n_terms} terms",
+            coeffs.len()
+        )));
+    }
+    let mps = mps_from_numpy(&mps_arrays)?;
+    if stride * 64 < mps.n_sites * bits_per_unit {
+        return Err(PyValueError::new_err(format!(
+            "terms have {stride} words, too few for {} units of {bits_per_unit} bits",
+            mps.n_sites
+        )));
+    }
+    let table = LocalTable::new(local_dim, local_table.as_array().iter().copied().collect())
+        .map_err(PyValueError::new_err)?;
+    if table.n_labels() != 1usize << bits_per_unit {
+        return Err(PyValueError::new_err(format!(
+            "local table has {} labels, expected {}",
+            table.n_labels(),
+            1usize << bits_per_unit
+        )));
+    }
+    check_dims(&mps, &table).map_err(PyValueError::new_err)?;
+    let flat_words: Vec<u64> = words.iter().copied().collect();
+    let flat_coeffs: Vec<Complex64> = coeffs.iter().copied().collect();
+    let env = build_environments(&mps);
+    let sum = hybrid_expectation_sum_raw(
+        &mps,
+        &env,
+        &table,
+        &flat_words,
+        stride,
+        bits_per_unit,
+        &flat_coeffs,
+    );
+    Ok(sum / norm_squared(&env))
 }

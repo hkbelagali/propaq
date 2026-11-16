@@ -13,6 +13,8 @@
 //! via the plugin ABI rather than Python.
 //!
 
+use std::collections::HashMap;
+
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 
@@ -93,4 +95,126 @@ fn not_overridden(method: &str) -> PyErr {
     pyo3::exceptions::PyNotImplementedError::new_err(format!(
         "GateNoiseModel.{method} must be overridden by a subclass"
     ))
+}
+
+/// Largest key span a dense factor table may cover.
+const DENSE_KEY_SPAN: i64 = 1 << 16;
+
+/// Damping factors by noise key, for one layer. Built by [`KeyedNoiseModel::table_for`].
+#[derive(Clone, Debug)]
+pub struct KeyTable {
+    lo: i64,
+    dense: Vec<f64>,
+    sparse: HashMap<i64, f64>,
+    default: f64,
+}
+
+impl KeyTable {
+    /// The factor of one key. A key without an entry gets the default.
+    #[inline]
+    pub fn get(&self, key: i64) -> f64 {
+        let i = key.wrapping_sub(self.lo);
+        if (0..self.dense.len() as i64).contains(&i) {
+            return self.dense[i as usize];
+        }
+        self.sparse.get(&key).copied().unwrap_or(self.default)
+    }
+}
+
+/// Noise that scales each term by a factor chosen from the term's noise key.
+///
+/// A traced basis computes the key with its `noise_key` program. This model
+/// maps each key to a damping factor. A key without an entry gets `default`.
+/// A factor is a number, or a list with one number per layer. Layer 0 is the
+/// first layer applied to the observable. A list shorter than the circuit
+/// repeats its last entry.
+///
+/// Arguments:
+///     factors: Mapping from noise key (int) to a factor or a list of factors.
+///     default: Factor for a key that is not in `factors`. Default 1.0.
+#[pyclass(subclass, module = "propaq._rust_core")]
+#[derive(Clone)]
+pub struct KeyedNoiseModel {
+    entries: Vec<(i64, Vec<f64>)>,
+    #[pyo3(get)]
+    pub default: f64,
+}
+
+fn factor_list(value: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    let list: Vec<f64> = match value.extract::<f64>() {
+        Ok(x) => vec![x],
+        Err(_) => value.extract()?,
+    };
+    if list.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "a factor list must not be empty",
+        ));
+    }
+    Ok(list)
+}
+
+#[pymethods]
+impl KeyedNoiseModel {
+    #[new]
+    #[pyo3(signature = (factors, default=1.0))]
+    fn new(factors: &Bound<'_, PyDict>, default: f64) -> PyResult<Self> {
+        Self::from_dict(factors, default)
+    }
+
+    /// The factors as a dict: key to a list with one factor per layer entry.
+    #[getter]
+    fn factors(&self) -> HashMap<i64, Vec<f64>> {
+        self.entries.iter().cloned().collect()
+    }
+
+    /// The factor of `key` in layer `layer`.
+    #[pyo3(signature = (key, layer=0))]
+    fn factor(&self, key: i64, layer: usize) -> f64 {
+        self.table_for(layer).get(key)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "KeyedNoiseModel({} keys, default={})",
+            self.entries.len(),
+            self.default
+        )
+    }
+}
+
+impl KeyedNoiseModel {
+    /// Reads `{key: factor or [factor per layer]}`.
+    pub fn from_dict(factors: &Bound<'_, PyDict>, default: f64) -> PyResult<Self> {
+        let mut entries = Vec::with_capacity(factors.len());
+        for (k, v) in factors.iter() {
+            entries.push((k.extract::<i64>()?, factor_list(&v)?));
+        }
+        entries.sort_by_key(|e| e.0);
+        Ok(KeyedNoiseModel { entries, default })
+    }
+
+    /// The factor table of one layer.
+    pub fn table_for(&self, layer: usize) -> KeyTable {
+        let at = |v: &Vec<f64>| v[layer.min(v.len() - 1)];
+        let lo = self.entries.first().map_or(0, |e| e.0);
+        let hi = self.entries.last().map_or(0, |e| e.0);
+        let span = hi.saturating_sub(lo);
+        let mut table = KeyTable {
+            lo,
+            dense: Vec::new(),
+            sparse: HashMap::new(),
+            default: self.default,
+        };
+        if span < DENSE_KEY_SPAN {
+            table.dense = vec![self.default; (span + 1) as usize];
+            for (k, v) in &self.entries {
+                table.dense[(k - lo) as usize] = at(v);
+            }
+        } else {
+            for (k, v) in &self.entries {
+                table.sparse.insert(*k, at(v));
+            }
+        }
+        table
+    }
 }

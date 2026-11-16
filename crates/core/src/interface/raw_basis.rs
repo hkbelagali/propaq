@@ -215,6 +215,51 @@ impl<A, const B: usize> PyStubType for RawTerm<A, B> {
     }
 }
 
+// ------------------------------------------------------- hybrid support
+
+/// The terms of a raw term sum for the hybrid contraction, as little-endian
+/// bytes: key words (`n_terms * stride` words of plane 0), the complex
+/// coefficients (`n_terms` pairs of `f64`), and the stride.
+pub fn export_terms_bytes<B: crate::basis_module::BasisCodec>(
+    sum: &crate::basis_module::GenericTermSum<B>,
+) -> (Vec<u8>, Vec<u8>, usize)
+where
+    B::Term: AbstractTerm,
+{
+    use crate::basis_module::Storage;
+    use crate::store::TermSum;
+
+    fn rows<C>(s: &TermSum<C>, to_c: impl Fn(&C) -> Complex64) -> (Vec<u8>, Vec<u8>, usize)
+    where
+        C: crate::coeff::CoeffRepr,
+    {
+        let stride = s.stride;
+        let mut buf = vec![0u64; 2 * stride];
+        let mut words = Vec::with_capacity(s.len() * stride * 8);
+        let mut coeffs = Vec::with_capacity(s.len() * 16);
+        for i in 0..s.len() {
+            let planes = s.decode_row(i, &mut buf);
+            for w in planes[0] {
+                words.extend_from_slice(&w.to_le_bytes());
+            }
+            let c = to_c(s.coeff(i));
+            coeffs.extend_from_slice(&c.re.to_le_bytes());
+            coeffs.extend_from_slice(&c.im.to_le_bytes());
+        }
+        (words, coeffs, stride)
+    }
+    match &sum.inner {
+        Storage::F64(s) => rows(s, |c| Complex64::new(*c, 0.0)),
+        Storage::F32(s) => rows(s, |c| Complex64::new(*c as f64, 0.0)),
+        Storage::C64(s) => rows(s, |c| *c),
+    }
+}
+
+/// The flat `f64` form of a local table: real and imaginary part of each entry.
+pub fn local_table_floats(table: &[Complex64]) -> Vec<f64> {
+    table.iter().flat_map(|c| [c.re, c.im]).collect()
+}
+
 // ------------------------------------------------------- algebra helpers
 
 /// Weight of the raw term `words`.
@@ -257,6 +302,16 @@ pub fn raw_product<A: BasisAll>(t: &[u64], g: &[u64]) -> (Vec<u64>, Complex64) {
 /// Diagonal expectation of the term `t` against `diag_state` (one bit per unit).
 pub fn raw_trace<A: BasisAll>(t: &[u64], n_units: usize, diag_state: &[u64]) -> f64 {
     at_width!(t.len(), |W| <A as crate::basis::Basis<W>>::trace(&key_of::<W>(t), n_units, diag_state))
+}
+
+/// The noise key of the raw term `t` (0 when the basis has no `noise_key` program).
+pub fn raw_noise_key<A: BasisAll>(t: &[u64], n_units: usize) -> i64 {
+    at_width!(t.len(), |W| <A as crate::basis::Basis<W>>::noise_key(&key_of::<W>(t), n_units))
+}
+
+/// The `keep` value of the raw term `t` (1 when the basis has no `keep` program).
+pub fn raw_keep<A: BasisAll>(t: &[u64], n_units: usize) -> i64 {
+    at_width!(t.len(), |W| <A as crate::basis::Basis<W>>::keep(&key_of::<W>(t), n_units))
 }
 
 /// Decodes a sparse row into raw words (plane 0 only).
@@ -387,6 +442,32 @@ impl<A: BasisAll, const B: usize> BasisCodec for RawBasis<A, B> {
     fn from_words(words: &[u64], n_units: usize) -> RawTerm<A, B> {
         RawTerm::new(words, n_units)
     }
+
+    fn file_identity() -> crate::term_io::BasisId {
+        let id = crate::term_io::BasisId::new(<A as crate::basis::Basis<1>>::KIND, B);
+        match IR_HASH.get() {
+            Some(h) => id.with_hash(h),
+            None => id,
+        }
+    }
+}
+
+/// The IR hash (16 hex characters) of the basis this library holds.
+/// `define_raw_basis_module!` sets it from the module name at import.
+/// A crate that runs a built-in program as a raw basis calls
+/// `set_ir_hash` with that program's hash; term files then carry the built-in id.
+static IR_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Sets the IR hash that term files of raw bases carry. Only the first call counts.
+pub fn set_ir_hash(hash: &str) {
+    let _ = IR_HASH.set(hash.to_string());
+}
+
+/// Sets the IR hash from a module name of the form `propaq_basis_<hash16>`.
+pub fn set_ir_hash_from_module(name: &str) {
+    if let Some(h) = name.strip_prefix("propaq_basis_") {
+        set_ir_hash(h);
+    }
 }
 
 /// Adds the engine classes that a propagator takes as arguments to `m`.
@@ -405,6 +486,7 @@ pub fn register_engine_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Logger>()?;
     m.add_class::<TruncationPolicy>()?;
     m.add_class::<UniformNoiseModel>()?;
+    m.add_class::<crate::KeyedNoiseModel>()?;
     m.add_class::<GateNoiseModel>()?;
     m.add_class::<NativeNoiseModel>()?;
     m.add_class::<FrequencyTruncator>()?;
@@ -428,11 +510,22 @@ pub fn register_engine_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 ///     algebra: MyBasis,        // implements Basis<W> for every W
 ///     bits_per_unit: 4,
 ///     coeff: f64,          // or `propaq_core::basis_module::Cx` for complex coefficients
+///     local_dim: 2,         // optional, with `local_table`: per-unit matrices for the hybrid contraction
+///     local_table: &LOCAL_TABLE,
+///     extra: [register_fn], // optional: functions that add classes to the module
 /// }
 /// ```
 #[macro_export]
 macro_rules! define_raw_basis_module {
-    (module: $m:ident, algebra: $A:ty, bits_per_unit: $b:literal, coeff: $K:ty $(,)?) => {
+    (module: $m:ident, algebra: $A:ty, bits_per_unit: $b:literal, coeff: $K:ty $(, extra: [$($extra:path),* $(,)?])? $(,)?) => {
+        $crate::define_raw_basis_module! {
+            module: $m, algebra: $A, bits_per_unit: $b, coeff: $K,
+            local_dim: 0, local_table: &[],
+            $(extra: [$($extra),*],)?
+        }
+    };
+    (module: $m:ident, algebra: $A:ty, bits_per_unit: $b:literal, coeff: $K:ty,
+     local_dim: $ld:expr, local_table: $lt:expr $(, extra: [$($extra:path),* $(,)?])? $(,)?) => {
         /// The codec of this module's basis.
         pub type Codec = $crate::raw_basis::RawBasis<$A, $b>;
         /// The Rust side of this module's `Term` class.
@@ -504,17 +597,62 @@ macro_rules! define_raw_basis_module {
             $crate::raw_basis::raw_trace::<$A>(&t, n_units, &diag)
         }
 
+        /// Noise key of the term `t`. It is 0 if the basis has no `noise_key` program.
+        #[::pyo3::pyfunction]
+        #[pyo3(name = "noise_key")]
+        fn raw_noise_key_py(t: Vec<u64>, n_units: usize) -> i64 {
+            $crate::raw_basis::raw_noise_key::<$A>(&t, n_units)
+        }
+
+        /// The `keep` value of the term `t`. Zero drops the term. It is 1 if the basis has no `keep` program.
+        #[::pyo3::pyfunction]
+        #[pyo3(name = "keep")]
+        fn raw_keep_py(t: Vec<u64>, n_units: usize) -> i64 {
+            $crate::raw_basis::raw_keep::<$A>(&t, n_units)
+        }
+
+        /// The local matrices of this basis for the hybrid contraction:
+        /// `(local_dim, flat floats)`. The floats hold the real and imaginary part of each
+        /// entry of `[label][sigma][sigma_p]`. `local_dim` is 0 if the basis has no table.
+        #[::pyo3::pyfunction]
+        #[pyo3(name = "local_table")]
+        fn raw_local_table_py() -> (usize, Vec<f64>) {
+            let table: &[::num_complex::Complex64] = $lt;
+            ($ld, $crate::raw_basis::local_table_floats(table))
+        }
+
+        /// The terms of `terms` as bytes for the hybrid contraction:
+        /// `(key words, complex coefficients, words per key)`, little-endian.
+        #[::pyo3::pyfunction]
+        #[pyo3(name = "export_terms")]
+        fn raw_export_terms_py<'py>(
+            py: ::pyo3::Python<'py>,
+            terms: &TermSum,
+        ) -> (::pyo3::Bound<'py, ::pyo3::types::PyBytes>, ::pyo3::Bound<'py, ::pyo3::types::PyBytes>, usize) {
+            let (w, c, stride) = $crate::raw_basis::export_terms_bytes(&terms.core);
+            (::pyo3::types::PyBytes::new(py, &w), ::pyo3::types::PyBytes::new(py, &c), stride)
+        }
+
         #[::pyo3::pymodule]
         fn $m(m: &::pyo3::Bound<'_, ::pyo3::types::PyModule>) -> ::pyo3::PyResult<()> {
             use ::pyo3::types::PyModuleMethods;
+            $crate::raw_basis::set_ir_hash_from_module(stringify!($m));
             $crate::raw_basis::register_engine_classes(m)?;
             m.add_function(::pyo3::wrap_pyfunction!(raw_character_py, m)?)?;
             m.add_function(::pyo3::wrap_pyfunction!(raw_product_py, m)?)?;
             m.add_function(::pyo3::wrap_pyfunction!(raw_weight_py, m)?)?;
             m.add_function(::pyo3::wrap_pyfunction!(raw_trace_py, m)?)?;
+            m.add_function(::pyo3::wrap_pyfunction!(raw_noise_key_py, m)?)?;
+            m.add_function(::pyo3::wrap_pyfunction!(raw_keep_py, m)?)?;
+            m.add_function(::pyo3::wrap_pyfunction!(raw_local_table_py, m)?)?;
+            m.add_function(::pyo3::wrap_pyfunction!(raw_export_terms_py, m)?)?;
+            m.add("HAS_NOISE_KEY", <$A as $crate::basis::Basis<1>>::HAS_NOISE_KEY)?;
+            m.add("HAS_KEEP", <$A as $crate::basis::Basis<1>>::HAS_KEEP)?;
             m.add_class::<Propagator>()?;
             m.add_class::<TermSum>()?;
             m.add_class::<TermStreamer>()?;
+            // Register functions of the caller, `fn(&Bound<PyModule>) -> PyResult<()>`.
+            $($($extra(m)?;)*)?
             Ok(())
         }
     };

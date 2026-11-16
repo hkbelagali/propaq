@@ -17,6 +17,8 @@ TermT = TypeVar("TermT", bound=AbstractTerm)
 
 _HEADER = struct.Struct("<QQQ")
 _COEFF = struct.Struct("<d")
+_MAGIC = b"PQTERMS\0"
+_V2_HEAD = struct.Struct("<II16sIQIIQ")  # version, kind, hash, bits, n_units, wpk, ctype, n_terms
 
 
 def save_terms(items: Iterable[tuple[TermT, complex]], path: str) -> None:
@@ -69,9 +71,39 @@ def load_terms(term_type: type[TermT], path: str) -> dict[TermT, complex]:
     """
     terms: dict[TermT, complex] = {}
     with gzip.open(path, "rb") as f:
-        n_terms, key_stride, system_size = _HEADER.unpack(f.read(_HEADER.size))
+        first = f.read(8)
+        if first == _MAGIC:
+            return _load_v2(term_type, f)
+        n_terms, key_stride, system_size = _HEADER.unpack(first + f.read(_HEADER.size - 8))
         for _ in range(n_terms):
             key = f.read(key_stride)
             (coeff,) = _COEFF.unpack(f.read(_COEFF.size))
             terms[term_type.from_bytes(key, system_size)] = complex(coeff)
+    return terms
+
+
+def _load_v2(term_type: type[TermT], f) -> dict[TermT, complex]:
+    """Read the rest of a v2 file (the magic is read). Keys are canonical words.
+
+    The term type must have a classmethod ``from_words(words, n_units)``.
+    """
+    version, kind, _hash, bits, n_units, wpk, ctype, n_terms = _V2_HEAD.unpack(
+        f.read(_V2_HEAD.size)
+    )
+    if version != 2:
+        raise ValueError(f"term file has format version {version}, this propaq reads 2 and legacy")
+    from_words = getattr(term_type, "from_words", None)
+    if from_words is None:
+        raise ValueError(
+            f"{term_type.__name__} has no from_words classmethod. "
+            "It cannot read a v2 term file (basis kind "
+            f"{kind}, {bits} bits per unit)."
+        )
+    word = struct.Struct(f"<{wpk}Q")
+    coeff = struct.Struct("<dd" if ctype == 1 else "<d")
+    terms: dict[TermT, complex] = {}
+    for _ in range(n_terms):
+        words = list(word.unpack(f.read(word.size)))
+        vals = coeff.unpack(f.read(coeff.size))
+        terms[from_words(words, n_units)] = complex(*vals)
     return terms

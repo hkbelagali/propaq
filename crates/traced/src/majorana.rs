@@ -193,7 +193,7 @@ pub struct MajoranaGenContext<const W: usize> {
 }
 
 impl<const W: usize> Basis<W> for Majorana {
-    const KIND: BasisKind = BasisKind::Custom;
+    const KIND: BasisKind = BasisKind::Majorana;
     const BRANCHES: usize = 2;
     const CHAR_MODULUS: u32 = 2;
     const PHASE_ORDER: u32 = 4;

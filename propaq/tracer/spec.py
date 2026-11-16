@@ -23,6 +23,9 @@ class BasisSpec:
                         `diag` has one bit per unit (bit u = unit u).
     branch(g, t, k)  -> (Bits key, Int e); branch k, needed if branches > 2.
                         `k` is a Python int. Phase is exp(2 pi i e / D).
+    noise_key(t)     -> Int; optional. A keyed noise model maps each key to a damping factor.
+    keep(t)          -> Int; optional. 0 drops the term (truncation). Both may use active()
+                        and n_units().
     self_phase(g)    -> Int q with W_g^k = w^(q k (k-1) / 2) W_(k g). Needed if branches > 2.
     """
 
@@ -38,6 +41,20 @@ class BasisSpec:
     branch: Optional[Callable] = None
     self_phase: Optional[Callable] = None
     intrinsic: Optional[str] = None
+    # ---- Round 2 interface (docs/architecture/tracer.md, section 12) ----
+    # Hybrid: dimension of one unit and the matrix of each unit label.
+    # local_matrix(label) -> (local_dim, local_dim) complex ndarray; plain Python.
+    local_dim: Optional[int] = None
+    local_matrix: Optional[Callable] = None
+    # Noise: traced noise_key(t) -> Int; the propagator maps each key to a factor.
+    noise_key: Optional[Callable] = None
+    # Truncation: traced keep(t) -> Int; 0 drops the term.
+    keep: Optional[Callable] = None
+    # Front-end: lower_gate(name, units, params, n_units) -> list of (words, angle); plain Python.
+    lower_gate: Optional[Callable] = None
+    # Front-end: names for the unit patterns, label -> int of bits_per_unit bits.
+    # Used to read term labels such as "XZIY". See propaq/tracer/frontend.py.
+    unit_labels: Optional[dict] = None
 
     def validate(self):
         if not _NAME.match(self.name):
@@ -54,7 +71,7 @@ class BasisSpec:
         return self
 
     def meta(self):
-        return {
+        meta = {
             "name": self.name,
             "bits_per_unit": self.bits_per_unit,
             "branches": self.branches,
@@ -62,6 +79,12 @@ class BasisSpec:
             "phase_order": self.phase_order,
             "intrinsic": self.intrinsic,
         }
+        # The hybrid table enters the IR hash (spec 12.2). No table, no key.
+        if self.local_dim is not None or self.local_matrix is not None:
+            from .local import local_table
+
+            meta["local"] = {"dim": self.local_dim, "table": local_table(self)}
+        return meta
 
     def trace_ir(self) -> BasisIR:
         """Trace every program. The result has no fold program yet."""
@@ -76,6 +99,10 @@ class BasisSpec:
         add("product", self.product, [BITS, BITS])
         add("weight", self.weight, [BITS])
         add("trace", self.trace, [BITS, BITS])
+        if self.noise_key is not None:
+            add("noise_key", self.noise_key, [BITS])
+        if self.keep is not None:
+            add("keep", self.keep, [BITS])
         if self.branches > 2:
             for k in range(1, self.branches):
                 add(f"branch_{k}", lambda g, t, k=k: self.branch(g, t, k), [BITS, BITS])
@@ -84,7 +111,7 @@ class BasisSpec:
             if name in progs and progs[name].uses(RUNTIME_OPS):
                 raise ValueError(f"program {name} cannot use active() or n_units()")
         # Output shapes.
-        want = {"character": [INT], "product": [BITS, INT], "weight": [INT], "trace": [INT, INT], "self_phase": [INT]}
+        want = {"character": [INT], "product": [BITS, INT], "weight": [INT], "trace": [INT, INT], "self_phase": [INT], "noise_key": [INT], "keep": [INT]}
         for k in range(1, self.branches):
             want[f"branch_{k}"] = [BITS, INT]
         for name, kinds in want.items():

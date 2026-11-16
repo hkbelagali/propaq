@@ -1,8 +1,8 @@
 """Build pipeline: spec -> IR -> Rust crate in the cache -> cargo -> import.
 
 The crate lives in `~/.cache/propaq/bases/<hash16>/` and depends on
-`propaq-core` by path. The path comes from the env var PROPAQ_SOURCE_DIR,
-else from the repo root that holds this file.
+`propaq-core` by path. The path comes from `source_dir()`: the env var
+PROPAQ_SOURCE_DIR, else the copy vendored in the wheel, else the repo root.
 
 The core macro `propaq_core::define_raw_basis_module!` makes the PyO3
 module (spec section 8, item 5). Terms of the module are raw words
@@ -40,11 +40,15 @@ class BuildError(RuntimeError):
     """cargo failed."""
 
 
-def source_dir() -> Path:
-    """Directory that holds `crates/core` (the propaq source tree).
+VENDOR_DIR = Path(__file__).resolve().parent.parent / "_vendor"
+"""Where the wheel keeps the vendored `propaq-core` (sources and `Cargo.toml`)."""
+
+
+def tree_dir() -> Path:
+    """Directory of a propaq source tree (it holds `crates/core`).
 
     Search order: `PROPAQ_SOURCE_DIR`, the parents of this file, the working
-    directory and its parents.
+    directory and its parents. Tools that write into the tree use this.
     """
     env = os.environ.get("PROPAQ_SOURCE_DIR")
     if env:
@@ -55,7 +59,47 @@ def source_dir() -> Path:
     for c in cands:
         if (c / "crates" / "core" / "Cargo.toml").is_file():
             return c
-    raise BuildUnavailable("propaq source tree not found; set PROPAQ_SOURCE_DIR")
+    raise BuildUnavailable("propaq-core sources not found; set PROPAQ_SOURCE_DIR")
+
+
+def source_dir() -> Path:
+    """Directory that holds the `propaq-core` sources for a user basis.
+
+    Search order:
+
+    1. `PROPAQ_SOURCE_DIR`, if it is set. This is an explicit override.
+       (Spec 12.4 lists it after the vendored copy. It is first here so that
+       a set variable is never ignored silently.)
+    2. The copy in the package (`propaq/_vendor/propaq-core`). Wheels ship it.
+    3. A source tree: the parents of this file, the working directory and
+       its parents.
+
+    Use `core_path(source)` to get the core crate directory.
+    """
+    if os.environ.get("PROPAQ_SOURCE_DIR"):
+        return tree_dir()
+    if (VENDOR_DIR / "propaq-core" / "Cargo.toml").is_file():
+        return VENDOR_DIR
+    return tree_dir()
+
+
+def core_path(source: Path) -> Path:
+    """The `propaq-core` crate directory under a `source_dir()` result."""
+    vendored = source / "propaq-core"
+    if (vendored / "Cargo.toml").is_file():
+        return vendored
+    return source / "crates" / "core"
+
+
+def surrogate_path(source: Path) -> Path:
+    """The `propaq-surrogate` crate directory under a `source_dir()` result.
+
+    The vendored copy has no `builtin` feature and no Pauli or Majorana classes.
+    """
+    vendored = source / "propaq-surrogate"
+    if (vendored / "Cargo.toml").is_file():
+        return vendored
+    return source / "crates" / "surrogate"
 
 
 def cache_root() -> Path:
@@ -77,14 +121,24 @@ def uses_complex(ir: BasisIR) -> bool:
     return ir.meta["branches"] > 2 or ir.meta["char_modulus"] > 2
 
 
-def module_name(ir: BasisIR) -> str:
-    return f"propaq_basis_{ir.hash16()}"
+def module_name(ir: BasisIR, surrogate: bool = False) -> str:
+    """Python module name. A build with surrogate classes has its own name and cache entry."""
+    return f"propaq_basis_{ir.hash16()}{'s' if surrogate else ''}"
 
 
-def crate_files(ir: BasisIR, source: Path, with_module: bool) -> dict:
-    """The files of the generated crate: relative path -> text."""
-    h = ir.hash16()
+def crate_files(ir: BasisIR, source: Path, with_module: bool, surrogate: bool = False) -> dict:
+    """The files of the generated crate: relative path -> text.
+
+    With `surrogate`, the crate also depends on `propaq-surrogate` and its
+    module holds `SurrogatePropagator` and `SurrogateModel`.
+    """
+    h = ir.hash16() + ("s" if surrogate else "")
     ty = camel(ir.meta["name"])
+    surrogate_dep = (
+        f'propaq-surrogate = {{ path = "{surrogate_path(source).as_posix()}", default-features = false }}\n'
+        if surrogate
+        else ""
+    )
     pyo3_features = '"num-complex", "extension-module"' if with_module else '"num-complex"'
     cargo = f"""[package]
 name = "propaq-basis-{h}"
@@ -96,8 +150,8 @@ name = "propaq_basis_{h}"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-propaq-core = {{ path = "{(source / 'crates' / 'core').as_posix()}" }}
-num-complex = "0.4"
+propaq-core = {{ path = "{core_path(source).as_posix()}" }}
+{surrogate_dep}num-complex = "0.4"
 pyo3 = {{ version = "0.27", features = [{pyo3_features}] }}
 pyo3-stub-gen = "0.23"
 
@@ -112,9 +166,13 @@ codegen-units = 16
     if with_module:
         b = ir.meta["bits_per_unit"]
         coeff = "propaq_core::basis_module::Cx" if uses_complex(ir) else "f64"
+        extra = "    extra: [register_surrogate],\n" if surrogate else ""
+        local = "    local_dim: LOCAL_DIM,\n    local_table: &LOCAL_TABLE,\n" if "local" in ir.meta else ""
+        if surrogate:
+            lib += "\npropaq_surrogate::define_raw_surrogate! {\n    codec: Codec,\n    termsum: TermSum,\n}\n"
         lib += (
             f"\npropaq_core::define_raw_basis_module! {{\n    module: propaq_basis_{h},\n    algebra: {ty},\n"
-            f"    bits_per_unit: {b},\n    coeff: {coeff},\n}}\n"
+            f"    bits_per_unit: {b},\n    coeff: {coeff},\n{local}{extra}}}\n"
         )
     return {"Cargo.toml": cargo, "src/lib.rs": lib, "ir.json": ir.to_json()}
 
@@ -133,7 +191,18 @@ def core_stamp(source: Path) -> str:
     import hashlib
 
     h = hashlib.sha256()
-    root = source / "crates" / "core"
+    root = core_path(source)
+    for p in sorted([root / "Cargo.toml", *root.joinpath("src").rglob("*.rs")]):
+        h.update(p.relative_to(root).as_posix().encode())
+        h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+def _tree_stamp(root: Path) -> str:
+    """SHA-256 of the Rust sources of one crate."""
+    import hashlib
+
+    h = hashlib.sha256()
     for p in sorted([root / "Cargo.toml", *root.joinpath("src").rglob("*.rs")]):
         h.update(p.relative_to(root).as_posix().encode())
         h.update(p.read_bytes())
@@ -172,24 +241,30 @@ def _write_crate(files, crate_dir: Path, source: Path):
     return changed
 
 
-def build_basis(spec: BasisSpec, *, check_only=False, force=False, jobs=4, with_module=None, ir: BasisIR | None = None) -> BuildResult:
+def build_basis(spec: BasisSpec, *, check_only=False, force=False, jobs=4, with_module=None, ir: BasisIR | None = None, surrogate: bool = False) -> BuildResult:
     """Compile `spec` to a Python extension in the cache.
 
     The cache key is the SHA-256 of the canonical IR. A cached .so is reused
     while the IR, the generated crate text and the core sources are the same
     (`build.stamp` holds the check value). `force=True` rebuilds.
     With `check_only`, run `cargo check` on a crate without the module macro.
+    With `surrogate=True`, the module also holds `SurrogatePropagator` and
+    `SurrogateModel`. It needs `propaq-surrogate` (the vendored copy or `crates/surrogate`), and it
+    has its own cache entry and module name (`module_name(ir, True)`).
     """
     ir = ir or compile_spec(spec)
     source = source_dir()
-    h = ir.hash16()
+    h = ir.hash16() + ("s" if surrogate else "")
+    if surrogate and not (surrogate_path(source) / "Cargo.toml").is_file():
+        raise BuildUnavailable("surrogate build needs propaq-surrogate (vendored copy or crates/surrogate)")
     crate_dir = cache_root() / h
     with_module = (not check_only) if with_module is None else with_module
     so = crate_dir / f"propaq_basis_{h}.so"
-    files = crate_files(ir, source, with_module)
+    files = crate_files(ir, source, with_module, surrogate)
     import hashlib
 
-    stamp = hashlib.sha256((core_stamp(source) + files["src/lib.rs"] + files["Cargo.toml"]).encode()).hexdigest()
+    extra_stamp = _tree_stamp(surrogate_path(source)) if surrogate else ""
+    stamp = hashlib.sha256((core_stamp(source) + extra_stamp + files["src/lib.rs"] + files["Cargo.toml"]).encode()).hexdigest()
     stamp_file = crate_dir / "build.stamp"
     if not check_only and not force and so.is_file() and stamp_file.is_file() and stamp_file.read_text() == stamp:
         return BuildResult(h, crate_dir, so, True, False)
@@ -252,11 +327,11 @@ def load_basis(spec: BasisSpec, *, force_generic: bool = False, **kwargs):
     2. Otherwise the basis is built (or taken from the cache) and imported.
     3. With no Rust toolchain, the pure-Python `FallbackBasis` is returned.
     """
-    if spec.intrinsic and not force_generic:
+    if spec.intrinsic and not force_generic and spec.keep is None and spec.noise_key is None:
         return resolve_intrinsic(spec.intrinsic)
     ir = compile_spec(spec)
     try:
         res = build_basis(spec, ir=ir, **kwargs)
-        return import_extension(res.so_path, module_name(ir))
+        return import_extension(res.so_path, module_name(ir, bool(kwargs.get("surrogate"))))
     except BuildUnavailable:
         return FallbackBasis(ir)

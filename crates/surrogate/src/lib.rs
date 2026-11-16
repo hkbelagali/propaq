@@ -19,9 +19,12 @@
 /// and memory than numerical coefficients, often necessitating more aggressive
 /// truncation of the surrogate model.
 ///
-pub mod engine;
+pub mod build;
+#[cfg(feature = "builtin")]
+pub mod builtin;
 pub mod model;
 pub mod propagator;
+pub mod raw;
 pub mod symcoeff;
 pub mod truncation;
 
@@ -29,7 +32,8 @@ pub use symcoeff::{CompiledCoeff, GateParam, SymbolicCoeff};
 pub use truncation::FrequencyTruncationPolicy;
 
 pub use model::{MajoranaSurrogateModel, PauliSurrogateModel, SurrogateModel};
-pub use propagator::{MajoranaSurrogatePropagator, PauliSurrogatePropagator};
+#[cfg(feature = "builtin")]
+pub use builtin::{MajoranaSurrogatePropagator, PauliSurrogatePropagator};
 pub use propaq_core::truncators::{
     CoefficientTruncator, FrequencyTruncator, Simplify, TermBudget, Truncator, WeightTruncator,
 };

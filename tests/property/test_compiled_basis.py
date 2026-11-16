@@ -5,8 +5,8 @@ Two bases are built (and cached in `~/.cache/propaq/bases`, or in
 
 * the Z4 Weyl qudit, compared with the Python fallback propagator and with
   dense Heisenberg evolution;
-* the traced Pauli program, built WITHOUT its intrinsic (generic emit),
-  compared with the native `PauliPropagator` on random circuits.
+* the traced Pauli and Majorana programs, built WITHOUT their intrinsic
+  (generic emit), compared with dense Heisenberg evolution.
 
 The tests skip when there is no Rust toolchain or no source tree.
 """
@@ -17,8 +17,7 @@ import numpy as np
 import pytest
 
 from .conformance import check_pair, z4_reference_callables
-from .dense import BASES, assemble, from_words, heisenberg, to_words
-from .helpers import from_pauli_string, make_circuit, make_propagator, make_termsum, termsum_to_dict
+from .dense import BASES, assemble, expand, expectation, from_words, heisenberg, to_words
 
 build = pytest.importorskip("propaq.tracer.build")
 from propaq.tracer.bases import ALL  # noqa: E402
@@ -122,7 +121,7 @@ def test_z4_compiled_expectation(z4, seed):
     assert abs(res.expectation_value - want.real) < 1e-12
 
 
-def test_z4_complex_sum_api(z4):
+def test_z4_complex_sum_api(z4, tmp_path):
     mod, _ = z4
     t = mod.Term([0x1], 2)
     ts = mod.TermSum()
@@ -133,8 +132,10 @@ def test_z4_complex_sum_api(z4):
     assert ts.copy().items() == [(t, 1.5 + 2j)]
     with pytest.raises(ValueError):
         mod.TermSum(dtype="float32")
-    with pytest.raises(NotImplementedError):
-        ts.save("unused.bin")
+    # Term file format v2 holds complex coefficients, so a complex sum saves and loads.
+    path = str(tmp_path / "z4.bin")
+    ts.save(path)
+    assert mod.TermSum.from_file(path).items() == [(t, 1.5 + 2j)]
 
 
 def test_z4_raw_callables_conform(z4):
@@ -173,36 +174,33 @@ def _pauli_case(seed, n=4, n_gates=7):
 
 @pytest.mark.parametrize("seed", range(8))
 @pytest.mark.parametrize("threads", [1, 3])
-def test_traced_pauli_generic_matches_native(pauli_generic, seed, threads):
+def test_traced_pauli_generic_matches_dense(pauli_generic, seed, threads):
     mod, _ = pauli_generic
     n, layers, obs = _pauli_case(seed)
-    native = make_propagator("pauli", n_threads=threads).propagate(
-        make_termsum("pauli", n, obs), make_circuit("pauli", n, layers)
-    )
-    want = termsum_to_dict("pauli", n, native)
     ts = mod.TermSum({mod.Term(list(w), n): c for w, c in obs.items()})
     assert ts.dtype == "float64"
     circ = Circ([[Rot(mod.Term(list(w), n), th) for w, th in layer] for layer in layers])
     got = _dict(mod.Propagator(n_threads=threads, pin_threads=False).propagate(ts, circ))
     got = {tuple(to_words(from_words(k), 1)): v for k, v in got.items()}
-    assert len(got) == len(want)  # term counts are exact
-    assert set(got) == set(want)
-    assert max(abs(got[k] - want[k]) for k in want) < 1e-12
+    basis = BASES["pauli"]
+    dense = heisenberg(basis, n, assemble(basis, n, obs), layers)
+    assert np.allclose(assemble(basis, n, got), dense, atol=1e-10)
+    # Every dense component is present (term support is exact).
+    want = {w: c for w, c in expand(basis, n, dense).items()}
+    assert {k for k, v in got.items() if abs(v) > 1e-12} == {k for k, v in want.items() if abs(v) > 1e-12}
 
 
 @pytest.mark.parametrize("seed", range(4))
-def test_traced_pauli_generic_expectation_matches_native(pauli_generic, seed):
+def test_traced_pauli_generic_expectation_matches_dense(pauli_generic, seed):
     mod, _ = pauli_generic
     n, layers, obs = _pauli_case(50 + seed)
     state = random.Random(seed).randrange(2**n)
-    want = make_propagator("pauli", n_threads=1).expectation_value(
-        make_termsum("pauli", n, obs), make_circuit("pauli", n, layers), initial_state=state
-    )
     ts = mod.TermSum({mod.Term(list(w), n): c for w, c in obs.items()})
     circ = Circ([[Rot(mod.Term(list(w), n), th) for w, th in layer] for layer in layers])
     got = mod.Propagator(n_threads=1, pin_threads=False).expectation_value(ts, circ, initial_state=state)
-    assert abs(got.expectation_value - want.expectation_value) < 1e-12
-    assert got.n_terms == want.n_terms
+    basis = BASES["pauli"]
+    dense = heisenberg(basis, n, assemble(basis, n, obs), layers)
+    assert abs(got.expectation_value - expectation(basis, n, dense, state).real) < 1e-10
 
 
 def test_traced_pauli_generic_truncation_and_files(pauli_generic, tmp_path):
@@ -223,7 +221,7 @@ def test_traced_pauli_generic_truncation_and_files(pauli_generic, tmp_path):
     assert len(cut) <= len(full)
 
 
-def test_traced_pauli_generic_raw_callables_match_native(pauli_generic):
+def test_traced_pauli_generic_raw_callables_match_dense(pauli_generic):
     mod, _ = pauli_generic
     from .conformance import check_basis_conformance
 
@@ -246,21 +244,19 @@ def majorana_generic():
 
 
 @pytest.mark.parametrize("seed", range(6))
-def test_traced_majorana_generic_matches_native(majorana_generic, seed):
+def test_traced_majorana_generic_matches_dense(majorana_generic, seed):
     mod, _ = majorana_generic
     n = 3  # sites; 6 modes
     rng = random.Random(seed)
     wl = lambda: to_words(rng.randrange(1, 4**n), 1)  # noqa: E731
     layers = [[(wl(), rng.uniform(-2, 2))] for _ in range(6)]
     obs = {wl(): rng.uniform(-1, 1) for _ in range(3)}
-    native = make_propagator("majorana", n_threads=1).propagate(
-        make_termsum("majorana", n, obs), make_circuit("majorana", n, layers)
-    )
-    want = termsum_to_dict("majorana", n, native)
     ts = mod.TermSum({mod.Term(list(w), n): c for w, c in obs.items()})
     circ = Circ([[Rot(mod.Term(list(w), n), th) for w, th in layer] for layer in layers])
     got = _dict(mod.Propagator(n_threads=1, pin_threads=False).propagate(ts, circ))
     got = {tuple(to_words(from_words(k), 1)): v for k, v in got.items()}
-    assert len(got) == len(want)
-    assert set(got) == set(want)
-    assert max(abs(got[k] - want[k]) for k in want) < 1e-12
+    basis = BASES["majorana"]
+    dense = heisenberg(basis, n, assemble(basis, n, obs), layers)
+    assert np.allclose(assemble(basis, n, got), dense, atol=1e-10)
+    live = {k for k, v in got.items() if abs(v) > 1e-12}
+    assert live == {k for k, v in expand(basis, n, dense).items() if abs(v) > 1e-12}

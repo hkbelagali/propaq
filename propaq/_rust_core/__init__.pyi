@@ -32,6 +32,7 @@ __all__ = [
     "UniformNoiseModel",
     "WeightTruncator",
     "hybrid_expectation",
+    "hybrid_expectation_raw",
     "rust_available",
 ]
 
@@ -931,6 +932,13 @@ class WeightTruncator:
     def weight(self, value: typing.Optional[builtins.int]) -> None: ...
     def __new__(cls, weight: typing.Optional[builtins.int] = None) -> WeightTruncator: ...
     def __repr__(self) -> builtins.str: ...
+
+def hybrid_expectation_raw(words: numpy.typing.NDArray[numpy.uint64], coeffs: numpy.typing.NDArray[numpy.complex128], bits_per_unit: builtins.int, local_dim: builtins.int, local_table: numpy.typing.NDArray[numpy.complex128], mps_arrays: typing.Sequence[numpy.typing.NDArray[numpy.complex128]]) -> builtins.complex:
+    r"""
+    Computes the complex value of an observable of any basis, given as raw
+    words, against an MPS. `local_table` holds one `local_dim x local_dim`
+    matrix for each unit label (flat, row-major); label 0 is the identity.
+    """
 
 def hybrid_expectation(observable: PauliTermSum, mps_arrays: typing.Sequence[numpy.typing.NDArray[numpy.complex128]]) -> builtins.float:
     r"""

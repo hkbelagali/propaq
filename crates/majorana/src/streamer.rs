@@ -5,12 +5,12 @@ use pyo3::prelude::*;
 
 use propaq_core::streamer::TermStreamer;
 
-use crate::monomial::MajoranaMonomial;
+use crate::monomial::{MajoranaBasis, MajoranaMonomial};
 
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 pub struct MajoranaTermStreamer {
-    pub inner: TermStreamer<MajoranaMonomial>,
+    pub inner: TermStreamer<MajoranaBasis>,
 }
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
@@ -31,7 +31,7 @@ impl MajoranaTermStreamer {
         slf
     }
 
-    fn __next__(&mut self) -> PyResult<Option<(MajoranaMonomial, f64)>> {
+    fn __next__(&mut self) -> PyResult<Option<(MajoranaMonomial, propaq_core::term_io::FileCoeff)>> {
         match self.inner.next() {
             None => Ok(None),
             Some(Ok(pair)) => Ok(Some(pair)),

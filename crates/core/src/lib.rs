@@ -72,7 +72,7 @@ pub use coeff::CoeffRepr;
 pub use logger::Logger;
 pub use native_noise::NativeNoiseModel;
 pub use native_truncator::NativeTruncator;
-pub use noise::{GateNoiseModel, UniformNoiseModel};
+pub use noise::{GateNoiseModel, KeyedNoiseModel, UniformNoiseModel};
 pub use progress::Progress;
 pub use results::PropagationResult;
 pub use term_kernel::{NoiseKernel, TermView, TruncationKernel};

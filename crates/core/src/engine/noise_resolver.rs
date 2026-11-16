@@ -13,10 +13,11 @@
 use std::sync::Arc;
 
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 use crate::basis::BasisKind;
 use crate::native_noise::NativeNoiseModel;
-use crate::noise::UniformNoiseModel;
+use crate::noise::{KeyedNoiseModel, UniformNoiseModel};
 use crate::term_kernel::{LayerContext, NoiseKernel, TermView};
 
 /// The method a Python model defines to opt into per-term, key-aware damping.
@@ -34,6 +35,8 @@ pub enum ResolvedNoise {
     TermKernel(Arc<dyn NoiseKernel>),
     /// A key-aware Python object, applied per term with the GIL held.
     PythonTerm(Py<PyAny>),
+    /// Factors by the basis `noise_key` program, one table per layer.
+    KeyTable(KeyedNoiseModel),
 }
 
 impl ResolvedNoise {
@@ -43,7 +46,7 @@ impl ResolvedNoise {
     pub fn depends_on_key(&self) -> bool {
         matches!(
             self,
-            ResolvedNoise::TermKernel(_) | ResolvedNoise::PythonTerm(_)
+            ResolvedNoise::TermKernel(_) | ResolvedNoise::PythonTerm(_) | ResolvedNoise::KeyTable(_)
         )
     }
 }
@@ -73,6 +76,37 @@ pub fn retabulate(
     }
 }
 
+fn uniform_table(damping: f64, max_weight: usize) -> ResolvedNoise {
+    ResolvedNoise::WeightTable((0..=max_weight).map(|w| (-damping * w as f64).exp()).collect())
+}
+
+/// Reads the dict form of a noise setting.
+fn resolve_noise_dict(
+    dict: &Bound<'_, PyDict>,
+    max_weight: usize,
+) -> PyResult<Option<ResolvedNoise>> {
+    let bad = |m: String| pyo3::exceptions::PyValueError::new_err(m);
+    for (k, _) in dict.iter() {
+        let k: String = k.extract()?;
+        if !matches!(k.as_str(), "damping" | "key_factors" | "default") {
+            return Err(bad(format!(
+                "unknown noise setting {k:?}; use \"damping\", or \"key_factors\" with \"default\""
+            )));
+        }
+    }
+    match (dict.get_item("damping")?, dict.get_item("key_factors")?) {
+        (Some(_), Some(_)) => Err(bad("give either \"damping\" or \"key_factors\", not both".into())),
+        (Some(d), None) => Ok(Some(uniform_table(d.extract()?, max_weight))),
+        (None, Some(f)) => {
+            let f = f.cast_into::<PyDict>().map_err(|_| bad("\"key_factors\" must be a dict".into()))?;
+            let default = dict.get_item("default")?.map_or(Ok(1.0), |d| d.extract())?;
+            let model = KeyedNoiseModel::from_dict(&f, default)?;
+            Ok(Some(ResolvedNoise::KeyTable(model)))
+        }
+        (None, None) => Ok(None),
+    }
+}
+
 /// Resolves `model` into the form the engine applies, or `None` when there is
 /// no model.
 pub fn resolve_noise(
@@ -84,13 +118,20 @@ pub fn resolve_noise(
         return Ok(None);
     };
 
+    // Plain data: a number is a uniform damping rate. A dict is
+    // {"damping": rate} or {"key_factors": {key: factor}, "default": factor}.
+    if let Ok(rate) = model.extract::<f64>() {
+        return Ok(Some(uniform_table(rate, max_weight)));
+    }
+    if let Ok(dict) = model.cast::<PyDict>() {
+        return resolve_noise_dict(dict, max_weight);
+    }
+
     if let Ok(uniform) = model.extract::<PyRef<UniformNoiseModel>>() {
-        let damping = uniform.damping;
-        return Ok(Some(ResolvedNoise::WeightTable(
-            (0..=max_weight)
-                .map(|w| (-damping * w as f64).exp())
-                .collect(),
-        )));
+        return Ok(Some(uniform_table(uniform.damping, max_weight)));
+    }
+    if let Ok(keyed) = model.extract::<PyRef<KeyedNoiseModel>>() {
+        return Ok(Some(ResolvedNoise::KeyTable(keyed.clone())));
     }
 
     if let Ok(native) = model.extract::<PyRef<NativeNoiseModel>>() {

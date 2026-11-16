@@ -3,6 +3,8 @@
     python -m propaq.tracer.regen            # write the files
     python -m propaq.tracer.regen --check    # exit 1 if a file differs
 
+The Pauli and Majorana modules use `BasisKind::Pauli` and `BasisKind::Majorana`.
+
 Files: crates/traced/src/{pauli,majorana,z4}.rs and
 crates/traced/tests/data/z4_table.in (reference numbers for the Rust tests).
 """
@@ -14,9 +16,13 @@ import sys
 from pathlib import Path
 
 from .bases import ALL
-from .build import compile_spec, source_dir
+from .build import compile_spec, tree_dir
 from .emit_rust import emit_rust
 from .fallback import weyl_table
+
+# The built-in bases keep their own `BasisKind`. Native noise models and
+# truncators read it to pick the weight rule and the term layout.
+BUILTIN_KIND = {"pauli": "Pauli", "majorana": "Majorana"}
 
 Z4_CASES = [(0.37, q) for q in range(4)] + [(-1.1, 1), (2.3, 2)]
 
@@ -35,7 +41,13 @@ def generate():
     files = {}
     for name, factory in ALL.items():
         ir = compile_spec(factory())
-        files[f"crates/traced/src/{name}.rs"] = emit_rust(ir)
+        text = emit_rust(ir)
+        if name in BUILTIN_KIND:
+            marker = "const KIND: BasisKind = BasisKind::Custom;"
+            if text.count(marker) != 1:
+                raise RuntimeError(f"expected one KIND line in the {name} module")
+            text = text.replace(marker, f"const KIND: BasisKind = BasisKind::{BUILTIN_KIND[name]};")
+        files[f"crates/traced/src/{name}.rs"] = text
     files["crates/traced/tests/data/z4_table.in"] = z4_table_text()
     return files
 
@@ -45,7 +57,7 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true", help="do not write; exit 1 on drift")
     ap.add_argument("--root", type=Path, default=None, help="source tree (default: PROPAQ_SOURCE_DIR or repo root)")
     args = ap.parse_args(argv)
-    root = args.root or source_dir()
+    root = args.root or tree_dir()
     drift = []
     for rel, text in generate().items():
         p = root / rel

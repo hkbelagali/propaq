@@ -55,6 +55,9 @@ pub struct EmitCutoff {
     pub min_terms: Option<usize>,
     /// Where in the circuit the gate loop currently is.
     pub layer: LayerContext,
+    /// Apply the basis `keep` program. `lossless()` clears it, so the
+    /// `min_terms` floor suppresses it like any other lossy cutoff.
+    pub use_keep: bool,
 }
 
 impl EmitCutoff {
@@ -95,6 +98,7 @@ impl From<&ResolvedConfig> for EmitCutoff {
             term: cfg.native.as_ref().map(|nt| nt.as_term_kernel()),
             min_terms: cfg.min_terms,
             layer: LayerContext::default(),
+            use_keep: true,
         }
     }
 }
@@ -117,6 +121,9 @@ impl EmitCutoff {
         key: &BasisString<W>,
         n_units: usize,
     ) -> bool {
+        if A::HAS_KEEP && self.use_keep && A::keep(key, n_units) == 0 {
+            return false;
+        }
         if self.term.is_some() {
             return true;
         }

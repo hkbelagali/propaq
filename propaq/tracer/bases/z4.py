@@ -5,6 +5,7 @@ The term is W(x, z) = X^x Z^z with Z X = i X Z.
 Rotation: U = exp(-i theta H / 2), H = (W_g + W_g^dag) / 2. It has 4 branches.
 """
 
+from ..local import z4_local_matrix
 from ..spec import BasisSpec
 
 P1 = 0x1111_1111_1111_1111  # bit 4u: low bit of the x digit
@@ -71,4 +72,5 @@ def z4_spec():
         name="z4", bits_per_unit=4, branches=4, char_modulus=4, phase_order=4,
         character=_character, product=_product, weight=_weight, trace=_trace,
         branch=_branch, self_phase=_self_phase,
+        local_dim=4, local_matrix=z4_local_matrix,
     )

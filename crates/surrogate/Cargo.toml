@@ -7,10 +7,16 @@ edition = "2021"
 name = "propaq_surrogate"
 crate-type = ["lib"]
 
+[features]
+default = ["builtin"]
+# The Pauli and Majorana propagator classes. A compiled traced basis builds
+# without them.
+builtin = ["dep:propaq-pauli", "dep:propaq-majorana"]
+
 [dependencies]
 propaq-core = { path = "../core" }
-propaq-pauli = { path = "../pauli" }
-propaq-majorana = { path = "../majorana" }
+propaq-pauli = { path = "../pauli", optional = true }
+propaq-majorana = { path = "../majorana", optional = true }
 pyo3 = { version = "0.27", features = ["num-complex"] }
 pyo3-stub-gen = "0.23"
 num-complex = "0.4"

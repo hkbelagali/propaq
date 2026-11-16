@@ -7,7 +7,3 @@ description = "Generated Rust for the Pauli, Majorana and Z4 bases written with 
 [dependencies]
 propaq-core = { path = "../core" }
 num-complex = "0.4"
-
-[dev-dependencies]
-propaq-pauli = { path = "../pauli" }
-propaq-majorana = { path = "../majorana" }

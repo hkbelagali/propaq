@@ -5,12 +5,12 @@ use pyo3::prelude::*;
 
 use propaq_core::streamer::TermStreamer;
 
-use crate::string::PauliString;
+use crate::string::{PauliBasis, PauliString};
 
 #[pyo3_stub_gen::derive::gen_stub_pyclass]
 #[pyclass(module = "propaq._rust_core")]
 pub struct PauliTermStreamer {
-    pub inner: TermStreamer<PauliString>,
+    pub inner: TermStreamer<PauliBasis>,
 }
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
@@ -31,7 +31,7 @@ impl PauliTermStreamer {
         slf
     }
 
-    fn __next__(&mut self) -> PyResult<Option<(PauliString, f64)>> {
+    fn __next__(&mut self) -> PyResult<Option<(PauliString, propaq_core::term_io::FileCoeff)>> {
         match self.inner.next() {
             None => Ok(None),
             Some(Ok(pair)) => Ok(Some(pair)),

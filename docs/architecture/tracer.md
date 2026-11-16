@@ -1,4 +1,4 @@
-# Tracer architecture (refactor spec, v1)
+# Tracer architecture (refactor spec, v2)
 
 This file is the contract between the parallel tracks of the tracer
 refactor. After integration it also records what was built. Each section
@@ -154,8 +154,11 @@ the real part of the sum.
 `BuiltinBasis` whose `Term`, `TermSum`, `Propagator` and `TermStreamer`
 are the built-in classes (`PauliString`, `PauliTermSum`, ...). Use
 `load_basis(spec, force_generic=True)` (or `build_basis(spec)`) to compile
-the traced program instead. This is how the traced Pauli program is tested
-against the native propagator.
+the traced program instead. Since round 2 the built-in classes also run the
+traced program (section 12.7), so this test compares two builds of one
+program. Pauli and Majorana are checked against dense matrices.
+A spec with a `keep` or `noise_key` program has no built-in class, so
+`load_basis` compiles it (section 12.7, item 4).
 
 **Status:** built (`propaq/tracer/spec.py`, `build.py`).
 
@@ -310,10 +313,155 @@ Result of the integration run: see `patches/integrated.report.md`.
 6. A compiled basis cannot take truncators or noise classes made in
    `propaq` (separate shared library). See section 7, step 5.
 7. Term files are real-only. A complex term sum cannot be saved.
-8. The traced bases are not yet the implementation behind `PauliPropagator`
-   and `MajoranaPropagator`. Those classes are thin wrappers over the generic
-   core with the hand-written native algebras (`PauliAlgebra`,
-   `MajoranaAlgebra`), which are the intrinsics. The traced Pauli and
-   Majorana programs are checked against them. Surrogate and hybrid stay on
-   the wrappers, as planned.
+8. (Round 1.) The traced bases were not yet the implementation behind
+   `PauliPropagator` and `MajoranaPropagator`. They ran the hand-written
+   `PauliAlgebra` and `MajoranaAlgebra`. **Changed in round 2:** the two
+   classes run the traced programs and both algebras are deleted
+   (section 12.7, item 1). Item 7 is also changed (term file v2, 12.3).
 
+## 12. Round 2: port the rest onto the tracer engine
+
+Base: commit `16bddefcd` ("First implementation of the tracer/IR") on branch
+`tracer`. Snapshot: `/home/lonelyneutrin0/Repos/propaq-tracer-work/r2/spec0`.
+Sections 1-11 stay valid unless this section changes them.
+
+### 12.1 Decisions (from the user)
+
+1. The built-in Pauli and Majorana bases run their traced programs. The
+   hand-written `PauliAlgebra` and `MajoranaAlgebra` are deleted.
+   `PauliString` and `MajoranaMonomial` stay as Python term classes.
+2. A user basis compiles against `propaq-core` sources vendored in the wheel.
+   `build_basis` needs only cargo.
+3. Redundant files are deleted at the end, each with a written reason.
+
+### 12.2 Shared interfaces (stubs already in spec0)
+
+* Rust: `propaq_pauli::PauliBasis` and `propaq_majorana::MajoranaBasis` are
+  type aliases for the basis each crate runs. Every crate except the owner
+  of `crates/pauli` and `crates/majorana` uses only these aliases. Today they
+  point to the hand-written algebras; the built-ins track repoints them to
+  `propaq_traced::pauli::Pauli` and `propaq_traced::majorana::Majorana`.
+* Python `BasisSpec` (`propaq/tracer/spec.py`) gained optional fields:
+  * `local_dim`, `local_matrix(label) -> ndarray`: per-unit matrices for the
+    hybrid path (plain Python; the tracer emits a table).
+  * `noise_key(t) -> Int` (traced): the propagator maps each key to a damping
+    factor per layer.
+  * `keep(t) -> Int` (traced): 0 drops the term.
+  * `lower_gate(name, units, params, n_units) -> [(words, angle)]` (plain
+    Python): Qiskit/Cirq gate lowering for a traced basis.
+  New traced programs and the `local_matrix` table must enter the IR hash.
+
+### 12.3 Term file format v2
+
+All integers little-endian, gzip as before.
+
+| Field | Type |
+|---|---|
+| magic | 8 bytes `PQTERMS\0` |
+| version | u32 = 2 |
+| basis kind | u32 (`BasisKind`) |
+| IR hash | 16 ASCII bytes (`hash16`), zeros if none |
+| bits per unit | u32 |
+| n_units | u64 |
+| words per key | u32 |
+| coefficient type | u32: 0 = f64, 1 = complex128 |
+| n_terms | u64 |
+| terms | key as `words per key` u64 words (canonical `BasisString` layout), then the coefficient |
+
+Readers reject a mismatch in basis kind, IR hash, bits per unit or
+coefficient type with a clear error. A file without the magic is read as
+legacy v0.1.8 (native Pauli: x bytes then z bytes; native Majorana: mode
+bytes) and converted to the canonical layout. Writers always write v2.
+
+### 12.4 Packaging
+
+The wheel ships `crates/core` (sources and `Cargo.toml`) under
+`propaq/_vendor/propaq-core/`. `build.source_dir()` looks at
+`PROPAQ_SOURCE_DIR` first (an explicit override is never ignored), then at
+the vendored copy, then at the repo. (The first draft of this text had the
+vendored copy first. Existing tests set the variable and expect it to win.)
+Generated crates depend on the vendored path. Test: install the wheel in a fresh venv, run from a directory outside
+the repo, build and import a Z4 basis.
+
+### 12.5 Tracks and file ownership
+
+| Track | Owns |
+|---|---|
+| Built-ins | `crates/pauli/**`, `crates/majorana/**`, `crates/traced/**`, `propaq/tracer/regen.py`, `propaq/tracer/bases/{pauli,majorana}.py`, `tests/tracer/test_tracer_intrinsic.py`, root `Cargo.toml` |
+| Surrogate | `crates/surrogate/**`, `propaq/models/**`, `propaq/circuits/*/surrogate_circuit.py`, `propaq/propagators/surrogate_*.py`, `tests/surrogate/**`, `tests/property/test_surrogate_*.py` |
+| Hybrid | `crates/hybrid/**`, `propaq/hybrid.py`, `tests/hybrid/**`, local-matrix emission in `propaq/tracer/emit_rust.py` |
+| Front-end | `propaq/tracer/{spec,tracer,analysis,frontend}.py`, `propaq/tracer/emit_rust.py` (noise/keep programs), `propaq/tracer/build.py` (not `source_dir`), `propaq/circuits/**` (not surrogate files), `propaq/datatypes/**`, `crates/core/src/interface/{basis_module,raw_basis}.rs` (policy and API parts), `crates/core/src/policy/**`, `tests/frontend/**` |
+| I/O and packaging | `crates/core/src/interface/{term_io,streamer}.rs`, the file functions in `basis_module.rs` / `raw_basis.rs`, `crates/{pauli,majorana}/src/streamer.rs` (file parts only), `pyproject.toml`, `build.source_dir()`, `propaq/_vendor/**`, `tests/io/**` |
+
+Shared files (`emit_rust.py`, `basis_module.rs`, `raw_basis.rs`, streamers):
+keep your hunks small and local; the integrator merges them.
+
+### 12.6 Working rules (in addition to section 10)
+
+* Your copy: `.../r2/<track>`; patch: `.../r2/patches/<track>.patch` against
+  `.../r2/spec0`; log: `.../r2/patches/<track>.log.md`.
+* Wrap every cargo and maturin call in the machine-wide lock:
+  `flock /home/lonelyneutrin0/Repos/propaq-tracer-work/build.lock <command>`,
+  with `-j 6`. Five tracks share 12 GB of RAM.
+* Gate for every track: full pytest with your wheel equals the round-2
+  baseline (`.../r2/logs/baseline_pytest.txt`) plus your new tests, 0 failed;
+  `tests/golden` passes (exact term counts).
+
+### 12.7 Round 2: outcomes
+
+1. **Built-ins.** `PauliPropagator` and `MajoranaPropagator` run the emitted
+   programs (`propaq_traced::pauli::Pauli`, `propaq_traced::majorana::Majorana`).
+   `PauliAlgebra` and `MajoranaAlgebra` are deleted. `PauliString` and
+   `MajoranaMonomial` stay as Python term classes. The built-in modules use
+   `BasisKind::Pauli` and `BasisKind::Majorana`, because native noise models
+   and truncators read the kind.
+2. **Surrogate on the core loop (`GateHook`).** The surrogate has no run loop
+   of its own. `propaq_core::run` takes a `GateHook` (`after_gate`, `finish`,
+   `tick`, const `ACTIVE`). `NoHook` adds no code to the normal path.
+   `SurrogateHook` (`crates/surrogate/src/build.rs`) truncates the symbolic
+   coefficients after each gate and compiles one tape after the last gate.
+   `SurrogatePropagator<B: BasisCodec>::build_model` is generic over the
+   basis. `build_basis(spec, surrogate=True)` makes a module with
+   `SurrogatePropagator` and `SurrogateModel` (module name
+   `propaq_basis_<hash16>s`, own cache entry).
+3. **The more-than-2-branches gate.** `SymbolicCoeff` holds real nodes. A
+   basis with `BRANCHES > 2` needs a complex branch table with symbolic
+   frequencies, a new trait item and a new meaning for the frequency
+   truncator. This is not built. `build` raises `ValueError` for such a basis
+   before it reads the observable. The 2-branch path is generic.
+4. **Front-end.** `propaq/tracer/frontend.py` (`TracedBasis`): terms from
+   labels, `rotation`, `circuit`, `from_qiskit`/`from_cirq` (through
+   `lower_gate`), `truncation`, `noise`, `keyed_noise`. `BasisSpec` has
+   `unit_labels`, `noise_key` and `keep`. `Basis<W>` has the items
+   `HAS_NOISE_KEY`, `HAS_KEEP`, `noise_key`, `keep`. `noise_key` maps each
+   term to a key. `KeyedNoiseModel` gives one factor per key and layer.
+   `keep == 0` drops a term at emit time. The `min_terms` floor suppresses
+   `keep`, as it suppresses the weight cutoff. A clifford deferral is off
+   when `HAS_KEEP`. These programs enter the IR hash only when they exist.
+5. **Hybrid and `LocalTable`.** `crates/hybrid` contracts any basis against an
+   MPS with one `dim x dim` matrix per unit label (`LocalTable`, label 0 is
+   the identity). The physical dimension is no longer fixed to 2. A spec that
+   sets `local_dim` and `local_matrix` gets `LOCAL_DIM` and `LOCAL_TABLE` in
+   the emitted code. The table is part of the IR hash (the Pauli hash changed
+   to `8c78739211713c67`). `hybrid_expectation_value(..., basis=module)`
+   takes a compiled module. Majorana has no table: a monomial is not a tensor
+   product of unit matrices. It goes through a Pauli sum as before.
+6. **Term file v2** (12.3) is implemented for the native and traced term sums,
+   the streamers and `merge_from_file`, with complex coefficients. A traced
+   copy of the built-in Pauli or Majorana program is the same basis as the
+   built-in one (`INTRINSIC_HASHES` in `term_io.rs`). A test fails if the
+   hashes differ from the programs. A legacy file is refused by a custom basis.
+7. **Vendoring.** `scripts/vendor_core.py` copies `crates/core` and
+   `crates/surrogate` to `propaq/_vendor/`. The surrogate copy has no
+   `builtin.rs`, no Pauli or Majorana dependency and its core path is
+   `../propaq-core`. Run the script after every change in these crates.
+   `build.core_path()` and `build.surrogate_path()` return the crate
+   directories. `tests/io/test_vendor.py` checks that the copies are current.
+8. **Shared macro.** `define_raw_basis_module!` takes `local_dim`,
+   `local_table` and `extra: [fn, ...]`. A module has the functions
+   `noise_key`, `keep`, `local_table`, `export_terms`.
+
+Open points: the Python `DictTermSum` writer still writes the legacy format
+(its terms have no basis kind and no canonical layout). Majorana has no local
+table. More than 2 branches is gated in the surrogate. The unused
+`hashbrown` dependency of `propaq-core` remains.

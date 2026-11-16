@@ -11,7 +11,7 @@ use propaq_core::{
     GateNoiseModel, Logger, NativeNoiseModel, NativeTruncator, PropagationResult, TruncationPolicy,
     UniformNoiseModel,
 };
-use propaq_hybrid::pyapi::hybrid_expectation;
+use propaq_hybrid::pyapi::{hybrid_expectation, hybrid_expectation_raw};
 use propaq_majorana::{
     MajoranaMonomial, MajoranaPropagator, MajoranaTermStreamer, MajoranaTermSum,
 };
@@ -56,6 +56,7 @@ fn _rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PauliSurrogatePropagator>()?;
     m.add_class::<MajoranaSurrogatePropagator>()?;
     m.add_function(wrap_pyfunction!(hybrid_expectation, m)?)?;
+    m.add_function(wrap_pyfunction!(hybrid_expectation_raw, m)?)?;
     Ok(())
 }
 

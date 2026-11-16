@@ -284,6 +284,33 @@ impl TruncationPolicy {
     }
 }
 
+/// Reads plain-data truncation settings. The keys follow the truncator
+/// classes: `weight`, `coefficient`, `min_terms`. The names of
+/// `TruncationPolicy` (`weight_cutoff`, `coeff_cutoff`) also work.
+/// A value of `None` leaves that cutoff off.
+fn truncators_from_dict(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<Vec<Truncator>> {
+    let mut ops = Vec::new();
+    for (k, v) in dict.iter() {
+        let name: String = k.extract()?;
+        if v.is_none() {
+            continue;
+        }
+        match name.as_str() {
+            "weight" | "weight_cutoff" => ops.push(Truncator::Weight(WeightTruncator { weight: Some(v.extract()?) })),
+            "coefficient" | "coeff_cutoff" => {
+                ops.push(Truncator::Coefficient(CoefficientTruncator { coefficient: Some(v.extract()?) }))
+            }
+            "min_terms" => ops.push(Truncator::TermBudget(TermBudget { min_terms: Some(v.extract()?) })),
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown truncation setting {name:?}; use weight, coefficient or min_terms"
+                )))
+            }
+        }
+    }
+    Ok(ops)
+}
+
 /// Resolve the flexible `truncation` constructor argument into a truncator list.
 ///
 /// Recognizes: a list of truncators, a single truncator, a legacy
@@ -294,6 +321,9 @@ pub fn resolve_truncation(truncation: Option<&Bound<'_, PyAny>>) -> PyResult<Vec
     let Some(obj) = truncation else {
         return Ok(Vec::new());
     };
+    if let Ok(dict) = obj.cast::<pyo3::types::PyDict>() {
+        return truncators_from_dict(dict);
+    }
     if let Ok(legacy) = obj.extract::<PyRef<TruncationPolicy>>() {
         return Ok(legacy.decompose());
     }

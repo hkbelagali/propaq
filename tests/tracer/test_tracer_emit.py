@@ -96,8 +96,16 @@ def test_generated_crate_has_no_drift():
 @needs_tree
 def test_regen_writes_to_a_fresh_root(tmp_path):
     assert regen.main(["--root", str(tmp_path)]) == 0
+    generated = regen.generate()
     for name in ALL:
-        assert (tmp_path / "crates" / "traced" / "src" / f"{name}.rs").read_text() == src_of(name)
+        rel = f"crates/traced/src/{name}.rs"
+        assert (tmp_path / rel).read_text() == generated[rel]
+        if name == "z4":
+            assert generated[rel] == src_of(name)
+        else:
+            # The built-ins differ from the generic emit only in their BasisKind line.
+            kind = "Pauli" if name == "pauli" else "Majorana"
+            assert generated[rel] == src_of(name).replace("BasisKind::Custom;", f"BasisKind::{kind};")
     assert (tmp_path / "crates/traced/tests/data/z4_table.in").is_file()
     assert regen.main(["--check", "--root", str(tmp_path)]) == 0
     (tmp_path / "crates/traced/src/pauli.rs").write_text("// changed\n")

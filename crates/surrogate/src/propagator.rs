@@ -10,20 +10,21 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 
+use propaq_core::basis_module::BasisCodec;
 use propaq_core::bitset::Bitset;
-use propaq_core::helpers::pyint_to_bitset;
 use propaq_core::logger::Logger;
 use propaq_core::progress::Progress;
+use propaq_core::run::RunGate;
 use propaq_core::store::TermBasis;
 use propaq_core::traits::AbstractTerm;
 
-use crate::model::{MajoranaSurrogateModel, PauliSurrogateModel};
+use crate::build::{build, extract_param, BuildOutput};
+use crate::model::SurrogateModel;
+use crate::symcoeff::SymbolicCoeff;
 use crate::truncation::FrequencyTruncationPolicy;
-use propaq_core::truncators::{
-    reject_numerical_only, resolve_config, resolve_truncation as core_resolve_truncation, Truncator,
-};
+use propaq_core::truncators::{resolve_config, resolve_truncation as core_resolve_truncation, Truncator};
 
-fn resolve_truncation(truncation: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<Truncator>> {
+pub fn resolve_truncation(truncation: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<Truncator>> {
     if let Some(obj) = truncation {
         if let Ok(legacy) = obj.extract::<PyRef<FrequencyTruncationPolicy>>() {
             return Ok(legacy.decompose());
@@ -46,10 +47,7 @@ pub struct SurrogatePropagator<B: TermBasis> {
     _marker: PhantomData<B>,
 }
 
-impl<B: TermBasis> SurrogatePropagator<B>
-where
-    B::Term: AbstractTerm + for<'a, 'py> FromPyObject<'a, 'py>,
-{
+impl<B: TermBasis> SurrogatePropagator<B> {
     pub fn new(
         truncators: Vec<Truncator>,
         n_threads: Option<usize>,
@@ -85,17 +83,123 @@ where
     }
 }
 
-use propaq_majorana::monomial::MajoranaBasis;
-use propaq_majorana::termsum::MajoranaTermSum;
-use propaq_pauli::string::PauliBasis;
-use propaq_pauli::termsum::PauliTermSum;
+impl<B: BasisCodec> SurrogatePropagator<B>
+where
+    B::Term: AbstractTerm,
+{
+    /// Builds a surrogate model on the core run loop.
+    ///
+    /// `terms` is the observable and `n_units` is its size in the basis's own
+    /// units (for example modes). The engine runs with `B::Alg`, the algebra
+    /// of the basis.
+    pub fn build_model(
+        &self,
+        py: Python<'_>,
+        terms: &[(B::Term, f64)],
+        n_units: usize,
+        circuit: &Bound<'_, PyAny>,
+        initial_state: &Bitset,
+    ) -> PyResult<SurrogateModel> {
+        use pyo3::exceptions::PyValueError;
+        crate::build::check_supported::<B::Alg>()?;
+        let n_params: usize = circuit.getattr("n_params")?.extract()?;
+        let engine_units = B::engine_units(n_units)
+            .filter(|u| *u <= B::MAX_UNITS)
+            .ok_or_else(|| {
+                PyValueError::new_err(format!(
+                    "propaq: {} {} exceeds the engine's maximum of {}",
+                    n_units,
+                    B::UNIT_NAME,
+                    B::MAX_UNITS
+                ))
+            })?;
+        let layers = extract_layers::<B>(py, circuit)?;
+        let obs: Vec<(Vec<u64>, f64)> = terms.iter().map(|(t, c)| (B::to_words(t), *c)).collect();
+        let cfg = resolve_config(&self.truncators);
+        let pool = Arc::clone(&self.pool);
+        let partitions = pool.current_num_threads().max(1);
+        let total_gates = layers.iter().map(Vec::len).sum();
+        let progress = Progress::new(py, self.progress_bar, total_gates, self.progress_every)?;
+        let out = py.detach(|| {
+            pool.install(|| {
+                build::<B::Alg>(
+                    &obs,
+                    &layers,
+                    engine_units,
+                    engine_units * B::BITS_PER_UNIT,
+                    partitions,
+                    &cfg,
+                    initial_state.as_words(),
+                    n_params,
+                    progress.as_ref(),
+                )
+            })
+        });
+        if let Some(p) = progress.as_ref() {
+            p.close();
+        }
+        let BuildOutput {
+            model,
+            gates,
+            merges,
+            phases,
+        } = out?.ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "propaq: {} {} exceeds the engine's maximum of {}",
+                n_units,
+                B::UNIT_NAME,
+                B::MAX_UNITS
+            ))
+        })?;
+        write_merge_log(
+            self.log_filename.as_deref(),
+            self.log_every,
+            &gates,
+            &merges,
+            &phases,
+        )?;
+        Ok(model)
+    }
+}
+
+/// Reads a circuit's layers into lowered gates, in application order.
+fn extract_layers<B: BasisCodec>(
+    py: Python<'_>,
+    circuit: &Bound<'_, PyAny>,
+) -> PyResult<Vec<Vec<RunGate<SymbolicCoeff>>>>
+where
+    B::Term: AbstractTerm,
+{
+    let layers: Vec<Vec<Py<PyAny>>> = circuit.getattr("layers")?.extract()?;
+    let mut out = Vec::with_capacity(layers.len());
+    for layer in layers.iter().rev() {
+        let mut gates = Vec::with_capacity(layer.len());
+        for rot_obj in layer.iter().rev() {
+            let rot = rot_obj.bind(py);
+            let generator = B::extract_term(&rot.getattr("generator")?)?;
+            let angle = extract_param(rot)?;
+            let qiskit_gate_idx = rot
+                .getattr("qiskit_gate_idx")
+                .ok()
+                .and_then(|v| v.extract::<Option<usize>>().ok())
+                .flatten();
+            gates.push(RunGate {
+                qiskit_gate_idx,
+                generator: B::to_words(&generator),
+                angle,
+            });
+        }
+        out.push(gates);
+    }
+    Ok(out)
+}
 
 /// Replays the build's collected gate and merge records into the verbose log.
 fn write_merge_log(
     log_filename: Option<&str>,
     log_every: usize,
-    gates: &[crate::engine::GateRecord],
-    merges: &[crate::engine::MergeRecord],
+    gates: &[crate::build::GateRecord],
+    merges: &[crate::build::MergeRecord],
     phases: &propaq_core::partitioned_termsum::PhaseStats,
 ) -> PyResult<()> {
     let Some(filename) = log_filename else {
@@ -186,291 +290,3 @@ fn write_phase_event(log: &mut impl Write, p: &propaq_core::partitioned_termsum:
     );
 }
 
-use propaq_majorana::algebra::to_basis_string as to_basis_string_majorana;
-use propaq_pauli::algebra::to_basis_string as to_basis_string_pauli;
-
-/// Width dispatch for a surrogate build, one arm per basis-string storage width.
-macro_rules! surrogate_build {
-    ($algebra:ty, $to_basis:ident, $obs:expr, $layers:expr, $n_units:expr,
-     $partitions:expr, $cfg:expr, $diag_state:expr, $n_params:expr, $progress:expr) => {{
-        let n = $n_units;
-        let inline = crate::engine::INITIAL_INLINE_POSITIONS.min(2 * n.max(1));
-        macro_rules! arm {
-            ($w:expr, $pos:ty) => {
-                crate::engine::build::<$algebra, $pos, _, $w>(
-                    $obs,
-                    $layers,
-                    $to_basis::<$w>,
-                    n,
-                    $partitions,
-                    inline,
-                    $cfg,
-                    $diag_state,
-                    $n_params,
-                    $progress,
-                )
-            };
-        }
-        if n <= 32 {
-            arm!(1, u8)
-        } else if n <= 64 {
-            arm!(2, u8)
-        } else if n <= 128 {
-            arm!(4, u16)
-        } else if n <= 256 {
-            arm!(8, u16)
-        } else if n <= 512 {
-            arm!(16, u16)
-        } else if n <= 1024 {
-            arm!(32, u16)
-        } else {
-            arm!(64, u16)
-        }
-    }};
-}
-
-/// Back-propagates Pauli observables symbolically, producing a compiled model
-/// that can be re-evaluated for any parameter assignment.
-///
-/// Arguments:
-///     truncation: A list of truncator objects
-///         (FrequencyTruncator, CoefficientTruncator, WeightTruncator,
-///         TermBudget) applied at each flush, a single such truncator, a
-///         legacy FrequencyTruncationPolicy (decomposed automatically), or None.
-///     n_threads: Number of worker threads. Defaults to the system thread count.
-///     logger: Optional Logger for verbose JSON Lines event logging.
-///     progress_bar: Draw a tqdm bar over the build's gate loop.
-///     progress_every: Gates between progress bar ticks. Defaults to 1.
-///
-#[pyo3_stub_gen::derive::gen_stub_pyclass]
-#[pyclass(module = "propaq._rust_core")]
-pub struct PauliSurrogatePropagator {
-    inner: SurrogatePropagator<PauliBasis>,
-}
-
-#[pyo3_stub_gen::derive::gen_stub_pymethods]
-#[pymethods]
-impl PauliSurrogatePropagator {
-    #[new]
-    #[pyo3(signature = (truncation=None, n_threads=None, logger=None, progress_bar=false, progress_every=1))]
-    fn new(
-        truncation: Option<Bound<'_, PyAny>>,
-        n_threads: Option<usize>,
-        logger: Option<Py<PyAny>>,
-        progress_bar: bool,
-        progress_every: usize,
-    ) -> PyResult<Self> {
-        let truncators = resolve_truncation(truncation.as_ref())?;
-        reject_numerical_only(&truncators)?;
-        Ok(PauliSurrogatePropagator {
-            inner: SurrogatePropagator::new(
-                truncators,
-                n_threads,
-                logger,
-                progress_bar,
-                progress_every,
-            )?,
-        })
-    }
-
-    /// Compile the observable back-propagated through the circuit into a SurrogateModel.
-    ///
-    /// Arguments:
-    ///     observable: The Pauli observable to back-propagate.
-    ///     circuit: A SurrogatePauliCircuit.
-    ///     initial_state: Fock state as a bitstring integer (default 0).
-    #[pyo3(signature = (observable, circuit, initial_state=None))]
-    fn build(
-        &mut self,
-        py: Python<'_>,
-        observable: &PauliTermSum,
-        circuit: &Bound<'_, PyAny>,
-        initial_state: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<PauliSurrogateModel> {
-        let n_params: usize = circuit.getattr("n_params")?.extract()?;
-        let initial_state = match initial_state {
-            Some(v) => pyint_to_bitset(v, observable.n_units())?,
-            None => Bitset::zero(),
-        };
-        let n_units = observable.n_units();
-        let obs: Vec<(propaq_pauli::string::PauliString, f64)> =
-            propaq_pauli::termsum::materialize(&observable.as_f64())
-                .into_iter()
-                .collect();
-        let layers = crate::engine::extract_layers(py, circuit)?;
-        let cfg = resolve_config(&self.inner.truncators);
-        let pool = std::sync::Arc::clone(&self.inner.pool);
-        let partitions = pool.current_num_threads().max(1);
-        let total_gates = layers.iter().map(Vec::len).sum();
-        let progress = Progress::new(
-            py,
-            self.inner.progress_bar,
-            total_gates,
-            self.inner.progress_every,
-        )?;
-        let model = py.detach(|| {
-            pool.install(|| {
-                surrogate_build!(
-                    propaq_pauli::algebra::PauliAlgebra,
-                    to_basis_string_pauli,
-                    &obs,
-                    &layers,
-                    n_units,
-                    partitions,
-                    &cfg,
-                    initial_state.as_words(),
-                    n_params,
-                    progress.as_ref()
-                )
-            })
-        });
-
-        if let Some(p) = progress.as_ref() {
-            p.close();
-        }
-        let (model, gates, merges, phases) = model?;
-        write_merge_log(
-            self.inner.log_filename.as_deref(),
-            self.inner.log_every,
-            &gates,
-            &merges,
-            &phases,
-        )?;
-        Ok(PauliSurrogateModel { inner: model })
-    }
-
-    /// The active truncation pipeline as a list of truncator objects.
-    #[getter]
-    fn truncators(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        self.inner
-            .truncators
-            .iter()
-            .map(|t| t.to_object(py))
-            .collect()
-    }
-
-    /// Replace the truncation pipeline (accepts the same forms as the
-    /// constructor's `truncation`).
-    #[pyo3(signature = (truncation=None))]
-    fn set_truncation(&mut self, truncation: Option<Bound<'_, PyAny>>) -> PyResult<()> {
-        let truncators = resolve_truncation(truncation.as_ref())?;
-        reject_numerical_only(&truncators)?;
-        self.inner.truncators = truncators;
-        Ok(())
-    }
-}
-
-/// Back-propagates Majorana observables symbolically.
-#[pyo3_stub_gen::derive::gen_stub_pyclass]
-#[pyclass(module = "propaq._rust_core")]
-pub struct MajoranaSurrogatePropagator {
-    inner: SurrogatePropagator<MajoranaBasis>,
-}
-
-#[pyo3_stub_gen::derive::gen_stub_pymethods]
-#[pymethods]
-impl MajoranaSurrogatePropagator {
-    #[new]
-    #[pyo3(signature = (truncation=None, n_threads=None, logger=None, progress_bar=false, progress_every=1))]
-    fn new(
-        truncation: Option<Bound<'_, PyAny>>,
-        n_threads: Option<usize>,
-        logger: Option<Py<PyAny>>,
-        progress_bar: bool,
-        progress_every: usize,
-    ) -> PyResult<Self> {
-        let truncators = resolve_truncation(truncation.as_ref())?;
-        reject_numerical_only(&truncators)?;
-        Ok(MajoranaSurrogatePropagator {
-            inner: SurrogatePropagator::new(
-                truncators,
-                n_threads,
-                logger,
-                progress_bar,
-                progress_every,
-            )?,
-        })
-    }
-
-    #[pyo3(signature = (observable, circuit, initial_state=None))]
-    fn build(
-        &mut self,
-        py: Python<'_>,
-        observable: &MajoranaTermSum,
-        circuit: &Bound<'_, PyAny>,
-        initial_state: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<MajoranaSurrogateModel> {
-        let n_params: usize = circuit.getattr("n_params")?.extract()?;
-        let initial_state = match initial_state {
-            Some(v) => pyint_to_bitset(v, observable.n_units())?,
-            None => Bitset::zero(),
-        };
-
-        let n_modes = observable.n_units();
-        let n_units = n_modes / 2;
-        let obs: Vec<(propaq_majorana::MajoranaMonomial, f64)> =
-            propaq_majorana::termsum::materialize(&observable.as_f64())
-                .into_iter()
-                .collect();
-        let layers = crate::engine::extract_layers(py, circuit)?;
-        let cfg = resolve_config(&self.inner.truncators);
-        let pool = std::sync::Arc::clone(&self.inner.pool);
-        let partitions = pool.current_num_threads().max(1);
-        let total_gates = layers.iter().map(Vec::len).sum();
-        let progress = Progress::new(
-            py,
-            self.inner.progress_bar,
-            total_gates,
-            self.inner.progress_every,
-        )?;
-        let model = py.detach(|| {
-            pool.install(|| {
-                surrogate_build!(
-                    propaq_majorana::algebra::MajoranaAlgebra,
-                    to_basis_string_majorana,
-                    &obs,
-                    &layers,
-                    n_units,
-                    partitions,
-                    &cfg,
-                    initial_state.as_words(),
-                    n_params,
-                    progress.as_ref()
-                )
-            })
-        });
-
-        if let Some(p) = progress.as_ref() {
-            p.close();
-        }
-        let (model, gates, merges, phases) = model?;
-        write_merge_log(
-            self.inner.log_filename.as_deref(),
-            self.inner.log_every,
-            &gates,
-            &merges,
-            &phases,
-        )?;
-        Ok(MajoranaSurrogateModel { inner: model })
-    }
-
-    /// The active truncation pipeline as a list of truncator objects.
-    #[getter]
-    fn truncators(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        self.inner
-            .truncators
-            .iter()
-            .map(|t| t.to_object(py))
-            .collect()
-    }
-
-    /// Replace the truncation pipeline (accepts the same forms as the
-    /// constructor's `truncation`).
-    #[pyo3(signature = (truncation=None))]
-    fn set_truncation(&mut self, truncation: Option<Bound<'_, PyAny>>) -> PyResult<()> {
-        let truncators = resolve_truncation(truncation.as_ref())?;
-        reject_numerical_only(&truncators)?;
-        self.inner.truncators = truncators;
-        Ok(())
-    }
-}

@@ -25,7 +25,7 @@ use crate::results::PropagationResult;
 use crate::run::{run_circuit, BasisAll, GateRecord, RunGate};
 use crate::run_config::RunConfig;
 use crate::store::{TermBasis, TermSum};
-use crate::term_io::{load_terms_from_file, save_terms_to_file};
+use crate::term_io::{BasisId, FileCoeff, TermFileHeader, TermFileReader, TermFileWriter};
 use crate::traits::AbstractTerm;
 use crate::truncators::{resolve_config, ResolvedConfig, TruncationPolicy};
 
@@ -51,6 +51,21 @@ where
     fn extract_term(obj: &Bound<'_, PyAny>) -> PyResult<Self::Term>;
     /// A term as raw words in the engine layout.
     fn to_words(term: &Self::Term) -> Vec<u64>;
+    /// Which basis term files of this codec belong to (term file format v2).
+    ///
+    /// The default is the kind of `Alg`, no IR hash, `BITS_PER_UNIT` bits.
+    /// A built-in basis must return its own kind (Pauli or Majorana) and a
+    /// zero hash, also when `Alg` is a traced program. A traced copy of a
+    /// built-in program is mapped to the built-in id by `BasisId::normalized`.
+    fn file_identity() -> BasisId {
+        BasisId::new(<Self::Alg as crate::basis::Basis<1>>::KIND, Self::BITS_PER_UNIT)
+    }
+    /// The term size (`system_size`) of a term that has `n_units` engine units.
+    /// This is the inverse of `engine_units`. The default tries `n_units`, then
+    /// `2 * n_units` (Majorana: modes = 2 * sites).
+    fn size_of_units(n_units: usize) -> Option<usize> {
+        [n_units, 2 * n_units].into_iter().find(|&s| Self::engine_units(s) == Some(n_units))
+    }
     /// A term from raw engine words.
     fn from_words(words: &[u64], n_units: usize) -> Self::Term;
 }
@@ -454,10 +469,91 @@ where
     index
 }
 
-fn no_files_for_complex() -> PyErr {
-    pyo3::exceptions::PyNotImplementedError::new_err(
-        "term files hold real coefficients; complex term sums cannot be saved or streamed",
+fn no_complex_into_real() -> PyErr {
+    pyo3::exceptions::PyValueError::new_err(
+        "the term file has complex coefficients, but this term sum has real coefficients",
     )
+}
+
+/// Writes all rows of `terms` to a v2 term file.
+fn save_sum<B: BasisCodec, C: StoreCoeff>(terms: &TermSum<C>, path: &str) -> PyResult<()>
+where
+    B::Term: AbstractTerm,
+{
+    let bits = B::BITS_PER_UNIT;
+    let mut decoder = RowDecoder::new(terms.stride);
+    let mut id = B::file_identity().normalized();
+    id.bits_per_unit = bits as u32;
+    let (n_units, wpk) = if terms.is_empty() {
+        (0u64, 1usize)
+    } else {
+        let first = decoder.term::<B, C>(terms, 0);
+        let units = B::engine_units(first.system_size() as usize).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("the terms have a size that has no term file layout")
+        })?;
+        (units as u64, crate::term_io::words_for(units as u64, bits as u32) as usize)
+    };
+    let header = TermFileHeader {
+        id,
+        n_units,
+        words_per_key: wpk as u32,
+        complex: C::IS_COMPLEX,
+        n_terms: terms.len() as u64,
+        legacy: false,
+    };
+    let mut writer = TermFileWriter::create(path, &header)?;
+    for i in 0..terms.len() {
+        let term = decoder.term::<B, C>(terms, i);
+        let mut words = B::to_words(&term);
+        if words.len() > wpk && words[wpk..].iter().any(|&w| w != 0) {
+            return Err(pyo3::exceptions::PyValueError::new_err("a term does not fit the file layout"));
+        }
+        words.resize(wpk, 0);
+        let z = terms.coeff(i).to_complex();
+        let coeff = if C::IS_COMPLEX { FileCoeff::Complex(z) } else { FileCoeff::Real(z.re) };
+        writer.write_term(&words, coeff)?;
+    }
+    writer.finish()
+}
+
+/// A loaded sum and its term index.
+type Loaded<B, C> = (TermSum<C>, FxHashMap<<B as TermBasis>::Term, usize>);
+
+/// Reads a term file into a stored sum.
+fn load_sum<B: BasisCodec, C: StoreCoeff>(
+    mut reader: TermFileReader,
+    size: usize,
+) -> PyResult<Loaded<B, C>>
+where
+    B::Term: AbstractTerm,
+{
+    let mut inner = TermSum::<C>::new(size, B::stride_words(size));
+    let mut index = FxHashMap::default();
+    index.reserve((reader.header.n_terms as usize).min(1 << 24));
+    while let Some((words, coeff)) = reader.next_term()? {
+        let term = B::from_words(&words, size);
+        add_raw::<B, C>(&mut inner, &mut index, term, C::from_complex(coeff.to_complex()));
+    }
+    Ok((inner, index))
+}
+
+/// Opens `path` for basis `B`, checks it, and gives the reader and the term size.
+pub fn open_term_file<B: BasisCodec>(path: &str) -> PyResult<(TermFileReader, usize)>
+where
+    B::Term: AbstractTerm,
+{
+    let reader = TermFileReader::open(path, &B::file_identity())?;
+    let units = reader.header.n_units as usize;
+    let size = if units == 0 {
+        0
+    } else {
+        B::size_of_units(units).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "the term file has {units} units. This basis has no term size for that"
+            ))
+        })?
+    };
+    Ok((reader, size))
 }
 
 impl<B: BasisCodec> GenericTermSum<B>
@@ -601,22 +697,29 @@ where
     /// Merges a stream of terms, one at a time.
     pub fn merge_stream(
         &mut self,
-        stream: impl Iterator<Item = PyResult<(B::Term, f64)>>,
+        stream: impl Iterator<Item = PyResult<(B::Term, FileCoeff)>>,
     ) -> PyResult<()> {
         match &mut self.inner {
             Storage::F64(inner) => {
                 for result in stream {
                     let (term, coeff) = result?;
+                    let FileCoeff::Real(coeff) = coeff else { return Err(no_complex_into_real()) };
                     add_raw::<B, f64>(inner, &mut self.index, term, coeff);
                 }
             }
             Storage::F32(inner) => {
                 for result in stream {
                     let (term, coeff) = result?;
+                    let FileCoeff::Real(coeff) = coeff else { return Err(no_complex_into_real()) };
                     add_raw::<B, f32>(inner, &mut self.index, term, coeff as f32);
                 }
             }
-            Storage::C64(_) => return Err(no_files_for_complex()),
+            Storage::C64(inner) => {
+                for result in stream {
+                    let (term, coeff) = result?;
+                    add_raw::<B, Complex64>(inner, &mut self.index, term, coeff.to_complex());
+                }
+            }
         }
         Ok(())
     }
@@ -697,26 +800,28 @@ where
         GenericTermSum { inner, index: self.index.clone(), _basis: PhantomData }
     }
 
-    pub fn from_file(path: &str) -> PyResult<Self> {
-        let map = load_terms_from_file::<B::Term>(path)?;
-        let n_units = map.keys().next().map_or(0, |t| units_of::<B>(t));
-        let mut inner = TermSum::new(n_units, B::stride_words(n_units));
-        let mut index = FxHashMap::default();
-        index.reserve(map.len());
-        for (term, coeff) in map {
-            let (a, b) = planes_of::<B>(&term, inner.stride);
-            let row = inner.len();
-            inner.push([&a, &b], coeff);
-            index.insert(term, row);
+    /// Loads a v2 or legacy term file. `module_complex` says that the Python
+    /// coefficient type of the module is complex. A complex file needs it.
+    /// A real file loads as f64, or as complex128 if `module_complex` is set.
+    pub fn from_file(path: &str, module_complex: bool) -> PyResult<Self> {
+        let (reader, size) = open_term_file::<B>(path)?;
+        if reader.header.complex && !module_complex {
+            return Err(no_complex_into_real());
         }
-        Ok(GenericTermSum { inner: Storage::F64(inner), index, _basis: PhantomData })
+        if reader.header.complex || module_complex {
+            let (inner, index) = load_sum::<B, Complex64>(reader, size)?;
+            Ok(GenericTermSum { inner: Storage::C64(inner), index, _basis: PhantomData })
+        } else {
+            let (inner, index) = load_sum::<B, f64>(reader, size)?;
+            Ok(GenericTermSum { inner: Storage::F64(inner), index, _basis: PhantomData })
+        }
     }
 
     pub fn save(&self, path: &str) -> PyResult<()> {
         match &self.inner {
-            Storage::F64(inner) => save_terms_to_file(&materialize::<B, f64>(inner), path),
-            Storage::F32(inner) => save_terms_to_file(&materialize::<B, f32>(inner), path),
-            Storage::C64(_) => Err(no_files_for_complex()),
+            Storage::F64(inner) => save_sum::<B, f64>(inner, path),
+            Storage::F32(inner) => save_sum::<B, f32>(inner, path),
+            Storage::C64(inner) => save_sum::<B, Complex64>(inner, path),
         }
     }
 }
@@ -947,9 +1052,6 @@ pub fn propagate<B: BasisCodec>(
 where
     B::Term: AbstractTerm,
 {
-    if filename.is_some() && matches!(observable.inner, Storage::C64(_)) {
-        return Err(no_files_for_complex());
-    }
     let cfg = resolve_config(&config.truncators);
     let n = observable.n_units();
     let evolved = match &observable.inner {
@@ -1013,9 +1115,6 @@ where
     // `filename` asks for the evolved operator on disk as well as the
     // expectation value, so the run has to hand its terms back for it.
     let want_terms = filename.is_some();
-    if want_terms && matches!(observable.inner, Storage::C64(_)) {
-        return Err(no_files_for_complex());
-    }
     let cfg = resolve_config(&config.truncators);
     let n = observable.n_units();
     let st = &initial_state;
@@ -1338,17 +1437,17 @@ macro_rules! define_basis_classes {
             }
 
             #[doc = concat!("Load a ", $sumname, " from a gzip-compressed binary file saved by `propagate` or")]
-            /// `expectation_value`. Always loads as float64 (the file format's precision).
+            /// `expectation_value`. A real file loads as float64. A complex file needs a complex module.
             ///
             /// Arguments:
             ///     path: Path to the file written by the `filename` parameter.
             #[staticmethod]
             fn from_file(path: &str) -> ::pyo3::PyResult<$S> {
-                Ok($S { core: $crate::basis_module::GenericTermSum::from_file(path)? })
+                Ok($S { core: $crate::basis_module::GenericTermSum::from_file(path, <$K as $crate::basis_module::PyCoeff>::COMPLEX)? })
             }
 
-            /// Save this term sum to a gzip-compressed binary file. Coefficients are
-            /// always widened to f64 on disk regardless of in-memory precision.
+            /// Save this term sum to a gzip-compressed binary file. Real coefficients
+            /// are written as f64 and complex ones as complex128 (term file format v2).
             ///
             /// Arguments:
             ///     path: Destination file path.
@@ -1362,12 +1461,12 @@ macro_rules! define_basis_classes {
 /// Defines the term streamer class of one basis.
 #[macro_export]
 macro_rules! define_basis_streamer {
-    ($T:ty, $St:ident) => {
+    ($B:ty, $T:ty, $St:ident) => {
         /// Lazy loading of terms from a term file.
         #[::pyo3_stub_gen::derive::gen_stub_pyclass]
         #[::pyo3::pyclass(module = "propaq._rust_core")]
         pub struct $St {
-            pub inner: $crate::streamer::TermStreamer<$T>,
+            pub inner: $crate::streamer::TermStreamer<$B>,
         }
 
         #[::pyo3_stub_gen::derive::gen_stub_pymethods]
@@ -1386,7 +1485,7 @@ macro_rules! define_basis_streamer {
                 slf
             }
 
-            fn __next__(&mut self) -> ::pyo3::PyResult<Option<($T, f64)>> {
+            fn __next__(&mut self) -> ::pyo3::PyResult<Option<($T, $crate::term_io::FileCoeff)>> {
                 match self.inner.next() {
                     None => Ok(None),
                     Some(Ok(pair)) => Ok(Some(pair)),
@@ -1422,7 +1521,7 @@ macro_rules! define_basis_module {
         propagator_docs: { $(#[$pdoc:meta])* },
         termsum_docs: { $(#[$sdoc:meta])* } $(,)?
     ) => {
-        $crate::define_basis_streamer!($T, $St);
+        $crate::define_basis_streamer!($B, $T, $St);
         $crate::define_basis_classes! {
             codec: $B,
             term: $T,

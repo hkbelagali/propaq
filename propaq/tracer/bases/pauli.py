@@ -4,6 +4,7 @@ The term for bits (x, z) is the Hermitian string i^(x.z) X^x Z^z.
 This is the convention of crates/pauli/src/algebra.rs.
 """
 
+from ..local import pauli_local_matrix
 from ..spec import BasisSpec
 
 EVEN = 0x5555_5555_5555_5555
@@ -43,5 +44,5 @@ def pauli_spec():
     return BasisSpec(
         name="pauli", bits_per_unit=2, branches=2, char_modulus=2, phase_order=4,
         character=_character, product=_product, weight=_weight, trace=_trace,
-        intrinsic="pauli",
+        intrinsic="pauli", local_dim=2, local_matrix=pauli_local_matrix,
     )

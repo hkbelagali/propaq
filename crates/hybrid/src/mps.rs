@@ -52,10 +52,12 @@ impl MpsTensor {
 }
 
 /// An open-boundary MPS: `n_sites` tensors with `chi_l[0] == chi_r[n_sites-1] == 1`
-/// and adjacent bond dimensions agreeing.
+/// and adjacent bond dimensions agreeing. Every site has the same
+/// physical dimension `local_dim` (2 for qubits, 4 for a Z4 qudit).
 pub struct Mps {
     pub tensors: Vec<MpsTensor>,
     pub n_sites: usize,
+    pub local_dim: usize,
 }
 
 impl Mps {
@@ -76,10 +78,14 @@ impl Mps {
                 tensors[n_sites - 1].chi_r
             ));
         }
+        let local_dim = tensors[0].phys;
+        if local_dim == 0 {
+            return Err("physical dimension must be at least 1".to_string());
+        }
         for k in 0..n_sites {
-            if tensors[k].phys != 2 {
+            if tensors[k].phys != local_dim {
                 return Err(format!(
-                    "site {k} has physical dimension {}, expected 2",
+                    "site {k} has physical dimension {}, expected {local_dim}",
                     tensors[k].phys
                 ));
             }
@@ -92,7 +98,11 @@ impl Mps {
                 ));
             }
         }
-        Ok(Mps { tensors, n_sites })
+        Ok(Mps {
+            tensors,
+            n_sites,
+            local_dim,
+        })
     }
 }
 
@@ -104,14 +114,15 @@ pub struct Environments {
 }
 
 /// Applies one site's bra-ket transfer step to a running left-to-right
-/// environment, optionally sandwiching the physical index with a 2x2
-/// operator
+/// environment, optionally sandwiching the physical index with a
+/// `phys x phys` operator. The operator is a flat row-major slice:
+/// entry `[sigma * phys + sigma_p]` is `<sigma|O|sigma_p>`.
 #[allow(clippy::needless_range_loop)]
 pub fn apply_transfer(
     current: &[Complex64],
     bond_in: usize,
     tensor: &MpsTensor,
-    op: Option<&[[Complex64; 2]; 2]>,
+    op: Option<&[Complex64]>,
 ) -> Vec<Complex64> {
     let phys = tensor.phys;
     let bond_out = tensor.chi_r;
@@ -127,7 +138,7 @@ pub fn apply_transfer(
                     for a in 0..bond_out {
                         let mut acc = ZERO;
                         for sigma_p in 0..phys {
-                            acc += tensor.at(l, sigma_p, a) * o[sigma][sigma_p];
+                            acc += tensor.at(l, sigma_p, a) * o[sigma * phys + sigma_p];
                         }
                         v[(l * phys + sigma) * bond_out + a] = acc;
                     }

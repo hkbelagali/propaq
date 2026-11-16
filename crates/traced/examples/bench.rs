@@ -1,10 +1,8 @@
-//! Micro-benchmark: traced against native on random terms.
+//! Micro-benchmark: the built-in bases on random terms.
 //! Run: cargo run --release -p propaq-traced --example bench
 
 use propaq_core::basis::Basis;
 use propaq_core::strings::BasisString;
-use propaq_majorana::algebra::MajoranaAlgebra;
-use propaq_pauli::algebra::PauliAlgebra;
 use propaq_traced::majorana::Majorana;
 use propaq_traced::pauli::Pauli;
 use std::hint::black_box;
@@ -39,12 +37,11 @@ fn bench<const W: usize>() {
         .collect();
     let gen = BasisString::<W>::from_words(core::array::from_fn(|i| 0x0123_4567_89AB_CDEF ^ i as u64));
     for _ in 0..2 {
-        run::<W, PauliAlgebra>(&terms, &gen);
         run::<W, Pauli>(&terms, &gen);
+        run::<W, Majorana>(&terms, &gen);
     }
-    let (np, tp) = (run::<W, PauliAlgebra>(&terms, &gen), run::<W, Pauli>(&terms, &gen));
-    let (nm, tm) = (run::<W, MajoranaAlgebra>(&terms, &gen), run::<W, Majorana>(&terms, &gen));
-    println!("W={W}: pauli native {np:.2} ns traced {tp:.2} ns ({:.2}x) | majorana native {nm:.2} ns traced {tm:.2} ns ({:.2}x)", tp / np, tm / nm);
+    let (tp, tm) = (run::<W, Pauli>(&terms, &gen), run::<W, Majorana>(&terms, &gen));
+    println!("W={W}: pauli {tp:.2} ns | majorana {tm:.2} ns");
 }
 
 fn main() {

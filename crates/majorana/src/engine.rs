@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 
 use propaq_core::basis_module::BasisCodec;
 
-use crate::algebra::MajoranaAlgebra;
+
 use propaq_core::bitset::Bitset;
 use crate::monomial::{MajoranaBasis, MajoranaMonomial};
 
@@ -19,7 +19,7 @@ pub use propaq_core::run::GateRecord;
 pub const MAX_DISPATCH_SITES: usize = 2048;
 
 impl BasisCodec for MajoranaBasis {
-    type Alg = MajoranaAlgebra;
+    type Alg = propaq_traced::majorana::Majorana;
 
     const UNIT_NAME: &'static str = "modes";
     const MAX_UNITS: usize = MAX_DISPATCH_SITES;
@@ -38,6 +38,11 @@ impl BasisCodec for MajoranaBasis {
 
     fn from_words(words: &[u64], n_units: usize) -> MajoranaMonomial {
         term_from_words(words, n_units)
+    }
+
+    fn file_identity() -> propaq_core::term_io::BasisId {
+        // The built-in id, although `Alg` is a traced program (term file format v2).
+        propaq_core::term_io::BasisId::new(propaq_core::basis::BasisKind::Majorana, 2)
     }
 }
 

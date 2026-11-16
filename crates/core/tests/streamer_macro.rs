@@ -1,44 +1,44 @@
-//! Compile test: `define_basis_streamer!` expands for a minimal term type.
+//! Compile test: `define_basis_streamer!` expands for a minimal codec.
 
 use num_complex::Complex64;
-use pyo3::prelude::*;
 
-use propaq_core::bitset::Bitset;
-use propaq_core::traits::AbstractTerm;
+use propaq_core::basis::{Basis, BasisKind};
+use propaq_core::raw_basis::{RawBasis, RawTerm};
+use propaq_core::strings::BasisString;
 
-#[pyo3_stub_gen::derive::gen_stub_pyclass]
-#[pyclass(from_py_object)]
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Tm(u64);
+/// A toy +-1 algebra, defined at every width.
+struct Toy;
 
-impl AbstractTerm for Tm {
-    fn weight(&self) -> u32 {
-        self.0.count_ones()
+impl<const W: usize> Basis<W> for Toy {
+    const KIND: BasisKind = BasisKind::Custom;
+    type GenContext = BasisString<W>;
+    fn make_signed_gen_context(gen: &BasisString<W>, _sign: f64) -> Self::GenContext {
+        *gen
     }
-    fn commutes_with(&self, other: &Self) -> bool {
-        (self.0 & other.0).count_ones().is_multiple_of(2)
+    fn generator(ctx: &Self::GenContext) -> &BasisString<W> {
+        ctx
     }
-    fn matmul_internal(&self, other: &Self) -> (Complex64, Self) {
-        (Complex64::new(1.0, 0.0), Tm(self.0 ^ other.0))
+    fn anticommutes(ctx: &Self::GenContext, m: &BasisString<W>) -> bool {
+        m.parity_and(ctx)
     }
-    fn trace_with_diag_state(&self, _d: &Bitset) -> f64 {
+    fn fold_generator(ctx: &Self::GenContext) -> &BasisString<W> {
+        ctx
+    }
+    fn product(ctx: &Self::GenContext, m: &BasisString<W>) -> (BasisString<W>, Complex64) {
+        (*m ^ *ctx, Complex64::new(0.0, 1.0))
+    }
+    fn weight(m: &BasisString<W>, _n: usize) -> u32 {
+        m.count() as u32
+    }
+    fn trace(_m: &BasisString<W>, _n: usize, _d: &[u64]) -> f64 {
         0.0
-    }
-    fn to_bytes_vec(&self) -> Vec<u8> {
-        self.0.to_le_bytes().to_vec()
-    }
-    fn partition_key(&self) -> u64 {
-        self.0
-    }
-    fn system_size(&self) -> u64 {
-        64
-    }
-    fn from_bytes_vec(bytes: &[u8], _n: u64) -> Self {
-        Tm(u64::from_le_bytes(bytes[..8].try_into().unwrap()))
     }
 }
 
-propaq_core::define_basis_streamer!(Tm, TmStreamer);
+type Codec = RawBasis<Toy, 2>;
+type Tm = RawTerm<Toy, 2>;
+
+propaq_core::define_basis_streamer!(Codec, Tm, TmStreamer);
 
 #[test]
 fn the_streamer_class_exists() {

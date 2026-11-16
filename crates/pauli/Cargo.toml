@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 propaq-core = { path = "../core" }
+propaq-traced = { path = "../traced" }
 rayon = "1.10"
 pyo3 = { version = "0.27", features = ["num-complex"] }
 pyo3-stub-gen = "0.23"

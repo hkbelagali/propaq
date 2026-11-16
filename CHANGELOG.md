@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- Tracer/IR: a basis is a traced Python program over a fixed-length bitmask.
+  One generic Rust engine runs it. `build_basis`, `load_basis`, `TracedBasis`
+  (labels, rotations, circuits, Qiskit/Cirq lowering, noise and truncation
+  settings as plain data), `noise_key` and `keep` programs.
+- `build_basis(spec, surrogate=True)`: surrogate models for any two-branch
+  traced basis (`GateHook` on the core run loop).
+- `hybrid_expectation_value(..., basis=module)`: hybrid MPS contraction for any
+  basis with per-unit local matrices (`LocalTable`).
+- Term file format v2: versioned header, basis id, complex coefficients.
+  Legacy files are still read.
+- The wheel ships the `propaq-core` and `propaq-surrogate` sources
+  (`propaq/_vendor`), so user bases need only cargo.
+
+### Changed
+- `PauliPropagator` and `MajoranaPropagator` run the traced programs. The
+  hand-written `PauliAlgebra` and `MajoranaAlgebra` are removed. The Python API
+  is the same.
+- The surrogate run loop is the core run loop (`crates/surrogate/src/engine.rs`
+  is removed).
+
 ## [0.1.5] - 2026-09-08
 
 ### Added

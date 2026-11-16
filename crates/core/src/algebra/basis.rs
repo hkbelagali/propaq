@@ -141,4 +141,25 @@ pub trait Basis<const W: usize>: Send + Sync + 'static {
     fn branch_table(_ctx: &Self::GenContext, _theta: f64) -> Vec<Complex64> {
         Vec::new()
     }
+
+    // ---- Per-term noise and truncation programs (spec 12.2) ----
+
+    /// True if the basis defines `noise_key`. The engine then lets a keyed
+    /// noise model map each key to a damping factor.
+    const HAS_NOISE_KEY: bool = false;
+
+    /// True if the basis defines `keep`.
+    const HAS_KEEP: bool = false;
+
+    /// The noise class of a term. A keyed noise model maps it to a factor.
+    #[inline]
+    fn noise_key(_mono: &BasisString<W>, _n_units: usize) -> i64 {
+        0
+    }
+
+    /// Zero means: drop this term. Other values keep it.
+    #[inline]
+    fn keep(_mono: &BasisString<W>, _n_units: usize) -> i64 {
+        1
+    }
 }
